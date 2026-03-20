@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TemplateStudio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#08080f;--panel:#111118;--panel2:#1a1a24;--border:rgba(255,255,255,0.07);
+  --accent:#00C896;--accent2:#FF6B6B;--blue:#4F8EF7;--yellow:#F5C842;
+  --text:#eeeef5;--muted:#666;
+}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+
+/* ============ SCREENS ============ */
+.screen{display:none;min-height:100vh;}
+.screen.active{display:flex;}
+
+/* ============ LOGIN SCREEN ============ */
+#screen-login{flex-direction:column;align-items:center;justify-content:center;padding:24px;}
+.login-box{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--border);border-radius:24px;padding:40px 36px;}
+.login-logo{font-size:1.8rem;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px;}
+.login-sub{font-size:0.85rem;color:var(--muted);margin-bottom:32px;}
+.login-label{font-size:0.75rem;font-weight:600;color:var(--muted);margin-bottom:6px;display:block;}
+.login-input{
+  width:100%;background:var(--panel2);border:1.5px solid var(--border);
+  border-radius:10px;padding:12px 16px;color:var(--text);
+  font-family:inherit;font-size:0.95rem;outline:none;margin-bottom:14px;
+  transition:border-color 0.2s;
+}
+.login-input:focus{border-color:var(--accent);}
+.login-btn{
+  width:100%;padding:13px;border-radius:12px;border:none;
+  background:linear-gradient(135deg,var(--accent),#00a07a);
+  color:#000;font-family:inherit;font-size:0.95rem;font-weight:700;
+  cursor:pointer;transition:all 0.2s;margin-top:4px;
+}
+.login-btn:hover{opacity:0.9;transform:translateY(-1px);}
+.login-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
+.login-err{font-size:0.78rem;color:var(--accent2);margin-top:10px;text-align:center;min-height:18px;}
+.phone-prefix{display:flex;gap:8px;align-items:center;}
+.prefix-box{background:var(--panel2);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:0.95rem;color:var(--muted);white-space:nowrap;}
+
+/* ============ CLIENT DASHBOARD ============ */
+#screen-client{flex-direction:column;}
+.topbar{
+  height:56px;background:var(--panel);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;flex-shrink:0;position:sticky;top:0;z-index:100;
+}
+.topbar-logo{font-size:1rem;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.topbar-user{display:flex;align-items:center;gap:12px;}
+.user-phone{font-size:0.8rem;color:var(--muted);}
+.logout-btn{padding:6px 14px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:0.75rem;cursor:pointer;transition:all 0.2s;}
+.logout-btn:hover{border-color:var(--accent2);color:var(--accent2);}
+
+.dashboard-body{flex:1;padding:28px 24px;overflow-y:auto;max-width:1200px;margin:0 auto;width:100%;}
+.dash-section-title{font-size:1.1rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
+.dash-section-title span{font-size:0.75rem;color:var(--muted);font-weight:400;}
+
+.designs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:40px;}
+.design-card{
+  background:var(--panel);border:1px solid var(--border);border-radius:16px;
+  overflow:hidden;cursor:pointer;transition:all 0.25s;position:relative;
+}
+.design-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,200,150,0.1);}
+.design-card-thumb{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--panel2);}
+.design-card-thumb-placeholder{width:100%;aspect-ratio:1;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:2.5rem;}
+.design-card-info{padding:12px;}
+.design-card-name{font-size:0.82rem;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.design-card-date{font-size:0.7rem;color:var(--muted);}
+.design-card-actions{display:flex;gap:6px;margin-top:10px;}
+.dca-btn{flex:1;padding:6px;border-radius:7px;border:none;font-family:inherit;font-size:0.72rem;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.dca-edit{background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);}
+.dca-edit:hover{background:rgba(0,200,150,0.2);}
+.dca-dl{background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.2);}
+.dca-dl:hover{background:rgba(79,142,247,0.2);}
+.dca-del{padding:6px 8px;border-radius:7px;background:rgba(255,107,107,0.08);color:var(--accent2);border:1px solid rgba(255,107,107,0.15);font-size:0.72rem;cursor:pointer;}
+.dca-del:hover{background:rgba(255,107,107,0.18);}
+
+.new-design-card{
+  background:var(--panel);border:2px dashed rgba(0,200,150,0.25);border-radius:16px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;transition:all 0.25s;min-height:200px;gap:10px;
+  color:var(--accent);
+}
+.new-design-card:hover{border-color:rgba(0,200,150,0.6);background:rgba(0,200,150,0.04);}
+.new-design-card .icon{font-size:2rem;}
+.new-design-card .label{font-size:0.82rem;font-weight:600;}
+
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:40px;}
+.tpl-card{
+  background:var(--panel);border:1px solid var(--border);border-radius:14px;
+  overflow:hidden;cursor:pointer;transition:all 0.25s;
+}
+.tpl-card:hover{border-color:var(--blue);transform:translateY(-2px);}
+.tpl-card-thumb{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--panel2);}
+.tpl-card-thumb-placeholder{width:100%;aspect-ratio:1;background:linear-gradient(135deg,var(--panel2),#1a1a3d);display:flex;align-items:center;justify-content:center;font-size:2rem;}
+.tpl-card-info{padding:10px 12px;}
+.tpl-card-name{font-size:0.78rem;font-weight:700;margin-bottom:2px;}
+.tpl-card-date{font-size:0.68rem;color:var(--muted);}
+.use-tpl-btn{
+  width:100%;margin-top:8px;padding:7px;border-radius:7px;border:none;
+  background:rgba(79,142,247,0.12);color:var(--blue);
+  font-family:inherit;font-size:0.75rem;font-weight:600;cursor:pointer;
+  transition:all 0.2s;
+}
+.use-tpl-btn:hover{background:rgba(79,142,247,0.22);}
+
+.empty-state{text-align:center;padding:40px;color:var(--muted);font-size:0.85rem;line-height:1.7;}
+
+/* ============ EDITOR SCREEN ============ */
+#screen-editor{flex-direction:column;height:100vh;}
+.editor-topbar{
+  height:52px;background:var(--panel);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;flex-shrink:0;z-index:100;
+}
+.editor-layout{display:flex;flex:1;overflow:hidden;}
+
+/* LEFT PANEL */
+.e-left{width:250px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.e-tabs{display:flex;border-bottom:1px solid var(--border);}
+.e-tab{flex:1;padding:10px 4px;text-align:center;font-size:0.7rem;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;}
+.e-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.e-body{flex:1;overflow-y:auto;padding:12px;}
+.e-body::-webkit-scrollbar{width:3px;}
+.e-body::-webkit-scrollbar-thumb{background:var(--panel2);border-radius:3px;}
+
+/* CANVAS */
+.canvas-area{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  overflow:auto;background:#050508;
+  background-image:radial-gradient(circle,rgba(255,255,255,0.02) 1px,transparent 1px);
+  background-size:20px 20px;position:relative;
+}
+#design-canvas{position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 20px 70px rgba(0,0,0,0.7);transform-origin:center center;}
+#design-canvas img.base-img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none;}
+
+/* RIGHT PANEL */
+.e-right{width:220px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;padding:12px;}
+.e-right::-webkit-scrollbar{width:3px;}
+.e-right::-webkit-scrollbar-thumb{background:var(--panel2);border-radius:3px;}
+
+/* SNAP ZONES */
+.snap-zone{
+  position:absolute;border:2px dashed rgba(79,142,247,0.5);border-radius:10px;
+  background:rgba(79,142,247,0.05);display:flex;align-items:center;justify-content:center;
+  cursor:default;transition:all 0.2s;overflow:hidden;
+}
+.snap-zone.drop-active{border-color:var(--accent)!important;background:rgba(0,200,150,0.12)!important;transform:scale(1.03);}
+.snap-zone.filled{border-color:transparent;background:transparent;}
+.snap-zone .zone-label{font-size:0.65rem;font-weight:600;color:rgba(79,142,247,0.7);text-align:center;pointer-events:none;padding:4px;}
+.snap-zone img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
+.snap-zone .z-clr{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--accent2);border:none;color:white;font-size:9px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:10;}
+.snap-zone:hover .z-clr{display:flex;}
+
+/* TEXT ELEMENTS */
+.canvas-text-el{position:absolute;cursor:move;user-select:none;}
+.canvas-text-el.selected{outline:1.5px dashed rgba(0,200,150,0.6);outline-offset:3px;}
+.canvas-text-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;}
+.canvas-text-el .t-resize{position:absolute;width:10px;height:10px;background:var(--accent);border-radius:2px;border:1.5px solid white;cursor:nwse-resize;bottom:-5px;right:-5px;display:none;z-index:10;}
+.canvas-text-el.selected .t-resize{display:block;}
+
+/* LOGO GRID */
+.logo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+.logo-item{background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:7px;display:flex;align-items:center;justify-content:center;cursor:grab;transition:all 0.2s;aspect-ratio:1;overflow:hidden;}
+.logo-item:hover{border-color:var(--accent);transform:scale(1.05);}
+.logo-item img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
+.logo-item:active{cursor:grabbing;}
+.upload-dashed{width:100%;padding:9px;border-radius:8px;background:rgba(79,142,247,0.06);border:1.5px dashed rgba(79,142,247,0.3);color:var(--blue);font-family:inherit;font-size:0.75rem;font-weight:600;cursor:pointer;text-align:center;transition:all 0.2s;margin-bottom:10px;}
+.upload-dashed:hover{background:rgba(79,142,247,0.14);}
+
+/* FIELD CONTROLS */
+.f-section{margin-bottom:16px;}
+.f-label{font-size:0.67rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
+.f-row{margin-bottom:8px;}
+.f-sublabel{font-size:0.72rem;color:var(--muted);margin-bottom:4px;}
+.f-input{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-family:inherit;font-size:0.8rem;outline:none;}
+.f-input:focus{border-color:var(--accent);}
+.f-select{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-family:inherit;font-size:0.8rem;outline:none;cursor:pointer;}
+.f-btn-row{display:flex;gap:6px;}
+.f-btn{flex:1;padding:7px;border-radius:7px;border:none;font-family:inherit;font-size:0.72rem;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.f-btn-green{background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);}
+.f-btn-green:hover{background:rgba(0,200,150,0.2);}
+.f-btn-red{background:rgba(255,107,107,0.08);color:var(--accent2);border:1px solid rgba(255,107,107,0.15);}
+.f-btn-red:hover{background:rgba(255,107,107,0.18);}
+.f-btn-blue{background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.2);}
+.f-btn-blue:hover{background:rgba(79,142,247,0.2);}
+input[type=color]{width:32px;height:28px;border:none;background:none;cursor:pointer;padding:0;border-radius:5px;}
+input[type=range]{width:100%;accent-color:var(--accent);}
+.hint{font-size:0.72rem;color:var(--muted);line-height:1.5;padding:8px 10px;background:var(--panel2);border-radius:8px;border-left:3px solid var(--accent);margin-bottom:10px;}
+.divider{border:none;border-top:1px solid var(--border);margin:12px 0;}
+
+/* TOPBAR BUTTONS */
+.tbtn{padding:7px 14px;border-radius:8px;border:none;font-family:inherit;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.tbtn-ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
+.tbtn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+.tbtn-green{background:var(--accent);color:#000;}
+.tbtn-green:hover{opacity:0.85;}
+.tbtn-blue{background:var(--blue);color:#fff;}
+.tbtn-blue:hover{opacity:0.85;}
+
+/* ZOOM BAR */
+.zoom-bar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:5px;background:var(--panel);border:1px solid var(--border);padding:5px 10px;border-radius:100px;align-items:center;z-index:50;}
+.z-btn{background:none;border:none;color:var(--text);font-size:1rem;cursor:pointer;padding:2px 5px;border-radius:5px;}
+.z-btn:hover{background:var(--panel2);}
+.z-lbl{font-size:0.7rem;color:var(--muted);min-width:36px;text-align:center;}
+
+/* DRAG GHOST */
+.drag-ghost{position:fixed;pointer-events:none;z-index:9999;width:56px;height:56px;border-radius:8px;background:var(--panel2);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;overflow:hidden;opacity:0.85;transform:rotate(-3deg) scale(1.05);}
+.drag-ghost img{width:100%;height:100%;object-fit:contain;}
+
+/* SAVE NAME MODAL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;}
+.overlay.open{opacity:1;pointer-events:all;}
+.modal-box{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:30px;max-width:400px;width:90%;}
+.modal-box h3{font-size:1.1rem;font-weight:700;margin-bottom:8px;}
+.modal-box p{font-size:0.82rem;color:var(--muted);margin-bottom:18px;line-height:1.6;}
+.modal-close-btn{width:100%;padding:10px;border-radius:10px;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-weight:600;font-size:0.85rem;cursor:pointer;margin-top:8px;}
+
+/* LOADING SPINNER */
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* BG DOTS */
+.bg-swatches{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.bg-dot{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all 0.15s;}
+.bg-dot:hover{border-color:white;transform:scale(1.15);}
+</style>
+</head>
+<body>
+
+<!-- ============ SCREEN: LOGIN ============ -->
+<div class="screen active" id="screen-login">
+  <div class="login-box">
+    <div class="login-logo">✦ TemplateStudio</div>
+    <div class="login-sub">Accede a tu cuenta para editar tus diseños</div>
+    <label class="login-label">Número de celular</label>
+    <div class="phone-prefix">
+      <div class="prefix-box">🇵🇪 +51</div>
+      <input type="tel" class="login-input" id="login-phone" placeholder="987 654 321" maxlength="9" style="margin-bottom:0;flex:1;" oninput="this.value=this.value.replace(/\D/g,'')">
+    </div>
+    <div style="height:14px;"></div>
+    <label class="login-label">Contraseña</label>
+    <input type="password" class="login-input" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
+    <div class="login-err" id="login-err"></div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--muted);text-align:center;">
+      ¿Eres el administrador? <a href="admin.html" style="color:var(--accent);text-decoration:none;">Entrar como admin →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN: CLIENT DASHBOARD ============ -->
+<div class="screen" id="screen-client">
+  <div class="topbar">
+    <div class="topbar-logo">✦ TemplateStudio</div>
+    <div class="topbar-user">
+      <span class="user-phone" id="topbar-phone"></span>
+      <button class="logout-btn" onclick="doLogout()">Cerrar sesión</button>
+    </div>
+  </div>
+  <div class="dashboard-body">
+    <!-- My designs -->
+    <div class="dash-section-title">
+      🎨 Mis diseños
+      <span id="my-designs-count"></span>
+    </div>
+    <div class="designs-grid" id="my-designs-grid">
+      <div class="empty-state" style="grid-column:1/-1;">
+        <div class="spinner"></div>
+      </div>
+    </div>
+
+    <!-- Admin templates -->
+    <div class="dash-section-title" style="margin-top:8px;">
+      📦 Plantillas disponibles
+      <span id="tpl-count"></span>
+    </div>
+    <div class="tpl-grid" id="admin-tpl-grid">
+      <div class="empty-state" style="grid-column:1/-1;">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN: EDITOR ============ -->
+<div class="screen" id="screen-editor">
+  <!-- TOP BAR -->
+  <div class="editor-topbar">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="tbtn tbtn-ghost" onclick="exitEditor()">← Volver</button>
+      <span style="font-size:0.82rem;color:var(--muted);" id="editor-design-name">Nuevo diseño</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="tbtn tbtn-ghost" onclick="openSaveModal()">💾 Guardar</button>
+      <button class="tbtn tbtn-blue" onclick="downloadPNG()">⬇ Descargar PNG</button>
+    </div>
+  </div>
+
+  <!-- EDITOR LAYOUT -->
+  <div class="editor-layout">
+    <!-- LEFT PANEL -->
+    <div class="e-left">
+      <div class="e-tabs">
+        <div class="e-tab active" id="etab-logos" onclick="switchETab('logos')">Logos</div>
+        <div class="e-tab" id="etab-texts" onclick="switchETab('texts')">Textos</div>
+        <div class="e-tab" id="etab-shapes" onclick="switchETab('shapes')">Formas</div>
+      </div>
+      <div class="e-body">
+        <!-- LOGOS TAB -->
+        <div id="etab-logos-body">
+          <p class="hint">Arrastra un logo al marco del diseño.</p>
+          <label class="upload-dashed" for="logo-file-input">+ Subir logo
+            <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLogos(event)">
+          </label>
+          <div class="logo-grid" id="logo-grid"></div>
+        </div>
+        <!-- TEXTS TAB -->
+        <div id="etab-texts-body" style="display:none">
+          <div class="f-section">
+            <div class="f-label">Agregar texto</div>
+            <div class="f-btn-row">
+              <button class="f-btn f-btn-green" onclick="addText('Título',48,'800','#ffffff')">Grande</button>
+              <button class="f-btn f-btn-green" onclick="addText('Subtítulo',26,'600','#cccccc')">Mediano</button>
+              <button class="f-btn f-btn-green" onclick="addText('Texto',16,'400','#aaaaaa')">Pequeño</button>
+            </div>
+          </div>
+          <hr class="divider">
+          <div class="f-section">
+            <div class="f-label">Stickers</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('🔥')">🔥</button>
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('⭐')">⭐</button>
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('💎')">💎</button>
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('🎉')">🎉</button>
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('✨')">✨</button>
+              <button style="font-size:1.4rem;background:none;border:none;cursor:pointer;" onclick="addSticker('🚀')">🚀</button>
+            </div>
+          </div>
+        </div>
+        <!-- SHAPES TAB -->
+        <div id="etab-shapes-body" style="display:none">
+          <div class="f-section">
+            <div class="f-label">Formas</div>
+            <div class="f-btn-row" style="flex-wrap:wrap;gap:6px;">
+              <button class="f-btn f-btn-blue" onclick="addShape('rect')">■ Rect</button>
+              <button class="f-btn f-btn-blue" onclick="addShape('circle')">● Círculo</button>
+              <button class="f-btn f-btn-blue" onclick="addShape('line')">— Línea</button>
+            </div>
+          </div>
+          <hr class="divider">
+          <div class="f-section">
+            <div class="f-label">Imagen de fondo</div>
+            <label class="upload-dashed" for="base-file-input">📁 Subir imagen de fondo
+              <input type="file" id="base-file-input" accept="image/*" style="display:none" onchange="uploadBase(event)">
+            </label>
+          </div>
+          <div class="f-section">
+            <div class="f-label">Color de fondo</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="canvas-bg-color" value="#0a0a1a" oninput="setCanvasBg(this.value)">
+              <div class="bg-swatches">
+                <div class="bg-dot" style="background:#0a0a1a" onclick="setCanvasBg('#0a0a1a')"></div>
+                <div class="bg-dot" style="background:#ffffff" onclick="setCanvasBg('#ffffff')"></div>
+                <div class="bg-dot" style="background:#1a0a3d" onclick="setCanvasBg('#1a0a3d')"></div>
+                <div class="bg-dot" style="background:#0f2027" onclick="setCanvasBg('#0f2027')"></div>
+                <div class="bg-dot" style="background:#1a0500" onclick="setCanvasBg('#1a0500')"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CANVAS -->
+    <div class="canvas-area" id="canvas-area" onclick="deselectAll(event)">
+      <div id="design-canvas" style="width:540px;height:540px;background:#0a0a1a;">
+        <img class="base-img" id="base-img" src="" style="display:none;">
+      </div>
+      <div class="zoom-bar">
+        <button class="z-btn" onclick="zoom(-0.1)">−</button>
+        <span class="z-lbl" id="zoom-lbl">100%</span>
+        <button class="z-btn" onclick="zoom(0.1)">+</button>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="e-right" id="e-right">
+      <div id="rp-empty">
+        <div class="f-label" style="margin-top:4px;">Propiedades</div>
+        <p style="font-size:0.75rem;color:var(--muted);line-height:1.6;margin-top:8px;">Selecciona un elemento para editar sus propiedades.</p>
+      </div>
+      <div id="rp-text" style="display:none">
+        <div class="f-label">Texto</div>
+        <div class="f-row"><div class="f-sublabel">Contenido</div>
+          <textarea class="f-input" id="rp-text-content" rows="3" oninput="updateTextContent(this.value)" style="resize:none;"></textarea>
+        </div>
+        <div class="f-row"><div class="f-sublabel">Fuente</div>
+          <select class="f-select" id="rp-text-font" onchange="updateTextStyle('font',this.value)">
+            <option value="'Plus Jakarta Sans'">Jakarta Sans</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Impact">Impact</option>
+            <option value="'Courier New'">Courier</option>
+            <option value="'Times New Roman'">Times New Roman</option>
+          </select>
+        </div>
+        <div class="f-row"><div class="f-sublabel">Tamaño</div>
+          <input type="number" class="f-input" id="rp-text-size" oninput="updateTextStyle('size',this.value)">
+        </div>
+        <div class="f-row"><div class="f-sublabel">Peso</div>
+          <select class="f-select" id="rp-text-weight" onchange="updateTextStyle('weight',this.value)">
+            <option value="300">Ligero</option><option value="400">Normal</option>
+            <option value="600">Semi-Bold</option><option value="700">Bold</option><option value="800">Extra Bold</option>
+          </select>
+        </div>
+        <div class="f-row"><div class="f-sublabel">Alineación</div>
+          <div class="f-btn-row">
+            <button class="f-btn f-btn-ghost" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);" onclick="updateTextStyle('align','left')">⬅</button>
+            <button class="f-btn f-btn-ghost" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);" onclick="updateTextStyle('align','center')">↔</button>
+            <button class="f-btn f-btn-ghost" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);" onclick="updateTextStyle('align','right')">➡</button>
+          </div>
+        </div>
+        <div class="f-row" style="display:flex;align-items:center;gap:8px;"><div class="f-sublabel">Color</div>
+          <input type="color" id="rp-text-color" oninput="updateTextStyle('color',this.value)">
+        </div>
+        <div class="f-row"><div class="f-sublabel">Ancho</div>
+          <input type="number" class="f-input" id="rp-text-w" oninput="updateTextWidth(this.value)">
+        </div>
+        <hr class="divider">
+        <button class="f-btn f-btn-red" style="width:100%;" onclick="deleteSelected()">🗑 Eliminar</button>
+      </div>
+      <div id="rp-shape" style="display:none">
+        <div class="f-label">Forma</div>
+        <div class="f-row" style="display:flex;align-items:center;gap:8px;"><div class="f-sublabel">Color</div>
+          <input type="color" id="rp-shape-color" oninput="updateShapeColor(this.value)">
+        </div>
+        <div class="f-row"><div class="f-sublabel">Opacidad</div>
+          <input type="range" min="0" max="100" value="100" id="rp-shape-opacity" oninput="updateShapeOpacity(this.value)">
+        </div>
+        <hr class="divider">
+        <button class="f-btn f-btn-red" style="width:100%;" onclick="deleteSelected()">🗑 Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SAVE DESIGN MODAL -->
+<div class="overlay" id="save-overlay">
+  <div class="modal-box">
+    <h3>💾 Guardar diseño</h3>
+    <p>Dale un nombre para encontrarlo fácilmente en tu cuenta.</p>
+    <div class="f-row">
+      <input type="text" class="f-input" id="save-design-name" placeholder="Ej: Mi diseño de Netflix" style="font-size:0.95rem;padding:12px;">
+    </div>
+    <button class="tbtn tbtn-green" style="width:100%;padding:12px;margin-top:4px;" onclick="doSaveDesign()">💾 Guardar</button>
+    <button class="modal-close-btn" onclick="closeSaveModal()">Cancelar</button>
+    <p id="save-design-status" style="font-size:0.75rem;text-align:center;min-height:16px;margin-top:8px;"></p>
+  </div>
+</div>
+
+<!-- DRAG GHOST -->
+<div class="drag-ghost" id="drag-ghost" style="display:none;">
+  <img id="drag-ghost-img" src="">
+</div>
+
+<script>
+// ================================================================
+// FIREBASE CONFIG — se carga desde config.js o localStorage
+// ================================================================
+let fbApp = null, fbDb = null, fbAuth = null;
+let currentUser = null;
+let currentDesignId = null;
+let editingDesignName = '';
+
+// Load Firebase config from localStorage (set by admin)
+async function initFirebase() {
+  const cfg = localStorage.getItem('ts_firebase_config');
+  if (!cfg) return false;
+  try {
+    const config = JSON.parse(cfg);
+    await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
+    await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
+    await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
+    if (fbApp) { try { fbApp.delete(); } catch(e){} }
+    fbApp = firebase.initializeApp(config, 'ts-client-' + Date.now());
+    fbDb = firebase.firestore(fbApp);
+    fbAuth = firebase.auth(fbApp);
+    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    return true;
+  } catch(e) { console.error('Firebase init error:', e); return false; }
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
+    const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ================================================================
+// APP INIT
+// ================================================================
+window.addEventListener('load', async () => {
+  const ok = await initFirebase();
+  if (!ok) {
+    document.getElementById('login-err').textContent = '⚠ Sistema no configurado aún. Contacta al administrador.';
+    return;
+  }
+  // Check if already logged in
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      currentUser = user;
+      showDashboard();
+    }
+  });
+});
+
+// ================================================================
+// LOGIN
+// ================================================================
+async function doLogin() {
+  const phone = document.getElementById('login-phone').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-err');
+  const btn = document.getElementById('login-btn');
+  err.textContent = '';
+  if (!phone || phone.length < 7) { err.textContent = 'Ingresa tu número de celular'; return; }
+  if (!pass) { err.textContent = 'Ingresa tu contraseña'; return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    // We use phone as email: phone@ts.app (Firebase email/password auth)
+    const email = phone.replace(/\s/g,'') + '@ts.app';
+    const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
+    currentUser = cred.user;
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
+    showDashboard();
+  } catch(e) {
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
+    if (e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+      err.textContent = '✗ Número o contraseña incorrectos';
+    } else {
+      err.textContent = '✗ Error: ' + e.message;
+    }
+  }
+}
+
+function doLogout() {
+  fbAuth.signOut().then(() => {
+    currentUser = null;
+    showScreen('login');
+    document.getElementById('login-phone').value = '';
+    document.getElementById('login-pass').value = '';
+    document.getElementById('login-err').textContent = '';
+  });
+}
+
+// ================================================================
+// SCREENS
+// ================================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+
+async function showDashboard() {
+  showScreen('client');
+  const phone = currentUser.email.replace('@ts.app','');
+  document.getElementById('topbar-phone').textContent = '+51 ' + phone;
+  await Promise.all([loadMyDesigns(), loadAdminTemplates()]);
+}
+
+// ================================================================
+// MY DESIGNS
+// ================================================================
+async function loadMyDesigns() {
+  const grid = document.getElementById('my-designs-grid');
+  grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
+  try {
+    const snap = await fbDb.collection('user_designs')
+      .where('uid', '==', currentUser.uid)
+      .orderBy('updatedAt', 'desc').get();
+    grid.innerHTML = '';
+    // Add "new design" card
+    const newCard = document.createElement('div');
+    newCard.className = 'new-design-card';
+    newCard.innerHTML = '<div class="icon">+</div><div class="label">Nuevo diseño en blanco</div>';
+    newCard.onclick = () => openEditorBlank();
+    grid.appendChild(newCard);
+    if (snap.empty) {
+      const msg = document.createElement('div');
+      msg.className = 'empty-state';
+      msg.style.gridColumn = '2/-1';
+      msg.textContent = 'Aún no tienes diseños guardados. ¡Crea el primero!';
+      grid.appendChild(msg);
+    } else {
+      document.getElementById('my-designs-count').textContent = snap.size + ' diseño' + (snap.size!==1?'s':'');
+      snap.forEach(doc => {
+        const d = doc.data();
+        const card = createDesignCard(doc.id, d);
+        grid.appendChild(card);
+      });
+    }
+  } catch(e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar diseños: ${e.message}</div>`;
+  }
+}
+
+function createDesignCard(id, d) {
+  const card = document.createElement('div');
+  card.className = 'design-card';
+  const date = new Date(d.updatedAt||d.createdAt).toLocaleDateString('es-PE');
+  const thumbHtml = d.thumb
+    ? `<img class="design-card-thumb" src="${d.thumb}">`
+    : `<div class="design-card-thumb-placeholder">🎨</div>`;
+  card.innerHTML = `
+    ${thumbHtml}
+    <div class="design-card-info">
+      <div class="design-card-name">${d.name||'Sin nombre'}</div>
+      <div class="design-card-date">${date}</div>
+      <div class="design-card-actions">
+        <button class="dca-btn dca-edit" onclick="openEditorDesign('${id}')">✏ Editar</button>
+        <button class="dca-btn dca-dl" onclick="quickDownload('${id}')">⬇</button>
+        <button class="dca-del" onclick="deleteDesign('${id}',this)">🗑</button>
+      </div>
+    </div>`;
+  return card;
+}
+
+async function deleteDesign(id, btn) {
+  if (!confirm('¿Eliminar este diseño?')) return;
+  btn.textContent = '...';
+  try {
+    await fbDb.collection('user_designs').doc(id).delete();
+    loadMyDesigns();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ================================================================
+// ADMIN TEMPLATES
+// ================================================================
+async function loadAdminTemplates() {
+  const grid = document.getElementById('admin-tpl-grid');
+  grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
+  try {
+    const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+    grid.innerHTML = '';
+    if (snap.empty) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>';
+      return;
+    }
+    document.getElementById('tpl-count').textContent = snap.size + ' disponible' + (snap.size!==1?'s':'');
+    snap.forEach(doc => {
+      const d = doc.data();
+      const card = document.createElement('div');
+      card.className = 'tpl-card';
+      const thumbHtml = d.thumb
+        ? `<img class="tpl-card-thumb" src="${d.thumb}">`
+        : `<div class="tpl-card-thumb-placeholder">📦</div>`;
+      const date = new Date(d.createdAt||0).toLocaleDateString('es-PE');
+      card.innerHTML = `
+        ${thumbHtml}
+        <div class="tpl-card-info">
+          <div class="tpl-card-name">${d.name}</div>
+          <div class="tpl-card-date">Publicada: ${date}</div>
+          <button class="use-tpl-btn" onclick="openEditorFromTemplate('${doc.id}')">Usar esta plantilla →</button>
+        </div>`;
+      grid.appendChild(card);
+    });
+  } catch(e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
+  }
+}
+
+// ================================================================
+// EDITOR
+// ================================================================
+let snapZones=[], textEls=[], logos=[], zoomLevel=1;
+let selectedEl=null, isDragging=false, isResizing=false;
+let dragOffset={x:0,y:0}, resizeStart={};
+let draggingLogoSrc=null;
+let zoneIdC=0, textIdC=0, logoIdC=0;
+const canvas=document.getElementById('design-canvas');
+
+function openEditorBlank() {
+  currentDesignId=null; editingDesignName='';
+  document.getElementById('editor-design-name').textContent='Nuevo diseño';
+  resetEditor();
+  canvas.style.width='540px'; canvas.style.height='540px';
+  canvas.style.background='linear-gradient(135deg,#0a0a2e,#1a0a3d)';
+  addBuiltinLogos();
+  showScreen('editor');
+}
+
+async function openEditorDesign(id) {
+  currentDesignId=id;
+  try {
+    const doc = await fbDb.collection('user_designs').doc(id).get();
+    if (!doc.exists) { alert('Diseño no encontrado'); return; }
+    const d = doc.data();
+    editingDesignName = d.name||'';
+    document.getElementById('editor-design-name').textContent = editingDesignName;
+    loadEditorData(d.data);
+    showScreen('editor');
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function openEditorFromTemplate(tplId) {
+  currentDesignId=null; editingDesignName='';
+  try {
+    const doc = await fbDb.collection('templates').doc(tplId).get();
+    if (!doc.exists) { alert('Plantilla no encontrada'); return; }
+    const d = doc.data();
+    editingDesignName = d.name || '';
+    document.getElementById('editor-design-name').textContent = 'Basado en: ' + d.name;
+    loadEditorData(d.template);
+    showScreen('editor');
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function resetEditor() {
+  snapZones=[]; textEls=[]; logos=[]; zoneIdC=0; textIdC=0; logoIdC=0;
+  selectedEl=null;
+  canvas.innerHTML='';
+  const bi=document.createElement('img');bi.className='base-img';bi.id='base-img';bi.style.display='none';
+  canvas.appendChild(bi);
+  document.getElementById('logo-grid').innerHTML='';
+}
+
+function loadEditorData(data) {
+  resetEditor();
+  canvas.style.width=(data.canvasW||540)+'px';
+  canvas.style.height=(data.canvasH||540)+'px';
+  canvas.style.background=data.canvasBg||'#0a0a1a';
+  if(data.baseImgSrc){const bi=document.getElementById('base-img');bi.src=data.baseImgSrc;bi.style.display='block';}
+  (data.zones||[]).forEach(z=>{zoneIdC=Math.max(zoneIdC,z.id+1);_addZone(z);});
+  (data.texts||[]).forEach(t=>{textIdC=Math.max(textIdC,t.id+1);_addText(t);});
+  if(data.logos){logos=data.logos;logoIdC=logos.length;renderLogoGrid();}
+  else addBuiltinLogos();
+}
+
+function exitEditor() {
+  showScreen('client');
+  loadMyDesigns();
+}
+
+// ================================================================
+// SNAP ZONES
+// ================================================================
+function _addZone(z) {
+  snapZones.push(z);
+  const el=document.createElement('div');
+  el.className='snap-zone'; el.id='z-'+z.id;
+  el.style.cssText=`left:${z.x}px;top:${z.y}px;width:${z.w}px;height:${z.h}px;border-radius:${z.radius||10}px;`;
+  const lbl=document.createElement('div');lbl.className='zone-label';lbl.id='zlbl-'+z.id;lbl.textContent=z.label||'Logo';
+  const img=document.createElement('img');img.id='zimg-'+z.id;img.style.display='none';
+  const clr=document.createElement('button');clr.className='z-clr';clr.textContent='✕';clr.onclick=(e)=>{e.stopPropagation();clearZone(z.id);};
+  el.appendChild(lbl);el.appendChild(img);el.appendChild(clr);
+  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drop-active');});
+  el.addEventListener('dragleave',()=>el.classList.remove('drop-active'));
+  el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('drop-active');if(draggingLogoSrc)fillZone(z.id,draggingLogoSrc);});
+  if(z.filledSrc){fillZone(z.id,z.filledSrc);}
+  canvas.appendChild(el);
+}
+
+function clearZone(id){
+  const z=snapZones.find(z=>z.id===id);if(!z)return;
+  z.filledSrc='';
+  const img=document.getElementById('zimg-'+id);if(img)img.style.display='none';
+  const lbl=document.getElementById('zlbl-'+id);if(lbl)lbl.style.display='flex';
+  const el=document.getElementById('z-'+id);
+  if(el){el.classList.remove('filled');el.style.border='2px dashed rgba(79,142,247,0.5)';el.style.background='rgba(79,142,247,0.05)';}
+}
+function fillZone(id,src){
+  const z=snapZones.find(z=>z.id===id);if(!z)return;
+  z.filledSrc=src;
+  const img=document.getElementById('zimg-'+id);if(img){img.src=src;img.style.display='block';}
+  const lbl=document.getElementById('zlbl-'+id);if(lbl)lbl.style.display='none';
+  const el=document.getElementById('z-'+id);if(el){el.classList.add('filled');el.style.border='2px solid rgba(0,200,150,0.3)';el.style.background='rgba(0,0,0,0.05)';}
+}
+
+// ================================================================
+// TEXT ELEMENTS
+// ================================================================
+function addText(text='Texto',fs=32,fw='700',color='#ffffff'){
+  const id=textIdC++;
+  _addText({id,x:60,y:60,w:420,text,font:"'Plus Jakarta Sans'",size:fs,weight:fw,align:'center',color});
+}
+function _addText(t){
+  textEls.push(t);
+  const el=document.createElement('div');
+  el.className='canvas-text-el';el.id='t-'+t.id;
+  el.style.cssText=`left:${t.x}px;top:${t.y}px;width:${t.w||400}px;`;
+  const inner=document.createElement('div');
+  inner.className='canvas-text-inner';inner.contentEditable='true';inner.id='ti-'+t.id;
+  inner.style.cssText=`font-family:${t.font||"'Plus Jakarta Sans'"};font-size:${t.size||24}px;font-weight:${t.weight||'700'};color:${t.color||'#fff'};text-align:${t.align||'left'};min-height:${(t.size||24)+8}px;`;
+  inner.textContent=t.current||t.text||t.default||'';
+  inner.oninput=()=>{t.current=inner.textContent;};
+  inner.ondblclick=e=>{inner.style.pointerEvents='auto';inner.focus();e.stopPropagation();};
+  inner.onblur=()=>inner.style.pointerEvents='none';
+  inner.style.pointerEvents='none';
+  const rh=document.createElement('div');rh.className='t-resize';
+  rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,t.id);};
+  el.appendChild(inner);el.appendChild(rh);
+  el.onmousedown=e=>{
+    if(e.target.classList.contains('t-resize'))return;
+    if(document.activeElement===e.target)return;
+    e.stopPropagation();selectEl(el,'text',t.id);
+    startDrag(e,el);
+  };
+  canvas.appendChild(el);
+}
+
+function addSticker(emoji){
+  const id=textIdC++;
+  const t={id,x:100,y:100,w:80,text:emoji,font:'sans-serif',size:60,weight:'400',align:'center',color:'#000'};
+  textEls.push(t);
+  const el=document.createElement('div');
+  el.className='canvas-text-el';el.id='t-'+id;
+  el.style.cssText=`left:100px;top:100px;width:80px;font-size:60px;text-align:center;cursor:move;`;
+  el.textContent=emoji;
+  const rh=document.createElement('div');rh.className='t-resize';
+  rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,id);};
+  el.appendChild(rh);
+  el.onmousedown=e=>{e.stopPropagation();selectEl(el,'sticker',id);startDrag(e,el);};
+  canvas.appendChild(el);
+}
+
+// ================================================================
+// SHAPES
+// ================================================================
+function addShape(type){
+  const el=document.createElement('div');
+  el.dataset.type='shape';el.dataset.shape=type;
+  el.style.cssText=`position:absolute;left:100px;top:100px;width:160px;height:60px;background:#7C5CFC;cursor:move;`;
+  if(type==='circle')el.style.borderRadius='50%';
+  if(type==='line')el.style.height='4px';
+  el.onmousedown=e=>{e.stopPropagation();selectEl(el,'shape',null);startDrag(e,el);};
+  canvas.appendChild(el);
+}
+
+// ================================================================
+// LOGOS
+// ================================================================
+function addBuiltinLogos(){
+  const names=['Netflix','HBO Max','Disney+','Prime Video','Crunchyroll','Paramount+'];
+  const colors=['#E50914','#8B1C8C','#113CCF','#00A8E1','#FF6600','#0064FF'];
+  logos=[];
+  names.forEach((n,i)=>{
+    const c=document.createElement('canvas');c.width=120;c.height=80;
+    const ctx=c.getContext('2d');
+    ctx.fillStyle=colors[i];ctx.roundRect(0,0,120,80,10);ctx.fill();
+    ctx.fillStyle='white';ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    const w=n.split(' ');
+    if(w.length===1)ctx.fillText(n,60,40);else{ctx.fillText(w[0],60,32);ctx.fillText(w.slice(1).join(' '),60,52);}
+    logos.push({id:logoIdC++,src:c.toDataURL(),name:n});
+  });
+  renderLogoGrid();
+}
+
+function renderLogoGrid(){
+  const grid=document.getElementById('logo-grid');if(!grid)return;
+  grid.innerHTML='';
+  logos.forEach(logo=>{
+    const d=document.createElement('div');d.className='logo-item';d.title=logo.name;
+    const img=document.createElement('img');img.src=logo.src;img.alt=logo.name;
+    d.appendChild(img);
+    d.onmousedown=e=>{
+      e.preventDefault();draggingLogoSrc=logo.src;
+      const ghost=document.getElementById('drag-ghost');
+      document.getElementById('drag-ghost-img').src=logo.src;
+      ghost.style.display='flex';
+      ghost.style.left=(e.clientX-28)+'px';ghost.style.top=(e.clientY-28)+'px';
+    };
+    grid.appendChild(d);
+  });
+}
+
+function uploadLogos(event){
+  Array.from(event.target.files).forEach(file=>{
+    const reader=new FileReader();
+    reader.onload=e=>{logos.push({id:logoIdC++,src:e.target.result,name:file.name});renderLogoGrid();};
+    reader.readAsDataURL(file);
+  });event.target.value='';
+}
+
+function uploadBase(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const bi=document.getElementById('base-img');bi.src=e.target.result;bi.style.display='block';
+    canvas.style.background='transparent';
+  };reader.readAsDataURL(file);event.target.value='';
+}
+
+// ================================================================
+// DRAG & RESIZE
+// ================================================================
+function startDrag(e,el){
+  isDragging=true;
+  const cr=canvas.getBoundingClientRect();
+  dragOffset.x=(e.clientX-cr.left)/zoomLevel-parseFloat(el.style.left||0);
+  dragOffset.y=(e.clientY-cr.top)/zoomLevel-parseFloat(el.style.top||0);
+  e.preventDefault();
+}
+function startTextResize(e,id){
+  isResizing=true;
+  const el=document.getElementById('t-'+id);
+  resizeStart={id,mouseX:e.clientX,w:el.offsetWidth};e.preventDefault();
+}
+
+document.addEventListener('mousemove',e=>{
+  if(isDragging&&selectedEl){
+    const cr=canvas.getBoundingClientRect();
+    const x=(e.clientX-cr.left)/zoomLevel-dragOffset.x;
+    const y=(e.clientY-cr.top)/zoomLevel-dragOffset.y;
+    selectedEl.style.left=x+'px';selectedEl.style.top=y+'px';
+    // update text el position
+    if(selectedEl.dataset&&selectedEl.dataset.type!=='shape'){
+      const id=parseInt(selectedEl.id.replace('t-',''));
+      const t=textEls.find(t=>t.id===id);if(t){t.x=Math.round(x);t.y=Math.round(y);}
+    }
+  }
+  if(isResizing&&resizeStart.id!==undefined){
+    const dx=(e.clientX-resizeStart.mouseX)/zoomLevel;
+    const el=document.getElementById('t-'+resizeStart.id);
+    if(el){const nw=Math.max(60,resizeStart.w+dx);el.style.width=nw+'px';const t=textEls.find(t=>t.id===resizeStart.id);if(t)t.w=Math.round(nw);}
+  }
+  if(draggingLogoSrc){
+    const ghost=document.getElementById('drag-ghost');
+    ghost.style.left=(e.clientX-28)+'px';ghost.style.top=(e.clientY-28)+'px';
+    highlightNearestZone(e);
+  }
+});
+document.addEventListener('mouseup',e=>{
+  isDragging=false;isResizing=false;resizeStart={};
+  if(draggingLogoSrc){
+    const zone=getNearestZone(e);if(zone)fillZone(zone.id,draggingLogoSrc);
+    draggingLogoSrc=null;
+    document.getElementById('drag-ghost').style.display='none';
+    document.querySelectorAll('.snap-zone').forEach(z=>z.classList.remove('drop-active'));
+  }
+});
+
+function highlightNearestZone(e){
+  const zone=getNearestZone(e);
+  document.querySelectorAll('.snap-zone').forEach(z=>z.classList.remove('drop-active'));
+  if(zone){const el=document.getElementById('z-'+zone.id);if(el)el.classList.add('drop-active');}
+}
+function getNearestZone(e){
+  const cr=canvas.getBoundingClientRect();
+  const mx=(e.clientX-cr.left)/zoomLevel,my=(e.clientY-cr.top)/zoomLevel;
+  let nearest=null,minD=90;
+  snapZones.forEach(z=>{const cx=z.x+z.w/2,cy=z.y+z.h/2,d=Math.sqrt((mx-cx)**2+(my-cy)**2);if(d<minD){minD=d;nearest=z;}});
+  return nearest;
+}
+
+// ================================================================
+// SELECTION & PROPERTIES
+// ================================================================
+function selectEl(el, type, id) {
+  document.querySelectorAll('.canvas-text-el').forEach(e=>e.classList.remove('selected'));
+  selectedEl=el;
+  el.classList.add('selected');
+  document.getElementById('rp-empty').style.display='none';
+  document.getElementById('rp-text').style.display='none';
+  document.getElementById('rp-shape').style.display='none';
+  if(type==='text'||type==='sticker'){
+    document.getElementById('rp-text').style.display='block';
+    const t=textEls.find(t=>t.id===id);if(!t)return;
+    const inner=document.getElementById('ti-'+id);
+    document.getElementById('rp-text-content').value=inner?inner.textContent:'';
+    document.getElementById('rp-text-font').value=t.font||"'Plus Jakarta Sans'";
+    document.getElementById('rp-text-size').value=t.size||24;
+    document.getElementById('rp-text-weight').value=t.weight||'700';
+    document.getElementById('rp-text-color').value=rgbToHex(t.color||'#ffffff');
+    document.getElementById('rp-text-w').value=t.w||400;
+  } else if(type==='shape'){
+    document.getElementById('rp-shape').style.display='block';
+  }
+}
+
+function deselectAll(e){
+  if(e&&e.target!==canvas&&!e.target.classList.contains('canvas-area'))return;
+  document.querySelectorAll('.canvas-text-el').forEach(el=>el.classList.remove('selected'));
+  selectedEl=null;
+  document.getElementById('rp-empty').style.display='block';
+  document.getElementById('rp-text').style.display='none';
+  document.getElementById('rp-shape').style.display='none';
+}
+
+function updateTextContent(val){
+  if(!selectedEl)return;
+  const id=parseInt(selectedEl.id.replace('t-',''));
+  const inner=document.getElementById('ti-'+id);if(inner){inner.textContent=val;}
+  const t=textEls.find(t=>t.id===id);if(t)t.current=val;
+}
+function updateTextStyle(prop,val){
+  if(!selectedEl)return;
+  const id=parseInt(selectedEl.id.replace('t-',''));
+  const inner=document.getElementById('ti-'+id);
+  const t=textEls.find(t=>t.id===id);
+  if(prop==='font'){if(inner)inner.style.fontFamily=val;if(t)t.font=val;}
+  else if(prop==='size'){if(inner)inner.style.fontSize=val+'px';if(t)t.size=parseInt(val);}
+  else if(prop==='weight'){if(inner)inner.style.fontWeight=val;if(t)t.weight=val;}
+  else if(prop==='align'){if(inner)inner.style.textAlign=val;if(t)t.align=val;}
+  else if(prop==='color'){if(inner)inner.style.color=val;if(t)t.color=val;}
+}
+function updateTextWidth(val){
+  if(!selectedEl)return;
+  selectedEl.style.width=val+'px';
+  const id=parseInt(selectedEl.id.replace('t-',''));
+  const t=textEls.find(t=>t.id===id);if(t)t.w=parseInt(val);
+}
+function updateShapeColor(val){if(selectedEl)selectedEl.style.background=val;}
+function updateShapeOpacity(val){if(selectedEl)selectedEl.style.opacity=val/100;}
+function deleteSelected(){
+  if(!selectedEl)return;
+  if(selectedEl.id.startsWith('t-')){
+    const id=parseInt(selectedEl.id.replace('t-',''));
+    textEls=textEls.filter(t=>t.id!==id);
+  }
+  selectedEl.remove();selectedEl=null;
+  document.getElementById('rp-empty').style.display='block';
+  document.getElementById('rp-text').style.display='none';
+  document.getElementById('rp-shape').style.display='none';
+}
+
+// ================================================================
+// EDITOR TABS
+// ================================================================
+function switchETab(tab){
+  ['logos','texts','shapes'].forEach(t=>{
+    document.getElementById('etab-'+t).classList.toggle('active',t===tab);
+    document.getElementById('etab-'+t+'-body').style.display=t===tab?'block':'none';
+  });
+}
+
+// ================================================================
+// CANVAS BG & ZOOM
+// ================================================================
+function setCanvasBg(val){canvas.style.background=val;document.getElementById('canvas-bg-color').value=val.startsWith('#')?val:'#0a0a1a';}
+function zoom(d){zoomLevel=Math.min(2,Math.max(0.2,zoomLevel+d));canvas.style.transform=`scale(${zoomLevel})`;document.getElementById('zoom-lbl').textContent=Math.round(zoomLevel*100)+'%';}
+
+// ================================================================
+// SAVE DESIGN
+// ================================================================
+function openSaveModal(){
+  document.getElementById('save-design-name').value=editingDesignName||'';
+  document.getElementById('save-design-status').textContent='';
+  document.getElementById('save-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('save-design-name').focus(),100);
+}
+function closeSaveModal(){document.getElementById('save-overlay').classList.remove('open');}
+
+async function doSaveDesign(){
+  const name=document.getElementById('save-design-name').value.trim();
+  if(!name){document.getElementById('save-design-status').textContent='Escribe un nombre';return;}
+  document.getElementById('save-design-status').textContent='Guardando...';
+  editingDesignName=name;
+  document.getElementById('editor-design-name').textContent=name;
+  let thumb='';
+  try{
+    document.querySelectorAll('.snap-zone:not(.filled)').forEach(z=>{z.style.border='none';z.style.background='transparent';});
+    document.querySelectorAll('.t-resize').forEach(e=>e.style.display='none');
+    document.querySelectorAll('.canvas-text-el').forEach(e=>e.classList.remove('selected'));
+    const sv=canvas.style.transform;canvas.style.transform='scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+    const c=await html2canvas(canvas,{scale:0.35,useCORS:true,allowTaint:true,backgroundColor:null,logging:false});
+    canvas.style.transform=sv;
+    document.querySelectorAll('.snap-zone:not(.filled)').forEach(z=>{z.style.border='2px dashed rgba(79,142,247,0.5)';z.style.background='rgba(79,142,247,0.05)';});
+    document.querySelectorAll('.t-resize').forEach(e=>e.style.display='');
+    thumb=c.toDataURL('image/jpeg',0.5);
+  }catch(e){console.warn('thumb fail',e);}
+  const data={
+    name,thumb,uid:currentUser.uid,
+    createdAt:currentDesignId?undefined:Date.now(),
+    updatedAt:Date.now(),
+    data:serializeEditor()
+  };
+  try{
+    if(currentDesignId){
+      await fbDb.collection('user_designs').doc(currentDesignId).update(data);
+    }else{
+      data.createdAt=Date.now();
+      const ref=await fbDb.collection('user_designs').add(data);
+      currentDesignId=ref.id;
+    }
+    document.getElementById('save-design-status').textContent='✓ ¡Guardado correctamente!';
+    document.getElementById('save-design-status').style.color='var(--accent)';
+    setTimeout(()=>closeSaveModal(),1200);
+  }catch(e){
+    document.getElementById('save-design-status').textContent='✗ Error: '+e.message;
+    document.getElementById('save-design-status').style.color='var(--accent2)';
+  }
+}
+
+function serializeEditor(){
+  const bi=document.getElementById('base-img');
+  return{
+    baseImgSrc:bi&&bi.style.display!=='none'?bi.src:'',
+    canvasW:parseInt(canvas.style.width),canvasH:parseInt(canvas.style.height),
+    canvasBg:canvas.style.background,
+    zones:snapZones.map(z=>({...z})),
+    texts:textEls.map(t=>{const inner=document.getElementById('ti-'+t.id);return{...t,current:inner?inner.textContent:t.current||t.text||''}}),
+    logos:logos.map(l=>({...l}))
+  };
+}
+
+// ================================================================
+// DOWNLOAD PNG
+// ================================================================
+async function downloadPNG(){
+  document.querySelectorAll('.canvas-text-el').forEach(e=>e.classList.remove('selected'));
+  document.querySelectorAll('.snap-zone:not(.filled)').forEach(z=>{z.style.border='none';z.style.background='transparent';});
+  document.querySelectorAll('.t-resize,.z-clr').forEach(e=>e.style.display='none');
+  const sv=canvas.style.transform;canvas.style.transform='scale(1)';
+  await new Promise(r=>setTimeout(r,80));
+  const c=await html2canvas(canvas,{scale:2,useCORS:true,allowTaint:true,backgroundColor:null,logging:false,width:parseInt(canvas.style.width),height:parseInt(canvas.style.height)});
+  canvas.style.transform=sv;
+  document.querySelectorAll('.snap-zone:not(.filled)').forEach(z=>{z.style.border='2px dashed rgba(79,142,247,0.5)';z.style.background='rgba(79,142,247,0.05)';});
+  document.querySelectorAll('.t-resize').forEach(e=>e.style.display='');
+  document.querySelectorAll('.z-clr').forEach(e=>e.style.display='');
+  const link=document.createElement('a');link.download=(editingDesignName||'mi-diseno')+'.png';link.href=c.toDataURL('image/png');link.click();
+}
+
+async function quickDownload(id){
+  try{
+    const doc=await fbDb.collection('user_designs').doc(id).get();
+    if(!doc.exists)return;
+    openEditorDesign(id);
+    setTimeout(()=>downloadPNG(),1200);
+  }catch(e){alert('Error: '+e.message);}
+}
+
+// ================================================================
+// KEYBOARD
+// ================================================================
+document.addEventListener('keydown',e=>{
+  if((e.key==='Delete'||e.key==='Backspace')&&document.activeElement.contentEditable!=='true')deleteSelected();
+  if(e.key==='Escape')deselectAll({target:canvas});
+});
+
+// ================================================================
+// UTILS
+// ================================================================
+function rgbToHex(c){
+  if(c&&c.startsWith('#'))return c;
+  const m=c&&c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if(!m)return '#ffffff';
+  return '#'+[m[1],m[2],m[3]].map(x=>parseInt(x).toString(16).padStart(2,'0')).join('');
+}
+</script>
+</body>
+</html>
