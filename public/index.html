@@ -1610,6 +1610,23 @@ function updateTextContent(val){
   const inner=document.getElementById('ti-'+id);if(inner){inner.textContent=val;}
   const t=textEls.find(t=>t.id===id);if(t)t.current=val;
 }
+function applyFont(val){
+  if(!selectedEl) return;
+  // Find the text inner element — try multiple strategies
+  const inner = selectedEl.querySelector('div[style*="font"]') ||
+                selectedEl.querySelector('[id^="ti-"]') ||
+                selectedEl.querySelector('div[contenteditable]');
+  if(inner){
+    inner.style.fontFamily = val;
+  }
+  // Also update textEls data
+  const rawId=(selectedEl.id||'').replace('t-','');
+  const id=parseInt(rawId);
+  if(!isNaN(id)){
+    const t=textEls.find(t=>t.id===id);
+    if(t) t.font=val;
+  }
+}
 function updateTextStyle(prop,val){
   if(!selectedEl)return;
   const rawId=(selectedEl.id||'').replace('t-','');
@@ -1617,6 +1634,18 @@ function updateTextStyle(prop,val){
   // Find inner — search by id first, then by querySelector fallback
   const inner=document.getElementById('ti-'+id)||selectedEl.querySelector('[id^="ti-"]')||selectedEl.querySelector('div[contenteditable]')||selectedEl.querySelector('div[style*="font-size"]');
   const t=isNaN(id)?null:textEls.find(t=>t.id===id);
+  if(!inner && selectedEl){
+    // Fallback: apply directly to selectedEl children
+    const fallback = selectedEl.querySelector('div');
+    if(fallback){
+      if(prop==='font') fallback.style.fontFamily=val;
+      else if(prop==='size') fallback.style.fontSize=val+'px';
+      else if(prop==='weight') fallback.style.fontWeight=val;
+      else if(prop==='align') fallback.style.textAlign=val;
+      else if(prop==='color') fallback.style.color=val;
+    }
+    return;
+  }
   if(prop==='font'){if(inner)inner.style.fontFamily=val;if(t)t.font=val;}
   else if(prop==='size'){if(inner){inner.style.fontSize=val+'px';}if(t)t.size=parseInt(val);}
   else if(prop==='weight'){if(inner)inner.style.fontWeight=val;if(t)t.weight=val;}
