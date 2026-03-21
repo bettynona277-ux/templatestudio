@@ -76,9 +76,7 @@ async function parsePSDBuffer(psdBuf) {
 
     if (isText) {
       const t = layer.text;
-      textContent = (t.text||name).replace(/
-/g,'
-').trim();
+      textContent = (t.text||name).replace(/\r/g,'\n').trim();
       const style = t.style||{};
       const firstRun = (t.styleRuns&&t.styleRuns[0]) ? t.styleRuns[0].style : {};
       const ms = {...style,...firstRun};
