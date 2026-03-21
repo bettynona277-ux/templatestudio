@@ -740,8 +740,77 @@ function loadEditorData(data) {
   resetEditor();
   canvas.style.width=(data.canvasW||540)+'px';
   canvas.style.height=(data.canvasH||540)+'px';
+
+  // ── Formato del admin (psd-layers) ──
+  if(data.type==='psd-layers' && data.layers){
+    canvas.style.background='#0a0a1a';
+    // Auto zoom to fit
+    const area=document.getElementById('canvas-area');
+    const aw=area.clientWidth-40, ah=area.clientHeight-40;
+    zoomLevel=Math.min(0.95,Math.min(aw/(data.canvasW||540),ah/(data.canvasH||540)));
+    zoomLevel=Math.round(zoomLevel*100)/100;
+    canvas.style.transform=`scale(${zoomLevel})`;
+    document.getElementById('zoom-lbl').textContent=Math.round(zoomLevel*100)+'%';
+
+    data.layers.forEach(l=>{
+      if(!l.visible)return;
+      const el=document.createElement('div');
+      el.style.cssText=`position:absolute;left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};opacity:${l.opacity??1};`;
+      el.dataset.layerId=l.id;
+
+      if(l.type==='img' && l.src){
+        const img=document.createElement('img');
+        img.src=l.src;
+        img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
+        img.crossOrigin='anonymous';
+        el.appendChild(img);
+        el.style.cursor='move';
+        // Make img layers draggable by client
+        el.onmousedown=e=>{e.stopPropagation();startDrag(e,el);};
+      } else if(l.type==='text' && l.tp){
+        const tp=l.tp;
+        el.style.cursor='move';
+        const inner=document.createElement('div');
+        const tid=textIdC++;
+        inner.className='canvas-text-inner';
+        inner.contentEditable='true';
+        inner.id='ti-'+tid;
+        inner.style.cssText=`font-family:${tp.fontFamily||"'Plus Jakarta Sans'"};font-size:${tp.fontSize||24}px;font-weight:${tp.fontWeight||'700'};color:${tp.color||'#fff'};text-align:${tp.align||'left'};width:100%;min-height:${(tp.fontSize||24)+8}px;outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;pointer-events:none;`;
+        inner.textContent=tp.text||'';
+        inner.ondblclick=e=>{inner.style.pointerEvents='auto';inner.focus();e.stopPropagation();};
+        inner.onblur=()=>inner.style.pointerEvents='none';
+        el.appendChild(inner);
+        const t={id:tid,x:l.x,y:l.y,w:l.w,text:tp.text||'',font:tp.fontFamily,size:tp.fontSize,weight:tp.fontWeight,color:tp.color,align:tp.align,current:tp.text||''};
+        textEls.push(t);
+        el.className='canvas-text-el';
+        el.id='t-'+tid;
+        const rh=document.createElement('div');rh.className='t-resize';
+        rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,tid);};
+        el.appendChild(rh);
+        el.onmousedown=e=>{
+          if(e.target.classList.contains('t-resize'))return;
+          e.stopPropagation();selectEl(el,'text',tid);startDrag(e,el);
+        };
+      }
+      canvas.appendChild(el);
+    });
+    addBuiltinLogos();
+    return;
+  }
+
+  // ── Formato legacy del cliente ──
   canvas.style.background=data.canvasBg||'#0a0a1a';
   if(data.baseImgSrc){const bi=document.getElementById('base-img');bi.src=data.baseImgSrc;bi.style.display='block';}
+  // Restore psd image layers if saved
+  (data.psdLayers||[]).forEach(l=>{
+    const el=document.createElement('div');
+    el.style.cssText=`position:absolute;left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};opacity:${l.opacity??1};cursor:move;`;
+    const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
+    img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
+    el.appendChild(img);
+    el.onmousedown=e=>{e.stopPropagation();startDrag(e,el);};
+    canvas.appendChild(el);
+  });
   (data.zones||[]).forEach(z=>{zoneIdC=Math.max(zoneIdC,z.id+1);_addZone(z);});
   (data.texts||[]).forEach(t=>{textIdC=Math.max(textIdC,t.id+1);_addText(t);});
   if(data.logos){logos=data.logos;logoIdC=logos.length;renderLogoGrid();}
@@ -1106,10 +1175,28 @@ async function doSaveDesign(){
 
 function serializeEditor(){
   const bi=document.getElementById('base-img');
+  // If canvas has psd-layer images (from admin template), serialize them too
+  const psdLayers=[];
+  canvas.querySelectorAll('[data-layer-id]').forEach(el=>{
+    const img=el.querySelector('img');
+    if(img){
+      psdLayers.push({
+        type:'img-layer',
+        src:img.src,
+        x:parseInt(el.style.left)||0,
+        y:parseInt(el.style.top)||0,
+        w:parseInt(el.style.width)||100,
+        h:parseInt(el.style.height)||100,
+        opacity:parseFloat(el.style.opacity)||1,
+        zIndex:parseInt(el.style.zIndex)||0
+      });
+    }
+  });
   return{
     baseImgSrc:bi&&bi.style.display!=='none'?bi.src:'',
     canvasW:parseInt(canvas.style.width),canvasH:parseInt(canvas.style.height),
     canvasBg:canvas.style.background,
+    psdLayers,
     zones:snapZones.map(z=>({...z})),
     texts:textEls.map(t=>{const inner=document.getElementById('ti-'+t.id);return{...t,current:inner?inner.textContent:t.current||t.text||''}}),
     logos:logos.map(l=>({...l}))
