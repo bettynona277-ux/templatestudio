@@ -892,6 +892,15 @@ function startDrag(ev, id){
 function duplicateSelected(sourceId){
   const ids = selIds.length>1 ? selIds : (sourceId!==undefined ? [sourceId] : (selId!==null?[selId]:[]));
   if(!ids.length) return;
+
+  // Check if all selected ids belong to the same group (duplicating a whole group)
+  const srcGroupIds = [...new Set(ids.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean))];
+  const duplicatingWholeGroups = srcGroupIds.length > 0;
+
+  // Map: old groupId → new groupId (so duplicated groups stay grouped among themselves)
+  const groupMap = {};
+  srcGroupIds.forEach(gid => { groupMap[gid] = 'g'+(gCtr++); });
+
   const newIds=[];
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id); if(!l) return;
@@ -899,8 +908,18 @@ function duplicateSelected(sourceId){
     nl.x+=18; nl.y+=18;
     nl.zIndex=layers.length;
     if(nl.tp) nl.tp={...nl.tp};
+    // Remap groupId: duplicated layers get a NEW group id (independent from original)
+    if(nl.groupId && groupMap[nl.groupId]){
+      nl.groupId = groupMap[nl.groupId];
+    } else {
+      delete nl.groupId; // no group
+    }
     layers.push(nl); mkEl(nl);
     newIds.push(nl.id);
+  });
+  // Register new groups
+  Object.values(groupMap).forEach(newGid => {
+    groups[newGid] = layers.filter(l=>l.groupId===newGid).map(l=>l.id);
   });
   renderList();
   selMulti(newIds);
