@@ -1214,34 +1214,7 @@ function loadEditorData(data) {
     el.dataset.layerName=l.name||'Capa';
 
     if(l.type==='text-layer'){
-      el.dataset.layerType='text';
-      el.className='canvas-text-el';
-      const tid=textIdC++;
-      el.id='t-'+tid;
-      const inner=document.createElement('div');
-      inner.id='ti-'+tid;
-      inner.style.cssText=`font-family:${l.fontFamily||"'Inter'"};font-size:${l.fontSize||'24px'};font-weight:${l.fontWeight||'400'};color:${l.color||'#fff'};text-align:${l.textAlign||'left'};width:100%;outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;pointer-events:none;`;
-      inner.textContent=l.text||'';
-      inner.onblur=()=>{inner.style.pointerEvents='none';const t=textEls.find(x=>x.id===tid);if(t)t.current=inner.textContent;};
-      el.appendChild(inner);
-      const t={id:tid,x:l.x,y:l.y,w:l.w,text:l.text||'',font:l.fontFamily,size:parseInt(l.fontSize)||24,weight:l.fontWeight,color:l.color,align:l.textAlign,current:l.text||''};
-      textEls.push(t);
-      const rh=document.createElement('div');rh.className='t-resize';
-      rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,tid);};
-      el.appendChild(rh);
-      makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{
-        el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';
-        const origFs=parseInt(l.fontSize)||24;
-        const newFs=Math.max(8,Math.round(origFs*(nw/(l.w||200))));
-        inner.style.fontSize=newFs+'px';
-        const tx=textEls.find(x=>x.id===tid);if(tx){tx.w=Math.round(nw);tx.size=newFs;}
-      });
-      el.ondblclick=ev=>{ev.stopPropagation();inner.style.pointerEvents='auto';inner.contentEditable='true';inner.focus();el.style.outline='2px solid var(--accent)';};
-      el.onmousedown=ev=>{
-        if(ev.target.classList.contains('layer-handle')||ev.target.className==='t-resize')return;
-        if(document.activeElement===inner)return;
-        ev.stopPropagation();selectEl(el,'text',tid);showHandles(el);startDrag(ev,el);
-      };
+      return; // texts restored via textEls below — skip to avoid duplicates
     } else {
       el.dataset.layerType='img';
       const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
@@ -1555,7 +1528,7 @@ function renderLayersPanel(){
   const panel=document.getElementById('layers-panel');
   if(!panel)return;
   panel.innerHTML='';
-  const els=[...canvas.querySelectorAll('[data-layer-id]')].reverse();
+  const els=[...canvas.querySelectorAll('[data-layer-id]')];
   els.forEach(el=>{
     const item=document.createElement('div');
     item.className='layer-panel-item';
@@ -1778,32 +1751,24 @@ async function doSaveDesign(){
 
 function serializeEditor(){
   const bi=document.getElementById('base-img');
-  // Save all layer elements (images and texts from admin template)
+  // Save only IMAGE layers in psdLayers (texts are saved via textEls below)
   const psdLayers=[];
   canvas.querySelectorAll('[data-layer-id]').forEach(el=>{
+    const isText=(el.dataset.layerType==='text'||el.classList.contains('canvas-text-el'));
+    if(isText) return; // skip texts — they're in textEls
     const img=el.querySelector('img');
-    const inner=el.querySelector('[id^="ti-"]');
-    const base={
+    if(!img) return;
+    psdLayers.push({
+      type:'img-layer',
+      src:img.src,
       x:parseInt(el.style.left)||0,
       y:parseInt(el.style.top)||0,
       w:parseInt(el.style.width)||100,
       h:parseInt(el.style.height)||100,
       opacity:parseFloat(el.style.opacity)||1,
       zIndex:parseInt(el.style.zIndex)||0,
-      name:el.dataset.layerName||'Capa',
-    };
-    if(img){
-      psdLayers.push({...base, type:'img-layer', src:img.src});
-    } else if(inner){
-      psdLayers.push({...base, type:'text-layer',
-        text:inner.textContent||'',
-        fontSize:inner.style.fontSize||'24px',
-        fontFamily:inner.style.fontFamily||"'Inter'",
-        fontWeight:inner.style.fontWeight||'400',
-        color:inner.style.color||'#ffffff',
-        textAlign:inner.style.textAlign||'left',
-      });
-    }
+      name:el.dataset.layerName||'Imagen',
+    });
   });
   return{
     baseImgSrc:bi&&bi.style.display!=='none'?bi.src:'',
