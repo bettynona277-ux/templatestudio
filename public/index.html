@@ -901,7 +901,7 @@ async function loadMyDesigns() {
     const newCard = document.createElement('div');
     newCard.className = 'new-design-card';
     newCard.innerHTML = '<div class="icon">+</div><div class="label">Nuevo diseño en blanco</div>';
-    newCard.onclick = () => openEditorBlank();
+    newCard.onclick = (e) => { if(e.target===newCard||newCard.contains(e.target)) openEditorBlank(); };
     grid.appendChild(newCard);
     if (snap.empty) {
       const msg = document.createElement('div');
@@ -1202,10 +1202,14 @@ function loadEditorData(data) {
   (data.psdLayers||[]).forEach(l=>{
     const el=document.createElement('div');
     el.style.cssText=`position:absolute;left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};opacity:${l.opacity??1};cursor:move;`;
+    el.dataset.layerId='saved-'+Date.now()+'-'+Math.random();
+    el.dataset.layerName=l.name||'Imagen';
+    el.dataset.layerType='img';
     const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
     img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
     el.appendChild(img);
-    el.onmousedown=e=>{e.stopPropagation();startDrag(e,el);};
+    makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
+    el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
     canvas.appendChild(el);
   });
   (data.zones||[]).forEach(z=>{zoneIdC=Math.max(zoneIdC,z.id+1);_addZone(z);});
@@ -1341,16 +1345,44 @@ function renderLogoGrid(){
     const img=document.createElement('img');img.src=logo.src;img.alt=logo.name;
     d.appendChild(img);
     d.onmousedown=e=>{
-      e.preventDefault();draggingLogoSrc=logo.src;
+      e.preventDefault();draggingLogoSrc=logo.src;draggingLogoName=logo.name;
       const ghost=document.getElementById('drag-ghost');
       document.getElementById('drag-ghost-img').src=logo.src;
       ghost.style.display='flex';
       ghost.style.left=(e.clientX-28)+'px';ghost.style.top=(e.clientY-28)+'px';
     };
+    // Also allow click to add logo directly to canvas center
+    d.ondblclick=e=>{
+      e.preventDefault();
+      addLogoToCanvas(logo.src, logo.name);
+    };
     grid.appendChild(d);
   });
 }
 
+let draggingLogoName='Logo';
+function addLogoToCanvas(src, name){
+  const cw=parseInt(canvas.style.width)||800, ch=parseInt(canvas.style.height)||800;
+  const img=new Image();
+  img.onload=()=>{
+    const s=Math.min(1,Math.min(cw*0.3/img.width, ch*0.3/img.height));
+    const w=Math.round(img.width*s), h=Math.round(img.height*s);
+    const el=document.createElement('div');
+    el.style.cssText=`position:absolute;left:${Math.round((cw-w)/2)}px;top:${Math.round((ch-h)/2)}px;width:${w}px;height:${h}px;cursor:move;`;
+    el.dataset.layerId='logo-'+Date.now();
+    el.dataset.layerName=name||'Logo';
+    el.dataset.layerType='img';
+    const i=document.createElement('img');i.src=src;i.crossOrigin='anonymous';
+    i.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
+    el.appendChild(i);
+    makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
+    el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
+    canvas.appendChild(el);
+    renderLayersPanel();
+    selectLayerEl(el);
+  };
+  img.src=src;
+}
 function uploadLogos(event){
   Array.from(event.target.files).forEach(file=>{
     const reader=new FileReader();
@@ -1410,8 +1442,16 @@ document.addEventListener('mousemove',e=>{
 document.addEventListener('mouseup',e=>{
   isDragging=false;isResizing=false;resizeStart={};
   if(draggingLogoSrc){
-    const zone=getNearestZone(e);if(zone)fillZone(zone.id,draggingLogoSrc);
-    draggingLogoSrc=null;
+    const zone=getNearestZone(e);
+    if(zone){fillZone(zone.id,draggingLogoSrc);}
+    else{
+      // Drop logo directly onto canvas
+      const cr=canvas.getBoundingClientRect();
+      if(e.clientX>=cr.left&&e.clientX<=cr.right&&e.clientY>=cr.top&&e.clientY<=cr.bottom){
+        addLogoToCanvas(draggingLogoSrc, draggingLogoName);
+      }
+    }
+    draggingLogoSrc=null;draggingLogoName='Logo';
     document.getElementById('drag-ghost').style.display='none';
     document.querySelectorAll('.snap-zone').forEach(z=>z.classList.remove('drop-active'));
   }
@@ -1538,11 +1578,14 @@ function updateTextContent(val){
 }
 function updateTextStyle(prop,val){
   if(!selectedEl)return;
-  const id=parseInt(selectedEl.id.replace('t-',''));
-  const inner=document.getElementById('ti-'+id);
+  // Support both canvas-text-el (id='t-N') and psd text layers (id='t-N' via canvas-text-el class)
+  const rawId=selectedEl.id.replace('t-','');
+  const id=parseInt(rawId);
+  // Find inner — could be direct child div or by id
+  const inner=document.getElementById('ti-'+id)||selectedEl.querySelector('[id^="ti-"]');
   const t=textEls.find(t=>t.id===id);
   if(prop==='font'){if(inner)inner.style.fontFamily=val;if(t)t.font=val;}
-  else if(prop==='size'){if(inner)inner.style.fontSize=val+'px';if(t)t.size=parseInt(val);}
+  else if(prop==='size'){if(inner){inner.style.fontSize=val+'px';}if(t)t.size=parseInt(val);}
   else if(prop==='weight'){if(inner)inner.style.fontWeight=val;if(t)t.weight=val;}
   else if(prop==='align'){if(inner)inner.style.textAlign=val;if(t)t.align=val;}
   else if(prop==='color'){if(inner)inner.style.color=val;if(t)t.color=val;}
@@ -1580,8 +1623,16 @@ function switchETab(tab){
 // ================================================================
 // CANVAS BG & ZOOM
 // ================================================================
-function setCanvasBg(val){canvas.style.background=val;document.getElementById('canvas-bg-color').value=val.startsWith('#')?val:'#0a0a1a';}
-function zoom(d){zoomLevel=Math.min(2,Math.max(0.2,zoomLevel+d));canvas.style.transform=`scale(${zoomLevel})`;document.getElementById('zoom-lbl').textContent=Math.round(zoomLevel*100)+'%';}
+function setCanvasBg(val){canvas.style.background=val;const el=document.getElementById('canvas-bg-color');if(el)el.value=val.startsWith('#')?val:'#ffffff';}
+function zoom(d){zoomLevel=Math.min(3,Math.max(0.1,zoomLevel+d));canvas.style.transform=`scale(${zoomLevel})`;document.getElementById('zoom-lbl').textContent=Math.round(zoomLevel*100)+'%';}
+
+// Ctrl+wheel to zoom
+document.addEventListener('wheel', function(e){
+  if(!e.ctrlKey) return;
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+  zoom(delta);
+}, {passive: false});
 
 // ================================================================
 // SAVE DESIGN
