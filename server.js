@@ -48,12 +48,24 @@ function rawRGBAtoPNG(pixelData, width, height) {
 }
 
 async function parsePSDBuffer(psdBuf) {
-  const { readPsd, initializeCanvas } = require('ag-psd');
-  // Node.js: use built-in canvas-free image decoding
-  const { createCanvas } = (() => { try { return require('canvas'); } catch(e) { return { createCanvas: null }; } })();
-  if (createCanvas) initializeCanvas(createCanvas);
-  else initializeCanvas(null, null); // no canvas — ag-psd will use raw pixel data
-  const psd = readPsd(psdBuf, {
+  const agPsd = require('ag-psd');
+  const readPsd = agPsd.readPsd || agPsd.default?.readPsd || agPsd;
+  // Provide a minimal canvas stub so ag-psd can extract raw pixel data
+  if (agPsd.initializeCanvas) {
+    const stub = (w, h) => ({
+      width: w, height: h,
+      getContext: () => ({
+        putImageData: () => {},
+        getImageData: (x,y,w,h) => ({ data: new Uint8ClampedArray(w*h*4), width:w, height:h }),
+        createImageData: (w,h) => ({ data: new Uint8ClampedArray(w*h*4), width:w, height:h }),
+        drawImage: () => {},
+        scale: () => {}, save: () => {}, restore: () => {},
+      }),
+      toBuffer: () => Buffer.alloc(0),
+    });
+    try { agPsd.initializeCanvas(stub); } catch(e) {}
+  }
+  const psd = (typeof readPsd === 'function' ? readPsd : agPsd)(psdBuf, {
     skipLayerImageData: false,
     skipCompositeImageData: true,
     skipThumbnail: true,
