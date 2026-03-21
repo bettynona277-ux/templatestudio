@@ -49,23 +49,9 @@ function rawRGBAtoPNG(pixelData, width, height) {
 
 async function parsePSDBuffer(psdBuf) {
   const agPsd = require('ag-psd');
-  const readPsd = agPsd.readPsd || agPsd.default?.readPsd || agPsd;
-  // Provide a minimal canvas stub so ag-psd can extract raw pixel data
-  if (agPsd.initializeCanvas) {
-    const stub = (w, h) => ({
-      width: w, height: h,
-      getContext: () => ({
-        putImageData: () => {},
-        getImageData: (x,y,w,h) => ({ data: new Uint8ClampedArray(w*h*4), width:w, height:h }),
-        createImageData: (w,h) => ({ data: new Uint8ClampedArray(w*h*4), width:w, height:h }),
-        drawImage: () => {},
-        scale: () => {}, save: () => {}, restore: () => {},
-      }),
-      toBuffer: () => Buffer.alloc(0),
-    });
-    try { agPsd.initializeCanvas(stub); } catch(e) {}
-  }
-  const psd = (typeof readPsd === 'function' ? readPsd : agPsd)(psdBuf, {
+  const { createCanvas } = require('canvas');
+  agPsd.initializeCanvas(createCanvas);
+  const psd = agPsd.readPsd(psdBuf, {
     skipLayerImageData: false,
     skipCompositeImageData: true,
     skipThumbnail: true,
@@ -105,7 +91,10 @@ async function parsePSDBuffer(psdBuf) {
       else if (para.justification==='center') textAlign='center';
     } else {
       try {
-        if (w>0 && h>0 && layer.imageData) {
+        if (w > 0 && h > 0 && layer.canvas) {
+          // ag-psd renders layer to canvas when initializeCanvas is set
+          src = 'data:image/png;base64,' + layer.canvas.toBuffer('image/png').toString('base64');
+        } else if (w > 0 && h > 0 && layer.imageData) {
           const img = layer.imageData;
           const png = rawRGBAtoPNG(img.data, img.width||w, img.height||h);
           src = 'data:image/png;base64,' + png.toString('base64');
