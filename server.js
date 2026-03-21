@@ -71,7 +71,8 @@ async function parsePSDBuffer(psdBuf) {
     const x=layer.left||0, y=layer.top||0;
     const w=(layer.right||0)-(layer.left||0), h=(layer.bottom||0)-(layer.top||0);
     const visible = layer.hidden !== true;
-    const opacity = layer.opacity !== undefined ? layer.opacity/255 : 1;
+    const rawOpacity = layer.opacity !== undefined ? layer.opacity : 255;
+    const opacity = rawOpacity <= 1 ? rawOpacity : rawOpacity / 255;
     const isText = !!layer.text;
 
     let src=null, textContent=null, fontSize=24, fontColor='#ffffff', fontWeight='400', textAlign='left';
