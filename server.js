@@ -48,7 +48,11 @@ function rawRGBAtoPNG(pixelData, width, height) {
 }
 
 async function parsePSDBuffer(psdBuf) {
-  const { readPsd } = require('ag-psd');
+  const { readPsd, initializeCanvas } = require('ag-psd');
+  // Node.js: use built-in canvas-free image decoding
+  const { createCanvas } = (() => { try { return require('canvas'); } catch(e) { return { createCanvas: null }; } })();
+  if (createCanvas) initializeCanvas(createCanvas);
+  else initializeCanvas(null, null); // no canvas — ag-psd will use raw pixel data
   const psd = readPsd(psdBuf, {
     skipLayerImageData: false,
     skipCompositeImageData: true,
