@@ -484,11 +484,11 @@ function snapshotState(){
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
-  // Remove all current DOM elements
-  layers.forEach(l=>{ if(l.el) l.el.remove(); });
+  // Remove cel elements but keep multi-box
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
   layers = [];
   data.forEach(ld=>{
-    const l = {...ld, el:null};
+    const l = {...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     layers.push(l);
     mkEl(l);
   });
@@ -786,7 +786,9 @@ async function processPSD(file){
 }
 
 async function loadPSDData(data){
-  layers=[];cvs.innerHTML='';lCtr=0;
+  // Remove cel elements but keep multi-box
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+  layers=[]; lCtr=0;
   // Set canvas to PSD size (with max display cap)
   const maxD=900;
   const scale=Math.min(1,maxD/Math.max(data.width,data.height));
@@ -1011,11 +1013,12 @@ document.addEventListener('mousemove',ev=>{
     const dx=(ev.clientX-mResSt.mx)/zoom_, dy=(ev.clientY-mResSt.my)/zoom_;
     const {c, box, ratio, layers:snap}=mResSt;
     let nb={...box};
-    const lock=ev.shiftKey;
-    if(c==='br'){ nb.w=Math.max(20,box.w+dx); nb.h=lock?nb.w/ratio:Math.max(20,box.h+dy); }
-    else if(c==='bl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=lock?nb.w/ratio:Math.max(20,box.h+dy); }
-    else if(c==='tr'){ nb.w=Math.max(20,box.w+dx); nb.h=lock?nb.w/ratio:Math.max(20,box.h-dy); nb.y=box.y+box.h-nb.h; }
-    else if(c==='tl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=lock?nb.w/ratio:Math.max(20,box.h-dy); nb.y=box.y+box.h-nb.h; }
+    // Proportional by default, free with Shift
+    const free=ev.shiftKey;
+    if(c==='br'){ nb.w=Math.max(20,box.w+dx); nb.h=free?Math.max(20,box.h+dy):Math.round(nb.w/ratio); }
+    else if(c==='bl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=free?Math.max(20,box.h+dy):Math.round(nb.w/ratio); }
+    else if(c==='tr'){ nb.w=Math.max(20,box.w+dx); nb.h=free?Math.max(20,box.h-dy):Math.round(nb.w/ratio); nb.y=box.y+box.h-nb.h; }
+    else if(c==='tl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=free?Math.max(20,box.h-dy):Math.round(nb.w/ratio); nb.y=box.y+box.h-nb.h; }
     else if(c==='mr'){ nb.w=Math.max(20,box.w+dx); }
     else if(c==='ml'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; }
     else if(c==='bm'){ nb.h=Math.max(20,box.h+dy); }
@@ -1426,7 +1429,12 @@ async function doSave(status){
 }
 
 // ── AUTOSAVE EVERY 15s ────────────────────────────────────────
-let _lastAutoSave='', _autoSaveTimer=null;
+let _lastAutoSave='', _autoSaveTimer=null, _lastActivity=0;
+
+// Track any user activity
+function markActivity(){ _lastActivity=Date.now(); }
+document.addEventListener('mousedown', markActivity);
+document.addEventListener('keydown', markActivity);
 
 function showAutoSaveIndicator(msg){
   let el=document.getElementById('autosave-ind');
@@ -1440,11 +1448,13 @@ function showAutoSaveIndicator(msg){
 }
 
 async function autoSaveToFirestore(){
-  if(!fbDb||!tplId) return; // only autosave if already saved once
+  if(!fbDb||!tplId) return;
+  // Don't autosave if user was active in the last 3 seconds (they might be mid-action)
+  if(Date.now()-_lastActivity < 3000) return;
   try{
     const layerData=await buildLayerData();
     const snap=JSON.stringify(layerData);
-    if(snap===_lastAutoSave) return; // nothing changed
+    if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
     await fbDb.collection('templates').doc(tplId).update({
       updatedAt:Date.now(),
@@ -1453,23 +1463,49 @@ async function autoSaveToFirestore(){
     });
     showAutoSaveIndicator('✓ Autoguardado');
   }catch(e){
-    // Fallback: save to localStorage
-    try{localStorage.setItem('ts_autosave',JSON.stringify({tplId,layers:await buildLayerData(),w:cvs.style.width,h:cvs.style.height,t:Date.now()}));}catch(_){}
-    showAutoSaveIndicator('📶 Local');
+    try{localStorage.setItem('ts_autosave',JSON.stringify({tplId,w:cvs.style.width,h:cvs.style.height,t:Date.now()}));}catch(_){}
+    showAutoSaveIndicator('📶 Sin conexión');
   }
 }
 
-// Start autosave loop
 _autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
 
 // LOAD SAVED
 function loadData(tpl){
   if(!tpl||tpl.type!=='psd-layers')return;
   document.getElementById('size-overlay').classList.remove('open');
-  layers=[];cvs.innerHTML='';lCtr=0;
-  cvs.style.width=(tpl.canvasW||800)+'px';cvs.style.height=(tpl.canvasH||800)+'px';
-  (tpl.layers||[]).forEach(ld=>{lCtr=Math.max(lCtr,ld.id+1);const l={...ld,el:null};layers.push(l);mkEl(l);});
+
+  // Remove all .cel elements but keep multi-box and marquee
+  Array.from(cvs.children).forEach(el=>{
+    if(el.id!=='multi-box') el.remove();
+  });
+  layers=[]; lCtr=0;
+
+  cvs.style.width=(tpl.canvasW||800)+'px';
+  cvs.style.height=(tpl.canvasH||800)+'px';
+
+  (tpl.layers||[]).forEach(ld=>{
+    lCtr=Math.max(lCtr,(ld.id||0)+1);
+    const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
+    layers.push(l);
+    mkEl(l);
+  });
+
+  // Auto zoom to fit
+  setTimeout(()=>{
+    const area=document.getElementById('canvas-area');
+    const aw=area.clientWidth-60, ah=area.clientHeight-60;
+    const w=parseInt(cvs.style.width), h=parseInt(cvs.style.height);
+    zoom_=Math.min(0.95, Math.min(aw/w, ah/h));
+    zoom_=Math.max(0.1, Math.round(zoom_*100)/100);
+    cvs.style.transform=`scale(${zoom_})`;
+    document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  },100);
+
+  // Re-init multi-box handles (they survived the innerHTML clear)
+  initMultiBoxHandles();
   renderList();
+  snapshotState();
 }
 
 // LOADING UI
