@@ -1200,6 +1200,7 @@ function loadEditorData(data) {
   canvas.style.background=data.canvasBg||'#0a0a1a';
   if(data.baseImgSrc){const bi=document.getElementById('base-img');bi.src=data.baseImgSrc;bi.style.display='block';}
   // Restore psd layers (images and texts) from saved design
+  const psdLayerEls=[];
   (data.psdLayers||[]).forEach(l=>{
     const lid='saved-'+Date.now()+'-'+Math.random();
     const el=document.createElement('div');
@@ -1245,7 +1246,10 @@ function loadEditorData(data) {
       el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
     }
     canvas.appendChild(el);
+    psdLayerEls.push(el);
   });
+  // Render layers panel after all elements added
+  setTimeout(()=>renderLayersPanel(), 50);
   (data.zones||[]).forEach(z=>{zoneIdC=Math.max(zoneIdC,z.id+1);_addZone(z);});
   (data.texts||[]).forEach(t=>{textIdC=Math.max(textIdC,t.id+1);_addText(t);});
   if(data.logos){logos=data.logos;logoIdC=logos.length;renderLogoGrid();}
@@ -1522,8 +1526,10 @@ function selectLayerEl(el){
   // highlight in layers panel
   document.querySelectorAll('.layer-panel-item').forEach(x=>x.classList.remove('active'));
   const lid=el.dataset.layerId;
-  const item=document.querySelector('.layer-panel-item[data-lid="'+lid+'"]');
-  if(item){item.classList.add('active');item.scrollIntoView({block:'nearest'});}
+  if(lid){
+    const item=document.querySelector(`.layer-panel-item[data-lid="${CSS.escape(lid)}"]`);
+    if(item){item.classList.add('active');item.scrollIntoView({block:'nearest',behavior:'smooth'});}
+  }
 }
 
 // Global click handler on canvas — only deselect if clicked directly on background
@@ -1548,10 +1554,22 @@ function renderLayersPanel(){
   els.forEach(el=>{
     const item=document.createElement('div');
     item.className='layer-panel-item';
-    item.dataset.lid=el.dataset.layerId;
-    const icon=el.dataset.layerType==='text'?'T':'🖼';
-    item.innerHTML=`<span style="font-size:0.9rem">${icon}</span><span style="flex:1;font-size:0.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${el.dataset.layerName||'Capa'}</span>`;
-    item.onclick=()=>{if(el.dataset.layerType==='img')selectLayerEl(el);else{const tid=parseInt(el.id.replace('t-',''));selectEl(el,'text',tid);}};
+    const lid=el.dataset.layerId;
+    item.dataset.lid=lid;
+    const isText=(el.dataset.layerType==='text'||el.classList.contains('canvas-text-el'));
+    const icon=isText?'T':'🖼';
+    item.innerHTML=`<span style="font-size:0.85rem;width:20px;text-align:center;flex-shrink:0">${icon}</span><span class="layer-label">${el.dataset.layerName||el.id||'Capa'}</span>`;
+    item.onclick=()=>{
+      if(isText){
+        const tid=parseInt((el.id||'').replace('t-',''));
+        if(!isNaN(tid))selectEl(el,'text',tid);
+        else selectLayerEl(el);
+      } else {
+        selectLayerEl(el);
+      }
+      // Scroll element into view on canvas
+      el.scrollIntoView({block:'nearest',behavior:'smooth'});
+    };
     panel.appendChild(item);
   });
 }
@@ -1564,6 +1582,10 @@ function selectEl(el, type, id) {
   el.classList.add('selected');
   if(el.dataset&&el.dataset.layerId!==undefined){el.style.outline='1.5px dashed rgba(0,200,150,0.7)';el.style.outlineOffset='2px';}
   showHandles(el);
+  // Highlight in layers panel
+  document.querySelectorAll('.layer-panel-item').forEach(x=>x.classList.remove('active'));
+  const _lid=el.dataset&&el.dataset.layerId;
+  if(_lid){const _item=document.querySelector('.layer-panel-item[data-lid="'+_lid+'"]');if(_item){_item.classList.add('active');_item.scrollIntoView({block:'nearest',behavior:'smooth'});}}
   document.getElementById('rp-empty').style.display='none';
   document.getElementById('rp-text').style.display='none';
   document.getElementById('rp-shape').style.display='none';
