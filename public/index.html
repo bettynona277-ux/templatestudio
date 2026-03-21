@@ -765,8 +765,29 @@ function loadEditorData(data) {
         img.crossOrigin='anonymous';
         el.appendChild(img);
         el.style.cursor='move';
-        // Make img layers draggable by client
-        el.onmousedown=e=>{e.stopPropagation();startDrag(e,el);};
+        // Resize handle
+        const rh=document.createElement('div');
+        rh.style.cssText='position:absolute;bottom:-5px;right:-5px;width:12px;height:12px;background:#00C896;border:2px solid white;border-radius:3px;cursor:nwse-resize;z-index:10;display:none;';
+        el.appendChild(rh);
+        rh.onmousedown=ev=>{
+          ev.stopPropagation();
+          const startX=ev.clientX,startW=el.offsetWidth,startH=el.offsetHeight,ratio=startW/(startH||1);
+          const onMove=mv=>{const dx=(mv.clientX-startX)/zoomLevel;const nw=Math.max(20,startW+dx);el.style.width=nw+'px';el.style.height=Math.round(nw/ratio)+'px';};
+          const onUp=()=>{document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);};
+          document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);ev.preventDefault();
+        };
+        el.onmousedown=ev=>{
+          if(ev.target===rh)return;
+          ev.stopPropagation();
+          document.querySelectorAll('.canvas-text-el').forEach(x=>x.classList.remove('selected'));
+          document.querySelectorAll('[data-layer-id]').forEach(x=>{x.style.outline='none';const r=x.querySelector('[style*="nwse-resize"]');if(r)r.style.display='none';});
+          selectedEl=el;
+          el.style.outline='1.5px dashed rgba(0,200,150,0.7)';
+          el.style.outlineOffset='2px';
+          rh.style.display='block';
+          document.getElementById('rp-empty').style.display='none';
+          startDrag(ev,el);
+        };
       } else if(l.type==='text' && l.tp){
         const tp=l.tp;
         el.style.cursor='move';
@@ -1059,6 +1080,7 @@ function selectEl(el, type, id) {
 }
 
 function deselectAll(e){
+  document.querySelectorAll('[data-layer-id]').forEach(x=>{x.style.outline='none';const r=x.querySelector('[style*="nwse-resize"]');if(r)r.style.display='none';});
   if(e&&e.target!==canvas&&!e.target.classList.contains('canvas-area'))return;
   document.querySelectorAll('.canvas-text-el').forEach(el=>el.classList.remove('selected'));
   selectedEl=null;
