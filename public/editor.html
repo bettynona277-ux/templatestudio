@@ -1020,7 +1020,17 @@ document.addEventListener('mouseup',ev=>{
       marqueeEl.style.display='none';
       if(rw>6&&rh>6){
         const hit=layers.filter(l=>l.visible&&l.x<rx+rw&&l.x+l.w>rx&&l.y<ry+rh&&l.y+l.h>ry).map(l=>l.id);
-        if(hit.length) selMulti(hit);
+        if(hit.length){
+          // Expand hit ids to include full groups
+          const extraFromGroups = [];
+          hit.forEach(id=>{
+            const l=layers.find(x=>x.id===id);
+            if(l?.groupId){
+              layers.filter(x=>x.groupId===l.groupId).forEach(x=>{ if(!hit.includes(x.id)) extraFromGroups.push(x.id); });
+            }
+          });
+          selMulti([...new Set([...hit,...extraFromGroups])]);
+        }
         renderList();
       }
     }
@@ -1054,20 +1064,31 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
 // SELECTION
 function sel(id, additive=false){
   const clickedLayer = layers.find(x=>x.id===id);
-  // If layer belongs to a group, expand to whole group (unless additive shift-click)
-  let ids = [id];
-  if(clickedLayer?.groupId && !additive){
-    ids = layers.filter(l=>l.groupId===clickedLayer.groupId).map(l=>l.id);
+  // Get the ids this click represents (single layer or whole group)
+  let clickedIds = [id];
+  if(clickedLayer?.groupId){
+    // Always expand to whole group (whether additive or not)
+    clickedIds = layers.filter(l=>l.groupId===clickedLayer.groupId).map(l=>l.id);
   }
+
   if(additive){
-    const idx=selIds.indexOf(id);
-    let newIds=[...selIds];
-    if(idx>=0) newIds.splice(idx,1); else newIds.push(id);
+    // Shift+click: toggle this group/layer in current selection
+    const alreadySelected = clickedIds.every(cid => selIds.includes(cid));
+    let newIds;
+    if(alreadySelected){
+      // Remove all these ids from selection
+      newIds = selIds.filter(sid => !clickedIds.includes(sid));
+    } else {
+      // Add all these ids to selection (merge, no duplicates)
+      newIds = [...new Set([...selIds, ...clickedIds])];
+    }
     if(!newIds.length){ desel(); return; }
     selMulti(newIds);
     renderList(); return;
   }
-  selMulti(ids);
+
+  // Normal click: select just this group/layer
+  selMulti(clickedIds);
   renderList();
 }
 function canvasClick(ev){if(ev.target===cvs||ev.target.id==='canvas-area')desel();}
