@@ -59,7 +59,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .dh:active{cursor:grabbing;}
 
 /* CANVAS */
-.canvas-area{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;background:#040408;background-image:radial-gradient(circle,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:20px 20px;position:relative;}
+.canvas-area{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#040408;background-image:radial-gradient(circle,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:20px 20px;position:relative;cursor:default;}
 #cvs{position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 20px 70px rgba(0,0,0,0.8);transform-origin:center center;}
 .cel{position:absolute;cursor:move;user-select:none;}
 .cel.sel{outline:1.5px dashed rgba(0,200,150,0.7);outline-offset:2px;}
@@ -86,7 +86,18 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .z-btn:hover{background:var(--panel2);}
 .z-lbl{font-size:0.7rem;color:var(--muted);min-width:36px;text-align:center;}
 
-/* LOADING OVERLAY */
+/* MULTI-TRANSFORM BOX */
+#multi-box{position:absolute;pointer-events:none;z-index:8000;border:2px solid #00C896;border-radius:3px;display:none;}
+#multi-box .mrh{position:absolute;width:12px;height:12px;background:#fff;border:2px solid #00C896;border-radius:2px;pointer-events:all;z-index:8001;box-shadow:0 1px 4px rgba(0,0,0,0.5);}
+#multi-box .mrh.tl{top:-6px;left:-6px;cursor:nwse-resize;}
+#multi-box .mrh.tr{top:-6px;right:-6px;cursor:nesw-resize;}
+#multi-box .mrh.bl{bottom:-6px;left:-6px;cursor:nesw-resize;}
+#multi-box .mrh.br{bottom:-6px;right:-6px;cursor:nwse-resize;}
+#multi-box .mrh.tm{top:-6px;left:calc(50% - 6px);cursor:ns-resize;}
+#multi-box .mrh.bm{bottom:-6px;left:calc(50% - 6px);cursor:ns-resize;}
+#multi-box .mrh.ml{left:-6px;top:calc(50% - 6px);cursor:ew-resize;}
+#multi-box .mrh.mr{right:-6px;top:calc(50% - 6px);cursor:ew-resize;}
+#multi-box .m-label{position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap;font-family:'Plus Jakarta Sans',sans-serif;}
 .loading{position:absolute;inset:0;background:rgba(8,8,15,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:300;opacity:0;pointer-events:none;transition:opacity 0.25s;}
 .loading.show{opacity:1;pointer-events:all;}
 .spin{width:48px;height:48px;border:3px solid rgba(0,200,150,0.15);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin-bottom:16px;}
@@ -146,6 +157,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
   <div class="btn-row">
     <button class="tbtn tbtn-ghost" id="btn-undo" onclick="undo()" title="Deshacer (Ctrl+Z)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↩</button>
     <button class="tbtn tbtn-ghost" id="btn-redo" onclick="redo()" title="Rehacer (Ctrl+Y)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↪</button>
+    <button class="tbtn tbtn-ghost" onclick="fitAllOutOfBounds()" title="Traer capas fuera del canvas al centro" style="font-size:0.75rem;">🎯 Corregir capas</button>
     <button class="tbtn tbtn-ghost" onclick="history.back()">← Admin</button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">👁 Vista cliente</button>
     <button class="tbtn tbtn-green" id="btn-save" onclick="openSave()">💾 Guardar plantilla</button>
@@ -174,7 +186,19 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 
   <!-- CANVAS -->
   <div class="canvas-area" id="canvas-area" onclick="canvasClick(event)">
-    <div id="cvs" style="width:800px;height:800px;background:#0a0a1a;"></div>
+    <div id="cvs" style="width:800px;height:800px;background:#0a0a1a;">
+      <div id="multi-box">
+        <div class="m-label" id="multi-label"></div>
+        <div class="mrh tl" id="mrh-tl"></div>
+        <div class="mrh tr" id="mrh-tr"></div>
+        <div class="mrh bl" id="mrh-bl"></div>
+        <div class="mrh br" id="mrh-br"></div>
+        <div class="mrh tm" id="mrh-tm"></div>
+        <div class="mrh bm" id="mrh-bm"></div>
+        <div class="mrh ml" id="mrh-ml"></div>
+        <div class="mrh mr" id="mrh-mr"></div>
+      </div>
+    </div>
     <div class="loading" id="loading">
       <div class="spin"></div>
       <div class="load-text" id="load-text">Procesando PSD...</div>
@@ -269,6 +293,9 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
         <button class="la-btn" onclick="alignLayers('canvas-center-h')" title="Centrar en lienzo H" style="font-size:0.62rem;">↔ Lienzo</button>
         <button class="la-btn" onclick="alignLayers('canvas-center-v')" title="Centrar en lienzo V" style="font-size:0.62rem;">↕ Lienzo</button>
       </div>
+      <div style="margin-bottom:4px;">
+        <button class="la-btn" style="width:100%;font-size:0.62rem;color:var(--accent2);border-color:rgba(255,107,107,0.2);" onclick="selId!==null&&fitLayerToCanvas(selId)" title="Escala y centra esta capa dentro del canvas">🎯 Traer al canvas</button>
+      </div>
       <div class="pp-lbl" style="margin-top:8px;">Distribuir (3+ capas)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-bottom:4px;">
         <button class="la-btn" onclick="alignLayers('dist-h')" title="Espaciar horizontal" style="font-size:0.62rem;">↔ Esp.</button>
@@ -349,37 +376,81 @@ let isMultiDrag=false;
 function getSelLayer(){ return layers.find(x=>x.id===selId); }
 
 function selMulti(ids){
-  // Deselect all first
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   selIds = ids;
-  if(ids.length===1){
-    selId=ids[0];
-  } else {
-    selId=null;
-  }
+  selId = ids.length===1 ? ids[0] : null;
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id);
-    if(l?.el){ l.el.classList.add('sel'); }
+    if(l?.el) l.el.classList.add('sel');
     document.getElementById('li-'+id)?.classList.add('selected');
   });
-  // Show/hide props panel
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     document.getElementById('pp-empty').style.display='none';
     document.getElementById('pp-el').style.display='block';
     document.getElementById('pp-txt').style.display=l?.type==='text'?'block':'none';
     syncP();
+    hideMultiBox();
   } else if(ids.length>1){
     document.getElementById('pp-empty').style.display='none';
     document.getElementById('pp-el').style.display='block';
     document.getElementById('pp-txt').style.display='none';
-    // Show group size hint in props
+    updateMultiBox();
   } else {
     document.getElementById('pp-empty').style.display='block';
     document.getElementById('pp-el').style.display='none';
+    hideMultiBox();
   }
 }
+
+// ── MULTI-TRANSFORM BOX ───────────────────────────────────────
+let isMultiRes=false;
+let mResSt={};  // {c, mx,my, box:{x,y,w,h}, layers:[{id,x,y,w,h}]}
+
+function getMultiBounds(ids){
+  const ls_=ids.map(id=>layers.find(x=>x.id===id)).filter(Boolean);
+  if(!ls_.length) return null;
+  const minX=Math.min(...ls_.map(l=>l.x)), minY=Math.min(...ls_.map(l=>l.y));
+  const maxX=Math.max(...ls_.map(l=>l.x+l.w)), maxY=Math.max(...ls_.map(l=>l.y+l.h));
+  return {x:minX, y:minY, w:maxX-minX, h:maxY-minY};
+}
+
+function updateMultiBox(){
+  if(selIds.length<2){ hideMultiBox(); return; }
+  const b=getMultiBounds(selIds); if(!b) return;
+  const mb=document.getElementById('multi-box');
+  mb.style.display='block';
+  mb.style.left=(b.x-4)+'px'; mb.style.top=(b.y-4)+'px';
+  mb.style.width=(b.w+8)+'px'; mb.style.height=(b.h+8)+'px';
+  const lbl=document.getElementById('multi-label');
+  if(lbl) lbl.textContent=`${selIds.length} capas · ${Math.round(b.w)}×${Math.round(b.h)}`;
+}
+
+function hideMultiBox(){
+  document.getElementById('multi-box').style.display='none';
+}
+
+// Hook multi-box handles
+document.addEventListener('DOMContentLoaded',()=>{
+  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(c=>{
+    const h=document.getElementById('mrh-'+c);
+    if(h) h.addEventListener('mousedown',ev=>{
+      ev.stopPropagation(); ev.preventDefault();
+      const b=getMultiBounds(selIds); if(!b) return;
+      isMultiRes=true;
+      mResSt={
+        c, mx:ev.clientX, my:ev.clientY,
+        box:{...b},
+        ratio: b.w/(b.h||1),
+        layers: selIds.map(id=>{
+          const l=layers.find(x=>x.id===id);
+          return {id, x:l.x, y:l.y, w:l.w, h:l.h, fs:l.tp?l.tp.fontSize:0};
+        })
+      };
+    });
+  });
+});
 
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
@@ -534,7 +605,36 @@ function alignLayers(type){
   syncP();
   snapshotState();
 }
-const CLOUDINARY_CLOUD = 'dwqtksxrp';
+
+// ── FIT OUT-OF-BOUNDS LAYERS ──────────────────────────────────
+function fitLayerToCanvas(id){
+  const l=layers.find(x=>x.id===id); if(!l?.el) return;
+  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  // Scale down if bigger than canvas
+  if(l.w > cw || l.h > ch){
+    const s=Math.min(cw*0.95/l.w, ch*0.95/l.h);
+    l.w=Math.round(l.w*s); l.h=Math.round(l.h*s);
+    l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
+    if(l.tp){ l.tp.fontSize=Math.max(6,Math.round(l.tp.fontSize*s)); const d=document.getElementById('ti-'+l.id); if(d)d.style.fontSize=l.tp.fontSize+'px'; }
+  }
+  // Center on canvas
+  l.x=Math.round((cw-l.w)/2); l.y=Math.round((ch-l.h)/2);
+  l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+  sel(id); syncP(); renderList(); snapshotState();
+  showToast('✓ Capa centrada en canvas');
+}
+
+function fitAllOutOfBounds(){
+  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  let fixed=0;
+  layers.forEach(l=>{
+    if(!l.el) return;
+    const out = l.x+l.w < 0 || l.y+l.h < 0 || l.x > cw || l.y > ch;
+    if(out){ fitLayerToCanvas(l.id); fixed++; }
+  });
+  if(fixed) showToast(`✓ ${fixed} capa(s) corregidas`);
+  else showToast('Todo dentro del canvas 👍');
+}
 const CLOUDINARY_PRESET = 'templatestudio';
 
 async function initFB(){
@@ -831,6 +931,34 @@ document.addEventListener('mousemove',ev=>{
     if(marqueeEl){ marqueeEl.style.left=rx+'px'; marqueeEl.style.top=ry+'px'; marqueeEl.style.width=rw+'px'; marqueeEl.style.height=rh+'px'; }
     return;
   }
+  if(isMultiRes){
+    const dx=(ev.clientX-mResSt.mx)/zoom_, dy=(ev.clientY-mResSt.my)/zoom_;
+    const {c, box, ratio, layers:snap}=mResSt;
+    let nb={...box};
+    const lock=ev.shiftKey;
+    if(c==='br'){ nb.w=Math.max(20,box.w+dx); nb.h=lock?nb.w/ratio:Math.max(20,box.h+dy); }
+    else if(c==='bl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=lock?nb.w/ratio:Math.max(20,box.h+dy); }
+    else if(c==='tr'){ nb.w=Math.max(20,box.w+dx); nb.h=lock?nb.w/ratio:Math.max(20,box.h-dy); nb.y=box.y+box.h-nb.h; }
+    else if(c==='tl'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; nb.h=lock?nb.w/ratio:Math.max(20,box.h-dy); nb.y=box.y+box.h-nb.h; }
+    else if(c==='mr'){ nb.w=Math.max(20,box.w+dx); }
+    else if(c==='ml'){ nb.w=Math.max(20,box.w-dx); nb.x=box.x+box.w-nb.w; }
+    else if(c==='bm'){ nb.h=Math.max(20,box.h+dy); }
+    else if(c==='tm'){ nb.h=Math.max(20,box.h-dy); nb.y=box.y+box.h-nb.h; }
+    const sx=nb.w/box.w, sy=nb.h/box.h;
+    snap.forEach(({id,x,y,w,h,fs})=>{
+      const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
+      l.x=Math.round(nb.x+(x-box.x)*sx);
+      l.y=Math.round(nb.y+(y-box.y)*sy);
+      l.w=Math.max(8,Math.round(w*sx));
+      l.h=Math.max(8,Math.round(h*sy));
+      l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+      l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
+      if(l.tp&&fs){ l.tp.fontSize=Math.max(6,Math.round(fs*sx)); const d=document.getElementById('ti-'+l.id); if(d)d.style.fontSize=l.tp.fontSize+'px'; }
+      const sh=document.getElementById('sh-'+l.id); if(sh)sh.textContent=`${l.w}×${l.h}`;
+    });
+    updateMultiBox();
+    return;
+  }
   if(isDrag){
     const cr=cvs.getBoundingClientRect();
     const mx=(ev.clientX-cr.left)/zoom_, my=(ev.clientY-cr.top)/zoom_;
@@ -841,7 +969,7 @@ document.addEventListener('mousemove',ev=>{
         l.x=Math.round(x+dx); l.y=Math.round(y+dy);
         l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
       });
-      syncP(); return;
+      updateMultiBox(); syncP(); return;
     }
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
     l.x=Math.round(mx-dOff.x); l.y=Math.round(my-dOff.y);
@@ -891,7 +1019,8 @@ document.addEventListener('mouseup',ev=>{
     }
     return;
   }
-  if(isDrag || isRes) snapshotState();  // snapshot after each move/resize
+  if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
+  if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; rSt={};
 });
 
@@ -917,8 +1046,13 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
 
 // SELECTION
 function sel(id, additive=false){
+  const clickedLayer = layers.find(x=>x.id===id);
+  // If layer belongs to a group, expand to whole group (unless additive shift-click)
+  let ids = [id];
+  if(clickedLayer?.groupId && !additive){
+    ids = layers.filter(l=>l.groupId===clickedLayer.groupId).map(l=>l.id);
+  }
   if(additive){
-    // Shift+click: toggle this id in selIds
     const idx=selIds.indexOf(id);
     let newIds=[...selIds];
     if(idx>=0) newIds.splice(idx,1); else newIds.push(id);
@@ -926,7 +1060,7 @@ function sel(id, additive=false){
     selMulti(newIds);
     renderList(); return;
   }
-  selMulti([id]);
+  selMulti(ids);
   renderList();
 }
 function canvasClick(ev){if(ev.target===cvs||ev.target.id==='canvas-area')desel();}
@@ -944,6 +1078,7 @@ function desel(){
   selId=null; selIds=[];
   document.getElementById('pp-empty').style.display='block';
   document.getElementById('pp-el').style.display='none';
+  hideMultiBox();
 }
 function syncP(){
   const l=layers.find(x=>x.id===selId);if(!l)return;
@@ -1013,8 +1148,11 @@ function renderList(){
     li.className=`layer-item ${l.type==='text'?'text-l':'img-l'}${!l.visible?' hidden-l':''}${selId===l.id?' selected':''}`;
     li.id='li-'+l.id;li.draggable=true;
     const th=l.type==='img'&&l.src?`<img class="l-thumb" src="${l.src}">`:`<div class="l-thumb-t">${l.type==='text'?'T':'?'}</div>`;
+    const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+    const outOfBounds = l.x+l.w < 0 || l.y+l.h < 0 || l.x > cw || l.y > ch;
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(79,142,247,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}</div><div class="l-meta">${l.type==='img'?'Imagen':'Texto'} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${l.type==='img'?'Imagen':'Texto'} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
@@ -1048,7 +1186,36 @@ function applyCanvasSize(){
 // ZOOM
 function doZoom(d){zoom_=Math.min(3,Math.max(0.05,zoom_+d));cvs.style.transform=`scale(${zoom_})`;document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';}
 
-// Ctrl+wheel or plain wheel zoom on canvas area
+// ── PAN (middle mouse or Space+drag) ─────────────────────────
+let isPan=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
+let spaceDown=false;
+let canvasOffset={x:0,y:0};
+
+document.addEventListener('keydown',ev=>{ if(ev.code==='Space'&&document.activeElement?.contentEditable!=='true'){ spaceDown=true; document.getElementById('canvas-area').style.cursor='grab'; ev.preventDefault(); }});
+document.addEventListener('keyup',ev=>{ if(ev.code==='Space'){ spaceDown=false; document.getElementById('canvas-area').style.cursor=''; }});
+
+document.getElementById('canvas-area').addEventListener('mousedown',ev=>{
+  if(ev.button===1||(ev.button===0&&spaceDown)){
+    isPan=true;
+    panStart={x:ev.clientX, y:ev.clientY};
+    panOrigin={x:canvasOffset.x, y:canvasOffset.y};
+    document.getElementById('canvas-area').style.cursor='grabbing';
+    ev.preventDefault();
+  }
+});
+document.addEventListener('mousemove',ev2=>{
+  if(isPan){
+    canvasOffset.x=panOrigin.x+(ev2.clientX-panStart.x);
+    canvasOffset.y=panOrigin.y+(ev2.clientY-panStart.y);
+    cvs.style.marginLeft=canvasOffset.x+'px';
+    cvs.style.marginTop=canvasOffset.y+'px';
+  }
+});
+document.addEventListener('mouseup',ev2=>{
+  if(isPan){ isPan=false; document.getElementById('canvas-area').style.cursor=spaceDown?'grab':''; }
+});
+
+// Ctrl+wheel zoom
 document.getElementById('canvas-area').addEventListener('wheel',ev=>{
   if(!ev.ctrlKey) return;
   ev.preventDefault();
