@@ -601,6 +601,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
     <div class="editor-topbar-left">
       <button class="back-btn" onclick="exitEditor()">← Volver</button>
       <span class="editor-name" id="editor-design-name">Nuevo diseño</span>
+      <span id="autosave-indicator" style="font-size:0.68rem;color:var(--muted);margin-left:4px;"></span>
     </div>
     <div class="editor-topbar-right">
       <button class="etbtn etbtn-ghost" onclick="openSaveModal()">💾 Guardar</button>
@@ -878,6 +879,7 @@ function showScreen(id) {
 }
 
 async function showDashboard() {
+  stopAutosave(); // stop autosave when leaving editor
   showScreen('client');
   const phone = currentUser.email.replace('@ts.app','');
   document.getElementById('topbar-phone').textContent = '+51 ' + phone;
@@ -1051,6 +1053,7 @@ function openEditorBlank() {
   canvas.style.background='linear-gradient(135deg,#0a0a2e,#1a0a3d)';
   addBuiltinLogos();
   showScreen('editor');
+  startAutosave();
 }
 
 async function openEditorDesign(id) {
@@ -1063,6 +1066,7 @@ async function openEditorDesign(id) {
     document.getElementById('editor-design-name').textContent = editingDesignName;
     loadEditorData(d.data);
     showScreen('editor');
+    startAutosave();
   } catch(e) { alert('Error: '+e.message); }
 }
 
@@ -1076,6 +1080,7 @@ async function openEditorFromTemplate(tplId) {
     document.getElementById('editor-design-name').textContent = 'Basado en: ' + d.name;
     loadEditorData(d.template);
     showScreen('editor');
+    startAutosave();
   } catch(e) { alert('Error: '+e.message); }
 }
 
@@ -1864,12 +1869,156 @@ function toggleTheme(){
   document.getElementById('theme-btn').textContent=isDark?'🌙':'☀️';
   localStorage.setItem('ts_theme',isDark?'light':'dark');
 }
+// Check for unsaved backup on load
+window.addEventListener('load', ()=>setTimeout(checkAutosaveBackup, 2000));
+
 // Load saved theme
 (function(){
   const t=localStorage.getItem('ts_theme')||'light';
   document.documentElement.setAttribute('data-theme',t);
   setTimeout(()=>{const b=document.getElementById('theme-btn');if(b)b.textContent=t==='dark'?'☀️':'🌙';},0);
 })();
+// ================================================================
+// AUTOSAVE
+// ================================================================
+let autosaveTimer = null;
+let lastSavedData = '';
+let autosaveStatus = null;
+
+function getAutosaveStatusEl(){
+  if(!autosaveStatus){
+    autosaveStatus = document.createElement('div');
+    autosaveStatus.id = 'autosave-status';
+    autosaveStatus.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:8px 14px;border-radius:100px;font-size:0.72rem;font-weight:600;font-family:Inter,sans-serif;z-index:1000;opacity:0;transition:opacity 0.4s;pointer-events:none;';
+    document.body.appendChild(autosaveStatus);
+  }
+  return autosaveStatus;
+}
+
+function showAutosaveMsg(msg, color){
+  const el = getAutosaveStatusEl();
+  el.textContent = msg;
+  el.style.background = color === 'ok' ? '#00c896' : color === 'err' ? '#ff5c7a' : '#7c5cfc';
+  el.style.color = '#fff';
+  el.style.boxShadow = '0 2px 12px rgba(0,0,0,0.2)';
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+async function autoSave(){
+  // Only autosave if in editor screen and user has a design loaded
+  const editorScreen = document.getElementById('screen-editor');
+  if(!editorScreen || !editorScreen.classList.contains('active')) return;
+  if(!currentUser || !fbDb) return;
+
+  try {
+    const data = serializeEditor();
+    const dataStr = JSON.stringify(data);
+    
+    // Skip if nothing changed
+    if(dataStr === lastSavedData) return;
+    lastSavedData = dataStr;
+
+    const saveData = {
+      uid: currentUser.uid,
+      updatedAt: Date.now(),
+      data: data,
+    };
+
+    if(currentDesignId){
+      // Update existing design
+      await fbDb.collection('user_designs').doc(currentDesignId).update(saveData);
+    } else {
+      // Create new design with auto name
+      saveData.name = editingDesignName || 'Diseño ' + new Date().toLocaleDateString('es-PE');
+      saveData.createdAt = Date.now();
+      saveData.thumb = '';
+      const ref = await fbDb.collection('user_designs').add(saveData);
+      currentDesignId = ref.id;
+    }
+    showAutosaveMsg('✓ Guardado automáticamente', 'ok');
+  } catch(e){
+    // If offline, save to localStorage as backup
+    try {
+      localStorage.setItem('ts_autosave_backup', JSON.stringify({
+        designId: currentDesignId,
+        name: editingDesignName,
+        data: serializeEditor(),
+        savedAt: Date.now()
+      }));
+      showAutosaveMsg('📶 Sin conexión — guardado local', 'warn');
+    } catch(le){ /* storage full */ }
+  }
+}
+
+function startAutosave(){
+  stopAutosave();
+  // Autosave every 30 seconds
+  autosaveTimer = setInterval(autoSave, 30000);
+  // Also save after 3 seconds of inactivity (debounced)
+  setupActivityAutosave();
+}
+
+function stopAutosave(){
+  if(autosaveTimer){ clearInterval(autosaveTimer); autosaveTimer = null; }
+}
+
+let activityTimer = null;
+function setupActivityAutosave(){
+  const canvas = document.getElementById('design-canvas');
+  if(!canvas) return;
+  const trigger = () => {
+    clearTimeout(activityTimer);
+    activityTimer = setTimeout(autoSave, 5000); // 5s after last change
+  };
+  canvas.addEventListener('mouseup', trigger);
+  canvas.addEventListener('keyup', trigger);
+}
+
+// Save before closing tab
+window.addEventListener('beforeunload', (e) => {
+  const editorScreen = document.getElementById('screen-editor');
+  if(editorScreen && editorScreen.classList.contains('active')){
+    // Try sync save to localStorage as last resort
+    try {
+      localStorage.setItem('ts_autosave_backup', JSON.stringify({
+        designId: currentDesignId,
+        name: editingDesignName || 'Sin nombre',
+        data: serializeEditor(),
+        savedAt: Date.now()
+      }));
+    } catch(e){}
+    // Trigger async cloud save (may not complete but worth trying)
+    autoSave();
+  }
+});
+
+// Restore from backup if available
+function checkAutosaveBackup(){
+  const backup = localStorage.getItem('ts_autosave_backup');
+  if(!backup) return;
+  try {
+    const b = JSON.parse(backup);
+    const age = Date.now() - b.savedAt;
+    // Only offer restore if backup is less than 24 hours old
+    if(age < 24 * 60 * 60 * 1000 && b.data){
+      const mins = Math.round(age / 60000);
+      const msg = `Hay un diseño guardado localmente hace ${mins < 1 ? 'menos de 1' : mins} minuto${mins !== 1 ? 's' : ''}. ¿Restaurarlo?`;
+      if(confirm(msg)){
+        currentDesignId = b.designId || null;
+        editingDesignName = b.name || '';
+        document.getElementById('editor-design-name').textContent = b.name || 'Diseño recuperado';
+        loadEditorData(b.data);
+        showScreen('editor');
+        startAutosave();
+        localStorage.removeItem('ts_autosave_backup');
+      } else {
+        localStorage.removeItem('ts_autosave_backup');
+      }
+    }
+  } catch(e){ localStorage.removeItem('ts_autosave_backup'); }
+}
+
 function applyFontNow(fontValue){
   if(!selectedEl) { console.warn('No element selected'); return; }
   // Find ALL text divs inside selected element
