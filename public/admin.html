@@ -267,11 +267,12 @@ service cloud.firestore {
     <!-- ======= TEMPLATES ======= -->
     <div class="section" id="section-templates">
       <div class="page-title">📦 Mis Plantillas</div>
-      <div class="page-sub">Las plantillas que publiques aquí aparecerán para todos tus clientes al iniciar sesión.</div>
+      <div class="page-sub">Los <strong style="color:#F5C842">borradores</strong> son privados. Las <strong style="color:var(--accent)">publicadas</strong> las ven tus clientes al iniciar sesión.</div>
 
-      <div style="display:flex;gap:12px;margin-bottom:20px;">
+      <div style="display:flex;gap:12px;margin-bottom:20px;align-items:center;">
         <a href="editor.html" target="_blank"><button class="btn btn-green">+ Crear nueva plantilla</button></a>
         <button class="btn btn-ghost" onclick="loadTemplates()">↺ Recargar</button>
+        <div class="status-msg" id="templates-status" style="margin:0;flex:1;display:none;"></div>
       </div>
 
       <div id="templates-grid-admin" class="tpl-grid">
@@ -435,13 +436,33 @@ async function loadTemplates(){
     if(snap.empty){grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);font-size:0.82rem;">No tienes plantillas. Usa el editor para crear y guardar una.</div>';return;}
     snap.forEach(doc=>{
       const d=doc.data();
-      const date=new Date(d.createdAt||0).toLocaleDateString('es-PE');
+      const date=new Date(d.updatedAt||0).toLocaleDateString('es-PE');
+      const isDraft = d.status==='draft' || !d.status; // treat missing status as draft for safety? No — missing = published (backward compat)
+      const isActualDraft = d.status==='draft';
       const card=document.createElement('div');card.className='tpl-card';
       const thumb=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-ph">🎨</div>`;
-      card.innerHTML=`${thumb}<div class="tpl-info"><div class="tpl-name">${d.name}</div><div class="tpl-date">${date}</div><div class="tpl-actions"><button style="background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);" onclick="editTemplate('${doc.id}')">✏ Editar</button><button style="background:rgba(255,107,107,0.08);color:var(--accent2);border:1px solid rgba(255,107,107,0.15);" onclick="deleteTpl('${doc.id}',this)">🗑</button></div></div>`;
+      const draftBadge=isActualDraft?`<div style="position:absolute;top:8px;left:8px;background:rgba(245,200,66,0.9);color:#000;font-size:0.62rem;font-weight:800;padding:2px 8px;border-radius:100px;">📁 BORRADOR</div>`:'';
+      card.style.position='relative';
+      card.innerHTML=`<div style="position:relative;">${thumb}${draftBadge}</div><div class="tpl-info"><div class="tpl-name">${d.name}</div><div class="tpl-date">${date}</div><div class="tpl-actions">
+        <button style="background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);" onclick="editTemplate('${doc.id}')">✏ Editar</button>
+        ${isActualDraft?`<button style="background:rgba(245,200,66,0.1);color:#F5C842;border:1px solid rgba(245,200,66,0.2);" onclick="publishTemplate('${doc.id}',this)">🚀 Publicar</button>`:`<button style="background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.2);" onclick="draftTemplate('${doc.id}',this)">📁 A borrador</button>`}
+        <button style="background:rgba(255,107,107,0.08);color:var(--accent2);border:1px solid rgba(255,107,107,0.15);" onclick="deleteTpl('${doc.id}',this)">🗑</button>
+      </div></div>`;
       grid.appendChild(card);
     });
   }catch(e){grid.innerHTML=`<div style="grid-column:1/-1;color:var(--accent2);padding:20px;">Error: ${e.message}</div>`;}
+}
+
+async function publishTemplate(id,btn){
+  btn.textContent='...';btn.disabled=true;
+  try{ await fbDb.collection('templates').doc(id).update({status:'published',updatedAt:Date.now()}); loadTemplates(); showStatus('templates-status','✓ Plantilla publicada','ok'); }
+  catch(e){ alert('Error: '+e.message); btn.textContent='🚀 Publicar'; btn.disabled=false; }
+}
+async function draftTemplate(id,btn){
+  if(!confirm('¿Pasar a borrador? Los clientes dejarán de verla.'))return;
+  btn.textContent='...';btn.disabled=true;
+  try{ await fbDb.collection('templates').doc(id).update({status:'draft',updatedAt:Date.now()}); loadTemplates(); showStatus('templates-status','📁 Guardada como borrador','ok'); }
+  catch(e){ alert('Error: '+e.message); btn.textContent='📁 A borrador'; btn.disabled=false; }
 }
 
 function editTemplate(id){window.open('editor.html?tpl='+id,'_blank');}
