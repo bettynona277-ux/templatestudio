@@ -543,13 +543,20 @@ function groupSelected(){
 }
 
 function ungroupSelected(){
-  // Find groups from selIds
-  const gids = new Set(selIds.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean));
+  // Collect all groupIds from currently selected layers OR all groups if nothing selected
+  let targetIds = selIds.length > 0 ? selIds : layers.map(l=>l.id);
+  const gids = new Set(targetIds.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean));
+
+  if(gids.size === 0){ showToast('No hay grupos en la selección'); return; }
+
+  // Remove groupId from ALL layers that belong to any of these groups
+  // (not just the selected ones — dissolve the whole group)
   gids.forEach(gid=>{
-    (groups[gid]||[]).forEach(id=>{ const l=layers.find(x=>x.id===id); if(l) delete l.groupId; });
+    layers.forEach(l=>{ if(l.groupId===gid) delete l.groupId; });
     delete groups[gid];
   });
-  showToast('Grupo disuelto');
+
+  showToast(`✦ ${gids.size} grupo(s) disuelto(s)`);
   renderList();
   snapshotState();
 }
@@ -563,50 +570,93 @@ function selectGroup(gid){
 // ── ALIGNMENT ────────────────────────────────────────────────
 function alignLayers(type){
   const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
-  if(ids.length<2 && !['left','center','right','top','middle','bottom'].includes(type)) return;
   if(!ids.length) return;
-  const ls_ = ids.map(id=>layers.find(x=>x.id===id)).filter(Boolean);
 
   const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
-  // Bounding box of selection
-  const minX=Math.min(...ls_.map(l=>l.x)), minY=Math.min(...ls_.map(l=>l.y));
-  const maxX=Math.max(...ls_.map(l=>l.x+l.w)), maxY=Math.max(...ls_.map(l=>l.y+l.h));
-  const selW=maxX-minX, selH=maxY-minY;
 
-  ls_.forEach(l=>{
-    if(type==='left')      l.x=minX;
-    else if(type==='right') l.x=maxX-l.w;
-    else if(type==='center') l.x=Math.round(minX+(selW-l.w)/2);
-    else if(type==='top')   l.y=minY;
-    else if(type==='bottom') l.y=maxY-l.h;
-    else if(type==='middle') l.y=Math.round(minY+(selH-l.h)/2);
-    else if(type==='canvas-center-h') l.x=Math.round((cw-l.w)/2);
-    else if(type==='canvas-center-v') l.y=Math.round((ch-l.h)/2);
-    if(l.el){ l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; }
+  // ── Build "units": each group counts as ONE unit, loose layers each count as one unit
+  const seenGroups = new Set();
+  const units = []; // [{gid|null, layerIds[], x, y, w, h}]
+
+  ids.forEach(id=>{
+    const l = layers.find(x=>x.id===id); if(!l) return;
+    if(l.groupId){
+      if(seenGroups.has(l.groupId)) return; // already added this group
+      seenGroups.add(l.groupId);
+      // All layers of this group that are in selection
+      const gLayers = layers.filter(x=>x.groupId===l.groupId && ids.includes(x.id));
+      const ux = Math.min(...gLayers.map(x=>x.x));
+      const uy = Math.min(...gLayers.map(x=>x.y));
+      const ux2= Math.max(...gLayers.map(x=>x.x+x.w));
+      const uy2= Math.max(...gLayers.map(x=>x.y+x.h));
+      units.push({ gid:l.groupId, layerIds:gLayers.map(x=>x.id), x:ux, y:uy, w:ux2-ux, h:uy2-uy });
+    } else {
+      units.push({ gid:null, layerIds:[id], x:l.x, y:l.y, w:l.w, h:l.h });
+    }
   });
 
-  // Distribute spacing
-  if(type==='dist-h' && ls_.length>=3){
-    const sorted=[...ls_].sort((a,b)=>a.x-b.x);
-    const totalW=sorted.reduce((s,l)=>s+l.w,0);
+  if(units.length === 0) return;
+
+  // Bounding box of all units together
+  const minX = Math.min(...units.map(u=>u.x));
+  const minY = Math.min(...units.map(u=>u.y));
+  const maxX = Math.max(...units.map(u=>u.x+u.w));
+  const maxY = Math.max(...units.map(u=>u.y+u.h));
+  const selW = maxX-minX, selH = maxY-minY;
+
+  // Move all layers in a unit by (dx, dy)
+  function moveUnit(unit, dx, dy){
+    unit.layerIds.forEach(id=>{
+      const l=layers.find(x=>x.id===id); if(!l?.el) return;
+      l.x=Math.round(l.x+dx); l.y=Math.round(l.y+dy);
+      l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+    });
+    unit.x+=dx; unit.y+=dy; // update unit coords too (needed for dist)
+  }
+
+  // Apply alignment to each unit
+  units.forEach(u=>{
+    let dx=0, dy=0;
+    if(type==='left')       dx = minX - u.x;
+    else if(type==='right') dx = (maxX - u.w) - u.x;
+    else if(type==='center')dx = (minX + (selW-u.w)/2) - u.x;
+    else if(type==='top')   dy = minY - u.y;
+    else if(type==='bottom')dy = (maxY - u.h) - u.y;
+    else if(type==='middle')dy = (minY + (selH-u.h)/2) - u.y;
+    else if(type==='canvas-center-h') dx = Math.round((cw-u.w)/2) - u.x;
+    else if(type==='canvas-center-v') dy = Math.round((ch-u.h)/2) - u.y;
+    if(dx!==0||dy!==0) moveUnit(u,dx,dy);
+  });
+
+  // Distribute spacing (3+ units)
+  if(type==='dist-h' && units.length>=3){
+    const sorted=[...units].sort((a,b)=>a.x-b.x);
+    const totalW=sorted.reduce((s,u)=>s+u.w,0);
     const gap=(sorted[sorted.length-1].x+sorted[sorted.length-1].w - sorted[0].x - totalW)/(sorted.length-1);
     let cx=sorted[0].x+sorted[0].w;
-    for(let i=1;i<sorted.length-1;i++){ sorted[i].x=Math.round(cx+gap); cx=sorted[i].x+sorted[i].w; if(sorted[i].el)sorted[i].el.style.left=sorted[i].x+'px'; }
+    for(let i=1;i<sorted.length-1;i++){
+      moveUnit(sorted[i], Math.round(cx+gap)-sorted[i].x, 0);
+      cx=sorted[i].x+sorted[i].w;
+    }
   }
-  if(type==='dist-v' && ls_.length>=3){
-    const sorted=[...ls_].sort((a,b)=>a.y-b.y);
-    const totalH=sorted.reduce((s,l)=>s+l.h,0);
+  if(type==='dist-v' && units.length>=3){
+    const sorted=[...units].sort((a,b)=>a.y-b.y);
+    const totalH=sorted.reduce((s,u)=>s+u.h,0);
     const gap=(sorted[sorted.length-1].y+sorted[sorted.length-1].h - sorted[0].y - totalH)/(sorted.length-1);
     let cy=sorted[0].y+sorted[0].h;
-    for(let i=1;i<sorted.length-1;i++){ sorted[i].y=Math.round(cy+gap); cy=sorted[i].y+sorted[i].h; if(sorted[i].el)sorted[i].el.style.top=sorted[i].y+'px'; }
+    for(let i=1;i<sorted.length-1;i++){
+      moveUnit(sorted[i], 0, Math.round(cy+gap)-sorted[i].y);
+      cy=sorted[i].y+sorted[i].h;
+    }
   }
-  // Sort in row (by X) keeping Y of first
   if(type==='sort-row'){
-    const sorted=[...ls_].sort((a,b)=>a.x-b.x);
+    const sorted=[...units].sort((a,b)=>a.x-b.x);
     const spacing=12;
     let cx=sorted[0].x;
-    sorted.forEach(l=>{ l.x=cx; cx+=l.w+spacing; if(l.el)l.el.style.left=l.x+'px'; });
+    sorted.forEach(u=>{ moveUnit(u, cx-u.x, 0); cx+=u.w+spacing; });
   }
+
+  updateMultiBox();
   syncP();
   snapshotState();
 }
