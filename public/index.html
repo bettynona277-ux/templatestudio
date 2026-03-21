@@ -1199,18 +1199,51 @@ function loadEditorData(data) {
   // ── Formato legacy del cliente ──
   canvas.style.background=data.canvasBg||'#0a0a1a';
   if(data.baseImgSrc){const bi=document.getElementById('base-img');bi.src=data.baseImgSrc;bi.style.display='block';}
-  // Restore psd image layers if saved
+  // Restore psd layers (images and texts) from saved design
   (data.psdLayers||[]).forEach(l=>{
+    const lid='saved-'+Date.now()+'-'+Math.random();
     const el=document.createElement('div');
     el.style.cssText=`position:absolute;left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};opacity:${l.opacity??1};cursor:move;`;
-    el.dataset.layerId='saved-'+Date.now()+'-'+Math.random();
-    el.dataset.layerName=l.name||'Imagen';
-    el.dataset.layerType='img';
-    const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
-    img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
-    el.appendChild(img);
-    makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
-    el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
+    el.dataset.layerId=lid;
+    el.dataset.layerName=l.name||'Capa';
+
+    if(l.type==='text-layer'){
+      el.dataset.layerType='text';
+      el.className='canvas-text-el';
+      const tid=textIdC++;
+      el.id='t-'+tid;
+      const inner=document.createElement('div');
+      inner.id='ti-'+tid;
+      inner.style.cssText=`font-family:${l.fontFamily||"'Inter'"};font-size:${l.fontSize||'24px'};font-weight:${l.fontWeight||'400'};color:${l.color||'#fff'};text-align:${l.textAlign||'left'};width:100%;outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;pointer-events:none;`;
+      inner.textContent=l.text||'';
+      inner.onblur=()=>{inner.style.pointerEvents='none';const t=textEls.find(x=>x.id===tid);if(t)t.current=inner.textContent;};
+      el.appendChild(inner);
+      const t={id:tid,x:l.x,y:l.y,w:l.w,text:l.text||'',font:l.fontFamily,size:parseInt(l.fontSize)||24,weight:l.fontWeight,color:l.color,align:l.textAlign,current:l.text||''};
+      textEls.push(t);
+      const rh=document.createElement('div');rh.className='t-resize';
+      rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,tid);};
+      el.appendChild(rh);
+      makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{
+        el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';
+        const origFs=parseInt(l.fontSize)||24;
+        const newFs=Math.max(8,Math.round(origFs*(nw/(l.w||200))));
+        inner.style.fontSize=newFs+'px';
+        const tx=textEls.find(x=>x.id===tid);if(tx){tx.w=Math.round(nw);tx.size=newFs;}
+      });
+      el.ondblclick=ev=>{ev.stopPropagation();inner.style.pointerEvents='auto';inner.contentEditable='true';inner.focus();el.style.outline='2px solid var(--accent)';};
+      el.onmousedown=ev=>{
+        if(ev.target.classList.contains('layer-handle')||ev.target.className==='t-resize')return;
+        if(document.activeElement===inner)return;
+        ev.stopPropagation();selectEl(el,'text',tid);showHandles(el);startDrag(ev,el);
+      };
+    } else {
+      el.dataset.layerType='img';
+      const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
+      img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
+      el.appendChild(img);
+      makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
+      el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
+    }
     canvas.appendChild(el);
   });
   (data.zones||[]).forEach(z=>{zoneIdC=Math.max(zoneIdC,z.id+1);_addZone(z);});
@@ -1579,12 +1612,11 @@ function updateTextContent(val){
 }
 function updateTextStyle(prop,val){
   if(!selectedEl)return;
-  // Support both canvas-text-el (id='t-N') and psd text layers (id='t-N' via canvas-text-el class)
-  const rawId=selectedEl.id.replace('t-','');
+  const rawId=(selectedEl.id||'').replace('t-','');
   const id=parseInt(rawId);
-  // Find inner — could be direct child div or by id
-  const inner=document.getElementById('ti-'+id)||selectedEl.querySelector('[id^="ti-"]');
-  const t=textEls.find(t=>t.id===id);
+  // Find inner — search by id first, then by querySelector fallback
+  const inner=document.getElementById('ti-'+id)||selectedEl.querySelector('[id^="ti-"]')||selectedEl.querySelector('div[contenteditable]')||selectedEl.querySelector('div[style*="font-size"]');
+  const t=isNaN(id)?null:textEls.find(t=>t.id===id);
   if(prop==='font'){if(inner)inner.style.fontFamily=val;if(t)t.font=val;}
   else if(prop==='size'){if(inner){inner.style.fontSize=val+'px';}if(t)t.size=parseInt(val);}
   else if(prop==='weight'){if(inner)inner.style.fontWeight=val;if(t)t.weight=val;}
@@ -1690,20 +1722,30 @@ async function doSaveDesign(){
 
 function serializeEditor(){
   const bi=document.getElementById('base-img');
-  // If canvas has psd-layer images (from admin template), serialize them too
+  // Save all layer elements (images and texts from admin template)
   const psdLayers=[];
   canvas.querySelectorAll('[data-layer-id]').forEach(el=>{
     const img=el.querySelector('img');
+    const inner=el.querySelector('[id^="ti-"]');
+    const base={
+      x:parseInt(el.style.left)||0,
+      y:parseInt(el.style.top)||0,
+      w:parseInt(el.style.width)||100,
+      h:parseInt(el.style.height)||100,
+      opacity:parseFloat(el.style.opacity)||1,
+      zIndex:parseInt(el.style.zIndex)||0,
+      name:el.dataset.layerName||'Capa',
+    };
     if(img){
-      psdLayers.push({
-        type:'img-layer',
-        src:img.src,
-        x:parseInt(el.style.left)||0,
-        y:parseInt(el.style.top)||0,
-        w:parseInt(el.style.width)||100,
-        h:parseInt(el.style.height)||100,
-        opacity:parseFloat(el.style.opacity)||1,
-        zIndex:parseInt(el.style.zIndex)||0
+      psdLayers.push({...base, type:'img-layer', src:img.src});
+    } else if(inner){
+      psdLayers.push({...base, type:'text-layer',
+        text:inner.textContent||'',
+        fontSize:inner.style.fontSize||'24px',
+        fontFamily:inner.style.fontFamily||"'Inter'",
+        fontWeight:inner.style.fontWeight||'400',
+        color:inner.style.color||'#ffffff',
+        textAlign:inner.style.textAlign||'left',
       });
     }
   });
