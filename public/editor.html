@@ -64,12 +64,20 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .cel{position:absolute;cursor:move;user-select:none;}
 .cel.sel{outline:1.5px dashed rgba(0,200,150,0.7);outline-offset:2px;}
 .cel img{display:block;pointer-events:none;width:100%;height:100%;object-fit:contain;}
-.rh{position:absolute;width:13px;height:13px;background:var(--accent);border:2px solid #000;border-radius:3px;z-index:10;display:none;}
+.rh{position:absolute;width:10px;height:10px;background:#fff;border:2px solid var(--accent);border-radius:2px;z-index:10;display:none;box-shadow:0 1px 4px rgba(0,0,0,0.4);}
 .cel.sel .rh{display:block;}
-.rh.tl{top:-6px;left:-6px;cursor:nwse-resize;}
-.rh.tr{top:-6px;right:-6px;cursor:nesw-resize;}
-.rh.bl{bottom:-6px;left:-6px;cursor:nesw-resize;}
-.rh.br{bottom:-6px;right:-6px;cursor:nwse-resize;}
+/* corners — scale font for text */
+.rh.tl{top:-5px;left:-5px;cursor:nwse-resize;}
+.rh.tr{top:-5px;right:-5px;cursor:nesw-resize;}
+.rh.bl{bottom:-5px;left:-5px;cursor:nesw-resize;}
+.rh.br{bottom:-5px;right:-5px;cursor:nwse-resize;}
+/* edges — resize box only */
+.rh.tm{top:-5px;left:calc(50% - 5px);cursor:ns-resize;border-radius:3px;}
+.rh.bm{bottom:-5px;left:calc(50% - 5px);cursor:ns-resize;border-radius:3px;}
+.rh.ml{left:-5px;top:calc(50% - 5px);cursor:ew-resize;border-radius:3px;}
+.rh.mr{right:-5px;top:calc(50% - 5px);cursor:ew-resize;border-radius:3px;}
+/* hover on element */
+.cel:not(.sel):hover{outline:1.5px solid rgba(0,200,150,0.4);outline-offset:2px;}
 .sz-hint{position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap;display:none;}
 .cel.sel .sz-hint{display:block;}
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
@@ -275,6 +283,13 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
     <button class="modal-btn modal-btn-green" onclick="doSave()">✓ Publicar</button>
     <button class="modal-btn modal-btn-ghost" onclick="document.getElementById('save-overlay').classList.remove('open')">Cancelar</button>
     <div class="modal-status" id="save-st"></div>
+    <div id="save-link-row" style="display:none;margin-top:12px;">
+      <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">🔗 Link para clientes:</div>
+      <div style="display:flex;gap:6px;">
+        <input id="save-link" type="text" class="modal-inp" style="margin:0;font-size:0.75rem;flex:1;" readonly>
+        <button class="modal-btn modal-btn-green" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="navigator.clipboard.writeText(document.getElementById('save-link').value);this.textContent='¡Copiado!'">📋 Copiar</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -481,8 +496,8 @@ function mkEl(l){
   }
   // Size hint
   const sh=document.createElement('div');sh.className='sz-hint';sh.id='sh-'+l.id;sh.textContent=`${l.w}×${l.h}`;el.appendChild(sh);
-  // 4 corners
-  ['tl','tr','bl','br'].forEach(c=>{
+  // 8 handles: 4 corners (scale font for text) + 4 edges (box only)
+  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(c=>{
     const rh=document.createElement('div');rh.className='rh '+c;
     rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,c);};
     el.appendChild(rh);
@@ -504,7 +519,8 @@ function startDrag(ev,id){
 }
 function startRes(ev,id,c){
   isRes=true;const l=layers.find(x=>x.id===id);
-  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1)};
+  const origFs=l.tp?l.tp.fontSize:0;
+  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
   ev.preventDefault();
 }
 document.addEventListener('mousemove',ev=>{
@@ -519,20 +535,26 @@ document.addEventListener('mousemove',ev=>{
     const l=layers.find(x=>x.id===rSt.id);if(!l?.el)return;
     const dx=(ev.clientX-rSt.mx)/zoom_,dy=(ev.clientY-rSt.my)/zoom_;
     const lock=ev.shiftKey;
-    let{x:ox,y:oy,w:ow,h:oh,ratio,c}=rSt;
+    let{x:ox,y:oy,w:ow,h:oh,ratio,c,origFs,origW}=rSt;
     let nx=ox,ny=oy,nw=ow,nh=oh;
+    const isCorner=['tl','tr','bl','br'].includes(c);
+    // Corners
     if(c==='br'){nw=Math.max(10,ow+dx);nh=lock?Math.round(nw/ratio):Math.max(10,oh+dy);}
     else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=lock?Math.round(nw/ratio):Math.max(10,oh+dy);}
     else if(c==='tr'){nw=Math.max(10,ow+dx);nh=lock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!lock)ny=oy+oh-nh;}
     else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=lock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!lock)ny=oy+oh-nh;}
     if(lock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
+    // Edges (box only, no font scale)
+    else if(c==='mr'){nw=Math.max(10,ow+dx);}
+    else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
+    else if(c==='bm'){nh=Math.max(10,oh+dy);}
+    else if(c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;}
     l.x=Math.round(nx);l.y=Math.round(ny);l.w=Math.round(nw);l.h=Math.round(nh);
     l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
     l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
-    // Scale font size proportionally for text layers
-    if(l.type==='text'&&l.tp){
-      const origW=rSt.w||l.w;
-      const newFs=Math.max(6,Math.round((l.tp.fontSize||24)*(nw/origW)));
+    // Scale font ONLY on corner resize for text layers
+    if(isCorner&&l.type==='text'&&l.tp&&origFs&&origW){
+      const newFs=Math.max(6,Math.round(origFs*(nw/origW)));
       const d=document.getElementById('ti-'+l.id);
       if(d){d.style.fontSize=newFs+'px';}
       l.tp.fontSize=newFs;
@@ -719,7 +741,7 @@ async function downloadPNG(){
 }
 
 // SAVE
-function openSave(){document.getElementById('save-overlay').classList.add('open');document.getElementById('save-st').textContent='';setTimeout(()=>document.getElementById('save-name').focus(),80);}
+function openSave(){document.getElementById('save-overlay').classList.add('open');document.getElementById('save-st').textContent='';document.getElementById('save-link-row').style.display='none';setTimeout(()=>document.getElementById('save-name').focus(),80);}
 async function doSave(){
   if(!fbDb){alert('Firebase no conectado.');return;}
   const name=document.getElementById('save-name').value.trim();
@@ -768,7 +790,14 @@ async function doSave(){
     if(tplId){await fbDb.collection('templates').doc(tplId).update(data);}
     else{data.createdAt=Date.now();const ref=await fbDb.collection('templates').add(data);tplId=ref.id;}
     st.textContent='✓ ¡Publicada!';st.style.color='var(--accent)';
-    setTimeout(()=>{document.getElementById('save-overlay').classList.remove('open');},1500);
+    // Show shareable link
+    const baseUrl=window.location.origin;
+    const link=`${baseUrl}/?tpl=${tplId}`;
+    const linkEl=document.getElementById('save-link');
+    if(linkEl){
+      linkEl.value=link;
+      document.getElementById('save-link-row').style.display='block';
+    }
   }catch(e){st.textContent='✗ '+e.message;st.style.color='var(--accent2)';}
 }
 
