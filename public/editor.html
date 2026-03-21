@@ -289,6 +289,9 @@ const cvs=document.getElementById('cvs');
 cvs.style.transform=`scale(${zoom_})`;
 
 // Firebase
+const CLOUDINARY_CLOUD = 'dwqtksxrp';
+const CLOUDINARY_PRESET = 'templatestudio';
+
 async function initFB(){
   const cfg=localStorage.getItem('ts_firebase_config');if(!cfg)return;
   try{
@@ -296,7 +299,19 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     fbApp=firebase.initializeApp(JSON.parse(cfg),'psd-ed-'+Date.now());
     fbDb=firebase.firestore(fbApp);
-  }catch(e){console.warn(e);}
+  }catch(e){console.warn('Firebase init error:',e);}
+}
+
+// Upload a base64 dataURL to Cloudinary, return secure URL
+async function uploadToStorage(dataUrl, path){
+  const fd=new FormData();
+  fd.append('file', dataUrl);
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  fd.append('folder', 'templatestudio');
+  const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
+  if(!res.ok){const e=await res.json();throw new Error(e.error?.message||'Cloudinary error');}
+  const data=await res.json();
+  return data.secure_url;
 }
 function ls(src){return new Promise((r,j)=>{if(document.querySelector(`script[src="${src}"]`))return r();const s=document.createElement('script');s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);});}
 
@@ -325,12 +340,22 @@ async function handleUpload(e){
 }
 function addImgLayer(src,name){
   const img=new Image();
-  img.onload=()=>{
+  img.onload=async ()=>{
     const cw=parseInt(cvs.style.width)||800,ch=parseInt(cvs.style.height)||800;
     let w=img.width,h=img.height;
     const s=Math.min(1,Math.min(cw*0.95/w,ch*0.95/h));
     w=Math.round(w*s);h=Math.round(h*s);
-    const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
+
+    // Upload to Cloudinary, use URL instead of base64
+    let finalSrc=src;
+    try{
+      const safeName=name.replace(/[^a-zA-Z0-9._-]/g,'_');
+      finalSrc=await uploadToStorage(src, `layer-images/${Date.now()}_${safeName}`);
+    }catch(e){
+      console.warn('Cloudinary upload failed, usando base64 local:',e.message);
+    }
+
+    const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,origW:img.width,origH:img.height};
     layers.push(l);mkEl(l);renderList();sel(l.id);
@@ -367,10 +392,33 @@ async function loadPSDData(data){
   const dh=Math.round(data.height*scale);
   cvs.style.width=dw+'px';cvs.style.height=dh+'px';
 
+  const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
+  let uploadedCount=0;
+
   for(const ld of data.layers){
+    let finalSrc=ld.src||'';
+
+    // Upload base64 PSD layer images to Cloudinary
+    if(!ld.isText && ld.src && ld.src.startsWith('data:')){
+      try{
+        uploadedCount++;
+        setLoad(`Subiendo capa ${uploadedCount}/${totalImgLayers} a Cloudinary...`, 70+Math.round(uploadedCount/Math.max(totalImgLayers,1)*20));
+        const safeName=(ld.name||'layer').replace(/[^a-zA-Z0-9._-]/g,'_');
+        finalSrc=await uploadToStorage(ld.src, `layer-images/psd_${Date.now()}_${uploadedCount}_${safeName}.png`);
+      }catch(e){
+        console.warn('Cloudinary upload para capa PSD falló:',ld.name,e.message);
+        finalSrc=ld.src;
+      }
+    }
+      }catch(e){
+        console.warn('Storage upload para capa PSD falló:',ld.name,e.message);
+        finalSrc=ld.src; // fallback base64
+      }
+    }
+
     const l={
       id:lCtr++, type:ld.isText?'text':'img', name:ld.name,
-      src:ld.src||'',
+      src:finalSrc,
       x:Math.round((ld.x||0)*scale), y:Math.round((ld.y||0)*scale),
       w:Math.round((ld.width||100)*scale), h:Math.round((ld.height||50)*scale),
       opacity:ld.opacity??1, visible:ld.visible??true, zIndex:lCtr,
@@ -647,10 +695,44 @@ async function doSave(){
   const st=document.getElementById('save-st');
   if(!name){st.textContent='Escribe un nombre';st.style.color='var(--accent2)';return;}
   st.textContent='Guardando...';st.style.color='var(--muted)';
+
+  // Generate thumbnail
   let thumb='';
-  try{desel();document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');const sv=cvs.style.transform;cvs.style.transform='scale(1)';await new Promise(r=>setTimeout(r,60));const c=await html2canvas(cvs,{scale:0.3,useCORS:true,allowTaint:true,backgroundColor:null,logging:false});cvs.style.transform=sv;document.querySelectorAll('.rh').forEach(e=>e.style.display='');thumb=c.toDataURL('image/jpeg',0.5);}catch(e){}
-  const data={name,thumb,updatedAt:Date.now(),template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layers.map(l=>({id:l.id,type:l.type,name:l.name,src:l.src,x:l.x,y:l.y,w:l.w,h:l.h,opacity:l.opacity,visible:l.visible,zIndex:l.zIndex,tp:l.tp?{...l.tp}:null,origW:l.origW,origH:l.origH}))}};
   try{
+    desel();document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+    const sv=cvs.style.transform;cvs.style.transform='scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+    const c=await html2canvas(cvs,{scale:0.3,useCORS:true,allowTaint:true,backgroundColor:null,logging:false});
+    cvs.style.transform=sv;document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+    const thumbBase64=c.toDataURL('image/jpeg',0.5);
+
+    // Upload thumbnail to Cloudinary
+    try{
+      st.textContent='Subiendo miniatura...';
+      thumb=await uploadToStorage(thumbBase64, `thumbnails/${tplId||('new_'+Date.now())}.jpg`);
+    }catch(e){
+      console.warn('Thumb upload falló:',e.message);
+      thumb=''; // skip thumb if upload fails
+    }
+  }catch(e){console.warn('Thumb error:',e);}
+
+  // Build layer data — ensure no base64 src sneaks in
+  const layerData=layers.map(l=>{
+    const src=l.src&&l.src.startsWith('data:')?'':l.src; // strip any residual base64
+    return {id:l.id,type:l.type,name:l.name,src,x:l.x,y:l.y,w:l.w,h:l.h,
+      opacity:l.opacity,visible:l.visible,zIndex:l.zIndex,
+      tp:l.tp?{...l.tp}:null,origW:l.origW,origH:l.origH};
+  });
+
+  const data={name,thumb,updatedAt:Date.now(),template:{
+    type:'psd-layers',
+    canvasW:parseInt(cvs.style.width),
+    canvasH:parseInt(cvs.style.height),
+    layers:layerData
+  }};
+
+  try{
+    st.textContent='Publicando en Firestore...';
     if(tplId){await fbDb.collection('templates').doc(tplId).update(data);}
     else{data.createdAt=Date.now();const ref=await fbDb.collection('templates').add(data);tplId=ref.id;}
     st.textContent='✓ ¡Publicada!';st.style.color='var(--accent)';
