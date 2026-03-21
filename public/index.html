@@ -6,7 +6,6 @@
 <title>TemplateStudio</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -491,20 +490,17 @@ let currentDesignId = null;
 let editingDesignName = '';
 
 // Load Firebase config from localStorage (set by admin)
+async function hashPass(pass){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pass));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 async function initFirebase() {
   const cfg = localStorage.getItem('ts_firebase_config');
   if (!cfg) return false;
   try {
     const config = JSON.parse(cfg);
-    // Reuse existing app if already initialized
-    try {
-      fbApp = firebase.app('ts-client');
-    } catch(e) {
-      fbApp = firebase.initializeApp(config, 'ts-client');
-    }
+    try { fbApp = firebase.app('ts-client'); } catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
     fbDb = firebase.firestore(fbApp);
-    fbAuth = firebase.auth(fbApp);
-    // Enable offline persistence for faster loads
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
     return true;
   } catch(e) { console.error('Firebase init error:', e); return false; }
@@ -525,30 +521,24 @@ window.addEventListener('load', async () => {
   const ok = await initFirebase();
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado aún. Contacta al administrador.';
-    document.getElementById('login-btn').disabled = false;
-    document.getElementById('login-btn').textContent = 'Entrar';
     return;
   }
-  // Check if already logged in — with 3s timeout to avoid hanging
-  const authTimeout = setTimeout(()=>{
-    document.getElementById('login-btn').disabled = false;
-  }, 3000);
-  fbAuth.onAuthStateChanged(user => {
-    clearTimeout(authTimeout);
-    document.getElementById('login-btn').disabled = false;
-    document.getElementById('login-btn').textContent = 'Entrar';
-    if (user) {
-      currentUser = user;
+  // Check if session saved locally
+  const saved = localStorage.getItem('ts_session');
+  if (saved) {
+    try {
+      currentUser = JSON.parse(saved);
       showDashboard();
-    }
-  });
+      return;
+    } catch(e) { localStorage.removeItem('ts_session'); }
+  }
 });
 
 // ================================================================
 // LOGIN
 // ================================================================
 async function doLogin() {
-  const phone = document.getElementById('login-phone').value.trim();
+  const phone = document.getElementById('login-phone').value.trim().replace(/\s/g,'');
   const pass = document.getElementById('login-pass').value;
   const err = document.getElementById('login-err');
   const btn = document.getElementById('login-btn');
@@ -558,33 +548,33 @@ async function doLogin() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
-    if (!fbAuth) { err.textContent = '✗ Firebase no inicializado'; btn.disabled=false; btn.textContent='Entrar'; return; }
-    const email = phone.replace(/\s/g,'') + '@ts.app';
-    const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
-    currentUser = cred.user;
-    btn.textContent = 'Entrar';
-    btn.disabled = false;
+    const passHash = await hashPass(pass);
+    const snap = await fbDb.collection('users').where('phone','==',phone).where('passHash','==',passHash).get();
+    if (snap.empty) {
+      err.textContent = '✗ Número o contraseña incorrectos';
+      btn.disabled = false; btn.textContent = 'Entrar'; return;
+    }
+    const userData = snap.docs[0].data();
+    if (userData.active === false) {
+      err.textContent = '✗ Cuenta desactivada. Contacta al administrador.';
+      btn.disabled = false; btn.textContent = 'Entrar'; return;
+    }
+    currentUser = { uid: userData.uid || snap.docs[0].id, phone, email: phone + '@ts.app', ...userData };
+    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    btn.textContent = 'Entrar'; btn.disabled = false;
     showDashboard();
   } catch(e) {
-    btn.textContent = 'Entrar';
-    btn.disabled = false;
-    if (e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-      err.textContent = '✗ Número o contraseña incorrectos';
-    } else {
-      err.textContent = '✗ Error: ' + e.message;
-    }
+    err.textContent = '✗ Error: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Entrar';
   }
 }
 
 function doLogout() {
-  fbAuth.signOut().then(() => {
-    currentUser = null;
-    showScreen('login');
-    document.getElementById('login-phone').value = '';
-    document.getElementById('login-pass').value = '';
-    document.getElementById('login-err').textContent = '';
-  });
+  localStorage.removeItem('ts_session');
+  currentUser = null;
+  showScreen('login');
 }
+
 
 // ================================================================
 // SCREENS

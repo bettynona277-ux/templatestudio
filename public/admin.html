@@ -314,11 +314,11 @@ async function initFB(config){
   try{
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
-    await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
+    // firebase-auth removed — using Firestore-based auth
     if(fbApp){try{fbApp.delete();}catch(e){}}
     fbApp=firebase.initializeApp(config,'ts-admin-'+Date.now());
     fbDb=firebase.firestore(fbApp);
-    fbAuth=firebase.auth(fbApp);
+    // fbAuth removed
     // Test write
     await fbDb.collection('_ping').doc('admin').set({ts:Date.now()});
     fbConnected=true;
@@ -356,21 +356,27 @@ async function connectFirebase(){
 }
 
 // ============ USERS ============
+async function hashPass(pass){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pass));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 async function createUser(){
   if(!fbConnected){alert('Primero conecta Firebase');showSection('setup');return;}
-  const phone=document.getElementById('new-user-phone').value.trim();
+  const phone=document.getElementById('new-user-phone').value.trim().replace(/\s/g,'');
   const pass=document.getElementById('new-user-pass').value.trim();
   const name=document.getElementById('new-user-name').value.trim();
   if(!phone||phone.length<7){showStatus('create-user-status','Ingresa un número válido','err');return;}
-  if(!pass||pass.length<6){showStatus('create-user-status','La contraseña debe tener al menos 6 caracteres','err');return;}
+  if(!pass||pass.length<4){showStatus('create-user-status','La contraseña debe tener al menos 4 caracteres','err');return;}
   const btn=document.getElementById('create-user-btn');
   btn.innerHTML='<span class="spinner"></span> Creando...';btn.disabled=true;
   try{
-    const email=phone+'@ts.app';
-    const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
-    // Save user profile in Firestore
-    await fbDb.collection('users').doc(cred.user.uid).set({
-      phone,email,name:name||phone,createdAt:Date.now(),active:true
+    // Check if user already exists
+    const existing=await fbDb.collection('users').where('phone','==',phone).get();
+    if(!existing.empty){showStatus('create-user-status','✗ Ese número ya tiene cuenta creada','err');btn.textContent='+ Crear cuenta';btn.disabled=false;return;}
+    const passHash=await hashPass(pass);
+    const uid='u_'+phone+'_'+Date.now();
+    await fbDb.collection('users').doc(uid).set({
+      uid,phone,name:name||phone,passHash,createdAt:Date.now(),active:true
     });
     showStatus('create-user-status',`✓ Cuenta creada para +51 ${phone}. Contraseña: ${pass}`,'ok');
     document.getElementById('new-user-phone').value='';
@@ -378,9 +384,7 @@ async function createUser(){
     document.getElementById('new-user-name').value='';
     loadUsers();
   }catch(e){
-    let msg=e.message;
-    if(e.code==='auth/email-already-in-use')msg='Ese número ya tiene cuenta creada';
-    showStatus('create-user-status','✗ '+msg,'err');
+    showStatus('create-user-status','✗ '+e.message,'err');
   }
   btn.textContent='+ Crear cuenta';btn.disabled=false;
 }
