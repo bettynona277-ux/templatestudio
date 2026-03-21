@@ -992,6 +992,49 @@ async function loadAdminTemplates() {
 // EDITOR
 // ================================================================
 let snapZones=[], textEls=[], logos=[], zoomLevel=1;
+// Helper: create 8 resize handles for an element
+function makeHandles(el, getW, getH, setSize){
+  const positions=[
+    {cls:'tl',cur:'nwse-resize'},{cls:'tc',cur:'ns-resize'},{cls:'tr',cur:'nesw-resize'},
+    {cls:'ml',cur:'ew-resize'},{cls:'mr',cur:'ew-resize'},
+    {cls:'bl',cur:'nesw-resize'},{cls:'bc',cur:'ns-resize'},{cls:'br',cur:'nwse-resize'}
+  ];
+  const hs=[];
+  positions.forEach(({cls,cur})=>{
+    const h=document.createElement('div');
+    h.className='layer-handle layer-handle-'+cls;
+    h.style.cssText=`position:absolute;width:13px;height:13px;background:#00C896;border:2.5px solid #fff;border-radius:3px;cursor:${cur};z-index:20;display:none;box-shadow:0 1px 4px rgba(0,0,0,0.5);`;
+    // Position each handle
+    if(cls==='tl'||cls==='ml'||cls==='bl')h.style.left='-5px';
+    if(cls==='tr'||cls==='mr'||cls==='br')h.style.right='-5px';
+    if(cls==='tc'||cls==='bc')h.style.left='calc(50% - 5px)';
+    if(cls==='tl'||cls==='tc'||cls==='tr')h.style.top='-5px';
+    if(cls==='bl'||cls==='bc'||cls==='br')h.style.bottom='-5px';
+    if(cls==='ml'||cls==='mr')h.style.top='calc(50% - 5px)';
+    h.onmousedown=ev=>{
+      ev.stopPropagation();
+      const sx=ev.clientX,sy=ev.clientY;
+      const sw=getW(),sh=getH();
+      const ox=parseFloat(el.style.left||0),oy=parseFloat(el.style.top||0);
+      const ratio=sw/(sh||1);
+      const onMove=mv=>{
+        const dx=(mv.clientX-sx)/zoomLevel,dy=(mv.clientY-sy)/zoomLevel;
+        let nw=sw,nh=sh,nx=ox,ny=oy;
+        if(cls.includes('r'))nw=Math.max(20,sw+dx);
+        if(cls.includes('l')){nw=Math.max(20,sw-dx);nx=ox+sw-nw;}
+        if(cls.includes('b'))nh=Math.max(10,sh+dy);
+        if(cls.includes('t')){nh=Math.max(10,sh-dy);ny=oy+sh-nh;}
+        if(cls==='br'||cls==='tr'||cls==='tl'||cls==='bl'){nh=Math.round(nw/ratio);if(cls==='tl'||cls==='tr')ny=oy+sh-nh;if(cls==='bl')ny=oy;}
+        setSize(nw,nh,nx,ny);
+      };
+      const onUp=()=>{document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);};
+      document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);ev.preventDefault();
+    };
+    el.appendChild(h);
+    hs.push(h);
+  });
+  return hs;
+}
 function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>h.style.display='none');}
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 let selectedEl=null, isDragging=false, isResizing=false;
@@ -1063,49 +1106,7 @@ function loadEditorData(data) {
       document.getElementById('zoom-lbl').textContent=Math.round(zoomLevel*100)+'%';
     }, 50);
 
-    // Helper: create 8 resize handles for an element
-    function makeHandles(el, getW, getH, setSize){
-      const positions=[
-        {cls:'tl',cur:'nwse-resize'},{cls:'tc',cur:'ns-resize'},{cls:'tr',cur:'nesw-resize'},
-        {cls:'ml',cur:'ew-resize'},{cls:'mr',cur:'ew-resize'},
-        {cls:'bl',cur:'nesw-resize'},{cls:'bc',cur:'ns-resize'},{cls:'br',cur:'nwse-resize'}
-      ];
-      const hs=[];
-      positions.forEach(({cls,cur})=>{
-        const h=document.createElement('div');
-        h.className='layer-handle layer-handle-'+cls;
-        h.style.cssText=`position:absolute;width:13px;height:13px;background:#00C896;border:2.5px solid #fff;border-radius:3px;cursor:${cur};z-index:20;display:none;box-shadow:0 1px 4px rgba(0,0,0,0.5);`;
-        // Position each handle
-        if(cls==='tl'||cls==='ml'||cls==='bl')h.style.left='-5px';
-        if(cls==='tr'||cls==='mr'||cls==='br')h.style.right='-5px';
-        if(cls==='tc'||cls==='bc')h.style.left='calc(50% - 5px)';
-        if(cls==='tl'||cls==='tc'||cls==='tr')h.style.top='-5px';
-        if(cls==='bl'||cls==='bc'||cls==='br')h.style.bottom='-5px';
-        if(cls==='ml'||cls==='mr')h.style.top='calc(50% - 5px)';
-        h.onmousedown=ev=>{
-          ev.stopPropagation();
-          const sx=ev.clientX,sy=ev.clientY;
-          const sw=getW(),sh=getH();
-          const ox=parseFloat(el.style.left||0),oy=parseFloat(el.style.top||0);
-          const ratio=sw/(sh||1);
-          const onMove=mv=>{
-            const dx=(mv.clientX-sx)/zoomLevel,dy=(mv.clientY-sy)/zoomLevel;
-            let nw=sw,nh=sh,nx=ox,ny=oy;
-            if(cls.includes('r'))nw=Math.max(20,sw+dx);
-            if(cls.includes('l')){nw=Math.max(20,sw-dx);nx=ox+sw-nw;}
-            if(cls.includes('b'))nh=Math.max(10,sh+dy);
-            if(cls.includes('t')){nh=Math.max(10,sh-dy);ny=oy+sh-nh;}
-            if(cls==='br'||cls==='tr'||cls==='tl'||cls==='bl'){nh=Math.round(nw/ratio);if(cls==='tl'||cls==='tr')ny=oy+sh-nh;if(cls==='bl')ny=oy;}
-            setSize(nw,nh,nx,ny);
-          };
-          const onUp=()=>{document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);};
-          document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);ev.preventDefault();
-        };
-        el.appendChild(h);
-        hs.push(h);
-      });
-      return hs;
-    }
+
     data.layers.forEach(l=>{
       if(!l.visible)return;
       const el=document.createElement('div');
