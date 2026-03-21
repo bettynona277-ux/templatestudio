@@ -119,6 +119,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 .align-row button{flex:1;padding:5px;border-radius:5px;border:none;background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.8rem;transition:all 0.15s;}
 .align-row button:hover{background:rgba(79,142,247,0.15);color:var(--blue);}
 .hint{font-size:0.7rem;color:var(--muted);line-height:1.5;padding:7px 9px;background:var(--panel2);border-radius:7px;border-left:3px solid var(--accent);margin-bottom:8px;}
+.la-btn{padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.78rem;transition:all 0.15s;text-align:center;}
+.la-btn:hover{background:rgba(79,142,247,0.15);color:var(--blue);border-color:rgba(79,142,247,0.3);}
 
 /* MODAL */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;}
@@ -142,6 +144,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
     <span class="mode-pill pill-admin" id="mode-pill">⚙ ADMIN</span>
   </div>
   <div class="btn-row">
+    <button class="tbtn tbtn-ghost" id="btn-undo" onclick="undo()" title="Deshacer (Ctrl+Z)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↩</button>
+    <button class="tbtn tbtn-ghost" id="btn-redo" onclick="redo()" title="Rehacer (Ctrl+Y)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↪</button>
     <button class="tbtn tbtn-ghost" onclick="history.back()">← Admin</button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">👁 Vista cliente</button>
     <button class="tbtn tbtn-green" id="btn-save" onclick="openSave()">💾 Guardar plantilla</button>
@@ -190,7 +194,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <p style="font-size:0.74rem;color:var(--muted);line-height:1.6;margin-top:6px;">Selecciona una capa para editar.</p>
       <div class="divider"></div>
       <div class="hint">🖱 Rueda sobre un elemento para escalar · Shift = proporcional</div>
-      <div class="hint" style="margin-top:6px;border-left-color:var(--blue);">⇧ Shift+clic = selección múltiple<br>🔲 Arrastra en vacío = seleccionar área<br>Alt+arrastrar = duplicar<br>Ctrl+D = duplicar selección</div>
+      <div class="hint" style="margin-top:6px;border-left-color:var(--blue);">⇧ Shift+clic = selección múltiple<br>🔲 Arrastra en vacío = seleccionar área<br>Alt+arrastrar = duplicar<br>Ctrl+Z / Ctrl+Y = Deshacer / Rehacer<br>Ctrl+D = duplicar · Ctrl+G = agrupar</div>
     </div>
     <div id="pp-el" style="display:none;">
       <div class="pp-lbl">Escalar</div>
@@ -249,6 +253,36 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <div class="pp-row" style="margin-top:4px;">
         <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;background:rgba(79,142,247,0.12);" onclick="duplicateSelected()">⧉ Duplicar</button>
       </div>
+
+      <!-- ALINEACIÓN (siempre visible) -->
+      <div class="divider"></div>
+      <div class="pp-lbl">Alinear</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-bottom:4px;">
+        <button class="la-btn" onclick="alignLayers('left')" title="Alinear izquierda">⬛⬜⬜</button>
+        <button class="la-btn" onclick="alignLayers('center')" title="Centrar horizontal">⬜⬛⬜</button>
+        <button class="la-btn" onclick="alignLayers('right')" title="Alinear derecha">⬜⬜⬛</button>
+        <button class="la-btn" onclick="alignLayers('top')" title="Alinear arriba">⬆</button>
+        <button class="la-btn" onclick="alignLayers('middle')" title="Centrar vertical">↕</button>
+        <button class="la-btn" onclick="alignLayers('bottom')" title="Alinear abajo">⬇</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:4px;">
+        <button class="la-btn" onclick="alignLayers('canvas-center-h')" title="Centrar en lienzo H" style="font-size:0.62rem;">↔ Lienzo</button>
+        <button class="la-btn" onclick="alignLayers('canvas-center-v')" title="Centrar en lienzo V" style="font-size:0.62rem;">↕ Lienzo</button>
+      </div>
+      <div class="pp-lbl" style="margin-top:8px;">Distribuir (3+ capas)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-bottom:4px;">
+        <button class="la-btn" onclick="alignLayers('dist-h')" title="Espaciar horizontal" style="font-size:0.62rem;">↔ Esp.</button>
+        <button class="la-btn" onclick="alignLayers('dist-v')" title="Espaciar vertical" style="font-size:0.62rem;">↕ Esp.</button>
+        <button class="la-btn" onclick="alignLayers('sort-row')" title="Ordenar en fila" style="font-size:0.62rem;">▦ Fila</button>
+      </div>
+
+      <!-- AGRUPAR -->
+      <div class="divider"></div>
+      <div class="pp-row">
+        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;font-size:0.72rem;" onclick="groupSelected()">⬡ Agrupar</button>
+        <button class="pp-btn" style="margin:0;flex:1;font-size:0.72rem;background:rgba(255,255,255,0.04);color:var(--muted);border:1px solid var(--border);" onclick="ungroupSelected()">⬡ Disolver</button>
+      </div>
+
       <div class="divider"></div>
       <button class="pp-btn pp-btn-red" onclick="delSel()">🗑 Eliminar capa</button>
     </div>
@@ -350,7 +384,156 @@ function selMulti(ids){
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
 
-// Firebase
+// ── UNDO / REDO ───────────────────────────────────────────────
+const HISTORY_MAX = 50;
+let history = [];      // array of JSON snapshots
+let historyIdx = -1;   // current position
+let _suppressHistory = false;
+
+function snapshotState(){
+  if(_suppressHistory) return;
+  // Serialize current layers (no DOM refs)
+  const snap = layers.map(l=>({
+    ...l, el:null,
+    tp: l.tp ? {...l.tp} : null
+  }));
+  // Truncate forward history
+  history = history.slice(0, historyIdx+1);
+  history.push(JSON.stringify(snap));
+  if(history.length > HISTORY_MAX) history.shift();
+  historyIdx = history.length - 1;
+  updateUndoUI();
+}
+
+function restoreSnapshot(snap){
+  _suppressHistory = true;
+  const data = JSON.parse(snap);
+  // Remove all current DOM elements
+  layers.forEach(l=>{ if(l.el) l.el.remove(); });
+  layers = [];
+  data.forEach(ld=>{
+    const l = {...ld, el:null};
+    layers.push(l);
+    mkEl(l);
+  });
+  desel();
+  renderList();
+  _suppressHistory = false;
+}
+
+function undo(){
+  if(historyIdx <= 0) return;
+  historyIdx--;
+  restoreSnapshot(history[historyIdx]);
+  updateUndoUI();
+  showToast('↩ Deshacer');
+}
+function redo(){
+  if(historyIdx >= history.length-1) return;
+  historyIdx++;
+  restoreSnapshot(history[historyIdx]);
+  updateUndoUI();
+  showToast('↪ Rehacer');
+}
+function updateUndoUI(){
+  const bu=document.getElementById('btn-undo'), br=document.getElementById('btn-redo');
+  if(bu){ bu.style.opacity=historyIdx>0?'1':'0.35'; bu.style.cursor=historyIdx>0?'pointer':'default'; }
+  if(br){ br.style.opacity=historyIdx<history.length-1?'1':'0.35'; br.style.cursor=historyIdx<history.length-1?'pointer':'default'; }
+}
+
+// Toast notification
+function showToast(msg){
+  let t=document.getElementById('ts-toast');
+  if(!t){ t=document.createElement('div'); t.id='ts-toast';
+    t.style.cssText='position:fixed;bottom:54px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.82);color:#fff;padding:6px 16px;border-radius:100px;font-size:0.72rem;font-weight:600;z-index:9999;pointer-events:none;transition:opacity 0.3s;font-family:Plus Jakarta Sans,sans-serif;';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._timer); t._timer=setTimeout(()=>t.style.opacity='0',1400);
+}
+
+// ── GROUPS ───────────────────────────────────────────────────
+let groups = {};   // { groupId: [layerIds] }
+let gCtr = 0;
+
+function groupSelected(){
+  if(selIds.length < 2){ showToast('Selecciona 2+ capas para agrupar'); return; }
+  const gid = 'g' + (gCtr++);
+  selIds.forEach(id=>{ const l=layers.find(x=>x.id===id); if(l) l.groupId=gid; });
+  groups[gid] = [...selIds];
+  showToast(`✦ Grupo creado (${selIds.length} capas)`);
+  renderList();
+  snapshotState();
+}
+
+function ungroupSelected(){
+  // Find groups from selIds
+  const gids = new Set(selIds.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean));
+  gids.forEach(gid=>{
+    (groups[gid]||[]).forEach(id=>{ const l=layers.find(x=>x.id===id); if(l) delete l.groupId; });
+    delete groups[gid];
+  });
+  showToast('Grupo disuelto');
+  renderList();
+  snapshotState();
+}
+
+function selectGroup(gid){
+  const ids = layers.filter(l=>l.groupId===gid).map(l=>l.id);
+  if(ids.length) selMulti(ids);
+  renderList();
+}
+
+// ── ALIGNMENT ────────────────────────────────────────────────
+function alignLayers(type){
+  const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
+  if(ids.length<2 && !['left','center','right','top','middle','bottom'].includes(type)) return;
+  if(!ids.length) return;
+  const ls_ = ids.map(id=>layers.find(x=>x.id===id)).filter(Boolean);
+
+  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  // Bounding box of selection
+  const minX=Math.min(...ls_.map(l=>l.x)), minY=Math.min(...ls_.map(l=>l.y));
+  const maxX=Math.max(...ls_.map(l=>l.x+l.w)), maxY=Math.max(...ls_.map(l=>l.y+l.h));
+  const selW=maxX-minX, selH=maxY-minY;
+
+  ls_.forEach(l=>{
+    if(type==='left')      l.x=minX;
+    else if(type==='right') l.x=maxX-l.w;
+    else if(type==='center') l.x=Math.round(minX+(selW-l.w)/2);
+    else if(type==='top')   l.y=minY;
+    else if(type==='bottom') l.y=maxY-l.h;
+    else if(type==='middle') l.y=Math.round(minY+(selH-l.h)/2);
+    else if(type==='canvas-center-h') l.x=Math.round((cw-l.w)/2);
+    else if(type==='canvas-center-v') l.y=Math.round((ch-l.h)/2);
+    if(l.el){ l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; }
+  });
+
+  // Distribute spacing
+  if(type==='dist-h' && ls_.length>=3){
+    const sorted=[...ls_].sort((a,b)=>a.x-b.x);
+    const totalW=sorted.reduce((s,l)=>s+l.w,0);
+    const gap=(sorted[sorted.length-1].x+sorted[sorted.length-1].w - sorted[0].x - totalW)/(sorted.length-1);
+    let cx=sorted[0].x+sorted[0].w;
+    for(let i=1;i<sorted.length-1;i++){ sorted[i].x=Math.round(cx+gap); cx=sorted[i].x+sorted[i].w; if(sorted[i].el)sorted[i].el.style.left=sorted[i].x+'px'; }
+  }
+  if(type==='dist-v' && ls_.length>=3){
+    const sorted=[...ls_].sort((a,b)=>a.y-b.y);
+    const totalH=sorted.reduce((s,l)=>s+l.h,0);
+    const gap=(sorted[sorted.length-1].y+sorted[sorted.length-1].h - sorted[0].y - totalH)/(sorted.length-1);
+    let cy=sorted[0].y+sorted[0].h;
+    for(let i=1;i<sorted.length-1;i++){ sorted[i].y=Math.round(cy+gap); cy=sorted[i].y+sorted[i].h; if(sorted[i].el)sorted[i].el.style.top=sorted[i].y+'px'; }
+  }
+  // Sort in row (by X) keeping Y of first
+  if(type==='sort-row'){
+    const sorted=[...ls_].sort((a,b)=>a.x-b.x);
+    const spacing=12;
+    let cx=sorted[0].x;
+    sorted.forEach(l=>{ l.x=cx; cx+=l.w+spacing; if(l.el)l.el.style.left=l.x+'px'; });
+  }
+  syncP();
+  snapshotState();
+}
 const CLOUDINARY_CLOUD = 'dwqtksxrp';
 const CLOUDINARY_PRESET = 'templatestudio';
 
@@ -502,6 +685,7 @@ async function loadPSDData(data){
   }
   renderList();
   document.getElementById('empty-lp')?.remove();
+  snapshotState();
 }
 
 // ADD TEXT MANUALLY
@@ -510,6 +694,7 @@ function addText(){
   const l={id:lCtr++,type:'text',name:'Texto',src:'',x:Math.round(cw/2-200),y:60,w:400,h:50,opacity:1,visible:true,zIndex:layers.length,
     tp:{text:'Texto aquí',fontSize:36,fontFamily:"'Plus Jakarta Sans'",fontWeight:'700',color:'#ffffff',align:'center'},el:null};
   layers.push(l);mkEl(l);renderList();sel(l.id);
+  snapshotState();
 }
 
 // CREATE DOM EL
@@ -525,7 +710,7 @@ function mkEl(l){
     d.style.cssText=`font-size:${tp.fontSize}px;font-weight:${tp.fontWeight};font-family:${tp.fontFamily};color:${tp.color};text-align:${tp.align};width:100%;min-height:${tp.fontSize+6}px;`;
     d.textContent=tp.text;
     d.oninput=()=>{l.tp.text=d.textContent;syncP();};
-    d.onblur=()=>{d.style.pointerEvents='none';d.contentEditable='false';el.style.outline='';};
+    d.onblur=()=>{d.style.pointerEvents='none';d.contentEditable='false';el.style.outline='';snapshotState();};
     el.appendChild(d);
     // Single click = select, double click = edit
     el.ondblclick=ev=>{
@@ -612,6 +797,7 @@ function duplicateSelected(sourceId){
   });
   renderList();
   selMulti(newIds);
+  snapshotState();
 }
 
 function startRes(ev,id,c){
@@ -705,6 +891,7 @@ document.addEventListener('mouseup',ev=>{
     }
     return;
   }
+  if(isDrag || isRes) snapshotState();  // snapshot after each move/resize
   isDrag=false; isRes=false; isMultiDrag=false; rSt={};
 });
 
@@ -813,6 +1000,7 @@ function delSel(){
   layers=layers.filter(x=>!toDelete.includes(x.id));
   selId=null; selIds=[];
   desel(); renderList();
+  snapshotState();
 }
 
 // LAYER LIST
@@ -825,7 +1013,8 @@ function renderList(){
     li.className=`layer-item ${l.type==='text'?'text-l':'img-l'}${!l.visible?' hidden-l':''}${selId===l.id?' selected':''}`;
     li.id='li-'+l.id;li.draggable=true;
     const th=l.type==='img'&&l.src?`<img class="l-thumb" src="${l.src}">`:`<div class="l-thumb-t">${l.type==='text'?'T':'?'}</div>`;
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}</div><div class="l-meta">${l.type==='img'?'Imagen':'Texto'} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(79,142,247,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}</div><div class="l-meta">${l.type==='img'?'Imagen':'Texto'} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
@@ -979,21 +1168,25 @@ function hideLoad(){document.getElementById('loading').classList.remove('show');
 
 // KEYBOARD
 document.addEventListener('keydown',ev=>{
-  const active=document.activeElement?.contentEditable==='true';
+  const active=document.activeElement?.contentEditable==='true'||document.activeElement?.tagName==='INPUT'||document.activeElement?.tagName==='TEXTAREA';
+
+  // Undo / Redo
+  if((ev.ctrlKey||ev.metaKey) && !active){
+    if(ev.key==='z'||ev.key==='Z'){ ev.preventDefault(); undo(); return; }
+    if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); return; }
+    if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
+    if(ev.key==='g'||ev.key==='G'){ ev.preventDefault(); ev.shiftKey?ungroupSelected():groupSelected(); return; }
+  }
+
   if((ev.key==='Delete'||ev.key==='Backspace')&&!active){
     if(selIds.length>1){ selIds.forEach(id=>delL(id,{stopPropagation:()=>{}})); selIds=[]; desel(); }
     else delSel();
   }
   if(ev.key==='Escape') desel();
-  // Ctrl+D = duplicate selection
-  if((ev.key==='d'||ev.key==='D')&&(ev.ctrlKey||ev.metaKey)&&!active){
-    ev.preventDefault();
-    duplicateSelected();
-    return;
-  }
+
   // Scale single selected
-  if((ev.key==='+'||ev.key==='=')&&selId!==null){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
-  if(ev.key==='-'&&selId!==null){scaleEl(ev.shiftKey?0.8:0.95);ev.preventDefault();}
+  if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
+  if(ev.key==='-'&&selId!==null&&!active){scaleEl(ev.shiftKey?0.8:0.95);ev.preventDefault();}
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   const s=ev.shiftKey?10:1;
   if(!active){
