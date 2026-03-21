@@ -343,9 +343,12 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 <div class="overlay" id="save-overlay">
   <div class="modal">
     <h3>💾 Guardar plantilla</h3>
-    <p>Dale un nombre. Tus clientes la verán cuando entren a su cuenta.</p>
-    <input type="text" class="modal-inp" id="save-name" placeholder="Ej: Daredevil Disney+ Mayo">
-    <button class="modal-btn modal-btn-green" onclick="doSave()">✓ Publicar</button>
+    <p>Los <strong style="color:#F5C842">borradores</strong> solo los ves tú. Las <strong style="color:var(--accent)">publicadas</strong> las ven tus clientes.</p>
+    <input type="text" class="modal-inp" id="save-name" placeholder="Ej: Prime Video Mayo">
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button class="modal-btn" style="flex:1;background:rgba(245,200,66,0.1);color:#F5C842;border:1.5px solid rgba(245,200,66,0.25);border-radius:10px;padding:11px;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;" onclick="doSave('draft')">📁 Borrador privado</button>
+      <button class="modal-btn modal-btn-green" style="flex:1;" onclick="doSave('published')">🚀 Publicar</button>
+    </div>
     <button class="modal-btn modal-btn-ghost" onclick="document.getElementById('save-overlay').classList.remove('open')">Cancelar</button>
     <div class="modal-status" id="save-st"></div>
     <div id="save-link-row" style="display:none;margin-top:12px;">
@@ -431,8 +434,8 @@ function hideMultiBox(){
   document.getElementById('multi-box').style.display='none';
 }
 
-// Hook multi-box handles
-document.addEventListener('DOMContentLoaded',()=>{
+// Hook multi-box handles — run after DOM is ready (script is at bottom of body)
+function initMultiBoxHandles(){
   ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(c=>{
     const h=document.getElementById('mrh-'+c);
     if(h) h.addEventListener('mousedown',ev=>{
@@ -450,14 +453,16 @@ document.addEventListener('DOMContentLoaded',()=>{
       };
     });
   });
-});
+}
+// Call immediately (script runs at end of body, DOM already exists)
+initMultiBoxHandles();
 
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
 
 // ── UNDO / REDO ───────────────────────────────────────────────
 const HISTORY_MAX = 50;
-let history = [];      // array of JSON snapshots
+let undoStack = [];      // array of JSON snapshots
 let historyIdx = -1;   // current position
 let _suppressHistory = false;
 
@@ -469,10 +474,10 @@ function snapshotState(){
     tp: l.tp ? {...l.tp} : null
   }));
   // Truncate forward history
-  history = history.slice(0, historyIdx+1);
-  history.push(JSON.stringify(snap));
-  if(history.length > HISTORY_MAX) history.shift();
-  historyIdx = history.length - 1;
+  undoStack = undoStack.slice(0, historyIdx+1);
+  undoStack.push(JSON.stringify(snap));
+  if(undoStack.length > HISTORY_MAX) undoStack.shift();
+  historyIdx = undoStack.length - 1;
   updateUndoUI();
 }
 
@@ -495,21 +500,21 @@ function restoreSnapshot(snap){
 function undo(){
   if(historyIdx <= 0) return;
   historyIdx--;
-  restoreSnapshot(history[historyIdx]);
+  restoreSnapshot(undoStack[historyIdx]);
   updateUndoUI();
   showToast('↩ Deshacer');
 }
 function redo(){
-  if(historyIdx >= history.length-1) return;
+  if(historyIdx >= undoStack.length-1) return;
   historyIdx++;
-  restoreSnapshot(history[historyIdx]);
+  restoreSnapshot(undoStack[historyIdx]);
   updateUndoUI();
   showToast('↪ Rehacer');
 }
 function updateUndoUI(){
   const bu=document.getElementById('btn-undo'), br=document.getElementById('btn-redo');
   if(bu){ bu.style.opacity=historyIdx>0?'1':'0.35'; bu.style.cursor=historyIdx>0?'pointer':'default'; }
-  if(br){ br.style.opacity=historyIdx<history.length-1?'1':'0.35'; br.style.cursor=historyIdx<history.length-1?'pointer':'default'; }
+  if(br){ br.style.opacity=historyIdx<undoStack.length-1?'1':'0.35'; br.style.cursor=historyIdx<undoStack.length-1?'pointer':'default'; }
 }
 
 // Toast notification
@@ -610,9 +615,11 @@ function alignLayers(type){
 function fitLayerToCanvas(id){
   const l=layers.find(x=>x.id===id); if(!l?.el) return;
   const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
-  // Scale down if bigger than canvas
+  // Scale down if bigger than canvas (use 100% of canvas for background layers)
+  const maxW = l.w > cw*1.5 ? cw : Math.min(l.w, cw);
+  const maxH = l.h > ch*1.5 ? ch : Math.min(l.h, ch);
   if(l.w > cw || l.h > ch){
-    const s=Math.min(cw*0.95/l.w, ch*0.95/l.h);
+    const s=Math.min(cw/l.w, ch/l.h);
     l.w=Math.round(l.w*s); l.h=Math.round(l.h*s);
     l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
     if(l.tp){ l.tp.fontSize=Math.max(6,Math.round(l.tp.fontSize*s)); const d=document.getElementById('ti-'+l.id); if(d)d.style.fontSize=l.tp.fontSize+'px'; }
@@ -1258,44 +1265,51 @@ async function downloadPNG(){
 }
 
 // SAVE
-function openSave(){document.getElementById('save-overlay').classList.add('open');document.getElementById('save-st').textContent='';document.getElementById('save-link-row').style.display='none';setTimeout(()=>document.getElementById('save-name').focus(),80);}
-async function doSave(){
+let tplStatus = 'draft'; // track current template status
+function openSave(){
+  document.getElementById('save-overlay').classList.add('open');
+  document.getElementById('save-st').textContent='';
+  document.getElementById('save-link-row').style.display='none';
+  setTimeout(()=>document.getElementById('save-name').focus(),80);
+}
+
+async function buildLayerData(){
+  function clean(v){if(v===undefined)return null;if(v===null||typeof v!=="object")return v;if(Array.isArray(v))return v.map(clean);const r={};for(const k in v)r[k]=clean(v[k]);return r;}
+  return layers.map(l=>{
+    const src=l.src&&l.src.startsWith("data:")?'':l.src||'';
+    return clean({id:l.id,type:l.type,name:l.name,src,x:l.x,y:l.y,w:l.w,h:l.h,
+      opacity:l.opacity,visible:l.visible,zIndex:l.zIndex,groupId:l.groupId||null,
+      tp:l.tp?{...l.tp}:null,origW:l.origW||null,origH:l.origH||null});
+  });
+}
+
+async function doSave(status){
   if(!fbDb){alert('Firebase no conectado.');return;}
   const name=document.getElementById('save-name').value.trim();
   const st=document.getElementById('save-st');
   if(!name){st.textContent='Escribe un nombre';st.style.color='var(--accent2)';return;}
   st.textContent='Guardando...';st.style.color='var(--muted)';
+  tplStatus = status;
 
   // Generate thumbnail
   let thumb='';
   try{
-    desel();document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+    desel();document.querySelectorAll('.rh,.sz-hint,#multi-box').forEach(e=>e.style.display='none');
     const sv=cvs.style.transform;cvs.style.transform='scale(1)';
     await new Promise(r=>setTimeout(r,60));
     const c=await html2canvas(cvs,{scale:0.3,useCORS:true,allowTaint:true,backgroundColor:null,logging:false});
-    cvs.style.transform=sv;document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+    cvs.style.transform=sv;
+    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+    if(selIds.length>1) document.getElementById('multi-box').style.display='block';
     const thumbBase64=c.toDataURL('image/jpeg',0.5);
-
-    // Upload thumbnail to Cloudinary
     try{
       st.textContent='Subiendo miniatura...';
       thumb=await uploadToStorage(thumbBase64, `thumbnails/${tplId||('new_'+Date.now())}.jpg`);
-    }catch(e){
-      console.warn('Thumb upload falló:',e.message);
-      thumb=''; // skip thumb if upload fails
-    }
+    }catch(e){ console.warn('Thumb upload falló:',e.message); }
   }catch(e){console.warn('Thumb error:',e);}
 
-  // Build layer data — ensure no base64 src sneaks in
-  function clean(v){if(v===undefined)return null;if(v===null||typeof v!=="object")return v;if(Array.isArray(v))return v.map(clean);const r={};for(const k in v)r[k]=clean(v[k]);return r;}
-  const layerData=layers.map(l=>{
-    const src=l.src&&l.src.startsWith("data:")?'':l.src||'';
-    return clean({id:l.id,type:l.type,name:l.name,src,x:l.x,y:l.y,w:l.w,h:l.h,
-      opacity:l.opacity,visible:l.visible,zIndex:l.zIndex,
-      tp:l.tp?{...l.tp}:null,origW:l.origW||null,origH:l.origH||null});
-  });
-
-  const data={name,thumb,updatedAt:Date.now(),template:{
+  const layerData = await buildLayerData();
+  const data={name,thumb,status,updatedAt:Date.now(),template:{
     type:'psd-layers',
     canvasW:parseInt(cvs.style.width),
     canvasH:parseInt(cvs.style.height),
@@ -1303,20 +1317,60 @@ async function doSave(){
   }};
 
   try{
-    st.textContent='Publicando en Firestore...';
+    if(status==='draft') st.textContent='Guardando borrador...';
+    else st.textContent='Publicando...';
+
     if(tplId){await fbDb.collection('templates').doc(tplId).update(data);}
     else{data.createdAt=Date.now();const ref=await fbDb.collection('templates').add(data);tplId=ref.id;}
-    st.textContent='✓ ¡Publicada!';st.style.color='var(--accent)';
-    // Show shareable link
-    const baseUrl=window.location.origin;
-    const link=`${baseUrl}/?tpl=${tplId}`;
-    const linkEl=document.getElementById('save-link');
-    if(linkEl){
-      linkEl.value=link;
-      document.getElementById('save-link-row').style.display='block';
+
+    if(status==='draft'){
+      st.textContent='📁 Borrador guardado (solo visible para ti)';st.style.color='#F5C842';
+    } else {
+      st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';st.style.color='var(--accent)';
+      const link=`${window.location.origin}/?tpl=${tplId}`;
+      const linkEl=document.getElementById('save-link');
+      if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
+    showAutoSaveIndicator('✓ Guardado');
   }catch(e){st.textContent='✗ '+e.message;st.style.color='var(--accent2)';}
 }
+
+// ── AUTOSAVE EVERY 15s ────────────────────────────────────────
+let _lastAutoSave='', _autoSaveTimer=null;
+
+function showAutoSaveIndicator(msg){
+  let el=document.getElementById('autosave-ind');
+  if(!el){ el=document.createElement('span'); el.id='autosave-ind';
+    el.style.cssText='font-size:0.65rem;color:var(--muted);margin-left:8px;transition:opacity 0.4s;';
+    const topbar=document.querySelector('.topbar .btn-row');
+    if(topbar) topbar.insertBefore(el, topbar.firstChild);
+  }
+  el.textContent=msg; el.style.opacity='1';
+  clearTimeout(el._t); el._t=setTimeout(()=>el.style.opacity='0.4',3000);
+}
+
+async function autoSaveToFirestore(){
+  if(!fbDb||!tplId) return; // only autosave if already saved once
+  try{
+    const layerData=await buildLayerData();
+    const snap=JSON.stringify(layerData);
+    if(snap===_lastAutoSave) return; // nothing changed
+    _lastAutoSave=snap;
+    await fbDb.collection('templates').doc(tplId).update({
+      updatedAt:Date.now(),
+      status: tplStatus,
+      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData}
+    });
+    showAutoSaveIndicator('✓ Autoguardado');
+  }catch(e){
+    // Fallback: save to localStorage
+    try{localStorage.setItem('ts_autosave',JSON.stringify({tplId,layers:await buildLayerData(),w:cvs.style.width,h:cvs.style.height,t:Date.now()}));}catch(_){}
+    showAutoSaveIndicator('📶 Local');
+  }
+}
+
+// Start autosave loop
+_autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
 
 // LOAD SAVED
 function loadData(tpl){
