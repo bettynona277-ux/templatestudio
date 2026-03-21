@@ -966,32 +966,57 @@ async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   try {
-    const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+    // Only show published templates to clients
+    const snap = await fbDb.collection('templates')
+      .where('status','==','published')
+      .orderBy('updatedAt','desc').get();
+    // Fallback: if no published found, try without filter (backward compat with old templates that have no status field)
+    let docs = [];
+    snap.forEach(d => docs.push(d));
+    if(docs.length === 0){
+      const snap2 = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') docs.push(d); });
+    }
     grid.innerHTML = '';
-    if (snap.empty) {
+    if (docs.length === 0) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>';
       return;
     }
-    document.getElementById('tpl-count').textContent = snap.size + ' disponible' + (snap.size!==1?'s':'');
-    snap.forEach(doc => {
+    document.getElementById('tpl-count').textContent = docs.length + ' disponible' + (docs.length!==1?'s':'');
+    docs.forEach(doc => {
       const d = doc.data();
       const card = document.createElement('div');
       card.className = 'tpl-card';
       const thumbHtml = d.thumb
         ? `<img class="tpl-thumb" src="${d.thumb}">`
         : `<div class="tpl-thumb-empty">📦</div>`;
-      const date = new Date(d.createdAt||0).toLocaleDateString('es-PE');
+      const date = new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
       card.innerHTML = `
         ${thumbHtml}
         <div class="tpl-info">
           <div class="tpl-name">${d.name}</div>
-          <div class="tpl-date">Publicada: ${date}</div>
+          <div class="tpl-date">${date}</div>
           <button class="tpl-use-btn" onclick="openEditorFromTemplate('${doc.id}')">Usar esta plantilla →</button>
         </div>`;
       grid.appendChild(card);
     });
   } catch(e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
+    // If compound query fails (missing Firestore index), fall back to simple query
+    try {
+      const snap2 = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+      const docs2 = [];
+      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') docs2.push(d); });
+      grid.innerHTML = '';
+      if(!docs2.length){ grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>'; return; }
+      document.getElementById('tpl-count').textContent = docs2.length + ' disponible' + (docs2.length!==1?'s':'');
+      docs2.forEach(doc => {
+        const d=doc.data();
+        const card=document.createElement('div'); card.className='tpl-card';
+        const thumbHtml=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-empty">📦</div>`;
+        card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-name">${d.name}</div><div class="tpl-date">${new Date(d.updatedAt||0).toLocaleDateString('es-PE')}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${doc.id}')">Usar esta plantilla →</button></div>`;
+        grid.appendChild(card);
+      });
+    } catch(e2){ grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;">Error: ${e2.message}</div>`; }
   }
 }
 
