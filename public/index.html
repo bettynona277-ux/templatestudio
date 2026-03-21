@@ -496,12 +496,16 @@ async function initFirebase() {
   if (!cfg) return false;
   try {
     const config = JSON.parse(cfg);
-    // Scripts already loaded in <head> — skip dynamic loading
-    if (fbApp) { try { fbApp.delete(); } catch(e){} }
-    fbApp = firebase.initializeApp(config, 'ts-client-' + Date.now());
+    // Reuse existing app if already initialized
+    try {
+      fbApp = firebase.app('ts-client');
+    } catch(e) {
+      fbApp = firebase.initializeApp(config, 'ts-client');
+    }
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
-    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    // Enable offline persistence for faster loads
+    fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
     return true;
   } catch(e) { console.error('Firebase init error:', e); return false; }
 }
@@ -521,10 +525,18 @@ window.addEventListener('load', async () => {
   const ok = await initFirebase();
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado aún. Contacta al administrador.';
+    document.getElementById('login-btn').disabled = false;
+    document.getElementById('login-btn').textContent = 'Entrar';
     return;
   }
-  // Check if already logged in
+  // Check if already logged in — with 3s timeout to avoid hanging
+  const authTimeout = setTimeout(()=>{
+    document.getElementById('login-btn').disabled = false;
+  }, 3000);
   fbAuth.onAuthStateChanged(user => {
+    clearTimeout(authTimeout);
+    document.getElementById('login-btn').disabled = false;
+    document.getElementById('login-btn').textContent = 'Entrar';
     if (user) {
       currentUser = user;
       showDashboard();
@@ -546,7 +558,7 @@ async function doLogin() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
-    // We use phone as email: phone@ts.app (Firebase email/password auth)
+    if (!fbAuth) { err.textContent = '✗ Firebase no inicializado'; btn.disabled=false; btn.textContent='Entrar'; return; }
     const email = phone.replace(/\s/g,'') + '@ts.app';
     const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
     currentUser = cred.user;
