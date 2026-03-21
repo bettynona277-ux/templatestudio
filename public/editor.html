@@ -692,6 +692,7 @@ function fitAllOutOfBounds(){
   if(fixed) showToast(`✓ ${fixed} capa(s) corregidas`);
   else showToast('Todo dentro del canvas 👍');
 }
+const CLOUDINARY_CLOUD = 'dwqtksxrp';
 const CLOUDINARY_PRESET = 'templatestudio';
 
 async function initFB(){
@@ -1367,65 +1368,128 @@ function openSave(){
 }
 
 async function buildLayerData(){
-  function clean(v){if(v===undefined)return null;if(v===null||typeof v!=="object")return v;if(Array.isArray(v))return v.map(clean);const r={};for(const k in v)r[k]=clean(v[k]);return r;}
+  // Remove undefined/null optional fields to keep Firestore doc small
   return layers.map(l=>{
-    const src=l.src&&l.src.startsWith("data:")?'':l.src||'';
-    return clean({id:l.id,type:l.type,name:l.name,src,x:l.x,y:l.y,w:l.w,h:l.h,
-      opacity:l.opacity,visible:l.visible,zIndex:l.zIndex,groupId:l.groupId||null,
-      tp:l.tp?{...l.tp}:null,origW:l.origW||null,origH:l.origH||null});
+    const src = (l.src && l.src.startsWith('data:')) ? '' : (l.src||'');
+    const obj = {
+      id: l.id,
+      type: l.type,
+      name: l.name||'',
+      src,
+      x: Math.round(l.x)||0,
+      y: Math.round(l.y)||0,
+      w: Math.round(l.w)||10,
+      h: Math.round(l.h)||10,
+      opacity: l.opacity??1,
+      visible: l.visible!==false,
+      zIndex: l.zIndex||0,
+    };
+    if(l.groupId) obj.groupId = l.groupId;
+    if(l.origW) obj.origW = l.origW;
+    if(l.origH) obj.origH = l.origH;
+    if(l.tp) obj.tp = {
+      text: l.tp.text||'',
+      fontSize: l.tp.fontSize||16,
+      fontFamily: l.tp.fontFamily||"'Plus Jakarta Sans'",
+      fontWeight: l.tp.fontWeight||'400',
+      color: l.tp.color||'#ffffff',
+      align: l.tp.align||'left',
+    };
+    return obj;
   });
 }
 
 async function doSave(status){
-  if(!fbDb){alert('Firebase no conectado.');return;}
+  if(!fbDb){alert('Firebase no conectado. Ve a admin.html y conecta Firebase primero.');return;}
   const name=document.getElementById('save-name').value.trim();
   const st=document.getElementById('save-st');
-  if(!name){st.textContent='Escribe un nombre';st.style.color='var(--accent2)';return;}
-  st.textContent='Guardando...';st.style.color='var(--muted)';
+  if(!name){st.textContent='Escribe un nombre para la plantilla';st.style.color='var(--accent2)';return;}
+
+  // Disable buttons during save
+  document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=true);
+  st.textContent='Preparando...';st.style.color='var(--muted)';
   tplStatus = status;
 
-  // Generate thumbnail
+  // 1. Generate + upload thumbnail
   let thumb='';
   try{
-    desel();document.querySelectorAll('.rh,.sz-hint,#multi-box').forEach(e=>e.style.display='none');
-    const sv=cvs.style.transform;cvs.style.transform='scale(1)';
-    await new Promise(r=>setTimeout(r,60));
-    const c=await html2canvas(cvs,{scale:0.3,useCORS:true,allowTaint:true,backgroundColor:null,logging:false});
+    st.textContent='Generando miniatura...';
+    desel();
+    hideMultiBox();
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+    const sv=cvs.style.transform; cvs.style.transform='scale(1)';
+    await new Promise(r=>setTimeout(r,80));
+    const c=await html2canvas(cvs,{scale:0.25,useCORS:true,allowTaint:true,backgroundColor:'#000',logging:false,
+      width:parseInt(cvs.style.width), height:parseInt(cvs.style.height)});
     cvs.style.transform=sv;
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    if(selIds.length>1) document.getElementById('multi-box').style.display='block';
-    const thumbBase64=c.toDataURL('image/jpeg',0.5);
-    try{
-      st.textContent='Subiendo miniatura...';
-      thumb=await uploadToStorage(thumbBase64, `thumbnails/${tplId||('new_'+Date.now())}.jpg`);
-    }catch(e){ console.warn('Thumb upload falló:',e.message); }
-  }catch(e){console.warn('Thumb error:',e);}
+    const thumbB64=c.toDataURL('image/jpeg',0.6);
+    st.textContent='Subiendo miniatura...';
+    thumb=await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.jpg`);
+    console.log('✓ Thumb:', thumb.substring(0,60));
+  }catch(e){
+    console.warn('Thumb falló (continuando sin miniatura):', e.message);
+    thumb='';
+  }
 
-  const layerData = await buildLayerData();
-  const data={name,thumb,status,updatedAt:Date.now(),template:{
-    type:'psd-layers',
-    canvasW:parseInt(cvs.style.width),
-    canvasH:parseInt(cvs.style.height),
-    layers:layerData
-  }};
-
+  // 2. Build layer data
+  st.textContent='Empaquetando capas...';
+  let layerData;
   try{
-    if(status==='draft') st.textContent='Guardando borrador...';
-    else st.textContent='Publicando...';
+    layerData = await buildLayerData();
+    console.log(`✓ Capas: ${layerData.length}`);
+  }catch(e){
+    st.textContent='✗ Error al empaquetar capas: '+e.message; st.style.color='var(--accent2)';
+    document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+    return;
+  }
 
-    if(tplId){await fbDb.collection('templates').doc(tplId).update(data);}
-    else{data.createdAt=Date.now();const ref=await fbDb.collection('templates').add(data);tplId=ref.id;}
+  // 3. Check approximate doc size
+  const payload = {name, thumb, status, updatedAt:Date.now(),
+    template:{type:'psd-layers', canvasW:parseInt(cvs.style.width), canvasH:parseInt(cvs.style.height), layers:layerData}};
+  const payloadStr = JSON.stringify(payload);
+  const sizeKB = Math.round(payloadStr.length/1024);
+  console.log(`📦 Tamaño doc: ~${sizeKB}KB`);
+  if(sizeKB > 900){
+    st.textContent=`✗ Documento muy grande (${sizeKB}KB). Firestore acepta máx ~1MB. Reduce capas o verifica que las imágenes estén en Cloudinary.`;
+    st.style.color='var(--accent2)';
+    document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+    return;
+  }
+
+  // 4. Save to Firestore
+  try{
+    st.textContent = status==='draft' ? 'Guardando borrador...' : 'Publicando...';
+    if(tplId){
+      await fbDb.collection('templates').doc(tplId).update(payload);
+      console.log('✓ Actualizado doc:', tplId);
+    } else {
+      payload.createdAt=Date.now();
+      const ref=await fbDb.collection('templates').add(payload);
+      tplId=ref.id;
+      console.log('✓ Nuevo doc:', tplId);
+    }
 
     if(status==='draft'){
-      st.textContent='📁 Borrador guardado (solo visible para ti)';st.style.color='#F5C842';
+      st.textContent='📁 Borrador guardado — solo visible para ti';
+      st.style.color='#F5C842';
     } else {
-      st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';st.style.color='var(--accent)';
+      st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';
+      st.style.color='var(--accent)';
       const link=`${window.location.origin}/?tpl=${tplId}`;
       const linkEl=document.getElementById('save-link');
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
     showAutoSaveIndicator('✓ Guardado');
-  }catch(e){st.textContent='✗ '+e.message;st.style.color='var(--accent2)';}
+    // Update name field title
+    document.getElementById('save-name').value=name;
+  }catch(e){
+    console.error('❌ Firestore error:', e);
+    st.textContent='✗ Error Firestore: '+e.message;
+    st.style.color='var(--accent2)';
+  }
+
+  document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
 }
 
 // ── AUTOSAVE EVERY 15s ────────────────────────────────────────
