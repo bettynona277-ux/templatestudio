@@ -852,8 +852,29 @@ function loadEditorData(data) {
         inner.id='ti-'+tid;
         inner.style.cssText=`font-family:${tp.fontFamily||"'Plus Jakarta Sans'"};font-size:${tp.fontSize||24}px;font-weight:${tp.fontWeight||'700'};color:${tp.color||'#fff'};text-align:${tp.align||'left'};width:100%;outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;pointer-events:none;`;
         inner.textContent=tp.text||'';
-        inner.ondblclick=ev=>{inner.style.pointerEvents='auto';inner.focus();ev.stopPropagation();};
         inner.onblur=()=>{inner.style.pointerEvents='none';};
+        // Double click on container activates editing
+        el.ondblclick=ev=>{
+          ev.stopPropagation();
+          inner.style.pointerEvents='auto';
+          inner.contentEditable='true';
+          inner.focus();
+          // Place cursor at end
+          const range=document.createRange();
+          range.selectNodeContents(inner);
+          range.collapse(false);
+          const sel=window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          el.style.outline='2px solid var(--accent)';
+        };
+        inner.onblur=()=>{
+          inner.style.pointerEvents='none';
+          el.style.outline='none';
+          // Update text data
+          const tx=textEls.find(x=>x.id===tid);
+          if(tx)tx.current=inner.textContent;
+        };
         el.appendChild(inner);
         const t={id:tid,x:l.x,y:l.y,w:l.w,text:tp.text||'',font:tp.fontFamily,size:tp.fontSize,weight:tp.fontWeight,color:tp.color,align:tp.align,current:tp.text||''};
         textEls.push(t);
