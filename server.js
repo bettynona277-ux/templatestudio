@@ -109,7 +109,8 @@ async function parsePSDBuffer(psdBuf) {
   }
 
   if (psd.children) psd.children.forEach(processLayer);
-  layers.reverse();
+  // Assign z-index: first layer in array = bottom, last = top (matches Photoshop order)
+  layers.forEach((l, i) => { l.zIndex = i; });
   console.log(`ag-psd: ${layers.length} layers from ${width}x${height}`);
   return { width, height, layers };
 }
