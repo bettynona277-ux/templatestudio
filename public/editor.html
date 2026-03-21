@@ -1368,9 +1368,20 @@ function openSave(){
 }
 
 async function buildLayerData(){
-  // Remove undefined/null optional fields to keep Firestore doc small
-  return layers.map(l=>{
-    const src = (l.src && l.src.startsWith('data:')) ? '' : (l.src||'');
+  const result = [];
+  for(const l of layers){
+    // Recover src from DOM if l.src is empty but image is rendered
+    let src = l.src||'';
+    if((!src || src.startsWith('data:')) && l.el){
+      const domImg = l.el.querySelector('img');
+      if(domImg && domImg.src && !domImg.src.startsWith('data:') && domImg.complete){
+        src = domImg.src; // recover Cloudinary URL from DOM
+        l.src = src;      // update layer object too
+      }
+    }
+    // Strip base64 (too large for Firestore)
+    if(src.startsWith('data:')) src = '';
+
     const obj = {
       id: l.id,
       type: l.type,
@@ -1395,8 +1406,9 @@ async function buildLayerData(){
       color: l.tp.color||'#ffffff',
       align: l.tp.align||'left',
     };
-    return obj;
-  });
+    result.push(obj);
+  }
+  return result;
 }
 
 async function doSave(status){
