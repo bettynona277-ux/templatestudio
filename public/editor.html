@@ -1195,9 +1195,11 @@ function updFrameRadius(v){
   const l=layers.find(x=>x.id===selId);
   if(!l||l.type!=='frame')return;
   l.frameRadius=parseInt(v);
-  const inner=l.el?.querySelector('.frame-inner,img');
-  if(inner) inner.style.borderRadius=v+'px';
-  if(l.el) l.el.style.borderRadius=v+'px';
+  if(l.el){
+    l.el.style.borderRadius=v+'px';
+    const clip=document.getElementById('fc-'+l.id);
+    if(clip) clip.style.borderRadius=v+'px';
+  }
 }
 
 function addText(){
@@ -1223,73 +1225,98 @@ function mkEl(l){
     const img=document.createElement('img');img.src=l.src;el.appendChild(img);
   } else if(l.type==='frame'){
     el.className+=' frame-el';
-    el.style.borderRadius=(l.frameRadius||0)+'px';
-    el.style.overflow='hidden';
-    el.style.background='rgba(0,200,150,0.06)';
-    el.style.border='2px dashed rgba(0,200,150,0.5)';
+    el.style.cssText += `border-radius:${l.frameRadius||0}px;overflow:hidden;`;
+
+    // Inner clip container — clips the image to the frame shape
+    const clip = document.createElement('div');
+    clip.className='frame-clip';
+    clip.id='fc-'+l.id;
+    clip.style.cssText=`position:absolute;inset:0;border-radius:${l.frameRadius||0}px;overflow:hidden;pointer-events:none;z-index:0;`;
+
     if(l.frameImage){
       const img=document.createElement('img');
+      img.id='fi-'+l.id;
       img.src=l.frameImage;
-      img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${l.frameRadius||0}px;pointer-events:none;`;
-      el.insertBefore(img, el.firstChild);
+      img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
+      clip.appendChild(img);
       el.style.border='none';
       el.style.background='transparent';
     } else {
+      el.style.border='2px dashed rgba(0,200,150,0.5)';
+      el.style.background='rgba(0,200,150,0.04)';
       const hint=document.createElement('div');
       hint.className='frame-drop-hint';
       hint.textContent='⬇ Arrastra imagen';
-      hint.style.pointerEvents='none'; // let drag events pass through to frame el
-      el.appendChild(hint);
+      hint.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;z-index:1;';
+      clip.appendChild(hint);
     }
-    // Accept image drop into frame
+    el.appendChild(clip);
+
+    // Preview ghost image shown during dragover
+    let previewImg = null;
+
+    function showPreview(src){
+      if(!previewImg){
+        previewImg=document.createElement('img');
+        previewImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0.55;z-index:2;';
+        clip.appendChild(previewImg);
+      }
+      previewImg.src=src;
+      previewImg.style.display='block';
+      el.style.boxShadow='0 0 0 3px var(--accent)';
+      el.style.border='2px solid var(--accent)';
+    }
+    function hidePreview(){
+      if(previewImg){ previewImg.style.display='none'; }
+      el.style.boxShadow='';
+      if(!l.frameImage) el.style.border='2px dashed rgba(0,200,150,0.5)';
+      else el.style.border='none';
+    }
+
     el.addEventListener('dragover',ev=>{
-      ev.preventDefault();
-      ev.stopPropagation();
-      el.style.borderColor='var(--accent)';
-      el.style.boxShadow='0 0 0 2px var(--accent)';
-    });
-    el.addEventListener('dragleave',ev=>{
-      if(!ev.relatedTarget||!el.contains(ev.relatedTarget)){
-        if(!l.frameImage){ el.style.borderColor='rgba(0,200,150,0.5)'; }
-        el.style.boxShadow='';
+      ev.preventDefault(); ev.stopPropagation();
+      // Try to show preview from dragged image
+      const lid2=ev.dataTransfer.types.includes('lid-data') ? ev.dataTransfer.getData('lid-data') : null;
+      if(!previewImg||previewImg.style.display==='none'){
+        el.style.boxShadow='0 0 0 3px var(--accent)';
+        el.style.border='2px solid var(--accent)';
       }
     });
+    el.addEventListener('dragleave',ev=>{
+      if(!ev.relatedTarget||!el.contains(ev.relatedTarget)) hidePreview();
+    });
     el.addEventListener('drop',ev=>{
-      ev.preventDefault();
-      ev.stopPropagation();
-      el.style.boxShadow='';
-      // Case 1: file from file system
+      ev.preventDefault(); ev.stopPropagation();
+      hidePreview();
+      const doApply=(src)=>{
+        applyImageToFrame(l, src);
+        renderList(); snapshotState();
+      };
+      // File drop
       const file=ev.dataTransfer.files[0];
       if(file&&file.type.startsWith('image/')){
         const reader=new FileReader();
         reader.onload=async e=>{
           let src=e.target.result;
           try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
-          applyImageToFrame(l, src);
-          renderList(); snapshotState();
+          doApply(src);
         };
         reader.readAsDataURL(file);
         return;
       }
-      // Case 2: layer id from canvas drag (lid set in layer list dragstart)
+      // Layer drag (from canvas or layer panel)
       const lid=ev.dataTransfer.getData('lid');
       if(lid){
         const srcLayer=layers.find(x=>x.id===parseInt(lid));
-        if(srcLayer&&srcLayer.src){
-          applyImageToFrame(l, srcLayer.src);
-          // Remove the source layer
+        if(srcLayer?.src){ doApply(srcLayer.src);
           if(srcLayer.el) srcLayer.el.remove();
           layers=layers.filter(x=>x.id!==parseInt(lid));
-          renderList(); snapshotState();
         }
         return;
       }
-      // Case 3: URL from browser drag
+      // URL drag
       const url=ev.dataTransfer.getData('text/uri-list')||ev.dataTransfer.getData('text/plain');
-      if(url&&url.startsWith('http')){
-        applyImageToFrame(l, url);
-        renderList(); snapshotState();
-      }
+      if(url?.startsWith('http')) doApply(url);
     });
   } else if(l.type==='text'){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
@@ -1418,23 +1445,23 @@ function applyImageToFrame(frameLayer, src){
   frameLayer.frameImage = src;
   const el = frameLayer.el;
   if(!el) return;
-  // Remove hint / old image, keep resize handles and sz-hint
-  Array.from(el.children).forEach(c=>{
-    if(!c.classList.contains('rh') && !c.classList.contains('sz-hint') && c.id!==('sh-'+frameLayer.id))
-      c.remove();
-  });
+  const clip = document.getElementById('fc-'+frameLayer.id);
+  if(!clip) return;
+  // Clear clip content (hint, old image, preview)
+  clip.innerHTML='';
+  // Insert new image
+  const img=document.createElement('img');
+  img.id='fi-'+frameLayer.id;
+  img.src=src;
+  img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
+  clip.appendChild(img);
+  // Update frame el styles
   el.style.border='none';
   el.style.background='transparent';
-  el.style.overflow='hidden';
-  // Highlight frame briefly
   el.style.boxShadow='0 0 0 3px var(--accent)';
-  setTimeout(()=>el.style.boxShadow='',600);
-  const img=document.createElement('img');
-  img.src=src;
-  img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${frameLayer.frameRadius||0}px;pointer-events:none;`;
-  el.insertBefore(img, el.firstChild);
+  setTimeout(()=>el.style.boxShadow='',700);
   sel(frameLayer.id);
-  showToast('✓ Imagen insertada en marco');
+  showToast('✓ Imagen en marco');
 }
 
 // ── MARQUEE SELECTION ─────────────────────────────────────────
@@ -1505,6 +1532,38 @@ document.addEventListener('mousemove',ev=>{
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
     l.x=Math.round(mx-dOff.x); l.y=Math.round(my-dOff.y);
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
+
+    // Highlight frame under dragged image layer
+    if(l.type==='img'){
+      const cx=l.x+l.w/2, cy=l.y+l.h/2;
+      layers.forEach(fl=>{
+        if(fl.type!=='frame'||!fl.el) return;
+        const over=cx>=fl.x&&cx<=fl.x+fl.w&&cy>=fl.y&&cy<=fl.y+fl.h;
+        const clip=document.getElementById('fc-'+fl.id);
+        if(over){
+          fl.el.style.boxShadow='0 0 0 3px var(--accent)';
+          fl.el.style.border='2px solid var(--accent)';
+          // Show preview of the dragged image in the frame
+          if(clip&&l.src){
+            let pi=document.getElementById('fp-'+fl.id);
+            if(!pi){
+              pi=document.createElement('img');
+              pi.id='fp-'+fl.id;
+              pi.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0.6;z-index:3;';
+              clip.appendChild(pi);
+            }
+            pi.src=l.src; pi.style.display='block';
+          }
+        } else {
+          fl.el.style.boxShadow='';
+          if(!fl.frameImage) fl.el.style.border='2px dashed rgba(0,200,150,0.5)';
+          else fl.el.style.border='none';
+          // Remove preview
+          const pi=document.getElementById('fp-'+fl.id);
+          if(pi) pi.style.display='none';
+        }
+      });
+    }
   }
   if(isRes&&rSt.id!==undefined){
     const l=layers.find(x=>x.id===rSt.id);if(!l?.el)return;
@@ -1561,6 +1620,17 @@ document.addEventListener('mouseup',ev=>{
     return;
   }
   if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
+
+  // Clear frame hover previews
+  layers.forEach(fl=>{
+    if(fl.type==='frame'&&fl.el){
+      fl.el.style.boxShadow='';
+      if(!fl.frameImage) fl.el.style.border='2px dashed rgba(0,200,150,0.5)';
+      else fl.el.style.border='none';
+      const pi=document.getElementById('fp-'+fl.id);
+      if(pi) pi.remove();
+    }
+  });
 
   // ── FRAME SNAP: if dragged an img layer and it overlaps a frame, insert into frame ──
   if(isDrag && selId!==null){
