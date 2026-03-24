@@ -558,6 +558,7 @@ let marqueeStart={x:0,y:0};
 let marqueeEl=null;     // the marquee div
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
 let isMultiDrag=false;
+let frameSnapTarget=null; // frame layer that is currently being hovered during drag
 
 function getSelLayer(){ return layers.find(x=>x.id===selId); }
 
@@ -1396,6 +1397,7 @@ function startDrag(ev, id){
   const draggedL = layers.find(x=>x.id===id);
   // When dragging an image, disable pointer-events on all frames so they don't intercept
   if(draggedL?.type==='img'){
+    frameSnapTarget=null;
     layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents='none'; });
   }
   if(selIds.length>1 && selIds.includes(id)){
@@ -1558,17 +1560,18 @@ document.addEventListener('mousemove',ev=>{
     l.x=Math.round(mx-dOff.x); l.y=Math.round(my-dOff.y);
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
 
-    // Highlight frame under dragged image layer
+    // Highlight frame under dragged image layer — only if center is inside frame
     if(l.type==='img'){
       const cx=l.x+l.w/2, cy=l.y+l.h/2;
+      frameSnapTarget=null;
       layers.forEach(fl=>{
         if(fl.type!=='frame'||!fl.el) return;
         const over=cx>=fl.x&&cx<=fl.x+fl.w&&cy>=fl.y&&cy<=fl.y+fl.h;
         const clip=document.getElementById('fc-'+fl.id);
         if(over){
+          frameSnapTarget=fl; // mark this frame as snap target
           fl.el.style.boxShadow='0 0 0 3px var(--accent)';
           fl.el.style.border='2px solid var(--accent)';
-          // Show preview of the dragged image in the frame
           if(clip&&l.src){
             let pi=document.getElementById('fp-'+fl.id);
             if(!pi){
@@ -1583,7 +1586,6 @@ document.addEventListener('mousemove',ev=>{
           fl.el.style.boxShadow='';
           if(!fl.frameImage) fl.el.style.border='2px dashed rgba(0,200,150,0.5)';
           else fl.el.style.border='none';
-          // Remove preview
           const pi=document.getElementById('fp-'+fl.id);
           if(pi) pi.style.display='none';
         }
@@ -1663,36 +1665,27 @@ document.addEventListener('mouseup',ev=>{
     }
   });
 
-  // ── FRAME SNAP: if dragged an img layer and it overlaps a frame, insert into frame ──
-  // Works regardless of z-index order (frame can be below the image in layer stack)
-  if(isDrag && selId!==null){
+  // ── FRAME SNAP: only when image was hovering over a frame (preview was showing) ──
+  if(isDrag && selId!==null && frameSnapTarget){
     const draggedLayer = layers.find(x=>x.id===selId);
     if(draggedLayer && draggedLayer.type==='img' && draggedLayer.src){
-      const cx = draggedLayer.x + draggedLayer.w/2;
-      const cy = draggedLayer.y + draggedLayer.h/2;
-      // Search ALL frames regardless of z-order
-      const targetFrame = layers.find(l=>
-        l.type==='frame' &&
-        l.id !== selId &&
-        cx >= l.x && cx <= l.x+l.w &&
-        cy >= l.y && cy <= l.y+l.h
-      );
-      if(targetFrame){
-        const srcToInsert = draggedLayer.src;
-        const draggedId = draggedLayer.id;
-        // Step 1: Remove the dragged layer from DOM and array FIRST
-        if(draggedLayer.el) draggedLayer.el.remove();
-        layers = layers.filter(x=>x.id!==draggedId);
-        selId=null; selIds=[];
-        // Step 2: Apply image to frame (safe now — no dangling refs)
-        applyImageToFrame(targetFrame, srcToInsert);
-        renderList();
-        snapshotState();
-        isDrag=false; isRes=false; isMultiDrag=false; rSt={};
-        return;
-      }
+      const targetFrame = frameSnapTarget;
+      frameSnapTarget = null;
+      const srcToInsert = draggedLayer.src;
+      const draggedId = draggedLayer.id;
+      // Remove dragged layer first
+      if(draggedLayer.el) draggedLayer.el.remove();
+      layers = layers.filter(x=>x.id!==draggedId);
+      selId=null; selIds=[];
+      // Apply to frame
+      applyImageToFrame(targetFrame, srcToInsert);
+      renderList();
+      snapshotState();
+      isDrag=false; isRes=false; isMultiDrag=false; rSt={};
+      return;
     }
   }
+  frameSnapTarget=null;
 
   if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; rSt={};
