@@ -154,6 +154,11 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 /* Frame: no outline-offset gap, border hugs the edge */
 .cel.frame-el.sel{outline:none !important;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;}
+/* LOGO LIBRARY */
+.logo-lib-item{position:relative;background:var(--panel2);border:1.5px solid var(--border);border-radius:10px;aspect-ratio:1;overflow:hidden;cursor:grab;transition:all 0.2s;}
+.logo-lib-item:hover{border-color:var(--accent);transform:scale(1.05);}
+.logo-lib-item img{width:100%;height:100%;object-fit:contain;padding:6px;pointer-events:none;}
+.logo-lib-item .logo-del{position:absolute;top:3px;right:3px;background:rgba(255,107,107,0.85);color:#fff;border:none;border-radius:4px;width:18px;height:18px;font-size:0.65rem;cursor:pointer;display:none;align-items:center;justify-content:center;}
 .la-btn{padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.78rem;transition:all 0.15s;text-align:center;}
 .la-btn:hover{background:rgba(79,142,247,0.15);color:var(--blue);border-color:rgba(79,142,247,0.3);}
 .fmt-btn{flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.8rem;transition:all 0.15s;text-align:center;min-width:0;}
@@ -200,6 +205,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <button class="lp-tab active" id="ltab-layers" onclick="switchLTab('layers')">Capas</button>
       <button class="lp-tab" id="ltab-shapes" onclick="switchLTab('shapes')">Formas</button>
       <button class="lp-tab" id="ltab-frames" onclick="switchLTab('frames')">Marcos</button>
+      <button class="lp-tab" id="ltab-logos" onclick="switchLTab('logos')">Logos</button>
     </div>
 
     <!-- CAPAS tab -->
@@ -285,9 +291,23 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
         <span id="frame-radius-lbl" style="font-size:0.72rem;color:var(--muted);min-width:28px;">0px</span>
       </div>
     </div>
-  </div>
 
-  <!-- CANVAS -->
+    <!-- LOGOS tab -->
+    <div id="ltab-logos-body" class="lp-tab-body" style="display:none;overflow-y:auto;">
+      <div style="padding:12px 12px 6px;">
+        <div class="lp-title" style="margin-bottom:6px;">Biblioteca de logos</div>
+        <p style="font-size:0.7rem;color:var(--muted);margin-bottom:10px;line-height:1.5;">Los logos que subas aquí también los verán tus clientes.</p>
+        <!-- Admin only: upload button -->
+        <label id="logo-upload-btn" class="upload-psd" style="margin-bottom:8px;font-size:0.78rem;padding:9px 12px;">
+          ＋ Subir logo
+          <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
+        </label>
+      </div>
+      <div id="logo-library-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 12px;">
+        <div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;" id="logo-library-empty">Cargando logos...</div>
+      </div>
+    </div>
+  </div>
   <div class="canvas-area" id="canvas-area" onclick="canvasClick(event)">
     <div id="cvs" style="width:800px;height:800px;background:#0a0a1a;">
       <div id="multi-box">
@@ -1081,13 +1101,101 @@ async function loadPSDData(data){
 // ADD TEXT MANUALLY
 // ── LEFT PANEL TABS ──────────────────────────────────────────
 function switchLTab(tab){
-  ['layers','shapes','frames'].forEach(t=>{
-    document.getElementById('ltab-'+t+'-body').style.display = t===tab ? (t==='layers'?'flex':'block') : 'none';
-    document.getElementById('ltab-'+t).classList.toggle('active', t===tab);
+  ['layers','shapes','frames','logos'].forEach(t=>{
+    const body=document.getElementById('ltab-'+t+'-body');
+    if(body) body.style.display = t===tab ? (t==='layers'?'flex':'block') : 'none';
+    const btn=document.getElementById('ltab-'+t);
+    if(btn) btn.classList.toggle('active', t===tab);
+  });
+  if(tab==='logos') loadLogoLibrary();
+}
+
+// ── LOGO LIBRARY ─────────────────────────────────────────────
+let logoLibCache = [];
+
+async function loadLogoLibrary(){
+  const grid=document.getElementById('logo-library-grid');
+  const emptyEl=document.getElementById('logo-library-empty');
+  if(!fbDb){
+    if(emptyEl) emptyEl.textContent='Conecta Firebase para usar la biblioteca.';
+    return;
+  }
+  if(emptyEl) emptyEl.textContent='Cargando...';
+  try{
+    const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    logoLibCache=[];
+    snap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
+    renderLogoLibrary();
+  }catch(e){
+    if(emptyEl) emptyEl.textContent='Error: '+e.message;
+  }
+}
+
+function renderLogoLibrary(){
+  const grid=document.getElementById('logo-library-grid');
+  grid.innerHTML='';
+  if(!logoLibCache.length){
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;">Sin logos aún.<br>Sube el primero ↑</div>';
+    return;
+  }
+  const isAdmin=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+  logoLibCache.forEach(logo=>{
+    const item=document.createElement('div');
+    item.className='logo-lib-item';
+    item.title='Clic para agregar al canvas';
+    item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
+      ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
+    item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name));
+    item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
+    item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
+    grid.appendChild(item);
   });
 }
 
-// ── FONT SEARCH ───────────────────────────────────────────────
+async function uploadLibraryLogos(ev){
+  const files=Array.from(ev.target.files); ev.target.value='';
+  if(!files.length) return;
+  if(!fbDb){ alert('Conecta Firebase primero'); return; }
+  showToast('Subiendo logos...');
+  for(const file of files){
+    try{
+      const reader=new FileReader();
+      const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
+      const url=await uploadToStorage(dataUrl,`logos/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
+      await fbDb.collection('logos').add({url,name:file.name,createdAt:Date.now()});
+    }catch(e){ console.warn('Logo upload failed:',e.message); }
+  }
+  showToast('✓ Logos subidos');
+  loadLogoLibrary();
+}
+
+async function deleteLibraryLogo(id,ev){
+  ev.stopPropagation();
+  if(!confirm('¿Eliminar este logo de la biblioteca?')) return;
+  try{
+    await fbDb.collection('logos').doc(id).delete();
+    logoLibCache=logoLibCache.filter(l=>l.id!==id);
+    renderLogoLibrary();
+    showToast('Logo eliminado');
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+function addLogoToCanvas(src, name){
+  const img=new Image();
+  img.onload=()=>{
+    const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+    let w=img.width, h=img.height;
+    const maxW=Math.min(300, cw*0.4);
+    if(w>maxW){ const s=maxW/w; w=Math.round(w*s); h=Math.round(h*s); }
+    const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
+      x:Math.round((cw-w)/2), y:Math.round((ch-h)/2), w, h,
+      opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,origW:img.width,origH:img.height};
+    layers.push(l); mkEl(l); renderList(); sel(l.id);
+    snapshotState();
+    showToast('✓ Logo agregado al canvas');
+  };
+  img.src=src;
+}
 const FONT_LIST = [
   {label:'Poppins', value:"'Poppins'"},
   {label:'Montserrat', value:"'Montserrat'"},
@@ -2048,6 +2156,7 @@ function setClientUI(){
   document.getElementById('btn-save').style.display='none';
   document.getElementById('upload-zone').style.display='none';
   document.querySelector('.add-text-btn').style.display='none';
+  const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
   desel();
 }
 
