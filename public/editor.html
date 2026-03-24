@@ -45,6 +45,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .layer-item.selected{border-color:var(--accent);background:rgba(0,200,150,0.06);}
 .layer-item.text-l{border-left:3px solid var(--blue);}
 .layer-item.img-l{border-left:3px solid var(--accent);}
+.layer-item.frame-l{border-left:3px solid #F5C842;}
 .layer-item.hidden-l{opacity:0.38;}
 .layer-item.drag-over-l{border-color:var(--accent);background:rgba(0,200,150,0.1);}
 .l-thumb{width:34px;height:34px;border-radius:5px;object-fit:contain;background:rgba(255,255,255,0.04);flex-shrink:0;}
@@ -129,7 +130,26 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 .align-row{display:flex;gap:3px;margin-bottom:5px;}
 .align-row button{flex:1;padding:5px;border-radius:5px;border:none;background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.8rem;transition:all 0.15s;}
 .align-row button:hover{background:rgba(79,142,247,0.15);color:var(--blue);}
-.hint{font-size:0.7rem;color:var(--muted);line-height:1.5;padding:7px 9px;background:var(--panel2);border-radius:7px;border-left:3px solid var(--accent);margin-bottom:8px;}
+/* LEFT PANEL TABS */
+.lp-tabs{display:flex;border-bottom:1px solid var(--border);padding:0;flex-shrink:0;}
+.lp-tab{flex:1;padding:9px 4px;font-size:0.72rem;font-weight:700;background:none;border:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;font-family:inherit;}
+.lp-tab:hover{color:var(--text);}
+.lp-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.lp-tab-body{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+#ltab-layers-body{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+
+/* SHAPES GRID */
+.shapes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:4px;}
+.shape-tile{background:var(--panel2);border:1.5px solid var(--border);border-radius:10px;padding:8px 4px 5px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:all 0.2s;color:var(--muted);}
+.shape-tile:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,200,150,0.07);}
+.shape-tile svg{width:36px;height:36px;}
+.shape-tile span{font-size:0.62rem;font-weight:600;}
+
+/* FRAME */
+.cel.frame-el{border:2px dashed rgba(0,200,150,0.5);background:rgba(0,200,150,0.04);}
+.cel.frame-el.has-image{border-style:solid;border-color:transparent;}
+.cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
+.frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;}
 .la-btn{padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.78rem;transition:all 0.15s;text-align:center;}
 .la-btn:hover{background:rgba(79,142,247,0.15);color:var(--blue);border-color:rgba(79,142,247,0.3);}
 .fmt-btn{flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.8rem;transition:all 0.15s;text-align:center;min-width:0;}
@@ -171,18 +191,94 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 <div class="main">
   <!-- LEFT -->
   <div class="left">
-    <div class="lp-head">
-      <div class="lp-title">Capas del diseño</div>
-      <label class="upload-psd" id="upload-zone">
-        📂 Subir PSD o imágenes
-        <input type="file" id="psd-input" accept=".psd,image/*" multiple style="display:none" onchange="handleUpload(event)">
-      </label>
-      <button class="add-text-btn" onclick="addText()">T+ Añadir texto</button>
+    <!-- Tab bar -->
+    <div class="lp-tabs">
+      <button class="lp-tab active" id="ltab-layers" onclick="switchLTab('layers')">Capas</button>
+      <button class="lp-tab" id="ltab-shapes" onclick="switchLTab('shapes')">Formas</button>
+      <button class="lp-tab" id="ltab-frames" onclick="switchLTab('frames')">Marcos</button>
     </div>
-    <div class="lp-body" id="layer-list">
-      <div id="empty-lp" style="text-align:center;padding:28px 10px;color:var(--muted);font-size:0.78rem;line-height:1.9;">
-        📂 Sube tu PSD de Photoshop.<br><br>
-        El servidor procesará cada capa<br>automáticamente — textos editables,<br>imágenes perfectas.
+
+    <!-- CAPAS tab -->
+    <div id="ltab-layers-body" class="lp-tab-body">
+      <div class="lp-head" style="border-bottom:none;padding-bottom:4px;">
+        <label class="upload-psd" id="upload-zone">
+          📂 Subir PSD o imágenes
+          <input type="file" id="psd-input" accept=".psd,image/*" multiple style="display:none" onchange="handleUpload(event)">
+        </label>
+        <button class="add-text-btn" onclick="addText()">T＋ Añadir texto</button>
+      </div>
+      <div class="lp-body" id="layer-list">
+        <div id="empty-lp" style="text-align:center;padding:28px 10px;color:var(--muted);font-size:0.78rem;line-height:1.9;">
+          📂 Sube tu PSD de Photoshop.<br><br>
+          El servidor procesará cada capa<br>automáticamente.
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAS tab -->
+    <div id="ltab-shapes-body" class="lp-tab-body" style="display:none;padding:12px;overflow-y:auto;">
+      <div class="lp-title" style="margin-bottom:10px;">Formas básicas</div>
+      <div class="shapes-grid">
+        <button class="shape-tile" onclick="addShape('rect')" title="Rectángulo">
+          <svg viewBox="0 0 40 40"><rect x="4" y="8" width="32" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          <span>Rect.</span>
+        </button>
+        <button class="shape-tile" onclick="addShape('rect-r')" title="Rect. redondeado">
+          <svg viewBox="0 0 40 40"><rect x="4" y="8" width="32" height="24" rx="10" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          <span>Redond.</span>
+        </button>
+        <button class="shape-tile" onclick="addShape('circle')" title="Círculo">
+          <svg viewBox="0 0 40 40"><ellipse cx="20" cy="20" rx="16" ry="16" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          <span>Círculo</span>
+        </button>
+        <button class="shape-tile" onclick="addShape('triangle')" title="Triángulo">
+          <svg viewBox="0 0 40 40"><polygon points="20,5 36,35 4,35" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          <span>Triáng.</span>
+        </button>
+        <button class="shape-tile" onclick="addShape('line')" title="Línea">
+          <svg viewBox="0 0 40 40"><line x1="4" y1="20" x2="36" y2="20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          <span>Línea</span>
+        </button>
+        <button class="shape-tile" onclick="addShape('star')" title="Estrella">
+          <svg viewBox="0 0 40 40"><polygon points="20,4 24,15 36,15 27,23 30,35 20,28 10,35 13,23 4,15 16,15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <span>Estrella</span>
+        </button>
+      </div>
+      <div class="lp-title" style="margin:14px 0 8px;">Color de forma</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="color" id="shape-fill" value="#4F8EF7" style="width:32px;height:32px;border:none;cursor:pointer;border-radius:6px;">
+        <input type="color" id="shape-stroke" value="#ffffff" style="width:32px;height:32px;border:none;cursor:pointer;border-radius:6px;">
+        <input type="number" id="shape-stroke-w" value="0" min="0" max="20" placeholder="Borde" style="width:56px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:4px 7px;color:var(--text);font-size:0.75rem;outline:none;">
+        <input type="range" id="shape-opacity" min="10" max="100" value="100" style="flex:1;accent-color:var(--accent);">
+      </div>
+    </div>
+
+    <!-- MARCOS tab -->
+    <div id="ltab-frames-body" class="lp-tab-body" style="display:none;padding:12px;overflow-y:auto;">
+      <div class="lp-title" style="margin-bottom:8px;">Marcos de imagen</div>
+      <p style="font-size:0.72rem;color:var(--muted);margin-bottom:12px;line-height:1.5;">Crea un marco, luego <strong style="color:var(--accent)">arrastra una imagen</strong> encima para insertarla.</p>
+      <div class="shapes-grid">
+        <button class="shape-tile" onclick="addFrame('rect')" title="Marco cuadrado">
+          <svg viewBox="0 0 40 40"><rect x="4" y="4" width="32" height="32" rx="2" fill="rgba(0,200,150,0.15)" stroke="#00C896" stroke-width="2.5" stroke-dasharray="4,3"/></svg>
+          <span>Cuadro</span>
+        </button>
+        <button class="shape-tile" onclick="addFrame('wide')" title="Marco horizontal">
+          <svg viewBox="0 0 40 40"><rect x="2" y="10" width="36" height="20" rx="2" fill="rgba(0,200,150,0.15)" stroke="#00C896" stroke-width="2.5" stroke-dasharray="4,3"/></svg>
+          <span>Ancho</span>
+        </button>
+        <button class="shape-tile" onclick="addFrame('tall')" title="Marco vertical">
+          <svg viewBox="0 0 40 40"><rect x="10" y="2" width="20" height="36" rx="2" fill="rgba(0,200,150,0.15)" stroke="#00C896" stroke-width="2.5" stroke-dasharray="4,3"/></svg>
+          <span>Alto</span>
+        </button>
+        <button class="shape-tile" onclick="addFrame('circle')" title="Marco circular">
+          <svg viewBox="0 0 40 40"><ellipse cx="20" cy="20" rx="16" ry="16" fill="rgba(0,200,150,0.15)" stroke="#00C896" stroke-width="2.5" stroke-dasharray="4,3"/></svg>
+          <span>Círculo</span>
+        </button>
+      </div>
+      <div class="lp-title" style="margin:14px 0 6px;">Radio de esquinas</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="range" id="frame-radius" min="0" max="200" value="0" style="flex:1;accent-color:var(--accent);" oninput="updFrameRadius(this.value)">
+        <span id="frame-radius-lbl" style="font-size:0.72rem;color:var(--muted);min-width:28px;">0px</span>
       </div>
     </div>
   </div>
@@ -249,24 +345,23 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
         <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none;" oninput="updTxt(this.value)"></textarea>
 
         <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Fuente</div>
-        <select class="pp-sel" id="pp-ff" onchange="updTS('fontFamily',this.value)">
-          <optgroup label="── Sans Serif ──">
-            <option value="'Poppins'">Poppins</option>
-            <option value="'Montserrat'">Montserrat</option>
-            <option value="'Plus Jakarta Sans'">Jakarta Sans</option>
-            <option value="Arial">Arial</option>
-          </optgroup>
-          <optgroup label="── Display ──">
-            <option value="Impact">Impact</option>
-            <option value="'Bebas Neue'">Bebas Neue</option>
-          </optgroup>
-          <optgroup label="── Serif ──">
-            <option value="Georgia">Georgia</option>
-            <option value="'Times New Roman'">Times New Roman</option>
-          </optgroup>
-          <optgroup label="── Mono ──">
-            <option value="'Courier New'">Courier New</option>
-          </optgroup>
+        <!-- Searchable font picker -->
+        <div style="position:relative;margin-bottom:5px;">
+          <input type="text" id="font-search" placeholder="🔍 Buscar fuente..." oninput="filterFonts(this.value)"
+            style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:6px 9px;color:var(--text);font-family:inherit;font-size:0.78rem;outline:none;">
+          <div id="font-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+          </div>
+        </div>
+        <select class="pp-sel" id="pp-ff" onchange="applyFont(this.value)" style="display:none;">
+          <option value="'Poppins'">Poppins</option>
+          <option value="'Montserrat'">Montserrat</option>
+          <option value="'Plus Jakarta Sans'">Jakarta Sans</option>
+          <option value="Impact">Impact</option>
+          <option value="'Bebas Neue'">Bebas Neue</option>
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="'Times New Roman'">Times New Roman</option>
+          <option value="'Courier New'">Courier New</option>
         </select>
 
         <div class="pp-row">
@@ -308,6 +403,9 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
           <button class="fmt-btn" onclick="updTS('textAlign','left')" title="Izquierda">⬅</button>
           <button class="fmt-btn" onclick="updTS('textAlign','center')" title="Centro">↔</button>
           <button class="fmt-btn" onclick="updTS('textAlign','right')" title="Derecha">➡</button>
+          <div style="width:1px;background:var(--border);margin:0 2px;"></div>
+          <button class="fmt-btn" id="fmt-upper" onclick="toggleCase('upper')" title="MAYÚSCULAS" style="font-size:0.62rem;font-weight:700;">AA</button>
+          <button class="fmt-btn" id="fmt-lower" onclick="toggleCase('lower')" title="minúsculas" style="font-size:0.62rem;">aa</button>
         </div>
 
         <!-- Spacing -->
@@ -397,20 +495,23 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
   <div class="modal">
     <h3>💾 Guardar plantilla</h3>
     <p>Los <strong style="color:#F5C842">borradores</strong> solo los ves tú. Las <strong style="color:var(--accent)">publicadas</strong> las ven tus clientes.</p>
-    <input type="text" class="modal-inp" id="save-name" placeholder="Ej: Prime Video Mayo 2025">
-    <select class="modal-inp" id="save-category" style="cursor:pointer;">
-      <option value="">Sin categoría</option>
-      <option value="Netflix">Netflix</option>
-      <option value="Disney+">Disney+</option>
-      <option value="Prime Video">Prime Video</option>
-      <option value="HBO Max">HBO Max</option>
-      <option value="Spotify">Spotify</option>
-      <option value="Apple TV+">Apple TV+</option>
-      <option value="Paramount+">Paramount+</option>
-      <option value="Promociones">Promociones</option>
-      <option value="Avisos">Avisos</option>
-      <option value="Otros">Otros</option>
-    </select>
+    <input type="text" class="modal-inp" id="save-name" placeholder="Ej: Prime Video Mayo 2025" autocomplete="off">
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <select class="modal-inp" id="save-category" style="cursor:pointer;margin:0;flex:1;">
+        <option value="">Sin categoría</option>
+        <option value="Netflix">Netflix</option>
+        <option value="Disney+">Disney+</option>
+        <option value="Prime Video">Prime Video</option>
+        <option value="HBO Max">HBO Max</option>
+        <option value="Spotify">Spotify</option>
+        <option value="Apple TV+">Apple TV+</option>
+        <option value="Paramount+">Paramount+</option>
+        <option value="Promociones">Promociones</option>
+        <option value="Avisos">Avisos</option>
+        <option value="Otros">Otros</option>
+      </select>
+      <button class="modal-btn" onclick="addCustomCategory()" style="padding:0 12px;margin:0;background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.25);border-radius:9px;font-size:1.1rem;cursor:pointer;" title="Crear categoría nueva">＋</button>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:8px;">
       <button class="modal-btn" style="flex:1;background:rgba(245,200,66,0.1);color:#F5C842;border:1.5px solid rgba(245,200,66,0.25);border-radius:10px;padding:11px;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;" onclick="doSave('draft')">📁 Borrador privado</button>
       <button class="modal-btn modal-btn-green" style="flex:1;" onclick="doSave('published')">🚀 Publicar</button>
@@ -940,6 +1041,122 @@ async function loadPSDData(data){
 }
 
 // ADD TEXT MANUALLY
+// ── LEFT PANEL TABS ──────────────────────────────────────────
+function switchLTab(tab){
+  ['layers','shapes','frames'].forEach(t=>{
+    document.getElementById('ltab-'+t+'-body').style.display = t===tab ? (t==='layers'?'flex':'block') : 'none';
+    document.getElementById('ltab-'+t).classList.toggle('active', t===tab);
+  });
+}
+
+// ── FONT SEARCH ───────────────────────────────────────────────
+const FONT_LIST = [
+  {label:'Poppins', value:"'Poppins'"},
+  {label:'Montserrat', value:"'Montserrat'"},
+  {label:'Jakarta Sans', value:"'Plus Jakarta Sans'"},
+  {label:'Arial', value:'Arial'},
+  {label:'Impact', value:'Impact'},
+  {label:'Bebas Neue', value:"'Bebas Neue'"},
+  {label:'Georgia', value:'Georgia'},
+  {label:'Times New Roman', value:"'Times New Roman'"},
+  {label:'Courier New', value:"'Courier New'"},
+];
+let fontSearchOpen=false;
+function filterFonts(q){
+  const dd=document.getElementById('font-dropdown');
+  const filtered=FONT_LIST.filter(f=>f.label.toLowerCase().includes(q.toLowerCase()));
+  dd.innerHTML=filtered.map(f=>`<div onclick="applyFont('${f.value}')" style="padding:8px 12px;cursor:pointer;font-size:0.82rem;font-family:${f.value};transition:background 0.15s;" onmouseover="this.style.background='rgba(0,200,150,0.1)'" onmouseout="this.style.background=''">${f.label}</div>`).join('');
+  dd.style.display=filtered.length?'block':'none';
+}
+function applyFont(val){
+  updTS('fontFamily',val);
+  const lbl=FONT_LIST.find(f=>f.value===val);
+  document.getElementById('font-search').value=lbl?lbl.label:val.replace(/'/g,'');
+  document.getElementById('font-dropdown').style.display='none';
+  document.getElementById('pp-ff').value=val;
+}
+document.addEventListener('click',ev=>{
+  if(!ev.target.closest('#font-search')&&!ev.target.closest('#font-dropdown')){
+    const dd=document.getElementById('font-dropdown');
+    if(dd) dd.style.display='none';
+  }
+});
+
+// ── CASE TOGGLE ───────────────────────────────────────────────
+function toggleCase(mode){
+  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
+  const d=document.getElementById('ti-'+selId);if(!d)return;
+  if(mode==='upper'){
+    l.tp.textTransform = l.tp.textTransform==='uppercase'?'none':'uppercase';
+  } else {
+    l.tp.textTransform = l.tp.textTransform==='lowercase'?'none':'lowercase';
+  }
+  d.style.textTransform=l.tp.textTransform||'none';
+  document.getElementById('fmt-upper').classList.toggle('active',l.tp.textTransform==='uppercase');
+  document.getElementById('fmt-lower').classList.toggle('active',l.tp.textTransform==='lowercase');
+}
+
+// ── CUSTOM CATEGORY ───────────────────────────────────────────
+function addCustomCategory(){
+  const name=prompt('Nombre de la nueva categoría:');
+  if(!name||!name.trim()) return;
+  const sel=document.getElementById('save-category');
+  const opt=document.createElement('option');
+  opt.value=name.trim(); opt.textContent=name.trim(); opt.selected=true;
+  sel.appendChild(opt);
+  showToast(`✦ Categoría "${name.trim()}" creada`);
+}
+
+// ── SHAPES ───────────────────────────────────────────────────
+function addShape(type){
+  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  const fill=document.getElementById('shape-fill')?.value||'#4F8EF7';
+  const stroke=document.getElementById('shape-stroke')?.value||'#ffffff';
+  const strokeW=parseInt(document.getElementById('shape-stroke-w')?.value)||0;
+  const opacity=(parseInt(document.getElementById('shape-opacity')?.value)||100)/100;
+  let w=200,h=140,svg='';
+  if(type==='circle'){w=160;h=160;}
+  if(type==='line'){w=200;h=20;}
+  if(type==='star'){w=160;h=160;}
+  const sw=strokeW>0?` stroke="${stroke}" stroke-width="${strokeW}"`:'';
+  switch(type){
+    case 'rect': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
+    case 'rect-r': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
+    case 'circle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
+    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
+    case 'line': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="10" viewBox="0 0 ${w} 10"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; h=10; break;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
+  }
+  const blob=new Blob([svg],{type:'image/svg+xml'});
+  const url=URL.createObjectURL(blob);
+  const l={id:lCtr++,type:'img',name:'Forma',src:url,
+    x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
+    opacity,visible:true,zIndex:layers.length,tp:null,el:null,origW:w,origH:h,isShape:true,shapeSvg:svg};
+  layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
+}
+
+// ── FRAMES ───────────────────────────────────────────────────
+function addFrame(type){
+  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  const sizes={rect:[300,300],wide:[400,220],tall:[220,340],circle:[280,280]};
+  const [w,h]=sizes[type]||[300,300];
+  const radius=type==='circle'?Math.min(w,h)/2:parseInt(document.getElementById('frame-radius')?.value)||0;
+  const l={id:lCtr++,type:'frame',name:'Marco',src:'',
+    x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
+    opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,
+    frameRadius:radius,frameType:type,frameImage:''};
+  layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
+}
+function updFrameRadius(v){
+  document.getElementById('frame-radius-lbl').textContent=v+'px';
+  const l=layers.find(x=>x.id===selId);
+  if(!l||l.type!=='frame')return;
+  l.frameRadius=parseInt(v);
+  const inner=l.el?.querySelector('.frame-inner,img');
+  if(inner) inner.style.borderRadius=v+'px';
+  if(l.el) l.el.style.borderRadius=v+'px';
+}
+
 function addText(){
   const cw=parseInt(cvs.style.width)||800;
   const l={id:lCtr++,type:'text',name:'Texto',src:'',x:Math.round(cw/2-200),y:60,w:400,h:50,opacity:1,visible:true,zIndex:layers.length,
@@ -955,11 +1172,55 @@ function mkEl(l){
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');img.src=l.src;el.appendChild(img);
+  } else if(l.type==='frame'){
+    el.className+=' frame-el';
+    el.style.borderRadius=(l.frameRadius||0)+'px';
+    el.style.overflow='hidden';
+    el.style.background='rgba(0,200,150,0.06)';
+    el.style.border='2px dashed rgba(0,200,150,0.5)';
+    if(l.frameImage){
+      const img=document.createElement('img');
+      img.src=l.frameImage;
+      img.className='frame-inner';
+      img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;border-radius:'+(l.frameRadius||0)+'px;';
+      el.appendChild(img);
+      el.style.border='none';
+    } else {
+      const hint=document.createElement('div');
+      hint.className='frame-drop-hint';
+      hint.textContent='⬇ Arrastra imagen';
+      el.appendChild(hint);
+    }
+    // Accept image drop into frame
+    el.addEventListener('dragover',ev=>{ev.preventDefault();el.style.borderColor='var(--accent)';});
+    el.addEventListener('dragleave',()=>{if(!l.frameImage)el.style.borderColor='rgba(0,200,150,0.5)';});
+    el.addEventListener('drop',ev=>{
+      ev.preventDefault();ev.stopPropagation();
+      const file=ev.dataTransfer.files[0];
+      if(!file||!file.type.startsWith('image/'))return;
+      const reader=new FileReader();
+      reader.onload=async e=>{
+        let src=e.target.result;
+        try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
+        l.frameImage=src;
+        el.innerHTML='';
+        el.style.border='none';
+        el.style.background='transparent';
+        const img=document.createElement('img');
+        img.src=src;img.className='frame-inner';
+        img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;border-radius:'+(l.frameRadius||0)+'px;';
+        el.appendChild(img);
+        // Re-add handles and size hint
+        const sh=document.createElement('div');sh.className='sz-hint';sh.id='sh-'+l.id;sh.textContent=`${l.w}×${l.h}`;el.appendChild(sh);
+        snapshotState();
+      };
+      reader.readAsDataURL(file);
+    });
   } else if(l.type==='text'){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
     const tp=l.tp;
     const strokeStyle=tp.strokeWidth&&tp.strokeWidth>0?`-webkit-text-stroke:${tp.strokeWidth}px ${tp.strokeColor||'#000'};`:'';
-    d.style.cssText=`font-size:${tp.fontSize}px;font-weight:${tp.fontWeight||'400'};font-family:${tp.fontFamily||"'Poppins'"};color:${tp.color||'#fff'};text-align:${tp.align||'left'};width:100%;min-height:${(tp.fontSize||16)+6}px;font-style:${tp.italic?'italic':'normal'};text-decoration:${tp.underline?'underline':'none'};letter-spacing:${tp.letterSpacing||0}px;line-height:${tp.lineHeight||1.2};${strokeStyle}`;
+    d.style.cssText=`font-size:${tp.fontSize}px;font-weight:${tp.fontWeight||'400'};font-family:${tp.fontFamily||"'Poppins'"};color:${tp.color||'#fff'};text-align:${tp.align||'left'};width:100%;min-height:${(tp.fontSize||16)+6}px;font-style:${tp.italic?'italic':'normal'};text-decoration:${tp.underline?'underline':'none'};letter-spacing:${tp.letterSpacing||0}px;line-height:${tp.lineHeight||1.2};text-transform:${tp.textTransform||'none'};${strokeStyle}`;
     d.textContent=tp.text;
     d.oninput=()=>{l.tp.text=d.textContent;syncP();};
     d.onblur=()=>{d.style.pointerEvents='none';d.contentEditable='false';el.style.outline='';snapshotState();};
@@ -1293,6 +1554,11 @@ function syncP(){
     document.getElementById('fmt-b')?.classList.toggle('active',(l.tp.fontWeight||'400')>='700');
     document.getElementById('fmt-i')?.classList.toggle('active',!!l.tp.italic);
     document.getElementById('fmt-u')?.classList.toggle('active',!!l.tp.underline);
+    document.getElementById('fmt-upper')?.classList.toggle('active',l.tp.textTransform==='uppercase');
+    document.getElementById('fmt-lower')?.classList.toggle('active',l.tp.textTransform==='lowercase');
+    // Update font search display
+    const lbl=FONT_LIST.find(f=>f.value===(l.tp.fontFamily||"'Poppins'"));
+    const fs=document.getElementById('font-search'); if(fs) fs.value=lbl?lbl.label:(l.tp.fontFamily||'Poppins').replace(/'/g,'');
   }
 }
 
@@ -1402,14 +1668,19 @@ function renderList(){
   if(!layers.length){list.innerHTML='<div id="empty-lp" style="text-align:center;padding:28px 10px;color:var(--muted);font-size:0.78rem;line-height:1.9;">📂 Sube tu PSD de Photoshop.<br><br>El servidor procesará cada capa<br>automáticamente — textos editables,<br>imágenes perfectas.</div>';return;}
   [...layers].reverse().forEach(l=>{
     const li=document.createElement('div');
-    li.className=`layer-item ${l.type==='text'?'text-l':'img-l'}${!l.visible?' hidden-l':''}${selId===l.id?' selected':''}`;
+    li.className=`layer-item ${l.type==='text'?'text-l':l.type==='frame'?'frame-l':'img-l'}${!l.visible?' hidden-l':''}${selId===l.id?' selected':''}`;
     li.id='li-'+l.id;li.draggable=true;
-    const th=l.type==='img'&&l.src?`<img class="l-thumb" src="${l.src}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`+`<div class="l-thumb-t" style="display:none">?</div>`:`<div class="l-thumb-t">${l.type==='text'?'T':'?'}</div>`;
+    let th;
+    if(l.type==='text') th=`<div class="l-thumb-t">T</div>`;
+    else if(l.type==='frame') th=`<div class="l-thumb-t" style="background:rgba(0,200,150,0.15);color:var(--accent);">⬜</div>`;
+    else if(l.type==='img'&&l.src) th=`<img class="l-thumb" src="${l.src}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="l-thumb-t" style="display:none">?</div>`;
+    else th=`<div class="l-thumb-t">?</div>`;
     const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
     const outOfBounds = l.x+l.w < 0 || l.y+l.h < 0 || l.x > cw || l.y > ch;
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(79,142,247,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
     const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${l.type==='img'?'Imagen':'Texto'} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    const typeLabel = l.type==='text'?'Texto':l.type==='frame'?'Marco':l.isShape?'Forma':'Imagen';
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
@@ -1448,7 +1719,10 @@ let isPan=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
 let spaceDown=false;
 let canvasOffset={x:0,y:0};
 
-document.addEventListener('keydown',ev=>{ if(ev.code==='Space'&&document.activeElement?.contentEditable!=='true'){ spaceDown=true; document.getElementById('canvas-area').style.cursor='grab'; ev.preventDefault(); }});
+document.addEventListener('keydown',ev=>{
+  const inInput = document.activeElement?.tagName==='INPUT'||document.activeElement?.tagName==='TEXTAREA'||document.activeElement?.contentEditable==='true';
+  if(ev.code==='Space'&&!inInput){ spaceDown=true; document.getElementById('canvas-area').style.cursor='grab'; ev.preventDefault(); }
+});
 document.addEventListener('keyup',ev=>{ if(ev.code==='Space'){ spaceDown=false; document.getElementById('canvas-area').style.cursor=''; }});
 
 document.getElementById('canvas-area').addEventListener('mousedown',ev=>{
@@ -1579,13 +1853,24 @@ async function buildLayerData(){
     if(l.groupId) obj.groupId = l.groupId;
     if(l.origW) obj.origW = l.origW;
     if(l.origH) obj.origH = l.origH;
+    if(l.isShape) obj.isShape = true;
+    if(l.frameRadius!==undefined) obj.frameRadius = l.frameRadius;
+    if(l.frameType) obj.frameType = l.frameType;
+    if(l.frameImage) obj.frameImage = l.frameImage.startsWith('data:')?'':l.frameImage;
     if(l.tp) obj.tp = {
       text: l.tp.text||'',
       fontSize: l.tp.fontSize||16,
-      fontFamily: l.tp.fontFamily||"'Plus Jakarta Sans'",
+      fontFamily: l.tp.fontFamily||"'Poppins'",
       fontWeight: l.tp.fontWeight||'400',
       color: l.tp.color||'#ffffff',
       align: l.tp.align||'left',
+      italic: !!l.tp.italic,
+      underline: !!l.tp.underline,
+      textTransform: l.tp.textTransform||'none',
+      letterSpacing: l.tp.letterSpacing||0,
+      lineHeight: l.tp.lineHeight||1.2,
+      strokeColor: l.tp.strokeColor||'#000000',
+      strokeWidth: l.tp.strokeWidth||0,
     };
     result.push(obj);
   }
