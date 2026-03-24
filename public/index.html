@@ -561,7 +561,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
     <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
     <div class="login-err" id="login-err"></div>
     <div class="login-footer">
-      ¿Eres el administrador? <a href="admin.html">Entrar como admin →</a>
+      ¿Olvidaste tu contraseña? Contacta a tu administrador.
     </div>
   </div>
 </div>
@@ -588,6 +588,28 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
     </div>
     <div class="dash-section">
       <div class="dash-title">📦 Plantillas disponibles <span class="count" id="tpl-count"></span></div>
+      <!-- Search + filter bar -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <div style="position:relative;flex:1;min-width:180px;">
+          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:0.9rem;color:var(--muted);">🔍</span>
+          <input type="text" id="tpl-search" placeholder="Buscar plantilla..." oninput="filterTemplates()"
+            style="width:100%;padding:9px 12px 9px 36px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-family:'Inter',sans-serif;font-size:0.82rem;outline:none;">
+        </div>
+        <select id="tpl-cat-filter" onchange="filterTemplates()"
+          style="padding:9px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-family:'Inter',sans-serif;font-size:0.82rem;cursor:pointer;outline:none;">
+          <option value="">Todas las categorías</option>
+          <option value="Netflix">Netflix</option>
+          <option value="Disney+">Disney+</option>
+          <option value="Prime Video">Prime Video</option>
+          <option value="HBO Max">HBO Max</option>
+          <option value="Spotify">Spotify</option>
+          <option value="Apple TV+">Apple TV+</option>
+          <option value="Paramount+">Paramount+</option>
+          <option value="Promociones">Promociones</option>
+          <option value="Avisos">Avisos</option>
+          <option value="Otros">Otros</option>
+        </select>
+      </div>
       <div class="tpl-grid" id="admin-tpl-grid">
         <div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>
       </div>
@@ -962,64 +984,62 @@ async function deleteDesign(id, btn) {
 // ================================================================
 // ADMIN TEMPLATES
 // ================================================================
+let allTemplatesCache = []; // store for search/filter
+
+function filterTemplates(){
+  const q=(document.getElementById('tpl-search')?.value||'').toLowerCase();
+  const cat=document.getElementById('tpl-cat-filter')?.value||'';
+  const filtered=allTemplatesCache.filter(({d})=>{
+    const matchName=!q||d.name.toLowerCase().includes(q);
+    const matchCat=!cat||(d.category||'')=== cat;
+    return matchName&&matchCat;
+  });
+  renderTemplateCards(filtered);
+}
+
+function renderTemplateCards(docs){
+  const grid=document.getElementById('admin-tpl-grid');
+  grid.innerHTML='';
+  if(!docs.length){grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No se encontraron plantillas.</div>';return;}
+  document.getElementById('tpl-count').textContent=docs.length+' disponible'+(docs.length!==1?'s':'');
+  docs.forEach(({id,d})=>{
+    const card=document.createElement('div');card.className='tpl-card';
+    const thumbHtml=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-empty">📦</div>`;
+    const catBadge=d.category?`<div style="font-size:0.65rem;color:var(--muted);margin-bottom:6px;">${d.category}</div>`:'';
+    const date=new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
+    card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-name">${d.name}</div>${catBadge}<div class="tpl-date">${date}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${id}')">Usar esta plantilla →</button></div>`;
+    grid.appendChild(card);
+  });
+}
 async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
-  grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
+  grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   try {
-    // Only show published templates to clients
-    const snap = await fbDb.collection('templates')
-      .where('status','==','published')
-      .orderBy('updatedAt','desc').get();
-    // Fallback: if no published found, try without filter (backward compat with old templates that have no status field)
-    let docs = [];
-    snap.forEach(d => docs.push(d));
-    if(docs.length === 0){
+    let rawDocs = [];
+    try {
+      const snap = await fbDb.collection('templates').where('status','==','published').orderBy('updatedAt','desc').get();
+      snap.forEach(d => rawDocs.push(d));
+    } catch(e){ /* index missing, fallback */ }
+    if(!rawDocs.length){
       const snap2 = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') docs.push(d); });
+      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') rawDocs.push(d); });
     }
-    grid.innerHTML = '';
-    if (docs.length === 0) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>';
+    if(!rawDocs.length){
+      grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>';
       return;
     }
-    document.getElementById('tpl-count').textContent = docs.length + ' disponible' + (docs.length!==1?'s':'');
-    docs.forEach(doc => {
-      const d = doc.data();
-      const card = document.createElement('div');
-      card.className = 'tpl-card';
-      const thumbHtml = d.thumb
-        ? `<img class="tpl-thumb" src="${d.thumb}">`
-        : `<div class="tpl-thumb-empty">📦</div>`;
+    allTemplatesCache = rawDocs.map(doc=>({id:doc.id, d:doc.data()}));
+    renderTemplateCards(allTemplatesCache);
+  } catch(e) {
+    grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
+  }
+}
       const date = new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
       card.innerHTML = `
         ${thumbHtml}
         <div class="tpl-info">
           <div class="tpl-name">${d.name}</div>
           <div class="tpl-date">${date}</div>
-          <button class="tpl-use-btn" onclick="openEditorFromTemplate('${doc.id}')">Usar esta plantilla →</button>
-        </div>`;
-      grid.appendChild(card);
-    });
-  } catch(e) {
-    // If compound query fails (missing Firestore index), fall back to simple query
-    try {
-      const snap2 = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      const docs2 = [];
-      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') docs2.push(d); });
-      grid.innerHTML = '';
-      if(!docs2.length){ grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>'; return; }
-      document.getElementById('tpl-count').textContent = docs2.length + ' disponible' + (docs2.length!==1?'s':'');
-      docs2.forEach(doc => {
-        const d=doc.data();
-        const card=document.createElement('div'); card.className='tpl-card';
-        const thumbHtml=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-empty">📦</div>`;
-        card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-name">${d.name}</div><div class="tpl-date">${new Date(d.updatedAt||0).toLocaleDateString('es-PE')}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${doc.id}')">Usar esta plantilla →</button></div>`;
-        grid.appendChild(card);
-      });
-    } catch(e2){ grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;">Error: ${e2.message}</div>`; }
-  }
-}
-
 // ================================================================
 // EDITOR
 // ================================================================
