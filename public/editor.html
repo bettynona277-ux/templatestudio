@@ -994,6 +994,7 @@ async function loadPSDData(data){
 
   const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
   let uploadedCount=0;
+  let l_w_override, l_h_override; // used for text layer dimension correction
 
   for(const ld of data.layers){
     let finalSrc=ld.src||'';
@@ -1019,20 +1020,37 @@ async function loadPSDData(data){
       x:Math.round((ld.x||0)*scale), y:Math.round((ld.y||0)*scale),
       w:Math.round((ld.width||200)*scale), h:Math.round((ld.height||50)*scale),
       opacity:ld.opacity??1, visible:ld.visible??true, zIndex:lCtr,
-      tp: ld.isText ? {
-        text: ld.textContent||ld.name,
-        // Scale font size proportionally with canvas scale
-        fontSize: Math.max(8, Math.round((ld.fontSize||16)*scale)),
-        // Default to Poppins if font not available
-        fontFamily: "'Poppins'",
-        fontWeight: ld.fontWeight||'400',
-        color: ld.fontColor||'#ffffff',
-        align: ld.textAlign||'left',
-        lineHeight: 1.2,
-        letterSpacing: 0,
-      } : null,
+      tp: ld.isText ? (()=>{
+        const rawFs = ld.fontSize||0;
+        // If fontSize from PSD seems invalid (0 or unreasonably large), fallback to 20
+        const fontSize = (rawFs>4 && rawFs<500)
+          ? Math.max(8, Math.round(rawFs*scale))
+          : 20;
+        // Calculate box size from font: if PSD box is too small vs fontSize, auto-size
+        const minBoxH = Math.round(fontSize*1.4);
+        const boxW = Math.round((ld.width||300)*scale);
+        const boxH = Math.max(minBoxH, Math.round((ld.height||minBoxH)*scale));
+        // Update l dimensions after tp is built
+        l_w_override = boxW;
+        l_h_override = boxH;
+        return {
+          text: ld.textContent||ld.name,
+          fontSize,
+          fontFamily: "'Poppins'",
+          fontWeight: ld.fontWeight||'400',
+          color: ld.fontColor||'#ffffff',
+          align: ld.textAlign||'left',
+          lineHeight: 1.2,
+          letterSpacing: 0,
+        };
+      })() : null,
       el:null, origW:ld.width, origH:ld.height
     };
+    // Apply corrected dimensions for text layers
+    if(ld.isText && typeof l_w_override!=='undefined'){
+      l.w=l_w_override; l.h=l_h_override;
+      l_w_override=undefined; l_h_override=undefined;
+    }
     layers.push(l);mkEl(l);
   }
   renderList();
@@ -1061,20 +1079,45 @@ const FONT_LIST = [
   {label:'Times New Roman', value:"'Times New Roman'"},
   {label:'Courier New', value:"'Courier New'"},
 ];
-let fontSearchOpen=false;
+
 function filterFonts(q){
   const dd=document.getElementById('font-dropdown');
-  const filtered=FONT_LIST.filter(f=>f.label.toLowerCase().includes(q.toLowerCase()));
-  dd.innerHTML=filtered.map(f=>`<div onclick="applyFont('${f.value}')" style="padding:8px 12px;cursor:pointer;font-size:0.82rem;font-family:${f.value};transition:background 0.15s;" onmouseover="this.style.background='rgba(0,200,150,0.1)'" onmouseout="this.style.background=''">${f.label}</div>`).join('');
-  dd.style.display=filtered.length?'block':'none';
+  const list = q.trim()==='' ? FONT_LIST : FONT_LIST.filter(f=>f.label.toLowerCase().includes(q.toLowerCase()));
+  dd.innerHTML='';
+  list.forEach(f=>{
+    const item=document.createElement('div');
+    item.style.cssText=`padding:8px 12px;cursor:pointer;font-size:0.85rem;font-family:${f.value};transition:background 0.15s;color:var(--text);`;
+    item.textContent=f.label;
+    // Use mousedown so it fires before the input loses focus and closes dropdown
+    item.addEventListener('mousedown',ev=>{
+      ev.preventDefault(); // prevent input blur
+      applyFont(f.value);
+    });
+    item.addEventListener('mouseover',()=>item.style.background='rgba(0,200,150,0.12)');
+    item.addEventListener('mouseout',()=>item.style.background='');
+    dd.appendChild(item);
+  });
+  dd.style.display=list.length?'block':'none';
 }
+
 function applyFont(val){
   updTS('fontFamily',val);
   const lbl=FONT_LIST.find(f=>f.value===val);
-  document.getElementById('font-search').value=lbl?lbl.label:val.replace(/'/g,'');
+  const fs=document.getElementById('font-search');
+  if(fs) fs.value=lbl?lbl.label:val.replace(/'/g,'');
   document.getElementById('font-dropdown').style.display='none';
   document.getElementById('pp-ff').value=val;
 }
+
+// Show all fonts when clicking on empty search
+document.addEventListener('DOMContentLoaded',()=>{
+  const fs=document.getElementById('font-search');
+  if(fs){
+    fs.addEventListener('focus',()=>filterFonts(fs.value));
+    fs.addEventListener('click',()=>filterFonts(fs.value));
+  }
+});
+
 document.addEventListener('click',ev=>{
   if(!ev.target.closest('#font-search')&&!ev.target.closest('#font-dropdown')){
     const dd=document.getElementById('font-dropdown');
@@ -1181,21 +1224,34 @@ function mkEl(l){
     if(l.frameImage){
       const img=document.createElement('img');
       img.src=l.frameImage;
-      img.className='frame-inner';
-      img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;border-radius:'+(l.frameRadius||0)+'px;';
-      el.appendChild(img);
+      img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${l.frameRadius||0}px;pointer-events:none;`;
+      el.insertBefore(img, el.firstChild);
       el.style.border='none';
+      el.style.background='transparent';
     } else {
       const hint=document.createElement('div');
       hint.className='frame-drop-hint';
       hint.textContent='⬇ Arrastra imagen';
+      hint.style.pointerEvents='none'; // let drag events pass through to frame el
       el.appendChild(hint);
     }
     // Accept image drop into frame
-    el.addEventListener('dragover',ev=>{ev.preventDefault();el.style.borderColor='var(--accent)';});
-    el.addEventListener('dragleave',()=>{if(!l.frameImage)el.style.borderColor='rgba(0,200,150,0.5)';});
+    el.addEventListener('dragover',ev=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      el.style.borderColor='var(--accent)';
+      el.style.boxShadow='0 0 0 2px var(--accent)';
+    });
+    el.addEventListener('dragleave',ev=>{
+      if(!ev.relatedTarget||!el.contains(ev.relatedTarget)){
+        if(!l.frameImage){ el.style.borderColor='rgba(0,200,150,0.5)'; }
+        el.style.boxShadow='';
+      }
+    });
     el.addEventListener('drop',ev=>{
-      ev.preventDefault();ev.stopPropagation();
+      ev.preventDefault();
+      ev.stopPropagation();
+      el.style.boxShadow='';
       const file=ev.dataTransfer.files[0];
       if(!file||!file.type.startsWith('image/'))return;
       const reader=new FileReader();
@@ -1203,16 +1259,20 @@ function mkEl(l){
         let src=e.target.result;
         try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
         l.frameImage=src;
-        el.innerHTML='';
+        // Rebuild frame interior
+        // Remove hint and old image but keep handles and sz-hint
+        Array.from(el.children).forEach(c=>{
+          if(!c.classList.contains('rh')&&!c.classList.contains('sz-hint')&&c.id!==('sh-'+l.id)) c.remove();
+        });
         el.style.border='none';
         el.style.background='transparent';
+        el.style.overflow='hidden';
         const img=document.createElement('img');
-        img.src=src;img.className='frame-inner';
-        img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;border-radius:'+(l.frameRadius||0)+'px;';
-        el.appendChild(img);
-        // Re-add handles and size hint
-        const sh=document.createElement('div');sh.className='sz-hint';sh.id='sh-'+l.id;sh.textContent=`${l.w}×${l.h}`;el.appendChild(sh);
+        img.src=src;
+        img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${l.frameRadius||0}px;pointer-events:none;`;
+        el.insertBefore(img, el.firstChild);
         snapshotState();
+        renderList();
       };
       reader.readAsDataURL(file);
     });
