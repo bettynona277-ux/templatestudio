@@ -339,7 +339,19 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;margin-top:5px;">Opacidad</div>
       <input type="range" min="0" max="100" value="100" id="pp-op" oninput="updOp(this.value)">
 
-      <div id="pp-txt" style="display:none;">
+      <!-- FRAME PROPS — only shown when frame selected -->
+      <div id="pp-frame" style="display:none;">
+        <div class="divider"></div>
+        <div class="pp-lbl">Marco</div>
+        <div style="font-size:0.62rem;color:var(--muted);margin-bottom:4px;">Radio de esquinas</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <input type="range" id="pp-frame-radius" min="0" max="400" value="0"
+            style="flex:1;accent-color:var(--accent);"
+            oninput="updFrameRadiusFromPanel(this.value)">
+          <span id="pp-frame-radius-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">0px</span>
+        </div>
+        <button class="pp-btn pp-btn-red" style="font-size:0.72rem;" onclick="clearFrameImage()">✕ Quitar imagen del marco</button>
+      </div>
         <div class="divider"></div>
         <div class="pp-lbl">Texto</div>
         <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none;" oninput="updTxt(this.value)"></textarea>
@@ -560,6 +572,7 @@ function selMulti(ids){
     document.getElementById('pp-empty').style.display='none';
     document.getElementById('pp-el').style.display='block';
     document.getElementById('pp-txt').style.display=l?.type==='text'?'block':'none';
+    document.getElementById('pp-frame').style.display=l?.type==='frame'?'block':'none';
     syncP();
     hideMultiBox();
   } else if(ids.length>1){
@@ -1350,14 +1363,14 @@ function mkEl(l){
     el.appendChild(rh);
   });
   el.onmousedown=ev=>{
-    if(ev.target.classList.contains('rh'))return;
-    if(document.activeElement?.contentEditable==='true')return;
+    // Allow clicks on resize handles through
+    if(ev.target.classList.contains('rh')) return;
+    if(document.activeElement?.contentEditable==='true') return;
     ev.stopPropagation();
     if(ev.shiftKey){
-      sel(l.id, true); // additive
+      sel(l.id, true);
       return;
     }
-    // If clicking on already-selected element in multi-select, start drag without deselecting
     if(selIds.includes(l.id)){
       startDrag(ev, l.id);
     } else {
@@ -1373,22 +1386,23 @@ function startDrag(ev, id){
   // Alt key = duplicate before drag
   if(ev.altKey){
     duplicateSelected(id);
-    return; // after duplication, new els are selected; next mousedown will drag them
+    return;
   }
   if(selIds.length>1 && selIds.includes(id)){
-    // Multi-drag: snapshot positions
     isMultiDrag=true;
     multiDragStart = selIds.map(sid=>{
       const l=layers.find(x=>x.id===sid);
+      if(!l) return null;
       return {id:sid, x:l.x, y:l.y};
-    });
+    }).filter(Boolean);
     const cr=cvs.getBoundingClientRect();
     dOff.x=(ev.clientX-cr.left)/zoom_;
     dOff.y=(ev.clientY-cr.top)/zoom_;
     isDrag=true;
   } else {
-    isDrag=true;
     const l=layers.find(x=>x.id===id);
+    if(!l){ console.warn('startDrag: layer not found', id); return; }
+    isDrag=true;
     const cr=cvs.getBoundingClientRect();
     dOff.x=(ev.clientX-cr.left)/zoom_-l.x;
     dOff.y=(ev.clientY-cr.top)/zoom_-l.y;
@@ -1728,6 +1742,7 @@ function desel(){
   selId=null; selIds=[];
   document.getElementById('pp-empty').style.display='block';
   document.getElementById('pp-el').style.display='none';
+  document.getElementById('pp-frame')?.style && (document.getElementById('pp-frame').style.display='none');
   hideMultiBox();
 }
 function syncP(){
@@ -1756,6 +1771,47 @@ function syncP(){
     const lbl=FONT_LIST.find(f=>f.value===(l.tp.fontFamily||"'Poppins'"));
     const fs=document.getElementById('font-search'); if(fs) fs.value=lbl?lbl.label:(l.tp.fontFamily||'Poppins').replace(/'/g,'');
   }
+  // Frame props
+  if(l.type==='frame'){
+    const r=l.frameRadius||0;
+    const rs=document.getElementById('pp-frame-radius'); if(rs) rs.value=r;
+    const rl=document.getElementById('pp-frame-radius-lbl'); if(rl) rl.textContent=r+'px';
+  }
+}
+
+function updFrameRadiusFromPanel(v){
+  document.getElementById('pp-frame-radius-lbl').textContent=v+'px';
+  const l=layers.find(x=>x.id===selId);
+  if(!l||l.type!=='frame') return;
+  l.frameRadius=parseInt(v);
+  if(l.el){
+    l.el.style.borderRadius=v+'px';
+    const clip=document.getElementById('fc-'+l.id);
+    if(clip){ clip.style.borderRadius=v+'px'; }
+    const img=document.getElementById('fi-'+l.id);
+    if(img) img.style.borderRadius=v+'px';
+  }
+}
+
+function clearFrameImage(){
+  const l=layers.find(x=>x.id===selId);
+  if(!l||l.type!=='frame') return;
+  l.frameImage='';
+  const clip=document.getElementById('fc-'+l.id);
+  if(clip){
+    clip.innerHTML='';
+    const hint=document.createElement('div');
+    hint.className='frame-drop-hint';
+    hint.textContent='⬇ Arrastra imagen';
+    hint.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;z-index:1;';
+    clip.appendChild(hint);
+  }
+  if(l.el){
+    l.el.style.border='2px dashed rgba(0,200,150,0.5)';
+    l.el.style.background='rgba(0,200,150,0.04)';
+  }
+  snapshotState();
+  showToast('✓ Imagen removida del marco');
 }
 
 function updateGroupBtns(){
