@@ -579,10 +579,12 @@ function selMulti(ids){
     document.getElementById('pp-empty').style.display='none';
     document.getElementById('pp-el').style.display='block';
     document.getElementById('pp-txt').style.display='none';
+    document.getElementById('pp-frame').style.display='none';
     updateMultiBox();
   } else {
     document.getElementById('pp-empty').style.display='block';
     document.getElementById('pp-el').style.display='none';
+    document.getElementById('pp-frame').style.display='none';
     hideMultiBox();
   }
   updateGroupBtns();
@@ -1461,19 +1463,19 @@ function applyImageToFrame(frameLayer, src){
   if(!el) return;
   const clip = document.getElementById('fc-'+frameLayer.id);
   if(!clip) return;
-  // Clear clip content (hint, old image, preview)
+  // Clear EVERYTHING in clip (hint, old image, preview ghosts)
   clip.innerHTML='';
-  // Insert new image
+  // Insert real image
   const img=document.createElement('img');
   img.id='fi-'+frameLayer.id;
   img.src=src;
   img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
   clip.appendChild(img);
-  // Update frame el styles
+  // Update frame el border
   el.style.border='none';
   el.style.background='transparent';
   el.style.boxShadow='0 0 0 3px var(--accent)';
-  setTimeout(()=>el.style.boxShadow='',700);
+  setTimeout(()=>{ if(el) el.style.boxShadow=''; },700);
   sel(frameLayer.id);
   showToast('✓ Imagen en marco');
 }
@@ -1635,12 +1637,15 @@ document.addEventListener('mouseup',ev=>{
   }
   if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
 
-  // Clear frame hover previews
+  // Clean up ALL frame hover previews and borders
   layers.forEach(fl=>{
-    if(fl.type==='frame'&&fl.el){
-      fl.el.style.boxShadow='';
-      if(!fl.frameImage) fl.el.style.border='2px dashed rgba(0,200,150,0.5)';
-      else fl.el.style.border='none';
+    if(fl.type!=='frame'||!fl.el) return;
+    fl.el.style.boxShadow='';
+    if(!fl.frameImage) fl.el.style.border='2px dashed rgba(0,200,150,0.5)';
+    else fl.el.style.border='none';
+    // Remove preview ghost from clip
+    const clip=document.getElementById('fc-'+fl.id);
+    if(clip){
       const pi=document.getElementById('fp-'+fl.id);
       if(pi) pi.remove();
     }
