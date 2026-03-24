@@ -1212,6 +1212,12 @@ function addText(){
 function mkEl(l){
   const el=document.createElement('div');
   el.className='cel';el.id='el-'+l.id;
+  // img layers are draggable via HTML5 so they can be dropped into frames
+  if(l.type==='img') el.draggable=true;
+  el.addEventListener('dragstart',ev=>{
+    if(l.type==='img') ev.dataTransfer.setData('lid', l.id);
+    else ev.preventDefault();
+  });
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');img.src=l.src;el.appendChild(img);
@@ -1252,29 +1258,38 @@ function mkEl(l){
       ev.preventDefault();
       ev.stopPropagation();
       el.style.boxShadow='';
+      // Case 1: file from file system
       const file=ev.dataTransfer.files[0];
-      if(!file||!file.type.startsWith('image/'))return;
-      const reader=new FileReader();
-      reader.onload=async e=>{
-        let src=e.target.result;
-        try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
-        l.frameImage=src;
-        // Rebuild frame interior
-        // Remove hint and old image but keep handles and sz-hint
-        Array.from(el.children).forEach(c=>{
-          if(!c.classList.contains('rh')&&!c.classList.contains('sz-hint')&&c.id!==('sh-'+l.id)) c.remove();
-        });
-        el.style.border='none';
-        el.style.background='transparent';
-        el.style.overflow='hidden';
-        const img=document.createElement('img');
-        img.src=src;
-        img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${l.frameRadius||0}px;pointer-events:none;`;
-        el.insertBefore(img, el.firstChild);
-        snapshotState();
-        renderList();
-      };
-      reader.readAsDataURL(file);
+      if(file&&file.type.startsWith('image/')){
+        const reader=new FileReader();
+        reader.onload=async e=>{
+          let src=e.target.result;
+          try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
+          applyImageToFrame(l, src);
+          renderList(); snapshotState();
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+      // Case 2: layer id from canvas drag (lid set in layer list dragstart)
+      const lid=ev.dataTransfer.getData('lid');
+      if(lid){
+        const srcLayer=layers.find(x=>x.id===parseInt(lid));
+        if(srcLayer&&srcLayer.src){
+          applyImageToFrame(l, srcLayer.src);
+          // Remove the source layer
+          if(srcLayer.el) srcLayer.el.remove();
+          layers=layers.filter(x=>x.id!==parseInt(lid));
+          renderList(); snapshotState();
+        }
+        return;
+      }
+      // Case 3: URL from browser drag
+      const url=ev.dataTransfer.getData('text/uri-list')||ev.dataTransfer.getData('text/plain');
+      if(url&&url.startsWith('http')){
+        applyImageToFrame(l, url);
+        renderList(); snapshotState();
+      }
     });
   } else if(l.type==='text'){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
@@ -1397,6 +1412,29 @@ function startRes(ev,id,c){
   const origFs=l.tp?l.tp.fontSize:0;
   rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
   ev.preventDefault();
+}
+
+function applyImageToFrame(frameLayer, src){
+  frameLayer.frameImage = src;
+  const el = frameLayer.el;
+  if(!el) return;
+  // Remove hint / old image, keep resize handles and sz-hint
+  Array.from(el.children).forEach(c=>{
+    if(!c.classList.contains('rh') && !c.classList.contains('sz-hint') && c.id!==('sh-'+frameLayer.id))
+      c.remove();
+  });
+  el.style.border='none';
+  el.style.background='transparent';
+  el.style.overflow='hidden';
+  // Highlight frame briefly
+  el.style.boxShadow='0 0 0 3px var(--accent)';
+  setTimeout(()=>el.style.boxShadow='',600);
+  const img=document.createElement('img');
+  img.src=src;
+  img.style.cssText=`position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;border-radius:${frameLayer.frameRadius||0}px;pointer-events:none;`;
+  el.insertBefore(img, el.firstChild);
+  sel(frameLayer.id);
+  showToast('✓ Imagen insertada en marco');
 }
 
 // ── MARQUEE SELECTION ─────────────────────────────────────────
@@ -1523,6 +1561,34 @@ document.addEventListener('mouseup',ev=>{
     return;
   }
   if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
+
+  // ── FRAME SNAP: if dragged an img layer and it overlaps a frame, insert into frame ──
+  if(isDrag && selId!==null){
+    const draggedLayer = layers.find(x=>x.id===selId);
+    if(draggedLayer && draggedLayer.type==='img' && draggedLayer.src){
+      // Find a frame that this layer's center is over
+      const cx = draggedLayer.x + draggedLayer.w/2;
+      const cy = draggedLayer.y + draggedLayer.h/2;
+      const targetFrame = layers.find(l=>
+        l.type==='frame' &&
+        l.id !== selId &&
+        cx >= l.x && cx <= l.x+l.w &&
+        cy >= l.y && cy <= l.y+l.h
+      );
+      if(targetFrame){
+        applyImageToFrame(targetFrame, draggedLayer.src);
+        // Remove the dragged layer — it's now inside the frame
+        if(draggedLayer.el) draggedLayer.el.remove();
+        layers = layers.filter(x=>x.id!==selId);
+        selId=null; selIds=[];
+        desel(); renderList();
+        snapshotState();
+        isDrag=false; isRes=false; isMultiDrag=false; rSt={};
+        return;
+      }
+    }
+  }
+
   if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; rSt={};
 });
