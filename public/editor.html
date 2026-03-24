@@ -1476,7 +1476,8 @@ function applyImageToFrame(frameLayer, src){
   el.style.background='transparent';
   el.style.boxShadow='0 0 0 3px var(--accent)';
   setTimeout(()=>{ if(el) el.style.boxShadow=''; },700);
-  sel(frameLayer.id);
+  // Select the frame (deferred so layer array is stable first)
+  setTimeout(()=>sel(frameLayer.id), 0);
   showToast('✓ Imagen en marco');
 }
 
@@ -1652,12 +1653,13 @@ document.addEventListener('mouseup',ev=>{
   });
 
   // ── FRAME SNAP: if dragged an img layer and it overlaps a frame, insert into frame ──
+  // Works regardless of z-index order (frame can be below the image in layer stack)
   if(isDrag && selId!==null){
     const draggedLayer = layers.find(x=>x.id===selId);
     if(draggedLayer && draggedLayer.type==='img' && draggedLayer.src){
-      // Find a frame that this layer's center is over
       const cx = draggedLayer.x + draggedLayer.w/2;
       const cy = draggedLayer.y + draggedLayer.h/2;
+      // Search ALL frames regardless of z-order
       const targetFrame = layers.find(l=>
         l.type==='frame' &&
         l.id !== selId &&
@@ -1665,12 +1667,15 @@ document.addEventListener('mouseup',ev=>{
         cy >= l.y && cy <= l.y+l.h
       );
       if(targetFrame){
-        applyImageToFrame(targetFrame, draggedLayer.src);
-        // Remove the dragged layer — it's now inside the frame
+        const srcToInsert = draggedLayer.src;
+        const draggedId = draggedLayer.id;
+        // Step 1: Remove the dragged layer from DOM and array FIRST
         if(draggedLayer.el) draggedLayer.el.remove();
-        layers = layers.filter(x=>x.id!==selId);
+        layers = layers.filter(x=>x.id!==draggedId);
         selId=null; selIds=[];
-        desel(); renderList();
+        // Step 2: Apply image to frame (safe now — no dangling refs)
+        applyImageToFrame(targetFrame, srcToInsert);
+        renderList();
         snapshotState();
         isDrag=false; isRes=false; isMultiDrag=false; rSt={};
         return;
