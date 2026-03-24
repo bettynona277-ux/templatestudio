@@ -642,8 +642,15 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
       <div class="e-body">
         <!-- LOGOS -->
         <div id="etab-logos-body">
-          <div class="hint-box">Arrastra un logo al marco del diseño.</div>
-          <label class="upload-btn" for="logo-file-input">+ Subir logo
+          <!-- Shared library from admin -->
+          <div class="e-section-title" style="margin-bottom:6px;">Logos de la biblioteca</div>
+          <div class="logo-grid" id="shared-logo-grid">
+            <div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Cargando...</div>
+          </div>
+          <div class="divider" style="margin:12px 0;"></div>
+          <!-- Personal logos (uploaded by client) -->
+          <div class="e-section-title" style="margin-bottom:6px;">Mis logos</div>
+          <label class="upload-btn" for="logo-file-input">+ Subir mi logo
             <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLogos(event)">
           </label>
           <div class="logo-grid" id="logo-grid"></div>
@@ -913,6 +920,7 @@ async function showDashboard() {
   // Load data in background — don't block showing the dashboard
   loadMyDesigns();
   loadAdminTemplates();
+  loadSharedLogoLibrary();
 }
 
 // ================================================================
@@ -1395,6 +1403,40 @@ function addBuiltinLogos(){
     logos.push({id:logoIdC++,src:c.toDataURL(),name:n});
   });
   renderLogoGrid();
+}
+
+// ── SHARED LOGO LIBRARY (from Firestore, uploaded by admin) ──────
+async function loadSharedLogoLibrary(){
+  const grid=document.getElementById('shared-logo-grid');
+  if(!grid||!fbDb) return;
+  try{
+    const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    grid.innerHTML='';
+    if(snap.empty){
+      grid.innerHTML='<div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Sin logos disponibles.</div>';
+      return;
+    }
+    snap.forEach(doc=>{
+      const d=doc.data();
+      const item=document.createElement('div');
+      item.className='logo-item';
+      item.title=d.name||'Logo';
+      const img=document.createElement('img');
+      img.src=d.url; img.alt=d.name||'';
+      item.appendChild(img);
+      item.onmousedown=e=>{
+        e.preventDefault();
+        draggingLogoSrc=d.url; draggingLogoName=d.name||'Logo';
+        const ghost=document.getElementById('drag-ghost');
+        if(ghost){ document.getElementById('drag-ghost-img').src=d.url; ghost.style.display='flex'; ghost.style.left=(e.clientX-28)+'px'; ghost.style.top=(e.clientY-28)+'px'; }
+      };
+      item.ondblclick=e=>{ e.preventDefault(); addLogoToCanvas(d.url, d.name||'Logo'); };
+      grid.appendChild(item);
+    });
+  }catch(e){
+    console.warn('Shared logos error:',e.message);
+    if(grid) grid.innerHTML='<div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Error al cargar logos.</div>';
+  }
 }
 
 function renderLogoGrid(){
