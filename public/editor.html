@@ -64,6 +64,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 #cvs{position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 20px 70px rgba(0,0,0,0.8);transform-origin:center center;}
 .cel{position:absolute;cursor:move;user-select:none;}
 .cel.sel{outline:1.5px dashed rgba(0,200,150,0.7);outline-offset:2px;}
+/* Frame selected: inset shadow hugs border, no gap */
+.cel.frame-el.sel{outline:none !important;box-shadow:inset 0 0 0 2px rgba(0,200,150,0.9),0 0 0 1.5px rgba(0,200,150,0.5) !important;}
 .cel img{display:block;pointer-events:none;width:100%;height:100%;object-fit:contain;}
 .rh{position:absolute;width:10px;height:10px;background:#fff;border:2px solid var(--accent);border-radius:2px;z-index:10;display:none;box-shadow:0 1px 4px rgba(0,0,0,0.4);}
 .cel.sel .rh{display:block;}
@@ -149,6 +151,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 .cel.frame-el{border:2px dashed rgba(0,200,150,0.5);background:rgba(0,200,150,0.04);}
 .cel.frame-el.has-image{border-style:solid;border-color:transparent;}
 .cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
+/* Frame: no outline-offset gap, border hugs the edge */
+.cel.frame-el.sel{outline:none !important;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;}
 .la-btn{padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;font-size:0.78rem;transition:all 0.15s;text-align:center;}
 .la-btn:hover{background:rgba(79,142,247,0.15);color:var(--blue);border-color:rgba(79,142,247,0.3);}
@@ -1385,10 +1389,14 @@ function mkEl(l){
 
 // DRAG — supports multi-select + Alt=duplicate
 function startDrag(ev, id){
-  // Alt key = duplicate before drag
   if(ev.altKey){
     duplicateSelected(id);
     return;
+  }
+  const draggedL = layers.find(x=>x.id===id);
+  // When dragging an image, disable pointer-events on all frames so they don't intercept
+  if(draggedL?.type==='img'){
+    layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents='none'; });
   }
   if(selIds.length>1 && selIds.includes(id)){
     isMultiDrag=true;
@@ -1637,6 +1645,9 @@ document.addEventListener('mouseup',ev=>{
     return;
   }
   if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
+
+  // Re-enable pointer-events on all frames after any drag
+  layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents=''; });
 
   // Clean up ALL frame hover previews and borders
   layers.forEach(fl=>{
