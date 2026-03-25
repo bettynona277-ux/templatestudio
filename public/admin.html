@@ -286,7 +286,6 @@ service cloud.firestore {
 <script>
 let fbApp=null,fbDb=null,fbAuth=null,fbConnected=false;
 
-// Load config on startup
 window.addEventListener('load',async()=>{
   const cfg=localStorage.getItem('ts_firebase_config');
   if(cfg){
@@ -315,21 +314,21 @@ async function initFB(config){
   try{
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
-    // firebase-auth removed — using Firestore-based auth
+    await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
     if(fbApp){try{fbApp.delete();}catch(e){}}
     fbApp=firebase.initializeApp(config,'ts-admin-'+Date.now());
     fbDb=firebase.firestore(fbApp);
-    // fbAuth removed
-    // Test write
+    fbAuth=firebase.auth(fbApp);
+    // Test connection
     await fbDb.collection('_ping').doc('admin').set({ts:Date.now()});
     fbConnected=true;
     document.getElementById('fb-dot').className='fb-dot connected';
-    document.getElementById('fb-status-text').textContent='✓ Conectado a Firebase — '+config.projectId;
+    document.getElementById('fb-status-text').textContent='✓ Conectado — '+config.projectId;
     return true;
   }catch(e){
     fbConnected=false;
     document.getElementById('fb-dot').className='fb-dot disconnected';
-    document.getElementById('fb-status-text').textContent='✗ Error de conexión: '+e.message;
+    document.getElementById('fb-status-text').textContent='✗ Error: '+e.message;
     return false;
   }
 }
@@ -350,34 +349,41 @@ async function connectFirebase(){
   btn.textContent='✓ Guardar y conectar';btn.disabled=false;
   if(ok){
     localStorage.setItem('ts_firebase_config',JSON.stringify(config));
-    showStatus('fb-connect-status','✓ ¡Conectado y guardado! Los clientes ya pueden entrar.','ok');
+    showStatus('fb-connect-status','✓ ¡Conectado y guardado!','ok');
   }else{
-    showStatus('fb-connect-status','✗ Error — revisa los datos e intenta de nuevo','err');
+    showStatus('fb-connect-status','✗ Error — revisa los datos','err');
   }
 }
 
 // ============ USERS ============
-async function hashPass(pass){
-  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pass));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
 async function createUser(){
   if(!fbConnected){alert('Primero conecta Firebase');showSection('setup');return;}
   const phone=document.getElementById('new-user-phone').value.trim().replace(/\s/g,'');
   const pass=document.getElementById('new-user-pass').value.trim();
   const name=document.getElementById('new-user-name').value.trim();
   if(!phone||phone.length<7){showStatus('create-user-status','Ingresa un número válido','err');return;}
-  if(!pass||pass.length<4){showStatus('create-user-status','La contraseña debe tener al menos 4 caracteres','err');return;}
+  if(!pass||pass.length<6){showStatus('create-user-status','La contraseña debe tener al menos 6 caracteres','err');return;}
   const btn=document.getElementById('create-user-btn');
   btn.innerHTML='<span class="spinner"></span> Creando...';btn.disabled=true;
   try{
-    // Check if user already exists
-    const existing=await fbDb.collection('users').where('phone','==',phone).get();
-    if(!existing.empty){showStatus('create-user-status','✗ Ese número ya tiene cuenta creada','err');btn.textContent='+ Crear cuenta';btn.disabled=false;return;}
-    const passHash=await hashPass(pass);
-    const uid='u_'+phone; // use phone as stable doc ID — clients can only read their own doc
+    // Email format: phone@ts.app
+    const email=phone+'@ts.app';
+    // 1. Create in Firebase Auth
+    let uid;
+    try{
+      const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
+      uid=cred.user.uid;
+    }catch(authErr){
+      if(authErr.code==='auth/email-already-in-use'){
+        showStatus('create-user-status','✗ Ese número ya tiene cuenta','err');
+        btn.textContent='+ Crear cuenta';btn.disabled=false;return;
+      }
+      throw authErr;
+    }
+    // 2. Save profile in Firestore with real Auth uid
     await fbDb.collection('users').doc(uid).set({
-      uid,phone,name:name||phone,passHash,createdAt:Date.now(),active:true
+      uid,phone,email,name:name||phone,
+      createdAt:Date.now(),active:true
     });
     showStatus('create-user-status',`✓ Cuenta creada para +51 ${phone}. Contraseña: ${pass}`,'ok');
     document.getElementById('new-user-phone').value='';
