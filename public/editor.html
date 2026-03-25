@@ -568,8 +568,25 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, dOff={x:0,y:0}, rSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
+let currentTemplateName='';
+let currentTemplateCategory='';
+let currentTemplateStatus='draft';
 let isPrev=false;
 const cvs=document.getElementById('cvs');
+
+function setCurrentTemplateMeta(data){
+  if(!data) return;
+  currentTemplateName = data.name || currentTemplateName || '';
+  currentTemplateCategory = data.category || '';
+  currentTemplateStatus = data.status || currentTemplateStatus || 'draft';
+}
+
+function syncTemplateUrl(){
+  if(!tplId) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('tpl', tplId);
+  window.history.replaceState(null, '', url.toString());
+}
 
 // ── MULTI-SELECT ──────────────────────────────────────────────
 let selIds=[];          // array of selected ids (multi)
@@ -1043,14 +1060,32 @@ window.addEventListener('load',async()=>{
       clientDesignId=designId;
       const d=await fbDb.collection('user_designs').doc(designId).get();
       if(d.exists&&d.data().template) loadData(d.data().template);
-      else if(tplId){ const t=await fbDb.collection('templates').doc(tplId).get(); if(t.exists) loadData(t.data().template); }
+      else if(tplId){
+        const t=await fbDb.collection('templates').doc(tplId).get();
+        if(t.exists){
+          setCurrentTemplateMeta(t.data());
+          loadData(t.data().template);
+          syncTemplateUrl();
+        }
+      }
     } else if(tplId&&fbDb){
       const d=await fbDb.collection('templates').doc(tplId).get();
-      if(d.exists) loadData(d.data().template);
+      if(d.exists){
+        setCurrentTemplateMeta(d.data());
+        loadData(d.data().template);
+        syncTemplateUrl();
+      }
     }
   } else {
     // Admin mode — no redirect needed, admin has own login
-    if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
+    if(tplId&&fbDb){
+      const d=await fbDb.collection('templates').doc(tplId).get();
+      if(d.exists){
+        setCurrentTemplateMeta(d.data());
+        loadData(d.data().template);
+        syncTemplateUrl();
+      }
+    }
   }
   if(fbDb) loadLogoLibrary();
 });
@@ -2340,6 +2375,21 @@ function openSave(){
   document.getElementById('save-overlay').classList.add('open');
   document.getElementById('save-st').textContent='';
   document.getElementById('save-link-row').style.display='none';
+
+  const nameInp=document.getElementById('save-name');
+  const catSel=document.getElementById('save-category');
+  if(nameInp && currentTemplateName && !nameInp.value.trim()) nameInp.value=currentTemplateName;
+  if(catSel && currentTemplateCategory) catSel.value=currentTemplateCategory;
+
+  if(tplId && currentTemplateStatus==='published'){
+    const link=`${window.location.origin}/?tpl=${tplId}`;
+    const linkEl=document.getElementById('save-link');
+    if(linkEl){
+      linkEl.value=link;
+      document.getElementById('save-link-row').style.display='block';
+    }
+  }
+
   setTimeout(()=>document.getElementById('save-name').focus(),80);
 }
 
@@ -2489,6 +2539,11 @@ async function doSave(status){
       tplId=ref.id;
       console.log('✓ Nuevo doc:', tplId);
     }
+
+    currentTemplateName = name;
+    currentTemplateCategory = payload.category || '';
+    currentTemplateStatus = status;
+    syncTemplateUrl();
 
     if(status==='draft'){
       st.textContent='📁 Borrador guardado — solo visible para ti';
