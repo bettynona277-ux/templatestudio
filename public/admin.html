@@ -319,10 +319,10 @@ async function initFB(config){
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
-    try{fbApp=firebase.app('ts-admin');}catch(e){fbApp=firebase.initializeApp(config,'ts-admin');}
+    if(fbApp){try{fbApp.delete();}catch(e){}}
+    fbApp=firebase.initializeApp(config,'ts-admin-'+Date.now());
     fbDb=firebase.firestore(fbApp);
     fbAuth=firebase.auth(fbApp);
-    await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     // Test connection
     await fbDb.collection('_ping').doc('admin').set({ts:Date.now()});
     fbConnected=true;
@@ -370,26 +370,19 @@ async function createUser(){
   const btn=document.getElementById('create-user-btn');
   btn.innerHTML='<span class="spinner"></span> Creando...';btn.disabled=true;
   try{
-    // Usar segunda instancia de Firebase para NO perder sesión del admin
-    const currentConfig=fbApp.options;
-    const tempAppName='ts-temp-create-'+Date.now();
-    const tempApp=firebase.initializeApp(currentConfig, tempAppName);
-    const tempAuth=firebase.auth(tempApp);
+    // 1. Create in Firebase Auth with Gmail directly
     let uid;
     try{
-      const cred=await tempAuth.createUserWithEmailAndPassword(email,pass);
+      const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
       uid=cred.user.uid;
-      await tempAuth.signOut();
     }catch(authErr){
-      try{await tempApp.delete();}catch(e){}
       if(authErr.code==='auth/email-already-in-use'){
         showStatus('create-user-status','✗ Ese correo ya tiene cuenta','err');
         btn.textContent='+ Crear cuenta';btn.disabled=false;return;
       }
       throw authErr;
     }
-    try{await tempApp.delete();}catch(e){}
-    // Guardar perfil en Firestore con la sesión admin (intacta)
+    // 2. Save profile in Firestore
     await fbDb.collection('users').doc(uid).set({
       uid,email,name:name||email,
       createdAt:Date.now(),active:true
@@ -417,14 +410,14 @@ async function loadUsers(){
       const d=doc.data();
       const date=new Date(d.createdAt||0).toLocaleDateString('es-PE');
       rows+=`<tr>
-        <td>${d.email||d.phone||'-'}</td>
+        <td>+51 ${d.phone||d.email?.replace('@ts.app','')}</td>
         <td>${d.name||'-'}</td>
         <td><span class="pill pill-green">Activo</span></td>
         <td>${date}</td>
         <td><button class="btn btn-red" style="padding:4px 10px;font-size:0.7rem;" onclick="deleteUser('${doc.id}','${d.email}',this)">Eliminar</button></td>
       </tr>`;
     });
-    wrap.innerHTML=`<table class="users-table"><thead><tr><th>Usuario / Correo</th><th>Nombre</th><th>Estado</th><th>Creado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    wrap.innerHTML=`<table class="users-table"><thead><tr><th>Teléfono</th><th>Nombre</th><th>Estado</th><th>Creado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }catch(e){wrap.innerHTML=`<div style="padding:20px;color:var(--accent2);">Error: ${e.message}</div>`;}
 }
 
@@ -533,6 +526,9 @@ async function doAdminLogin(){
     document.getElementById('admin-login-screen').style.display='none';
     document.getElementById('admin-main').style.display='block';
     document.getElementById('admin-user-email').textContent=email;
+    // Guardar credenciales para uso en editor.html
+    localStorage.setItem('ts_admin_email', email);
+    localStorage.setItem('ts_admin_pass', pass);
     btn.textContent='Entrar';btn.disabled=false;
   }catch(e){
     let msg='✗ Email o contraseña incorrectos';
