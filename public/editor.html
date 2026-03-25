@@ -965,6 +965,34 @@ async function uploadToStorage(dataUrl, path){
 }
 function ls(src){return new Promise((r,j)=>{if(document.querySelector(`script[src="${src}"]`))return r();const s=document.createElement('script');s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);});}
 
+function hideSizeOverlay(){
+  const ov=document.getElementById('size-overlay');
+  if(ov) ov.classList.remove('open');
+}
+
+async function loadClientTemplateOrDesign(designId){
+  if(!fbDb) throw new Error('Firebase no conectado');
+
+  if(designId){
+    const d=await fbDb.collection('user_designs').doc(designId).get();
+    if(d.exists && d.data()?.template){
+      clientDesignId=designId;
+      loadData(d.data().template);
+      return {type:'design',id:designId};
+    }
+  }
+
+  if(tplId){
+    const t=await fbDb.collection('templates').doc(tplId).get();
+    if(t.exists && t.data()?.template){
+      loadData(t.data().template);
+      return {type:'template',id:tplId};
+    }
+  }
+
+  throw new Error('No se encontró la plantilla compartida');
+}
+
 window.addEventListener('load',async()=>{
   await initFB();
   const p=new URLSearchParams(window.location.search);
@@ -983,12 +1011,16 @@ window.addEventListener('load',async()=>{
   if((p.get('mode')||mode)==='client'){
     isPrev=true;
     setClientUI();
+    hideSizeOverlay();
 
     // ── AUTH GUARD: verify Firebase Auth before showing editor ──
     const user = await new Promise(resolve=>{
       if(!fbAuth){ resolve(null); return; }
-      const unsub=fbAuth.onAuthStateChanged(u=>{ unsub(); resolve(u); });
-      setTimeout(()=>resolve(null), 4000);
+      if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
+      let done=false;
+      const finish=(u)=>{ if(done) return; done=true; try{unsub&&unsub();}catch(_){} resolve(u||null); };
+      const unsub=fbAuth.onAuthStateChanged(u=>finish(u));
+      setTimeout(()=>finish(fbAuth.currentUser||null), 8000);
     });
 
     if(!user){
@@ -1048,19 +1080,25 @@ window.addEventListener('load',async()=>{
     // User is authenticated
     localStorage.setItem('ts_uid', user.uid);
 
-    // Load design or template
-    if(designId&&fbDb){
-      clientDesignId=designId;
-      const d=await fbDb.collection('user_designs').doc(designId).get();
-      if(d.exists&&d.data().template) loadData(d.data().template);
-      else if(tplId){ const t=await fbDb.collection('templates').doc(tplId).get(); if(t.exists) loadData(t.data().template); }
-    } else if(tplId&&fbDb){
-      const d=await fbDb.collection('templates').doc(tplId).get();
-      if(d.exists) loadData(d.data().template);
+    // Load shared template or existing client design
+    try{
+      await loadClientTemplateOrDesign(designId);
+    }catch(e){
+      console.error('Error loading shared template/design:', e);
+      hideSizeOverlay();
+      showToast('✗ ' + (e.message || 'No se pudo cargar la plantilla'));
+      setTimeout(()=>{
+        if(tplId){
+          const backUrl = `index.html?tpl=${encodeURIComponent(tplId)}`;
+          if(confirm('No se pudo cargar la plantilla compartida. ¿Volver al inicio?')){
+            window.location.href = backUrl;
+          }
+        }
+      }, 250);
     }
   } else {
     // Admin mode — no redirect needed, admin has own login
-    if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
+    if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists&&d.data()?.template){hideSizeOverlay();loadData(d.data().template);}}
   }
   if(fbDb) loadLogoLibrary();
 });
