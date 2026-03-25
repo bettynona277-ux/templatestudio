@@ -63,7 +63,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .canvas-area{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#040408;background-image:radial-gradient(circle,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:20px 20px;position:relative;cursor:default;}
 #cvs{position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 20px 70px rgba(0,0,0,0.8);transform-origin:center center;}
 .cel{position:absolute;cursor:move;user-select:none;}
-.cel.sel{outline:1px solid #00FFC3;outline-offset:1px;}
+.cel.sel{outline:1px dashed rgba(0,200,150,0.72);outline-offset:1px;}
 /* Frame selected: inset shadow hugs border, no gap */
 .cel.frame-el.sel{outline:none !important;box-shadow:none !important;}
 .cel img{display:block;pointer-events:none;width:100%;height:100%;object-fit:contain;}
@@ -147,7 +147,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 .shape-tile span{font-size:0.62rem;font-weight:600;}
 
 /* FRAME */
-.cel.frame-el{border:1px solid #00FFC3;background:rgba(0,200,150,0.04);}
+.cel.frame-el{border:2px dashed rgba(0,200,150,0.5);background:rgba(0,200,150,0.04);}
 .cel.frame-el.has-image{border-style:solid;border-color:transparent;}
 .cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
 /* Frame: no outline-offset gap, border hugs the edge */
@@ -208,29 +208,52 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 }
 
 
-/* === PRO MASK BORDER (clean, non-dashed, thin) === */
-.cel.frame-el,
-.cel.mask,
-.cel.sel{
-  border:1px solid #00FFC3 !important;
-  outline:none !important;
-  box-shadow:none !important;
+/* === Premium contextual properties panel === */
+.right{background:linear-gradient(180deg,rgba(17,17,24,.96),rgba(10,10,18,.96));padding:14px 12px 18px;}
+.panel-card{
+  background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:14px;
+  padding:12px;
+  margin-bottom:10px;
+  box-shadow:0 10px 24px rgba(0,0,0,.18);
 }
-
-/* prevent border looking thicker when small */
-.cel{
-  transform-origin: center;
+.panel-card.soft{background:rgba(255,255,255,0.02);}
+.panel-title{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:.72rem;font-weight:800;color:var(--text);letter-spacing:.08em;
+  text-transform:uppercase;margin-bottom:10px;
 }
-
-/* remove any dashed visuals completely */
-
-
-
-/* FIX: only frames/masks show border */
-.cel { border:none !important; }
-.cel.frame-el, .cel.mask {
-  border:1px solid #00FFC3 !important;
+.panel-chip{
+  font-size:.64rem;font-weight:700;color:var(--accent);
+  background:rgba(0,200,150,.12);border:1px solid rgba(0,200,150,.18);
+  border-radius:999px;padding:3px 8px;
 }
+.panel-note{font-size:.73rem;line-height:1.6;color:var(--muted);}
+.panel-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.mini-lbl{font-size:.62rem;color:var(--muted);margin-bottom:4px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
+.pp-inp,.pp-sel, textarea.pp-inp{
+  background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:10px;padding:9px 10px;
+}
+.pp-inp:focus,.pp-sel:focus, textarea.pp-inp:focus{
+  border-color:rgba(0,200,150,.5);
+  box-shadow:0 0 0 3px rgba(0,200,150,.12);
+}
+.pp-btn{border-radius:10px;}
+.pp-btn-blue{background:rgba(79,142,247,0.12);border:1px solid rgba(79,142,247,.18);}
+.pp-btn-red{background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,.16);}
+.la-btn{border-radius:10px;background:rgba(255,255,255,0.03);}
+.divider{margin:10px 0;border-top:1px solid rgba(255,255,255,.06);}
+#pp-el .divider{display:none;}
+#pp-empty .hint{
+  font-size:.72rem;color:var(--text);line-height:1.6;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+}
+#pp-empty .hint + .hint{margin-top:8px;}
+.fmt-btn{border-radius:8px;}
+.panel-hidden{display:none !important;}
 
 </style>
 </head>
@@ -392,39 +415,48 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
   <!-- PROPS -->
   <div class="right" id="right">
     <div id="pp-empty">
-      <div class="pp-lbl">Propiedades</div>
-      <p style="font-size:0.74rem;color:var(--muted);line-height:1.6;margin-top:6px;">Selecciona una capa para editar.</p>
-      <div class="divider"></div>
-      <div class="hint">🖱 Rueda = desplazar lienzo · Ctrl+rueda = zoom del lienzo · Shift+rueda = horizontal</div>
-      <div class="hint" style="margin-top:6px;border-left-color:var(--blue);">⇧ Shift+clic = selección múltiple
-🪄 Alt+Shift+redimensionar = desde el centro<br>🔲 Arrastra en vacío = seleccionar área<br>Alt+arrastrar = duplicar<br>Ctrl+Z / Ctrl+Y = Deshacer / Rehacer<br>Ctrl+D = duplicar · Ctrl+G = agrupar</div>
+      <div class="panel-card">
+        <div class="panel-title">Propiedades <span class="panel-chip">Sin selección</span></div>
+        <p class="panel-note">Selecciona una capa para editar. El panel se adapta automáticamente según el tipo de elemento.</p>
+      </div>
+      <div class="panel-card soft">
+        <div class="panel-title">Atajos</div>
+        <div class="hint">🖱 Rueda = desplazar lienzo · Ctrl+rueda = zoom del lienzo · Shift+rueda = horizontal</div>
+        <div class="hint">⇧ Shift+clic = selección múltiple<br>🪄 Alt+Shift+redimensionar = desde el centro<br>🔲 Arrastra en vacío = seleccionar área<br>Alt+arrastrar = duplicar<br>Ctrl+Z / Ctrl+Y = deshacer / rehacer<br>Ctrl+D = duplicar · Ctrl+G = agrupar</div>
+      </div>
     </div>
-    <div id="pp-el" style="display:none;">
-      <div class="pp-lbl">Escalar</div>
-      <div class="pp-row" style="margin-bottom:6px;">
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;font-size:1.1rem;" onclick="scaleEl(0.9)">−</button>
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="scaleEl(1)">↺</button>
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;font-size:1.1rem;" onclick="scaleEl(1.1)">+</button>
-      </div>
-      <div class="pp-lbl">Posición</div>
-      <div class="pp-row">
-        <div style="flex:1"><div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">X</div><input type="number" class="pp-inp" id="pp-x" style="margin:0" oninput="updPos('x',this.value)"></div>
-        <div style="flex:1"><div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Y</div><input type="number" class="pp-inp" id="pp-y" style="margin:0" oninput="updPos('y',this.value)"></div>
-      </div>
-      <div class="pp-lbl">Tamaño</div>
-      <div class="pp-row">
-        <div style="flex:1"><div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">W</div><input type="number" class="pp-inp" id="pp-w" style="margin:0" oninput="updSz('w',this.value)"></div>
-        <div style="flex:1"><div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">H</div><input type="number" class="pp-inp" id="pp-h" style="margin:0" oninput="updSz('h',this.value)"></div>
-      </div>
-      <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;margin-top:5px;">Opacidad</div>
-      <input type="range" min="0" max="100" value="100" id="pp-op" oninput="updOp(this.value)">
 
-      <!-- FRAME PROPS — only shown when frame selected -->
-      <div id="pp-frame" style="display:none;">
-        <div class="divider"></div>
-        <div class="pp-lbl">Marco</div>
-        <div style="font-size:0.62rem;color:var(--muted);margin-bottom:4px;">Radio de esquinas</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+    <div id="pp-el" style="display:none;">
+      <div class="panel-card" id="pp-general">
+        <div class="panel-title">General <span class="panel-chip" id="pp-type-chip">Elemento</span></div>
+
+        <div class="mini-lbl">Escalar</div>
+        <div class="pp-row" style="margin-bottom:8px;">
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;font-size:1.1rem;" onclick="scaleEl(0.9)">−</button>
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="scaleEl(1)">↺</button>
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;font-size:1.1rem;" onclick="scaleEl(1.1)">+</button>
+        </div>
+
+        <div class="panel-grid2">
+          <div><div class="mini-lbl">X</div><input type="number" class="pp-inp" id="pp-x" oninput="updPos('x',this.value)"></div>
+          <div><div class="mini-lbl">Y</div><input type="number" class="pp-inp" id="pp-y" oninput="updPos('y',this.value)"></div>
+        </div>
+
+        <div class="panel-grid2" style="margin-top:8px;">
+          <div><div class="mini-lbl">W</div><input type="number" class="pp-inp" id="pp-w" oninput="updSz('w',this.value)"></div>
+          <div><div class="mini-lbl">H</div><input type="number" class="pp-inp" id="pp-h" oninput="updSz('h',this.value)"></div>
+        </div>
+
+        <div style="margin-top:8px;">
+          <div class="mini-lbl">Opacidad</div>
+          <input type="range" min="0" max="100" value="100" id="pp-op" oninput="updOp(this.value)">
+        </div>
+      </div>
+
+      <div class="panel-card panel-hidden" id="pp-frame">
+        <div class="panel-title">Marco <span class="panel-chip">Máscara</span></div>
+        <div class="mini-lbl">Radio de esquinas</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
           <input type="range" id="pp-frame-radius" min="0" max="400" value="0"
             style="flex:1;accent-color:var(--accent);"
             oninput="updFrameRadiusFromPanel(this.value)">
@@ -432,17 +464,17 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
         </div>
         <button class="pp-btn pp-btn-red" style="font-size:0.72rem;" onclick="clearFrameImage()">✕ Quitar imagen del marco</button>
       </div>
-        <div class="divider"></div>
-        <div class="pp-lbl">Texto</div>
+
+      <div class="panel-card panel-hidden" id="pp-txt">
+        <div class="panel-title">Texto <span class="panel-chip">Tipografía</span></div>
+        <div class="mini-lbl">Contenido</div>
         <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none;" oninput="updTxt(this.value)"></textarea>
 
-        <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Fuente</div>
-        <!-- Searchable font picker -->
-        <div style="position:relative;margin-bottom:5px;">
+        <div class="mini-lbl" style="margin-top:8px;">Fuente</div>
+        <div style="position:relative;margin-bottom:8px;">
           <input type="text" id="font-search" placeholder="🔍 Buscar fuente..." oninput="filterFonts(this.value)"
-            style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:6px 9px;color:var(--text);font-family:inherit;font-size:0.78rem;outline:none;">
-          <div id="font-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
-          </div>
+            style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px;color:var(--text);font-family:inherit;font-size:0.78rem;outline:none;">
+          <div id="font-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.4);"></div>
         </div>
         <select class="pp-sel" id="pp-ff" onchange="applyFont(this.value)" style="display:none;">
           <option value="'Poppins'">Poppins</option>
@@ -456,14 +488,14 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
           <option value="'Courier New'">Courier New</option>
         </select>
 
-        <div class="pp-row">
-          <div style="flex:1.2">
-            <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Tamaño</div>
-            <input type="number" class="pp-inp" id="pp-fs" style="margin:0" oninput="updTxtSize(this.value)">
+        <div class="panel-grid2">
+          <div>
+            <div class="mini-lbl">Tamaño</div>
+            <input type="number" class="pp-inp" id="pp-fs" oninput="updTxtSize(this.value)">
           </div>
-          <div style="flex:1">
-            <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Peso</div>
-            <select class="pp-sel" id="pp-fw" style="margin:0" onchange="updTS('fontWeight',this.value)">
+          <div>
+            <div class="mini-lbl">Peso</div>
+            <select class="pp-sel" id="pp-fw" onchange="updTS('fontWeight',this.value)">
               <option value="300">Light</option>
               <option value="400">Regular</option>
               <option value="500">Medium</option>
@@ -474,20 +506,24 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
           </div>
         </div>
 
-        <div class="pp-row" style="align-items:center;margin-bottom:6px;">
-          <div style="display:flex;align-items:center;gap:6px;flex:1;">
-            <input type="color" id="pp-fc" value="#ffffff" oninput="updTS('color',this.value)" style="width:28px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;padding:0;">
-            <span style="font-size:0.7rem;color:var(--muted);">Color</span>
+        <div class="panel-grid2" style="margin-top:8px;">
+          <div>
+            <div class="mini-lbl">Color</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="color" id="pp-fc" value="#ffffff" oninput="updTS('color',this.value)" style="width:34px;height:34px;border:none;background:none;cursor:pointer;border-radius:8px;padding:0;">
+              <input class="pp-inp" value="#ffffff" readonly style="flex:1;padding:8px 10px;">
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex:1;">
-            <input type="color" id="pp-stroke-c" value="#000000" oninput="updStroke()" style="width:28px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;padding:0;">
-            <span style="font-size:0.7rem;color:var(--muted);">Borde</span>
-            <input type="number" id="pp-stroke-w" value="0" min="0" max="20" style="width:38px;background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:3px 5px;color:var(--text);font-size:0.7rem;outline:none;" oninput="updStroke()">
+          <div>
+            <div class="mini-lbl">Borde</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="color" id="pp-stroke-c" value="#000000" oninput="updStroke()" style="width:34px;height:34px;border:none;background:none;cursor:pointer;border-radius:8px;padding:0;">
+              <input type="number" id="pp-stroke-w" value="0" min="0" max="20" class="pp-inp" style="flex:1;padding:8px 10px;" oninput="updStroke()">
+            </div>
           </div>
         </div>
 
-        <!-- Format buttons row -->
-        <div style="display:flex;gap:3px;margin-bottom:5px;">
+        <div style="display:flex;gap:4px;margin-top:8px;margin-bottom:8px;">
           <button class="fmt-btn" id="fmt-b" onclick="toggleFmt('bold')" title="Negrita"><b>B</b></button>
           <button class="fmt-btn" id="fmt-i" onclick="toggleFmt('italic')" title="Cursiva"><i>I</i></button>
           <button class="fmt-btn" id="fmt-u" onclick="toggleFmt('underline')" title="Subrayado"><u>U</u></button>
@@ -500,66 +536,65 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
           <button class="fmt-btn" id="fmt-lower" onclick="toggleCase('lower')" title="minúsculas" style="font-size:0.62rem;">aa</button>
         </div>
 
-        <!-- Spacing -->
-        <div class="pp-row">
-          <div style="flex:1">
-            <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Espaciado letras</div>
-            <input type="number" class="pp-inp" id="pp-ls" value="0" style="margin:0" oninput="updTS('letterSpacing',this.value+'px')">
+        <div class="panel-grid2">
+          <div>
+            <div class="mini-lbl">Espaciado</div>
+            <input type="number" class="pp-inp" id="pp-ls" value="0" oninput="updTS('letterSpacing',this.value+'px')">
           </div>
-          <div style="flex:1">
-            <div style="font-size:0.62rem;color:var(--muted);margin-bottom:3px;">Interlineado</div>
-            <input type="number" class="pp-inp" id="pp-lh" value="1.2" step="0.1" style="margin:0" oninput="updTS('lineHeight',this.value)">
+          <div>
+            <div class="mini-lbl">Interlineado</div>
+            <input type="number" class="pp-inp" id="pp-lh" value="1.2" step="0.1" oninput="updTS('lineHeight',this.value)">
           </div>
         </div>
       </div>
 
-      <div class="divider"></div>
-      <div class="pp-row">
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="bringFwd()">↑ Adelante</button>
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="sendBck()">↓ Atrás</button>
-      </div>
-      <div class="pp-row" style="margin-top:4px;">
-        <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;background:rgba(79,142,247,0.12);" onclick="duplicateSelected()">⧉ Duplicar</button>
+      <div class="panel-card" id="pp-arrange">
+        <div class="panel-title">Orden y alineación</div>
+        <div class="pp-row">
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="bringFwd()">↑ Adelante</button>
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="sendBck()">↓ Atrás</button>
+        </div>
+        <div class="pp-row" style="margin-top:4px;">
+          <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;background:rgba(79,142,247,0.12);" onclick="duplicateSelected()">⧉ Duplicar</button>
+        </div>
+
+        <div class="mini-lbl" style="margin-top:10px;">Alinear</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-bottom:6px;">
+          <button class="la-btn" onclick="alignLayers('left')" title="Izquierda">⇤</button>
+          <button class="la-btn" onclick="alignLayers('center')" title="Centro H">↔</button>
+          <button class="la-btn" onclick="alignLayers('right')" title="Derecha">⇥</button>
+          <button class="la-btn" onclick="alignLayers('top')" title="Arriba">⇡</button>
+          <button class="la-btn" onclick="alignLayers('middle')" title="Centro V">↕</button>
+          <button class="la-btn" onclick="alignLayers('bottom')" title="Abajo">⇣</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px;">
+          <button class="la-btn" onclick="alignLayers('canvas-center-h')" style="font-size:0.62rem;">↔ Lienzo</button>
+          <button class="la-btn" onclick="alignLayers('canvas-center-v')" style="font-size:0.62rem;">↕ Lienzo</button>
+        </div>
+        <button class="la-btn" style="width:100%;font-size:0.62rem;color:var(--accent2);border-color:rgba(255,107,107,0.2);margin-bottom:6px;" onclick="selId!==null&&fitLayerToCanvas(selId)">🎯 Traer al canvas</button>
+
+        <div class="mini-lbl">Distribuir</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
+          <button class="la-btn" onclick="alignLayers('dist-h')" style="font-size:0.62rem;">↔ Esp.</button>
+          <button class="la-btn" onclick="alignLayers('dist-v')" style="font-size:0.62rem;">↕ Esp.</button>
+          <button class="la-btn" onclick="alignLayers('sort-row')" style="font-size:0.62rem;">▦ Fila</button>
+        </div>
       </div>
 
-      <!-- ALINEACIÓN -->
-      <div class="divider"></div>
-      <div class="pp-lbl">Alinear</div>
-      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:3px;margin-bottom:4px;">
-        <button class="la-btn" onclick="alignLayers('left')" title="Izquierda">⇤</button>
-        <button class="la-btn" onclick="alignLayers('center')" title="Centro H">↔</button>
-        <button class="la-btn" onclick="alignLayers('right')" title="Derecha">⇥</button>
-        <button class="la-btn" onclick="alignLayers('top')" title="Arriba">⇡</button>
-        <button class="la-btn" onclick="alignLayers('middle')" title="Centro V">↕</button>
-        <button class="la-btn" onclick="alignLayers('bottom')" title="Abajo">⇣</button>
+      <div class="panel-card" id="pp-group-wrap">
+        <div class="panel-title">Grupo y acciones</div>
+        <div class="pp-row">
+          <button class="pp-btn pp-btn-blue" id="btn-group" style="margin:0;flex:1;font-size:0.72rem;" onclick="groupSelected()">⬡ Agrupar</button>
+          <button class="pp-btn pp-btn-blue" id="btn-ungroup" style="margin:0;flex:1;font-size:0.72rem;opacity:0.4;" onclick="ungroupSelected()">⬡ Desagrupar</button>
+        </div>
+        <button class="pp-btn pp-btn-red" style="margin-top:8px;" onclick="delSel()">🗑 Eliminar capa</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:4px;">
-        <button class="la-btn" onclick="alignLayers('canvas-center-h')" style="font-size:0.62rem;">↔ Lienzo</button>
-        <button class="la-btn" onclick="alignLayers('canvas-center-v')" style="font-size:0.62rem;">↕ Lienzo</button>
-      </div>
-      <button class="la-btn" style="width:100%;font-size:0.62rem;color:var(--accent2);border-color:rgba(255,107,107,0.2);margin-bottom:4px;" onclick="selId!==null&&fitLayerToCanvas(selId)">🎯 Traer al canvas</button>
-
-      <div class="pp-lbl" style="margin-top:6px;">Distribuir</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-bottom:4px;">
-        <button class="la-btn" onclick="alignLayers('dist-h')" style="font-size:0.62rem;">↔ Esp.</button>
-        <button class="la-btn" onclick="alignLayers('dist-v')" style="font-size:0.62rem;">↕ Esp.</button>
-        <button class="la-btn" onclick="alignLayers('sort-row')" style="font-size:0.62rem;">▦ Fila</button>
-      </div>
-
-      <!-- AGRUPAR -->
-      <div class="divider"></div>
-      <div class="pp-row">
-        <button class="pp-btn pp-btn-blue" id="btn-group" style="margin:0;flex:1;font-size:0.72rem;" onclick="groupSelected()">⬡ Agrupar</button>
-        <button class="pp-btn pp-btn-blue" id="btn-ungroup" style="margin:0;flex:1;font-size:0.72rem;opacity:0.4;" onclick="ungroupSelected()">⬡ Desagrupar</button>
-      </div>
-
-      <div class="divider"></div>
-      <button class="pp-btn pp-btn-red" onclick="delSel()">🗑 Eliminar capa</button>
     </div>
   </div>
 </div>
 
 <!-- CANVAS SIZE MODAL (appears first) -->
+ (appears first) -->
 <div class="overlay" id="size-overlay">
   <div class="modal">
     <h3>📐 Tamaño del lienzo</h3>
@@ -714,22 +749,14 @@ function selMulti(ids){
   });
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
-    document.getElementById('pp-empty').style.display='none';
-    document.getElementById('pp-el').style.display='block';
-    document.getElementById('pp-txt').style.display=l?.type==='text'?'block':'none';
-    document.getElementById('pp-frame').style.display=l?.type==='frame'?'block':'none';
+    updatePropertyPanelState(l);
     syncP();
     hideMultiBox();
   } else if(ids.length>1){
-    document.getElementById('pp-empty').style.display='none';
-    document.getElementById('pp-el').style.display='block';
-    document.getElementById('pp-txt').style.display='none';
-    document.getElementById('pp-frame').style.display='none';
+    updatePropertyPanelState(null);
     updateMultiBox();
   } else {
-    document.getElementById('pp-empty').style.display='block';
-    document.getElementById('pp-el').style.display='none';
-    document.getElementById('pp-frame').style.display='none';
+    updatePropertyPanelState(null);
     hideMultiBox();
   }
   updateGroupBtns();
@@ -2140,13 +2167,37 @@ function desel(){
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   selId=null; selIds=[];
-  document.getElementById('pp-empty').style.display='block';
-  document.getElementById('pp-el').style.display='none';
-  document.getElementById('pp-frame')?.style && (document.getElementById('pp-frame').style.display='none');
+  updatePropertyPanelState(null);
   hideMultiBox();
 }
+
+function updatePropertyPanelState(targetLayer=null){
+  const l = targetLayer || layers.find(x=>x.id===selId) || null;
+  const hasSelection = !!l || selIds.length>1;
+  const isMulti = selIds.length>1;
+  const isText = !!l && l.type==='text';
+  const isFrame = !!l && l.type==='frame';
+
+  const empty=document.getElementById('pp-empty');
+  const el=document.getElementById('pp-el');
+  if(empty) empty.style.display = hasSelection ? 'none' : 'block';
+  if(el) el.style.display = hasSelection ? 'block' : 'none';
+
+  const txt=document.getElementById('pp-txt');
+  if(txt) txt.classList.toggle('panel-hidden', !(isText && !isMulti));
+
+  const frame=document.getElementById('pp-frame');
+  if(frame) frame.classList.toggle('panel-hidden', !(isFrame && !isMulti));
+
+  const chip=document.getElementById('pp-type-chip');
+  if(chip){
+    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
+  }
+}
+
 function syncP(){
   const l=layers.find(x=>x.id===selId);if(!l)return;
+  updatePropertyPanelState(l);
   document.getElementById('pp-x').value=Math.round(l.x);
   document.getElementById('pp-y').value=Math.round(l.y);
   document.getElementById('pp-w').value=Math.round(l.w);
