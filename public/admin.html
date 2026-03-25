@@ -103,10 +103,33 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 </head>
 <body>
 
-<div class="topbar">
-  <div class="logo">✦ TemplateStudio</div>
+<!-- ADMIN LOGIN SCREEN -->
+<div id="admin-login-screen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:36px 32px;width:340px;max-width:94vw;">
+    <div style="font-size:1.4rem;font-weight:800;color:var(--accent);margin-bottom:4px;">✦ TemplateStudio</div>
+    <div style="font-size:0.8rem;color:var(--muted);margin-bottom:28px;">Panel de administración</div>
+    <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">Email admin</div>
+    <input type="email" id="admin-email" class="inp" placeholder="admin@ts.app" value="admin@ts.app"
+      style="width:100%;margin-bottom:12px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:0.85rem;outline:none;box-sizing:border-box;">
+    <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">Contraseña</div>
+    <input type="password" id="admin-pass" class="inp" placeholder="••••••••"
+      style="width:100%;margin-bottom:16px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:0.85rem;outline:none;box-sizing:border-box;"
+      onkeydown="if(event.key==='Enter')doAdminLogin()">
+    <button onclick="doAdminLogin()" id="admin-login-btn"
+      style="width:100%;padding:12px;background:var(--accent);color:#0a0a1a;border:none;border-radius:10px;font-weight:800;font-size:0.9rem;cursor:pointer;font-family:inherit;">
+      Entrar
+    </button>
+    <div id="admin-login-err" style="margin-top:10px;font-size:0.78rem;color:#ff6b6b;text-align:center;"></div>
+  </div>
+</div>
+
+<div id="admin-main" style="display:none;">
+<div style="background:var(--panel2);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;">
+  <div style="font-weight:800;color:var(--accent);font-size:1rem;">✦ TemplateStudio</div>
   <div style="display:flex;align-items:center;gap:12px;">
+    <span id="admin-user-email" style="font-size:0.75rem;color:var(--muted);"></span>
     <span class="badge">⚙ ADMIN</span>
+    <button onclick="doAdminLogout()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">Salir</button>
     <a href="index.html" style="font-size:0.78rem;color:var(--muted);text-decoration:none;">← Ver como cliente</a>
   </div>
 </div>
@@ -285,22 +308,6 @@ service cloud.firestore {
 
 <script>
 let fbApp=null,fbDb=null,fbAuth=null,fbConnected=false;
-
-window.addEventListener('load',async()=>{
-  const cfg=localStorage.getItem('ts_firebase_config');
-  if(cfg){
-    try{
-      const c=JSON.parse(cfg);
-      document.getElementById('fb-apiKey').value=c.apiKey||'';
-      document.getElementById('fb-authDomain').value=c.authDomain||'';
-      document.getElementById('fb-projectId').value=c.projectId||'';
-      document.getElementById('fb-storageBucket').value=c.storageBucket||'';
-      document.getElementById('fb-messagingSenderId').value=c.messagingSenderId||'';
-      document.getElementById('fb-appId').value=c.appId||'';
-      await initFB(c);
-    }catch(e){}
-  }
-});
 
 function loadScript(src){
   return new Promise((res,rej)=>{
@@ -495,6 +502,77 @@ function showStatus(elId,msg,type){
   el.textContent=msg;el.className='status-msg status-'+(type==='ok'?'ok':'err');el.style.display='block';
   if(type==='ok')setTimeout(()=>el.style.display='none',4000);
 }
+
+// ============ ADMIN AUTH ============
+async function doAdminLogin(){
+  const email=document.getElementById('admin-email').value.trim();
+  const pass=document.getElementById('admin-pass').value;
+  const err=document.getElementById('admin-login-err');
+  const btn=document.getElementById('admin-login-btn');
+  err.textContent='';
+  if(!email||!pass){err.textContent='Ingresa email y contraseña';return;}
+  btn.textContent='Entrando...';btn.disabled=true;
+  try{
+    // Init Firebase first if not connected
+    const cfg=localStorage.getItem('ts_firebase_config');
+    if(cfg&&!fbConnected) await initFB(JSON.parse(cfg));
+    if(!fbAuth){err.textContent='Firebase no conectado';btn.textContent='Entrar';btn.disabled=false;return;}
+    const cred=await fbAuth.signInWithEmailAndPassword(email,pass);
+    // Verify this user is in the admins collection
+    const adminDoc=await fbDb.collection('admins').doc(cred.user.uid).get();
+    if(!adminDoc.exists){
+      await fbAuth.signOut();
+      err.textContent='✗ No tienes permisos de administrador';
+      btn.textContent='Entrar';btn.disabled=false;return;
+    }
+    // Show main panel
+    document.getElementById('admin-login-screen').style.display='none';
+    document.getElementById('admin-main').style.display='block';
+    document.getElementById('admin-user-email').textContent=email;
+    btn.textContent='Entrar';btn.disabled=false;
+  }catch(e){
+    let msg='✗ Email o contraseña incorrectos';
+    if(e.code==='auth/too-many-requests') msg='✗ Demasiados intentos. Espera un momento.';
+    err.textContent=msg;
+    btn.textContent='Entrar';btn.disabled=false;
+  }
+}
+
+function doAdminLogout(){
+  if(fbAuth) fbAuth.signOut();
+  document.getElementById('admin-main').style.display='none';
+  document.getElementById('admin-login-screen').style.display='flex';
+  document.getElementById('admin-pass').value='';
+}
+
+// Check if already logged in on load
+window.addEventListener('load',async()=>{
+  const cfg=localStorage.getItem('ts_firebase_config');
+  if(cfg){
+    try{
+      const c=JSON.parse(cfg);
+      document.getElementById('fb-apiKey').value=c.apiKey||'';
+      document.getElementById('fb-authDomain').value=c.authDomain||'';
+      document.getElementById('fb-projectId').value=c.projectId||'';
+      document.getElementById('fb-storageBucket').value=c.storageBucket||'';
+      document.getElementById('fb-messagingSenderId').value=c.messagingSenderId||'';
+      document.getElementById('fb-appId').value=c.appId||'';
+      await initFB(c);
+      // Check if already authenticated
+      fbAuth.onAuthStateChanged(async(user)=>{
+        if(user){
+          const adminDoc=await fbDb.collection('admins').doc(user.uid).get();
+          if(adminDoc.exists){
+            document.getElementById('admin-login-screen').style.display='none';
+            document.getElementById('admin-main').style.display='block';
+            document.getElementById('admin-user-email').textContent=user.email||'';
+          }
+        }
+      });
+    }catch(e){}
+  }
+});
 </script>
+</div><!-- close admin-main -->
 </body>
 </html>
