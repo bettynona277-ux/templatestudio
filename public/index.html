@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -806,13 +807,7 @@ let currentUser = null;
 let currentDesignId = null;
 let editingDesignName = '';
 
-// Load Firebase config from localStorage (set by admin)
-async function hashPass(pass){
-  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pass));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
 async function initFirebase() {
-  // Config embebida directamente — funciona en cualquier dispositivo
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
     authDomain: "plantillas-bfaeb.firebaseapp.com",
@@ -824,6 +819,7 @@ async function initFirebase() {
   try {
     try { fbApp = firebase.app('ts-client'); } catch(e) { fbApp = firebase.initializeApp(FIREBASE_CONFIG, 'ts-client'); }
     fbDb = firebase.firestore(fbApp);
+    fbAuth = firebase.auth(fbApp);
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
     return true;
   } catch(e) { console.error('Firebase init error:', e); return false; }
@@ -843,19 +839,30 @@ function loadScript(src) {
 window.addEventListener('load', async () => {
   const ok = await initFirebase();
   if (!ok) {
-    document.getElementById('login-err').textContent = '⚠ Sistema no configurado aún. Contacta al administrador.';
+    document.getElementById('login-err').textContent = '⚠ Sistema no configurado. Contacta al administrador.';
     return;
   }
-  // Check if session saved locally
-  const saved = localStorage.getItem('ts_session');
-  if (saved) {
-    try {
-      currentUser = JSON.parse(saved);
-      const urlTpl2 = new URLSearchParams(window.location.search).get('tpl');
-      if(urlTpl2){ openEditorFromTemplate(urlTpl2); }
-      else { showDashboard(); }
-      return;
-    } catch(e) { localStorage.removeItem('ts_session'); }
+  // Listen for Firebase Auth state
+  fbAuth.onAuthStateChanged(async (user) => {
+    if (user) {
+      // User is signed in — get their profile from Firestore
+      const doc = await fbDb.collection('users').doc(user.uid).get();
+      if (doc.exists && doc.data().active !== false) {
+        currentUser = { uid: user.uid, ...doc.data() };
+        localStorage.setItem('ts_session', JSON.stringify(currentUser));
+        const urlTpl = new URLSearchParams(window.location.search).get('tpl');
+        if(urlTpl) openEditorFromTemplate(urlTpl);
+        else if(document.getElementById('screen-login').classList.contains('active')) showDashboard();
+      } else {
+        // Account deactivated or no profile — sign out
+        fbAuth.signOut();
+      }
+    }
+  });
+  // Check URL for template
+  const urlTpl2 = new URLSearchParams(window.location.search).get('tpl');
+  if(urlTpl2 && !currentUser){
+    // Will be handled by onAuthStateChanged once signed in
   }
 });
 
@@ -873,45 +880,29 @@ async function doLogin() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
-    const passHash = await hashPass(pass);
-    // Use phone as document ID — client only reads THEIR OWN doc, not the whole collection
-    const docId = 'u_' + phone;
-    const doc = await fbDb.collection('users').doc(docId).get();
-
-    let userData = null;
-    if (doc.exists && doc.data().passHash === passHash) {
-      userData = doc.data();
-    } else if (!doc.exists) {
-      // Fallback: try old query format (backward compat with old accounts)
-      const snap = await fbDb.collection('users').where('phone','==',phone).where('passHash','==',passHash).get();
-      if (!snap.empty) userData = snap.docs[0].data();
-    }
-
-    if (!userData) {
-      err.textContent = '✗ Número o contraseña incorrectos';
-      btn.disabled = false; btn.textContent = 'Entrar'; return;
-    }
-    if (userData.active === false) {
-      err.textContent = '✗ Cuenta desactivada. Contacta al administrador.';
-      btn.disabled = false; btn.textContent = 'Entrar'; return;
-    }
-    currentUser = { uid: userData.uid || docId, phone, ...userData };
-    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    const email = phone + '@ts.app';
+    await fbAuth.signInWithEmailAndPassword(email, pass);
+    // onAuthStateChanged will handle navigation
     btn.textContent = 'Entrar'; btn.disabled = false;
-    const urlTpl = new URLSearchParams(window.location.search).get('tpl');
-    if(urlTpl){ openEditorFromTemplate(urlTpl); }
-    else { showDashboard(); }
   } catch(e) {
-    err.textContent = '✗ Error: ' + e.message;
+    let msg = '✗ Número o contraseña incorrectos';
+    if(e.code === 'auth/too-many-requests') msg = '✗ Demasiados intentos. Espera un momento.';
+    if(e.code === 'auth/user-disabled') msg = '✗ Cuenta desactivada. Contacta al administrador.';
+    err.textContent = msg;
     btn.disabled = false; btn.textContent = 'Entrar';
   }
 }
 
 function doLogout() {
+  fbAuth.signOut();
   localStorage.removeItem('ts_session');
   currentUser = null;
   showScreen('login');
 }
+
+// ================================================================
+// LOGIN
+// ================================================================
 
 
 // ================================================================
