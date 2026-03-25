@@ -874,20 +874,30 @@ async function doLogin() {
   btn.innerHTML = '<span class="spinner"></span>';
   try {
     const passHash = await hashPass(pass);
-    const snap = await fbDb.collection('users').where('phone','==',phone).where('passHash','==',passHash).get();
-    if (snap.empty) {
+    // Use phone as document ID — client only reads THEIR OWN doc, not the whole collection
+    const docId = 'u_' + phone;
+    const doc = await fbDb.collection('users').doc(docId).get();
+
+    let userData = null;
+    if (doc.exists && doc.data().passHash === passHash) {
+      userData = doc.data();
+    } else if (!doc.exists) {
+      // Fallback: try old query format (backward compat with old accounts)
+      const snap = await fbDb.collection('users').where('phone','==',phone).where('passHash','==',passHash).get();
+      if (!snap.empty) userData = snap.docs[0].data();
+    }
+
+    if (!userData) {
       err.textContent = '✗ Número o contraseña incorrectos';
       btn.disabled = false; btn.textContent = 'Entrar'; return;
     }
-    const userData = snap.docs[0].data();
     if (userData.active === false) {
       err.textContent = '✗ Cuenta desactivada. Contacta al administrador.';
       btn.disabled = false; btn.textContent = 'Entrar'; return;
     }
-    currentUser = { uid: userData.uid || snap.docs[0].id, phone, email: phone + '@ts.app', ...userData };
+    currentUser = { uid: userData.uid || docId, phone, ...userData };
     localStorage.setItem('ts_session', JSON.stringify(currentUser));
     btn.textContent = 'Entrar'; btn.disabled = false;
-    // Check if opened via template link
     const urlTpl = new URLSearchParams(window.location.search).get('tpl');
     if(urlTpl){ openEditorFromTemplate(urlTpl); }
     else { showDashboard(); }
