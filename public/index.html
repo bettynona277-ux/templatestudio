@@ -932,24 +932,50 @@ async function loadMyDesigns() {
     const snap = await fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
       .orderBy('updatedAt', 'desc').get();
+
+    const docs = [];
+    snap.forEach(doc => docs.push({ id: doc.id, d: doc.data() || {} }));
+
+    // fallback: usar miniatura de la plantilla base si el diseño aún no tiene thumb
+    const missingTplIds = [...new Set(
+      docs
+        .filter(({d}) => !d.thumb && d.tplId)
+        .map(({d}) => d.tplId)
+    )];
+
+    const tplThumbMap = {};
+    await Promise.all(missingTplIds.map(async tplId => {
+      try{
+        const t = await fbDb.collection('templates').doc(tplId).get();
+        if(t.exists){
+          const td = t.data() || {};
+          if(td.thumb) tplThumbMap[tplId] = td.thumb;
+        }
+      }catch(_){}
+    }));
+
+    docs.forEach(({d}) => {
+      if(!d.thumb && d.tplId && tplThumbMap[d.tplId]){
+        d.thumb = tplThumbMap[d.tplId];
+      }
+    });
+
     grid.innerHTML = '';
-    // Add "new design" card
     const newCard = document.createElement('div');
     newCard.className = 'new-design-card';
     newCard.innerHTML = '<div class="icon">+</div><div class="label">Nuevo diseño en blanco</div>';
     newCard.onclick = (e) => { if(e.target===newCard||newCard.contains(e.target)) openEditorBlank(); };
     grid.appendChild(newCard);
-    if (snap.empty) {
+
+    if (!docs.length) {
       const msg = document.createElement('div');
       msg.className = 'empty-state';
       msg.style.gridColumn = '2/-1';
       msg.textContent = 'Aún no tienes diseños guardados. ¡Crea el primero!';
       grid.appendChild(msg);
     } else {
-      document.getElementById('my-designs-count').textContent = snap.size + ' diseño' + (snap.size!==1?'s':'');
-      snap.forEach(doc => {
-        const d = doc.data();
-        const card = createDesignCard(doc.id, d);
+      docs.forEach(({id,d}) => {
+        const card = createDesignCard(id, d);
         grid.appendChild(card);
       });
     }
