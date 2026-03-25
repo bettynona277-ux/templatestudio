@@ -925,6 +925,25 @@ async function showDashboard() {
 // ================================================================
 // MY DESIGNS
 // ================================================================
+function extractDesignPayload(d){
+  return d?.template || d?.templateData || d?.design || d || null;
+}
+function getDesignPreviewThumb(d){
+  if(d?.thumb) return d.thumb;
+  const payload = extractDesignPayload(d);
+  const layers = Array.isArray(payload?.layers) ? payload.layers : [];
+  if(!layers.length) return '';
+  const visibleLayers = layers.filter(l => l && l.visible !== false);
+  const frameWithImg =
+    visibleLayers.find(l => l.type === 'frame' && l.frameImage) ||
+    layers.find(l => l.type === 'frame' && l.frameImage);
+  if(frameWithImg?.frameImage) return frameWithImg.frameImage;
+  const imgLayer =
+    visibleLayers.find(l => l.type === 'img' && l.src) ||
+    layers.find(l => l.type === 'img' && l.src);
+  if(imgLayer?.src) return imgLayer.src;
+  return '';
+}
 async function loadMyDesigns() {
   const grid = document.getElementById('my-designs-grid');
   grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
@@ -962,13 +981,15 @@ function createDesignCard(id, d) {
   const card = document.createElement('div');
   card.className = 'design-card';
   const date = new Date(d.updatedAt||d.createdAt).toLocaleDateString('es-PE');
-  const thumbHtml = d.thumb
-    ? `<img class="design-thumb" src="${d.thumb}">`
+  const previewThumb = getDesignPreviewThumb(d);
+  const safeName = d.name || 'Sin nombre';
+  const thumbHtml = previewThumb
+    ? `<img class="design-thumb" src="${previewThumb}" alt="${safeName}">`
     : `<div class="design-thumb-empty">🎨</div>`;
   card.innerHTML = `
     ${thumbHtml}
     <div class="design-info">
-      <div class="design-name">${d.name||'Sin nombre'}</div>
+      <div class="design-name">${safeName}</div>
       <div class="design-date">${date}</div>
       <div class="design-actions">
         <button class="dact dact-edit" onclick="openEditorDesign('${id}')">✏ Editar</button>
