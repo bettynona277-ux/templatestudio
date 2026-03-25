@@ -2571,12 +2571,33 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
+    // miniatura real del diseño para la biblioteca del cliente
+    desel();
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+    const svTransform = cvs.style.transform;
+    cvs.style.transform='scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+    const thumbCanvas = await html2canvas(cvs,{
+      scale:0.5,
+      useCORS:true,
+      allowTaint:true,
+      backgroundColor:null,
+      logging:false,
+      width:parseInt(cvs.style.width),
+      height:parseInt(cvs.style.height)
+    });
+    cvs.style.transform=svTransform;
+    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+    const thumbData = thumbCanvas.toDataURL('image/jpeg',0.82);
+
     const data={
       name: chosenName,
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
-      uid:authUser.uid
+      uid:authUser.uid,
+      thumb: thumbData
     };
 
     if(clientDesignId){
