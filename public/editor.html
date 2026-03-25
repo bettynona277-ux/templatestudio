@@ -920,15 +920,20 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
 
-    // Reutilizar una app estable para conservar la sesión entre index.html y editor.html
-    const existing = firebase.apps.find(app => app.name === '[DEFAULT]') || firebase.apps[0];
-    fbApp = existing || firebase.initializeApp(config);
+    const modeNow = new URLSearchParams(window.location.search).get('mode');
+
+    // IMPORTANTE: usar el mismo nombre de app que index.html para conservar la sesión del cliente
+    try { fbApp = firebase.app('ts-client'); }
+    catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
+
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
-    try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){ }
 
-    // Auto-login admin solo en modo admin; en cliente respetar su propia sesión
-    const modeNow = new URLSearchParams(window.location.search).get('mode');
+    try{
+      await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    }catch(_){}
+
+    // Auto-login admin SOLO en modo admin
     const adminEmail=localStorage.getItem('ts_admin_email');
     const adminPass=localStorage.getItem('ts_admin_pass');
     if(modeNow!=='client' && adminEmail && adminPass && !fbAuth.currentUser){
@@ -996,46 +1001,28 @@ window.addEventListener('load',async()=>{
     const user = await new Promise(resolve=>{
       if(!fbAuth){ resolve(null); return; }
       let settled=false;
-      const started=Date.now();
-
-      const finish=(val)=>{
+      const unsub=fbAuth.onAuthStateChanged(u=>{
+        if(settled) return;
+        // Esperar un usuario real; no resolver instantáneamente con null
+        if(!u && !fbAuth.currentUser) return;
+        settled=true;
+        try{ unsub(); }catch(_){}
+        resolve(u || fbAuth.currentUser || null);
+      });
+      setTimeout(()=>{
         if(settled) return;
         settled=true;
         try{ unsub(); }catch(_){}
-        clearInterval(poller);
-        clearTimeout(timer);
-        resolve(val||null);
-      };
-
-      const unsub=fbAuth.onAuthStateChanged(u=>{
-        // En cliente, no resolver de inmediato con null; esperar restauración de sesión.
-        if(u) return finish(u);
-        if(fbAuth.currentUser) return finish(fbAuth.currentUser);
-      });
-
-      const poller=setInterval(()=>{
-        if(fbAuth.currentUser) finish(fbAuth.currentUser);
-      }, 250);
-
-      const timer=setTimeout(()=>{
-        finish(fbAuth.currentUser||null);
-      }, 12000);
+        resolve(fbAuth.currentUser||null);
+      }, 10000);
     });
 
     if(!user){
-      const loopKey='ts_client_auth_loop_guard';
-      const alreadyRedirected=sessionStorage.getItem(loopKey)==='1';
-      if(alreadyRedirected){
-        showToast('No se pudo recuperar tu sesión. Inicia sesión otra vez.');
-        document.getElementById('logo-library-empty') && (document.getElementById('logo-library-empty').textContent='Vuelve a iniciar sesión.');
-        return;
-      }
-      sessionStorage.setItem(loopKey,'1');
-      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = `index.html?redirect=${redirect}`;
+      const wrap=document.getElementById('logo-library-empty');
+      if(wrap) wrap.textContent='Vuelve a iniciar sesión.';
+      showToast('✗ Error: Sesión no disponible');
       return;
     }
-    sessionStorage.removeItem('ts_client_auth_loop_guard');
 
     localStorage.setItem('ts_uid', user.uid);
 
@@ -2338,7 +2325,6 @@ async function saveClientDesign(){
       clientDesignId=ref.id;
       const u=new URL(window.location.href);
       u.searchParams.set('did', clientDesignId);
-      u.searchParams.set('uid', authUser.uid);
       window.history.replaceState({}, '', u.toString());
     }
     showToast('✓ Diseño guardado');
