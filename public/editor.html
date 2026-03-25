@@ -919,47 +919,25 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
-    try{ fbApp = firebase.app('psd-editor'); }catch(_){ fbApp = firebase.initializeApp(config,'psd-editor'); }
-    fbDb=firebase.firestore(fbApp);
-    fbAuth=firebase.auth(fbApp);
-    try{
-      await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    }catch(e){
-      console.warn('No se pudo fijar persistencia LOCAL:', e.message);
-    }
-    const qs = new URLSearchParams(window.location.search);
-    const isClientMode = qs.get('mode') === 'client';
-    // Auto-login admin solo en modo admin
-    if(!isClientMode){
-      const adminEmail=localStorage.getItem('ts_admin_email');
-      const adminPass=localStorage.getItem('ts_admin_pass');
-      if(adminEmail&&adminPass){
-        try{ await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
-        }catch(e){ console.warn('Auto-login admin falló:',e.message); }
+
+    // Reutilizar una app estable para conservar la sesión entre index.html y editor.html
+    const existing = firebase.apps.find(app => app.name === '[DEFAULT]') || firebase.apps[0];
+    fbApp = existing || firebase.initializeApp(config);
+    fbDb = firebase.firestore(fbApp);
+    fbAuth = firebase.auth(fbApp);
+
+    // Auto-login admin solo en modo admin; en cliente respetar su propia sesión
+    const modeNow = new URLSearchParams(window.location.search).get('mode');
+    const adminEmail=localStorage.getItem('ts_admin_email');
+    const adminPass=localStorage.getItem('ts_admin_pass');
+    if(modeNow!=='client' && adminEmail && adminPass && !fbAuth.currentUser){
+      try{
+        await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
+      }catch(e){
+        console.warn('Auto-login admin falló:',e.message);
       }
     }
   }catch(e){console.warn('Firebase init error:',e);}
-}
-
-function waitForFirebaseUser(timeout=10000){
-  return new Promise(resolve=>{
-    if(!fbAuth){ resolve(null); return; }
-    if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
-    let settled=false;
-    const unsub=fbAuth.onAuthStateChanged(u=>{
-      if(settled) return;
-      if(!u) return;
-      settled=true;
-      try{unsub();}catch(_){}
-      resolve(u);
-    });
-    setTimeout(()=>{
-      if(settled) return;
-      settled=true;
-      try{unsub();}catch(_){}
-      resolve(fbAuth.currentUser||null);
-    }, timeout);
-  });
 }
 
 // Compress a base64 image to max dimensions before uploading
@@ -1014,11 +992,26 @@ window.addEventListener('load',async()=>{
     setClientUI();
     document.getElementById('size-overlay')?.classList.remove('open');
 
-    const user = await waitForFirebaseUser(10000);
+    const user = await new Promise(resolve=>{
+      if(!fbAuth){ resolve(null); return; }
+      let settled=false;
+      const unsub=fbAuth.onAuthStateChanged(u=>{
+        if(settled) return;
+        settled=true;
+        try{ unsub(); }catch(_){}
+        resolve(u || null);
+      });
+      setTimeout(()=>{
+        if(settled) return;
+        settled=true;
+        try{unsub();}catch(_){}
+        resolve(fbAuth.currentUser||null);
+      }, 8000);
+    });
 
     if(!user){
-      const back = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = `index.html?redirect=${back}${tplId?`&tpl=${encodeURIComponent(tplId)}`:''}`;
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `index.html?redirect=${redirect}${tplId?`&tpl=${encodeURIComponent(tplId)}`:''}`;
       return;
     }
 
@@ -1045,7 +1038,7 @@ window.addEventListener('load',async()=>{
 
     if(!loaded){
       document.getElementById('size-overlay')?.classList.remove('open');
-      showToast('No se pudo cargar la plantilla compartida');
+      alert('No se pudo cargar la plantilla compartida.');
     }
   } else {
     if(tplId&&fbDb){
@@ -2305,24 +2298,26 @@ async function saveClientDesign(){
   btn.disabled=true; btn.textContent='Guardando...';
   try{
     const layerData=await buildLayerData();
+    const authUser = fbAuth?.currentUser;
+    if(!authUser) throw new Error('Sesión no disponible');
+
     const data={
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
-      tplId:tplId||null
+      tplId:tplId||null,
+      uid:authUser.uid
     };
-    const authUser = fbAuth?.currentUser || await waitForFirebaseUser(10000);
-    if(!authUser) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
-    data.uid=authUser.uid;
+
     if(clientDesignId){
       await fbDb.collection('user_designs').doc(clientDesignId).update(data);
     } else {
       data.createdAt=Date.now();
       const ref=await fbDb.collection('user_designs').add(data);
       clientDesignId=ref.id;
-      const url = new URL(window.location.href);
-      url.searchParams.set('did', clientDesignId);
-      if(data.tplId) url.searchParams.set('tpl', data.tplId);
-      window.history.replaceState({}, '', url.toString());
+      const u=new URL(window.location.href);
+      u.searchParams.set('did', clientDesignId);
+      u.searchParams.set('uid', authUser.uid);
+      window.history.replaceState({}, '', u.toString());
     }
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
