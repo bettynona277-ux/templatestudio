@@ -154,15 +154,6 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 /* Frame: no outline-offset gap, border hugs the edge */
 .cel.frame-el.sel{outline:none !important;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:rgba(0,200,150,0.7);pointer-events:none;font-weight:600;}
-/* SMART GUIDES */
-.smart-guide{position:absolute;pointer-events:none;z-index:12000;display:none;background:#ff4d8d;opacity:.95;}
-.smart-guide.v{width:1px;top:0;height:100%;}
-.smart-guide.h{height:1px;left:0;width:100%;}
-.smart-gap{position:absolute;pointer-events:none;z-index:12001;display:none;border-top:1px dashed rgba(255,77,141,.95);}
-.smart-gap::before,.smart-gap::after{content:'';position:absolute;top:-4px;width:1px;height:9px;background:#ff4d8d;}
-.smart-gap::before{left:0;}
-.smart-gap::after{right:0;}
-
 /* LOGO LIBRARY */
 .logo-lib-item{position:relative;background:var(--panel2);border:1.5px solid var(--border);border-radius:10px;aspect-ratio:1;overflow:hidden;cursor:grab;transition:all 0.2s;}
 .logo-lib-item:hover{border-color:var(--accent);transform:scale(1.05);}
@@ -588,70 +579,6 @@ let marqueeEl=null;     // the marquee div
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
 let isMultiDrag=false;
 let frameSnapTarget=null; // frame layer that is currently being hovered during drag
-
-let guideV=null, guideH=null;
-const SNAP_THRESHOLD=6;
-const GRID_SIZE=10;
-const GRID_SNAP_THRESHOLD=3;
-
-function ensureSmartGuides(){
-  if(guideV&&guideH) return;
-  guideV=document.createElement('div'); guideV.className='smart-guide v';
-  guideH=document.createElement('div'); guideH.className='smart-guide h';
-  cvs.appendChild(guideV); cvs.appendChild(guideH);
-}
-function hideSmartGuides(){
-  ensureSmartGuides();
-  guideV.style.display='none';
-  guideH.style.display='none';
-}
-function showGuideV(x){ ensureSmartGuides(); guideV.style.left=Math.round(x)+'px'; guideV.style.display='block'; }
-function showGuideH(y){ ensureSmartGuides(); guideH.style.top=Math.round(y)+'px'; guideH.style.display='block'; }
-function maybeGridSnap(value){
-  const snapped=Math.round(value/GRID_SIZE)*GRID_SIZE;
-  return Math.abs(snapped-value)<=GRID_SNAP_THRESHOLD ? snapped : value;
-}
-function applySmartSnapToLayer(layer,movingIds=[]){
-  if(!layer) return {x:0,y:0};
-  ensureSmartGuides();
-  hideSmartGuides();
-
-  let x=layer.x, y=layer.y;
-  const w=layer.w, h=layer.h;
-  const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
-  let bestX={d:Infinity,val:null,guide:null};
-  let bestY={d:Infinity,val:null,guide:null};
-
-  const considerX=(guideX,newX)=>{
-    const use=Math.abs(newX-x);
-    if(use<=SNAP_THRESHOLD && use<bestX.d) bestX={d:use,val:newX,guide:guideX};
-  };
-  const considerY=(guideY,newY)=>{
-    const use=Math.abs(newY-y);
-    if(use<=SNAP_THRESHOLD && use<bestY.d) bestY={d:use,val:newY,guide:guideY};
-  };
-
-  // canvas edges + center
-  [[0,0],[cw/2,cw/2-w/2],[cw,cw-w]].forEach(([gx,nx])=>considerX(gx,nx));
-  [[0,0],[ch/2,ch/2-h/2],[ch,ch-h]].forEach(([gy,ny])=>considerY(gy,ny));
-
-  layers.forEach(o=>{
-    if(!o || o.id===layer.id || movingIds.includes(o.id) || o.visible===false) return;
-    const ox=o.x, oy=o.y, ow=o.w, oh=o.h;
-
-    [[ox,ox],[ox+ow/2,ox+ow/2-w/2],[ox+ow,ox+ow-w]].forEach(([gx,nx])=>considerX(gx,nx));
-    [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h]].forEach(([gy,ny])=>considerY(gy,ny));
-  });
-
-  const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
-  if(bestX.val===null && gx!==x) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
-  if(bestY.val===null && gy!==y) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
-
-  if(bestX.val!==null){ x=Math.round(bestX.val); showGuideV(bestX.guide); }
-  if(bestY.val!==null){ y=Math.round(bestY.val); showGuideH(bestY.guide); }
-
-  return {x,y};
-}
 
 function getSelLayer(){ return layers.find(x=>x.id===selId); }
 
@@ -1883,24 +1810,15 @@ document.addEventListener('mousemove',ev=>{
     const mx=(ev.clientX-cr.left)/zoom_, my=(ev.clientY-cr.top)/zoom_;
     if(isMultiDrag){
       const dx=mx-dOff.x, dy=my-dOff.y;
-      const ids=[...selIds];
-      if(ids.length){
-        const box=getMultiBounds(ids);
-        const ghost={id:-1,x:box.x+dx,y:box.y+dy,w:box.w,h:box.h};
-        const snapped=applySmartSnapToLayer(ghost, ids);
-        const sdx=snapped.x-box.x, sdy=snapped.y-box.y;
-        multiDragStart.forEach(({id,x,y})=>{
-          const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
-          l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
-          l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
-        });
-      }
+      multiDragStart.forEach(({id,x,y})=>{
+        const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
+        l.x=Math.round(x+dx); l.y=Math.round(y+dy);
+        l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+      });
       updateMultiBox(); syncP(); return;
     }
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
-    l.x=(mx-dOff.x); l.y=(my-dOff.y);
-    const snapped=applySmartSnapToLayer(l, selIds);
-    l.x=snapped.x; l.y=snapped.y;
+    l.x=Math.round(mx-dOff.x); l.y=Math.round(my-dOff.y);
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
 
     // Highlight frame when MOUSE CURSOR is over it (not image center)
@@ -2032,7 +1950,6 @@ document.addEventListener('mouseup',ev=>{
     }
   }
   frameSnapTarget=null;
-  hideSmartGuides();
 
   if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; rSt={};
@@ -2045,20 +1962,16 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
   const r=el.getBoundingClientRect();
   if(ev.clientX<r.left-40||ev.clientX>r.right+40||ev.clientY<r.top-40||ev.clientY>r.bottom+40)return;
   ev.preventDefault();
-  ev.stopPropagation();
   const l=layers.find(x=>x.id===selId);if(!l)return;
   const s=ev.deltaY<0?1.04:0.96;
-  const keepRatio=true;
-  const ratio=(l.h||1)/(l.w||1);
+  const lock=ev.shiftKey;
+  const nw=Math.max(10,Math.round(l.w*s));
+  const nh=lock?Math.round(nw/(l.w/(l.h||1))):Math.max(10,Math.round(l.h*s));
   const cx=l.x+l.w/2,cy=l.y+l.h/2;
-  l.w=Math.max(10,l.w*s);
-  l.h=keepRatio?Math.max(10,l.w*ratio):Math.max(10,l.h*s);
-  l.x=cx-l.w/2; l.y=cy-l.h/2;
-  const snapped=applySmartSnapToLayer(l, selIds);
-  l.x=snapped.x; l.y=snapped.y;
+  l.w=nw;l.h=nh;l.x=Math.round(cx-l.w/2);l.y=Math.round(cy-l.h/2);
   l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
   l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
-  const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${Math.round(l.w)}×${Math.round(l.h)}`;
+  const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${l.w}×${l.h}`;
   syncP();
 },{passive:false});
 
@@ -2102,7 +2015,6 @@ cvs.addEventListener('mousedown',ev=>{
   startMarquee(ev);
 });
 function desel(){
-  hideSmartGuides();
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   selId=null; selIds=[];
@@ -2366,7 +2278,6 @@ document.addEventListener('mouseup',ev2=>{
 
 // Wheel navigation: Ctrl=zoom, Alt=pan vertical, Shift=pan horizontal
 document.getElementById('canvas-area').addEventListener('wheel',ev=>{
-  if(!(ev.ctrlKey||ev.altKey||ev.shiftKey)) return;
   ev.preventDefault();
   if(ev.ctrlKey){
     doZoom(ev.deltaY<0?0.1:-0.1);
@@ -2439,17 +2350,43 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
+    let thumb='';
+    try{
+      desel();
+      document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+      const sv=cvs.style.transform; cvs.style.transform='scale(1)';
+      await new Promise(r=>setTimeout(r,80));
+      const c=await html2canvas(cvs,{
+        scale:0.35,
+        useCORS:true,
+        allowTaint:true,
+        backgroundColor:null,
+        logging:false,
+        width:parseInt(cvs.style.width),
+        height:parseInt(cvs.style.height)
+      });
+      cvs.style.transform=sv;
+      document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+      document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+      thumb=c.toDataURL('image/jpeg',0.55);
+    }catch(e){
+      console.warn('thumb client fail', e);
+      thumb='';
+    }
+
     const data={
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
       uid:authUser.uid
     };
+    if(thumb) data.thumb = thumb;
 
     if(clientDesignId){
       await fbDb.collection('user_designs').doc(clientDesignId).update(data);
     } else {
       data.createdAt=Date.now();
+      data.name='Diseño '+new Date().toLocaleDateString('es-PE');
       const ref=await fbDb.collection('user_designs').add(data);
       clientDesignId=ref.id;
       const u=new URL(window.location.href);
