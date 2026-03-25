@@ -1179,7 +1179,9 @@ window.addEventListener('load',async()=>{
       clientDesignId=designId;
       const d=await fbDb.collection('user_designs').doc(designId).get();
       if(d.exists){
-        const designTpl=extractTemplatePayload(d.data());
+        const designData = d.data() || {};
+        currentClientDesignName = designData.name || currentClientDesignName || '';
+        const designTpl=extractTemplatePayload(designData);
         if(designTpl){ loadData(designTpl); loaded=true; }
       }
     }
@@ -1187,7 +1189,9 @@ window.addEventListener('load',async()=>{
     if(!loaded && tplId && fbDb){
       const t=await fbDb.collection('templates').doc(tplId).get();
       if(t.exists){
-        const baseTpl=extractTemplatePayload(t.data());
+        const tplData = t.data() || {};
+        if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
+        const baseTpl=extractTemplatePayload(tplData);
         if(baseTpl){ loadData(baseTpl); loaded=true; }
       }
     }
@@ -2481,6 +2485,23 @@ function togglePreview(){
   isPrev=!isPrev;
   if(isPrev)setClientUI();else setAdminUI();
 }
+function askClientDesignName(force=false){
+  const base = (currentClientDesignName || '').trim();
+  const suggested = base || `Diseño ${new Date().toLocaleDateString('es-PE')}`;
+  if(!force && base) return base;
+  const value = window.prompt('Ponle un nombre a tu diseño para encontrarlo luego en tu biblioteca:', suggested);
+  if(value===null) return null;
+  const clean = value.trim();
+  if(!clean){
+    showToast('Ponle un nombre válido al diseño');
+    return null;
+  }
+  currentClientDesignName = clean;
+  const btn = document.getElementById('btn-client-rename');
+  if(btn) btn.textContent = '🏷 ' + (clean.length>16 ? clean.slice(0,16)+'…' : clean);
+  return clean;
+}
+
 function setClientUI(){
   document.getElementById('mode-pill').textContent='✏ CLIENTE';
   document.getElementById('mode-pill').className='mode-pill pill-client';
@@ -2492,6 +2513,19 @@ function setClientUI(){
   document.querySelector('.add-text-btn').style.display='none';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
   const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='none';
+  // Show client rename button
+  let rnbtn=document.getElementById('btn-client-rename');
+  if(!rnbtn){
+    rnbtn=document.createElement('button');
+    rnbtn.id='btn-client-rename';
+    rnbtn.className='tbtn tbtn-ghost';
+    rnbtn.textContent='🏷 Nombre';
+    rnbtn.onclick=()=>askClientDesignName(true);
+    document.querySelector('.btn-row').appendChild(rnbtn);
+  }
+  rnbtn.style.display='';
+  rnbtn.textContent='🏷 ' + ((currentClientDesignName||'Nombre').length>16 ? (currentClientDesignName||'Nombre').slice(0,16)+'…' : (currentClientDesignName||'Nombre'));
+
   // Show client save button
   let csbtn=document.getElementById('btn-client-save');
   if(!csbtn){
@@ -2527,11 +2561,18 @@ async function saveClientDesign(){
   const btn=document.getElementById('btn-client-save');
   btn.disabled=true; btn.textContent='Guardando...';
   try{
+    const chosenName = askClientDesignName(false);
+    if(chosenName===null){
+      btn.textContent='💾 Guardar diseño'; btn.disabled=false;
+      return;
+    }
+
     const layerData=await buildLayerData();
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
     const data={
+      name: chosenName,
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
@@ -2572,6 +2613,7 @@ async function downloadPNG(){
 
 // SAVE
 let tplStatus = 'draft'; // track current template status
+let currentClientDesignName = '';
 function openSave(){
   document.getElementById('save-overlay').classList.add('open');
   document.getElementById('save-st').textContent='';
