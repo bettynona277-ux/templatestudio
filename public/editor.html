@@ -957,17 +957,24 @@ window.addEventListener('load',async()=>{
   if(mode==='client'){
     isPrev=true;
     setClientUI();
-    // Get real uid from Firebase Auth (more secure than URL param)
-    const uid = await new Promise(resolve=>{
-      if(!fbAuth){ resolve(localStorage.getItem('ts_uid')||null); return; }
-      const unsub=fbAuth.onAuthStateChanged(user=>{
-        unsub();
-        if(user){ localStorage.setItem('ts_uid',user.uid); resolve(user.uid); }
-        else resolve(localStorage.getItem('ts_uid')||null);
-      });
-      setTimeout(()=>resolve(localStorage.getItem('ts_uid')||null),3000);
+
+    // ── AUTH GUARD: verify Firebase Auth before showing editor ──
+    const user = await new Promise(resolve=>{
+      if(!fbAuth){ resolve(null); return; }
+      const unsub=fbAuth.onAuthStateChanged(u=>{ unsub(); resolve(u); });
+      setTimeout(()=>resolve(null), 4000);
     });
-    if(uid) localStorage.setItem('ts_uid',uid);
+
+    if(!user){
+      // Not authenticated — redirect to login with return URL
+      const returnUrl = encodeURIComponent(window.location.href);
+      window.location.href = `index.html?redirect=${returnUrl}`;
+      return;
+    }
+
+    // User is authenticated
+    localStorage.setItem('ts_uid', user.uid);
+
     // Load design or template
     if(designId&&fbDb){
       clientDesignId=designId;
@@ -979,6 +986,7 @@ window.addEventListener('load',async()=>{
       if(d.exists) loadData(d.data().template);
     }
   } else {
+    // Admin mode — no redirect needed, admin has own login
     if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
   }
   if(fbDb) loadLogoLibrary();
