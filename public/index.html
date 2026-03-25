@@ -1023,20 +1023,24 @@ async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   try {
-    let rawDocs = [];
-    try {
-      const snap = await fbDb.collection('templates').where('status','==','published').orderBy('updatedAt','desc').get();
-      snap.forEach(d => rawDocs.push(d));
-    } catch(e){ /* index missing, fallback */ }
-    if(!rawDocs.length){
-      const snap2 = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      snap2.forEach(d => { if(!d.data().status || d.data().status==='published') rawDocs.push(d); });
-    }
+    const snap = await fbDb.collection('templates').get();
+    const rawDocs = [];
+    snap.forEach(doc => {
+      const d = doc.data() || {};
+      if (d.status !== 'draft') rawDocs.push({ id: doc.id, d });
+    });
+
+    rawDocs.sort((a,b) => {
+      const ta = a.d.updatedAt || a.d.createdAt || 0;
+      const tb = b.d.updatedAt || b.d.createdAt || 0;
+      return tb - ta;
+    });
+
     if(!rawDocs.length){
       grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">El administrador aún no ha publicado plantillas.</div>';
       return;
     }
-    allTemplatesCache = rawDocs.map(doc=>({id:doc.id, d:doc.data()}));
+    allTemplatesCache = rawDocs;
     renderTemplateCards(allTemplatesCache);
   } catch(e) {
     grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
