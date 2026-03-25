@@ -2571,47 +2571,12 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
-    // miniatura optimizada del diseño para la biblioteca del cliente
-    // Pensado para escalar a muchos clientes: más nítida, pero liviana.
-    desel();
-    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
-    const svTransform = cvs.style.transform;
-    cvs.style.transform='scale(1)';
-    await new Promise(r=>setTimeout(r,60));
-
-    const canvasW = parseInt(cvs.style.width) || 1080;
-    const canvasH = parseInt(cvs.style.height) || 1080;
-    const targetThumbW = 320; // suficiente para cards nítidas sin pesar demasiado
-    const targetScale = Math.min(1.2, Math.max(0.7, targetThumbW / canvasW));
-
-    const thumbCanvas = await html2canvas(cvs,{
-      scale:targetScale,
-      useCORS:true,
-      allowTaint:true,
-      backgroundColor:null,
-      logging:false,
-      width:canvasW,
-      height:canvasH
-    });
-
-    cvs.style.transform=svTransform;
-    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
-
-    let thumbData = '';
-    try{
-      thumbData = thumbCanvas.toDataURL('image/webp',0.88);
-    }catch(_){
-      thumbData = thumbCanvas.toDataURL('image/jpeg',0.9);
-    }
-
     const data={
       name: chosenName,
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
-      uid:authUser.uid,
-      thumb: thumbData
+      uid:authUser.uid
     };
 
     if(clientDesignId){
@@ -2741,7 +2706,7 @@ async function doSave(status){
   st.textContent='Preparando...';st.style.color='var(--muted)';
   tplStatus = status;
 
-  // 1. Generate + upload thumbnail
+  // 1. Generate + upload thumbnail (más nítida, pensada para cards de plantilla)
   let thumb='';
   try{
     st.textContent='Generando miniatura...';
@@ -2750,11 +2715,32 @@ async function doSave(status){
     document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
     const sv=cvs.style.transform; cvs.style.transform='scale(1)';
     await new Promise(r=>setTimeout(r,80));
-    const c=await html2canvas(cvs,{scale:0.25,useCORS:true,allowTaint:true,backgroundColor:'#000',logging:false,
-      width:parseInt(cvs.style.width), height:parseInt(cvs.style.height)});
+
+    const canvasW = parseInt(cvs.style.width) || 1080;
+    const canvasH = parseInt(cvs.style.height) || 1080;
+    const targetThumbW = 420; // más clara para la biblioteca admin/cliente sin ser pesada
+    const targetScale = Math.min(1.1, Math.max(0.45, targetThumbW / canvasW));
+
+    const c=await html2canvas(cvs,{
+      scale:targetScale,
+      useCORS:true,
+      allowTaint:true,
+      backgroundColor:'#000',
+      logging:false,
+      width:canvasW,
+      height:canvasH
+    });
     cvs.style.transform=sv;
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    const thumbB64=c.toDataURL('image/jpeg',0.6);
+    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+
+    let thumbB64='';
+    try{
+      thumbB64=c.toDataURL('image/webp',0.9);
+    }catch(_){
+      thumbB64=c.toDataURL('image/jpeg',0.9);
+    }
+
     st.textContent='Subiendo miniatura...';
     thumb=await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.jpg`);
     console.log('✓ Thumb:', thumb.substring(0,60));
