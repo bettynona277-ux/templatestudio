@@ -1258,7 +1258,16 @@ function renderLogoLibrary(){
     item.title='Clic para agregar al canvas';
     item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
       ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
+    item.draggable = true;
     item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name));
+    item.addEventListener('dragstart',(ev)=>{
+      try{
+        ev.dataTransfer.effectAllowed='copy';
+        ev.dataTransfer.setData('application/x-logo-src', logo.url);
+        ev.dataTransfer.setData('text/plain', logo.url);
+        ev.dataTransfer.setData('text/uri-list', logo.url);
+      }catch(_){}
+    });
     item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
     item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
     grid.appendChild(item);
@@ -1516,9 +1525,37 @@ function mkEl(l){
 
     el.addEventListener('dragover',ev=>{
       ev.preventDefault(); ev.stopPropagation();
-      // Try to show preview from dragged image
-      const lid2=ev.dataTransfer.types.includes('lid-data') ? ev.dataTransfer.getData('lid-data') : null;
-      if(!previewImg||previewImg.style.display==='none'){
+
+      let previewSrc = '';
+
+      // 1) Canvas image layer dragged
+      const lid = ev.dataTransfer.getData('lid');
+      if(lid){
+        const srcLayer = layers.find(x=>x.id===parseInt(lid));
+        if(srcLayer?.src) previewSrc = srcLayer.src;
+      }
+
+      // 2) Logo library / external URL dragged
+      if(!previewSrc){
+        previewSrc =
+          ev.dataTransfer.getData('application/x-logo-src') ||
+          ev.dataTransfer.getData('text/uri-list') ||
+          ev.dataTransfer.getData('text/plain') ||
+          '';
+        if(previewSrc && !/^https?:|^data:/.test(previewSrc)) previewSrc = '';
+      }
+
+      // 3) Local file dragged
+      if(!previewSrc){
+        const file = ev.dataTransfer.files && ev.dataTransfer.files[0];
+        if(file && file.type && file.type.startsWith('image/')){
+          previewSrc = URL.createObjectURL(file);
+        }
+      }
+
+      if(previewSrc){
+        showPreview(previewSrc);
+      }else if(!previewImg || previewImg.style.display==='none'){
         el.style.boxShadow='0 0 0 3px var(--accent)';
         el.style.border='2px solid var(--accent)';
       }
@@ -1555,9 +1592,12 @@ function mkEl(l){
         }
         return;
       }
-      // URL drag
+      // Logo library / URL drag
+      const logoSrc = ev.dataTransfer.getData('application/x-logo-src');
+      if(logoSrc){ doApply(logoSrc); return; }
+
       const url=ev.dataTransfer.getData('text/uri-list')||ev.dataTransfer.getData('text/plain');
-      if(url?.startsWith('http')) doApply(url);
+      if(url?.startsWith('http') || url?.startsWith('data:')) doApply(url);
     });
   } else if(l.type==='text'){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
