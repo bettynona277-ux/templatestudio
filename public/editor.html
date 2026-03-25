@@ -567,7 +567,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 <script>
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, dOff={x:0,y:0}, rSt={};
-let fbDb=null, fbApp=null, tplId=null;
+let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
 let isPrev=false;
 const cvs=document.getElementById('cvs');
 
@@ -908,8 +908,11 @@ async function initFB(){
   try{
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
-    fbApp=firebase.initializeApp(JSON.parse(cfg),'psd-ed-'+Date.now());
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
+    const config=JSON.parse(cfg);
+    fbApp=firebase.initializeApp(config,'psd-ed-'+Date.now());
     fbDb=firebase.firestore(fbApp);
+    fbAuth=firebase.auth(fbApp);
   }catch(e){console.warn('Firebase init error:',e);}
 }
 
@@ -949,15 +952,23 @@ window.addEventListener('load',async()=>{
   const p=new URLSearchParams(window.location.search);
   tplId=p.get('tpl')||null;
   const mode=p.get('mode');
-  const uid=p.get('uid');
-  const designId=p.get('did'); // existing client design id
-
-  if(uid) localStorage.setItem('ts_uid', uid);
+  const designId=p.get('did');
 
   if(mode==='client'){
     isPrev=true;
     setClientUI();
-    // Load existing design or template
+    // Get real uid from Firebase Auth (more secure than URL param)
+    const uid = await new Promise(resolve=>{
+      if(!fbAuth){ resolve(localStorage.getItem('ts_uid')||null); return; }
+      const unsub=fbAuth.onAuthStateChanged(user=>{
+        unsub();
+        if(user){ localStorage.setItem('ts_uid',user.uid); resolve(user.uid); }
+        else resolve(localStorage.getItem('ts_uid')||null);
+      });
+      setTimeout(()=>resolve(localStorage.getItem('ts_uid')||null),3000);
+    });
+    if(uid) localStorage.setItem('ts_uid',uid);
+    // Load design or template
     if(designId&&fbDb){
       clientDesignId=designId;
       const d=await fbDb.collection('user_designs').doc(designId).get();
@@ -970,7 +981,6 @@ window.addEventListener('load',async()=>{
   } else {
     if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
   }
-  // Load logo library
   if(fbDb) loadLogoLibrary();
 });
 
