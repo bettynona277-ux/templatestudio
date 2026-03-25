@@ -925,6 +925,7 @@ async function initFB(){
     fbApp = existing || firebase.initializeApp(config);
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
+    try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){ }
 
     // Auto-login admin solo en modo admin; en cliente respetar su propia sesión
     const modeNow = new URLSearchParams(window.location.search).get('mode');
@@ -995,25 +996,46 @@ window.addEventListener('load',async()=>{
     const user = await new Promise(resolve=>{
       if(!fbAuth){ resolve(null); return; }
       let settled=false;
-      const unsub=fbAuth.onAuthStateChanged(u=>{
+      const started=Date.now();
+
+      const finish=(val)=>{
         if(settled) return;
         settled=true;
         try{ unsub(); }catch(_){}
-        resolve(u || null);
+        clearInterval(poller);
+        clearTimeout(timer);
+        resolve(val||null);
+      };
+
+      const unsub=fbAuth.onAuthStateChanged(u=>{
+        // En cliente, no resolver de inmediato con null; esperar restauración de sesión.
+        if(u) return finish(u);
+        if(fbAuth.currentUser) return finish(fbAuth.currentUser);
       });
-      setTimeout(()=>{
-        if(settled) return;
-        settled=true;
-        try{unsub();}catch(_){}
-        resolve(fbAuth.currentUser||null);
-      }, 8000);
+
+      const poller=setInterval(()=>{
+        if(fbAuth.currentUser) finish(fbAuth.currentUser);
+      }, 250);
+
+      const timer=setTimeout(()=>{
+        finish(fbAuth.currentUser||null);
+      }, 12000);
     });
 
     if(!user){
+      const loopKey='ts_client_auth_loop_guard';
+      const alreadyRedirected=sessionStorage.getItem(loopKey)==='1';
+      if(alreadyRedirected){
+        showToast('No se pudo recuperar tu sesión. Inicia sesión otra vez.');
+        document.getElementById('logo-library-empty') && (document.getElementById('logo-library-empty').textContent='Vuelve a iniciar sesión.');
+        return;
+      }
+      sessionStorage.setItem(loopKey,'1');
       const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = `index.html?redirect=${redirect}${tplId?`&tpl=${encodeURIComponent(tplId)}`:''}`;
+      window.location.href = `index.html?redirect=${redirect}`;
       return;
     }
+    sessionStorage.removeItem('ts_client_auth_loop_guard');
 
     localStorage.setItem('ts_uid', user.uid);
 
