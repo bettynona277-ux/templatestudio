@@ -370,19 +370,26 @@ async function createUser(){
   const btn=document.getElementById('create-user-btn');
   btn.innerHTML='<span class="spinner"></span> Creando...';btn.disabled=true;
   try{
-    // 1. Create in Firebase Auth with Gmail directly
+    // Usar segunda instancia de Firebase para NO perder sesión del admin
+    const currentConfig=fbApp.options;
+    const tempAppName='ts-temp-create-'+Date.now();
+    const tempApp=firebase.initializeApp(currentConfig, tempAppName);
+    const tempAuth=firebase.auth(tempApp);
     let uid;
     try{
-      const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
+      const cred=await tempAuth.createUserWithEmailAndPassword(email,pass);
       uid=cred.user.uid;
+      await tempAuth.signOut();
     }catch(authErr){
+      try{await tempApp.delete();}catch(e){}
       if(authErr.code==='auth/email-already-in-use'){
         showStatus('create-user-status','✗ Ese correo ya tiene cuenta','err');
         btn.textContent='+ Crear cuenta';btn.disabled=false;return;
       }
       throw authErr;
     }
-    // 2. Save profile in Firestore
+    try{await tempApp.delete();}catch(e){}
+    // Guardar perfil en Firestore con la sesión admin (intacta)
     await fbDb.collection('users').doc(uid).set({
       uid,email,name:name||email,
       createdAt:Date.now(),active:true
