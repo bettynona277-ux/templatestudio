@@ -558,7 +558,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">🔗 Link para clientes:</div>
       <div style="display:flex;gap:6px;">
         <input id="save-link" type="text" class="modal-inp" style="margin:0;font-size:0.75rem;flex:1;" readonly>
-        <button class="modal-btn modal-btn-green" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="navigator.clipboard.writeText(document.getElementById('save-link').value);this.textContent='¡Copiado!'">📋 Copiar</button>
+        <button class="modal-btn modal-btn-green" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="copyTemplateLink(this)">📋 Copiar</button>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="openTemplateLink()">↗ Abrir</button>
       </div>
     </div>
   </div>
@@ -967,18 +968,18 @@ window.addEventListener('load',async()=>{
   await initFB();
   const p=new URLSearchParams(window.location.search);
   tplId=p.get('tpl')||null;
-  let mode=p.get('mode');
+  const mode=p.get('mode');
   const designId=p.get('did');
 
-  // Backward compatibility: old shared links used only ?tpl=...
-  // If there is a template in URL and no explicit mode/design, treat it as client access.
   if(!mode && tplId && !designId){
-    mode='client';
-    p.set('mode','client');
-    window.history.replaceState(null,'',`${window.location.pathname}?${p.toString()}`);
+    const uid = p.get('uid');
+    const next = new URL(window.location.href);
+    next.searchParams.set('mode','client');
+    if(uid) next.searchParams.set('uid', uid);
+    window.history.replaceState(null,'',next.toString());
   }
 
-  if(mode==='client'){
+  if((p.get('mode')||mode)==='client'){
     isPrev=true;
     setClientUI();
 
@@ -2344,10 +2345,66 @@ async function downloadPNG(){
 
 // SAVE
 let tplStatus = 'draft'; // track current template status
+
+function getClientTemplateLink(id){
+  return `${window.location.origin}/editor.html?mode=client&tpl=${id}`;
+}
+
+async function populateSaveModalMeta(){
+  if(!tplId || !fbDb) return;
+  try{
+    const snap = await fbDb.collection('templates').doc(tplId).get();
+    if(!snap.exists) return;
+    const data = snap.data() || {};
+    const nameInp = document.getElementById('save-name');
+    const catSel = document.getElementById('save-category');
+    if(nameInp && !nameInp.value.trim()) nameInp.value = data.name || '';
+    if(catSel){
+      const cat = data.category || '';
+      if(cat && !Array.from(catSel.options).some(o=>o.value===cat)) {
+        const opt = document.createElement('option');
+        opt.value = cat; opt.textContent = cat;
+        catSel.appendChild(opt);
+      }
+      catSel.value = cat;
+    }
+    if(data.status === 'published'){
+      const linkEl = document.getElementById('save-link');
+      if(linkEl){
+        linkEl.value = getClientTemplateLink(tplId);
+        document.getElementById('save-link-row').style.display = 'block';
+      }
+    }
+  }catch(e){
+    console.warn('No se pudo leer meta de la plantilla actual:', e.message);
+  }
+}
+
+function openTemplateLink(){
+  const val = document.getElementById('save-link')?.value;
+  if(val) window.open(val, '_blank');
+}
+
+async function copyTemplateLink(btn){
+  const input = document.getElementById('save-link');
+  if(!input || !input.value) return;
+  const old = btn.textContent;
+  try{
+    await navigator.clipboard.writeText(input.value);
+    btn.textContent='✓ Copiado';
+  }catch(_){
+    input.select();
+    document.execCommand('copy');
+    btn.textContent='✓ Copiado';
+  }
+  setTimeout(()=>btn.textContent=old, 1600);
+}
+
 function openSave(){
   document.getElementById('save-overlay').classList.add('open');
   document.getElementById('save-st').textContent='';
   document.getElementById('save-link-row').style.display='none';
+  populateSaveModalMeta();
   setTimeout(()=>document.getElementById('save-name').focus(),80);
 }
 
@@ -2504,7 +2561,7 @@ async function doSave(status){
     } else {
       st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';
       st.style.color='var(--accent)';
-      const link=`${window.location.origin}/editor.html?mode=client&tpl=${tplId}`;
+      const link=getClientTemplateLink(tplId);
       const linkEl=document.getElementById('save-link');
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
