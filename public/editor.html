@@ -59,6 +59,19 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .dh{cursor:grab;color:var(--muted);font-size:0.85rem;padding:0 1px;flex-shrink:0;}
 .dh:active{cursor:grabbing;}
 
+
+/* Alignment guides */
+#guide-x,#guide-y{
+  position:absolute;
+  pointer-events:none;
+  display:none;
+  z-index:9998;
+  background:rgba(255,45,85,0.95);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.15);
+}
+#guide-x{height:1px;left:0;width:100%;}
+#guide-y{width:1px;top:0;height:100%;}
+
 /* CANVAS */
 .canvas-area{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#040408;background-image:radial-gradient(circle,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:20px 20px;position:relative;cursor:default;}
 #cvs{position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 20px 70px rgba(0,0,0,0.8);transform-origin:center center;}
@@ -1752,6 +1765,73 @@ function applyImageToFrame(frameLayer, src){
   showToast('✓ Imagen en marco');
 }
 
+
+const SNAP_THRESHOLD = 6;
+function hideGuides(){
+  const gx=document.getElementById('guide-x');
+  const gy=document.getElementById('guide-y');
+  if(gx) gx.style.display='none';
+  if(gy) gy.style.display='none';
+}
+function showGuideX(y){
+  const gx=document.getElementById('guide-x');
+  if(!gx) return;
+  gx.style.top=Math.round(y)+'px';
+  gx.style.display='block';
+}
+function showGuideY(x){
+  const gy=document.getElementById('guide-y');
+  if(!gy) return;
+  gy.style.left=Math.round(x)+'px';
+  gy.style.display='block';
+}
+function snapMoveLayer(layer){
+  if(!layer) return;
+  const cx=layer.x+layer.w/2, cy=layer.y+layer.h/2;
+  let bestDX=null, bestDY=null, guideX=null, guideY=null;
+
+  const canvasCX=parseInt(cvs.style.width||cvs.offsetWidth)/2;
+  const canvasCY=parseInt(cvs.style.height||cvs.offsetHeight)/2;
+  const dxCanvas=canvasCX-cx, dyCanvas=canvasCY-cy;
+  if(Math.abs(dxCanvas)<=SNAP_THRESHOLD){ bestDX=dxCanvas; guideY=canvasCX; }
+  if(Math.abs(dyCanvas)<=SNAP_THRESHOLD){ bestDY=dyCanvas; guideX=canvasCY; }
+
+  for(const other of layers){
+    if(other.id===layer.id || !other.el) continue;
+    const candidatesX=[other.x, other.x+other.w/2, other.x+other.w];
+    const candidatesY=[other.y, other.y+other.h/2, other.y+other.h];
+
+    for(const tx of candidatesX){
+      const deltas=[
+        {d:tx-layer.x, guide:tx},
+        {d:tx-(layer.x+layer.w/2), guide:tx},
+        {d:tx-(layer.x+layer.w), guide:tx}
+      ];
+      for(const opt of deltas){
+        if(Math.abs(opt.d)<=SNAP_THRESHOLD && (bestDX===null || Math.abs(opt.d)<Math.abs(bestDX))){
+          bestDX=opt.d; guideY=opt.guide;
+        }
+      }
+    }
+    for(const ty of candidatesY){
+      const deltas=[
+        {d:ty-layer.y, guide:ty},
+        {d:ty-(layer.y+layer.h/2), guide:ty},
+        {d:ty-(layer.y+layer.h), guide:ty}
+      ];
+      for(const opt of deltas){
+        if(Math.abs(opt.d)<=SNAP_THRESHOLD && (bestDY===null || Math.abs(opt.d)<Math.abs(bestDY))){
+          bestDY=opt.d; guideX=opt.guide;
+        }
+      }
+    }
+  }
+
+  if(bestDX!==null){ layer.x=Math.round(layer.x+bestDX); showGuideY(guideY); } else { const gy=document.getElementById('guide-y'); if(gy) gy.style.display='none'; }
+  if(bestDY!==null){ layer.y=Math.round(layer.y+bestDY); showGuideX(guideX); } else { const gx=document.getElementById('guide-x'); if(gx) gx.style.display='none'; }
+}
+
+
 // ── MARQUEE SELECTION ─────────────────────────────────────────
 function startMarquee(ev){
   const cr=cvs.getBoundingClientRect();
@@ -1809,6 +1889,7 @@ document.addEventListener('mousemove',ev=>{
     const cr=cvs.getBoundingClientRect();
     const mx=(ev.clientX-cr.left)/zoom_, my=(ev.clientY-cr.top)/zoom_;
     if(isMultiDrag){
+      hideGuides();
       const dx=mx-dOff.x, dy=my-dOff.y;
       multiDragStart.forEach(({id,x,y})=>{
         const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
@@ -1819,6 +1900,7 @@ document.addEventListener('mousemove',ev=>{
     }
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
     l.x=Math.round(mx-dOff.x); l.y=Math.round(my-dOff.y);
+    snapMoveLayer(l);
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
 
     // Highlight frame when MOUSE CURSOR is over it (not image center)
@@ -1912,6 +1994,8 @@ document.addEventListener('mouseup',ev=>{
   }
   if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
 
+  hideGuides();
+
   // Re-enable pointer-events on all frames after any drag
   layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents=''; });
 
@@ -1962,15 +2046,27 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
   const r=el.getBoundingClientRect();
   if(ev.clientX<r.left-40||ev.clientX>r.right+40||ev.clientY<r.top-40||ev.clientY>r.bottom+40)return;
   ev.preventDefault();
+  ev.stopPropagation();
   const l=layers.find(x=>x.id===selId);if(!l)return;
+
+  const oldW=l.w, oldH=l.h;
+  const centerX=l.x + oldW/2;
+  const centerY=l.y + oldH/2;
   const s=ev.deltaY<0?1.04:0.96;
-  const lock=ev.shiftKey;
-  const nw=Math.max(10,Math.round(l.w*s));
-  const nh=lock?Math.round(nw/(l.w/(l.h||1))):Math.max(10,Math.round(l.h*s));
-  const cx=l.x+l.w/2,cy=l.y+l.h/2;
-  l.w=nw;l.h=nh;l.x=Math.round(cx-l.w/2);l.y=Math.round(cy-l.h/2);
-  l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
-  l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
+  const proportional=!ev.shiftKey;
+
+  let nw=Math.max(10, oldW*s);
+  let nh=proportional ? oldH*(nw/oldW) : Math.max(10, oldH*s);
+
+  l.w=Math.round(nw);
+  l.h=Math.round(nh);
+  l.x=Math.round(centerX - l.w/2);
+  l.y=Math.round(centerY - l.h/2);
+
+  l.el.style.width=l.w+'px';
+  l.el.style.height=l.h+'px';
+  l.el.style.left=l.x+'px';
+  l.el.style.top=l.y+'px';
   const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${l.w}×${l.h}`;
   syncP();
 },{passive:false});
