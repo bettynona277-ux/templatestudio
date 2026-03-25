@@ -193,7 +193,6 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
     <button class="tbtn tbtn-ghost" id="btn-back" onclick="goBack()">← Admin</button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">👁 Vista cliente</button>
     <button class="tbtn tbtn-green" id="btn-save" onclick="openSave()">💾 Guardar plantilla</button>
-    <button class="tbtn tbtn-ghost" id="btn-copy-template-link" onclick="copyCurrentTemplateLink(this)" style="display:none;">🔗 Copiar link</button>
     <button class="tbtn tbtn-blue" onclick="downloadPNG()">⬇ PNG</button>
   </div>
 </div>
@@ -559,8 +558,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
       <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">🔗 Link para clientes:</div>
       <div style="display:flex;gap:6px;">
         <input id="save-link" type="text" class="modal-inp" style="margin:0;font-size:0.75rem;flex:1;" readonly>
-        <button class="modal-btn modal-btn-green" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="copyTemplateLink(this)">📋 Copiar</button>
-        <button class="modal-btn modal-btn-ghost" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="openTemplateLink()">↗ Abrir</button>
+        <button class="modal-btn modal-btn-green" style="width:auto;padding:8px 14px;margin:0;font-size:0.75rem;" onclick="navigator.clipboard.writeText(document.getElementById('save-link').value);this.textContent='¡Copiado!'">📋 Copiar</button>
       </div>
     </div>
   </div>
@@ -965,32 +963,31 @@ async function uploadToStorage(dataUrl, path){
 }
 function ls(src){return new Promise((r,j)=>{if(document.querySelector(`script[src="${src}"]`))return r();const s=document.createElement('script');s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);});}
 
-function hideSizeOverlay(){
-  const ov=document.getElementById('size-overlay');
-  if(ov) ov.classList.remove('open');
+function normalizeTemplatePayload(raw){
+  if(!raw) return null;
+  const tpl = raw.template && typeof raw.template === 'object' ? raw.template : raw;
+  if(!tpl) return null;
+  return {
+    type: tpl.type || 'psd-layers',
+    canvasW: parseInt(tpl.canvasW || raw.canvasW || 1080, 10),
+    canvasH: parseInt(tpl.canvasH || raw.canvasH || 1080, 10),
+    layers: Array.isArray(tpl.layers) ? tpl.layers : []
+  };
 }
 
-async function loadClientTemplateOrDesign(designId){
-  if(!fbDb) throw new Error('Firebase no conectado');
-
-  if(designId){
-    const d=await fbDb.collection('user_designs').doc(designId).get();
-    if(d.exists && d.data()?.template){
-      clientDesignId=designId;
-      loadData(d.data().template);
-      return {type:'design',id:designId};
-    }
+async function loadTemplateById(id){
+  if(!id || !fbDb) return false;
+  try{
+    const snap = await fbDb.collection('templates').doc(id).get();
+    if(!snap.exists) return false;
+    const normalized = normalizeTemplatePayload(snap.data());
+    if(!normalized) return false;
+    loadData(normalized);
+    return true;
+  }catch(e){
+    console.warn('Error cargando plantilla:', e);
+    return false;
   }
-
-  if(tplId){
-    const t=await fbDb.collection('templates').doc(tplId).get();
-    if(t.exists && t.data()?.template){
-      loadData(t.data().template);
-      return {type:'template',id:tplId};
-    }
-  }
-
-  throw new Error('No se encontró la plantilla compartida');
 }
 
 window.addEventListener('load',async()=>{
@@ -1000,27 +997,15 @@ window.addEventListener('load',async()=>{
   const mode=p.get('mode');
   const designId=p.get('did');
 
-  if(!mode && tplId && !designId){
-    const uid = p.get('uid');
-    const next = new URL(window.location.href);
-    next.searchParams.set('mode','client');
-    if(uid) next.searchParams.set('uid', uid);
-    window.history.replaceState(null,'',next.toString());
-  }
-
-  if((p.get('mode')||mode)==='client'){
+  if(mode==='client'){
     isPrev=true;
     setClientUI();
-    hideSizeOverlay();
 
     // ── AUTH GUARD: verify Firebase Auth before showing editor ──
     const user = await new Promise(resolve=>{
       if(!fbAuth){ resolve(null); return; }
-      if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
-      let done=false;
-      const finish=(u)=>{ if(done) return; done=true; try{unsub&&unsub();}catch(_){} resolve(u||null); };
-      const unsub=fbAuth.onAuthStateChanged(u=>finish(u));
-      setTimeout(()=>finish(fbAuth.currentUser||null), 8000);
+      const unsub=fbAuth.onAuthStateChanged(u=>{ unsub(); resolve(u); });
+      setTimeout(()=>resolve(null), 4000);
     });
 
     if(!user){
@@ -1080,25 +1065,35 @@ window.addEventListener('load',async()=>{
     // User is authenticated
     localStorage.setItem('ts_uid', user.uid);
 
-    // Load shared template or existing client design
-    try{
-      await loadClientTemplateOrDesign(designId);
-    }catch(e){
-      console.error('Error loading shared template/design:', e);
-      hideSizeOverlay();
-      showToast('✗ ' + (e.message || 'No se pudo cargar la plantilla'));
-      setTimeout(()=>{
-        if(tplId){
-          const backUrl = `index.html?tpl=${encodeURIComponent(tplId)}`;
-          if(confirm('No se pudo cargar la plantilla compartida. ¿Volver al inicio?')){
-            window.location.href = backUrl;
-          }
+    // Load design or template
+    if(designId&&fbDb){
+      clientDesignId=designId;
+      try{
+        const d=await fbDb.collection('user_designs').doc(designId).get();
+        const savedDesign = d.exists ? normalizeTemplatePayload(d.data()) : null;
+        if(savedDesign && Array.isArray(savedDesign.layers) && savedDesign.layers.length){
+          loadData(savedDesign);
+        } else if(tplId){
+          const loaded = await loadTemplateById(tplId);
+          if(!loaded) showToast('No se pudo cargar la plantilla compartida');
         }
-      }, 250);
+      }catch(e){
+        console.warn('Error cargando diseño del cliente:', e);
+        if(tplId){
+          const loaded = await loadTemplateById(tplId);
+          if(!loaded) showToast('No se pudo cargar la plantilla compartida');
+        }
+      }
+    } else if(tplId&&fbDb){
+      const loaded = await loadTemplateById(tplId);
+      if(!loaded) showToast('No se pudo cargar la plantilla compartida');
     }
   } else {
     // Admin mode — no redirect needed, admin has own login
-    if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists&&d.data()?.template){hideSizeOverlay();loadData(d.data().template);}}
+    if(tplId&&fbDb){
+      const loaded = await loadTemplateById(tplId);
+      if(!loaded) console.warn('No se pudo cargar la plantilla en modo admin');
+    }
   }
   if(fbDb) loadLogoLibrary();
 });
@@ -2303,7 +2298,6 @@ function setClientUI(){
   // Hide admin-only topbar buttons
   document.getElementById('btn-prev').style.display='none';
   document.getElementById('btn-save').style.display='none';
-  const copyBtn=document.getElementById('btn-copy-template-link'); if(copyBtn) copyBtn.style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
   document.querySelector('.add-text-btn').style.display='none';
@@ -2329,7 +2323,6 @@ function setAdminUI(){
   document.getElementById('btn-prev').style.display='';
   document.getElementById('btn-prev').textContent='👁 Vista cliente';
   document.getElementById('btn-save').style.display='';
-  updateTemplateLinkButton();
   document.getElementById('upload-zone').style.display='';
   document.querySelector('.add-text-btn').style.display='';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='';
@@ -2386,103 +2379,10 @@ async function downloadPNG(){
 
 // SAVE
 let tplStatus = 'draft'; // track current template status
-
-function getClientTemplateLink(id){
-  return `${window.location.origin}/editor.html?mode=client&tpl=${id}`;
-}
-
-function updateTemplateLinkButton(){
-  const btn = document.getElementById('btn-copy-template-link');
-  if(!btn) return;
-  const isClient = new URLSearchParams(window.location.search).get('mode') === 'client';
-  if(isClient || !tplId || tplStatus !== 'published'){
-    btn.style.display = 'none';
-    btn.disabled = true;
-    return;
-  }
-  btn.style.display = '';
-  btn.disabled = false;
-}
-
-async function copyCurrentTemplateLink(btn){
-  if(!tplId || tplStatus !== 'published'){
-    showToast('Publica la plantilla para copiar su link');
-    return;
-  }
-  const link = getClientTemplateLink(tplId);
-  const old = btn.textContent;
-  try{
-    await navigator.clipboard.writeText(link);
-  }catch(_){
-    const tmp = document.createElement('input');
-    tmp.value = link;
-    document.body.appendChild(tmp);
-    tmp.select();
-    document.execCommand('copy');
-    tmp.remove();
-  }
-  btn.textContent='✓ Link copiado';
-  showToast('✓ Link de plantilla copiado');
-  setTimeout(()=>{ btn.textContent = old; }, 1600);
-}
-
-async function populateSaveModalMeta(){
-  if(!tplId || !fbDb) return;
-  try{
-    const snap = await fbDb.collection('templates').doc(tplId).get();
-    if(!snap.exists) return;
-    const data = snap.data() || {};
-    const nameInp = document.getElementById('save-name');
-    const catSel = document.getElementById('save-category');
-    if(nameInp && !nameInp.value.trim()) nameInp.value = data.name || '';
-    if(catSel){
-      const cat = data.category || '';
-      if(cat && !Array.from(catSel.options).some(o=>o.value===cat)) {
-        const opt = document.createElement('option');
-        opt.value = cat; opt.textContent = cat;
-        catSel.appendChild(opt);
-      }
-      catSel.value = cat;
-    }
-    tplStatus = data.status || 'published';
-    if(tplStatus === 'published'){
-      const linkEl = document.getElementById('save-link');
-      if(linkEl){
-        linkEl.value = getClientTemplateLink(tplId);
-        document.getElementById('save-link-row').style.display = 'block';
-      }
-    }
-    updateTemplateLinkButton();
-  }catch(e){
-    console.warn('No se pudo leer meta de la plantilla actual:', e.message);
-  }
-}
-
-function openTemplateLink(){
-  const val = document.getElementById('save-link')?.value;
-  if(val) window.open(val, '_blank');
-}
-
-async function copyTemplateLink(btn){
-  const input = document.getElementById('save-link');
-  if(!input || !input.value) return;
-  const old = btn.textContent;
-  try{
-    await navigator.clipboard.writeText(input.value);
-    btn.textContent='✓ Copiado';
-  }catch(_){
-    input.select();
-    document.execCommand('copy');
-    btn.textContent='✓ Copiado';
-  }
-  setTimeout(()=>btn.textContent=old, 1600);
-}
-
 function openSave(){
   document.getElementById('save-overlay').classList.add('open');
   document.getElementById('save-st').textContent='';
   document.getElementById('save-link-row').style.display='none';
-  populateSaveModalMeta();
   setTimeout(()=>document.getElementById('save-name').focus(),80);
 }
 
@@ -2630,22 +2530,20 @@ async function doSave(status){
       payload.createdAt=Date.now();
       const ref=await fbDb.collection('templates').add(payload);
       tplId=ref.id;
+      try{ window.history.replaceState(null,'',`editor.html?tpl=${tplId}`); }catch(_){}
       console.log('✓ Nuevo doc:', tplId);
     }
 
-    tplStatus = status;
     if(status==='draft'){
       st.textContent='📁 Borrador guardado — solo visible para ti';
       st.style.color='#F5C842';
-      document.getElementById('save-link-row').style.display='none';
     } else {
       st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';
       st.style.color='var(--accent)';
-      const link=getClientTemplateLink(tplId);
+      const link=`${window.location.origin}/editor.html?mode=client&tpl=${tplId}`;
       const linkEl=document.getElementById('save-link');
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
-    updateTemplateLinkButton();
     showAutoSaveIndicator('✓ Guardado');
     // Update name field title
     document.getElementById('save-name').value=name;
