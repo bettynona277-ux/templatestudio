@@ -919,40 +919,46 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
-    fbApp=firebase.initializeApp(config,'psd-ed-'+Date.now());
+    try{ fbApp = firebase.app('psd-editor'); }catch(_){ fbApp = firebase.initializeApp(config,'psd-editor'); }
     fbDb=firebase.firestore(fbApp);
     fbAuth=firebase.auth(fbApp);
-    // Auto-login admin solo fuera del modo cliente
-    const params=new URLSearchParams(window.location.search);
-    const isClientMode=params.get('mode')==='client';
-    const adminEmail=localStorage.getItem('ts_admin_email');
-    const adminPass=localStorage.getItem('ts_admin_pass');
-    if(!isClientMode && adminEmail&&adminPass){
-      try{ await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
-      }catch(e){ console.warn('Auto-login admin falló:',e.message); }
+    try{
+      await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    }catch(e){
+      console.warn('No se pudo fijar persistencia LOCAL:', e.message);
+    }
+    const qs = new URLSearchParams(window.location.search);
+    const isClientMode = qs.get('mode') === 'client';
+    // Auto-login admin solo en modo admin
+    if(!isClientMode){
+      const adminEmail=localStorage.getItem('ts_admin_email');
+      const adminPass=localStorage.getItem('ts_admin_pass');
+      if(adminEmail&&adminPass){
+        try{ await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
+        }catch(e){ console.warn('Auto-login admin falló:',e.message); }
+      }
     }
   }catch(e){console.warn('Firebase init error:',e);}
 }
 
-function waitForAuthReady(timeout=10000){
+function waitForFirebaseUser(timeout=10000){
   return new Promise(resolve=>{
     if(!fbAuth){ resolve(null); return; }
     if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
     let settled=false;
-    const timer=setTimeout(()=>{
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      if(settled) return;
+      if(!u) return;
+      settled=true;
+      try{unsub();}catch(_){}
+      resolve(u);
+    });
+    setTimeout(()=>{
       if(settled) return;
       settled=true;
       try{unsub();}catch(_){}
       resolve(fbAuth.currentUser||null);
     }, timeout);
-    const unsub=fbAuth.onAuthStateChanged(user=>{
-      if(settled) return;
-      if(!user) return;
-      settled=true;
-      clearTimeout(timer);
-      try{unsub();}catch(_){}
-      resolve(user);
-    });
   });
 }
 
@@ -1003,18 +1009,16 @@ window.addEventListener('load',async()=>{
   const mode=p.get('mode');
   const designId=p.get('did');
 
-  const sizeOverlay=document.getElementById('size-overlay');
-  if(mode==='client' && sizeOverlay) sizeOverlay.classList.remove('open');
-
   if(mode==='client'){
     isPrev=true;
     setClientUI();
+    document.getElementById('size-overlay')?.classList.remove('open');
 
-    const user = await waitForAuthReady(10000);
+    const user = await waitForFirebaseUser(10000);
 
     if(!user){
-      const redirectBack=encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href=`index.html?redirect=${redirectBack}${tplId?`&tpl=${encodeURIComponent(tplId)}`:''}`;
+      const back = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `index.html?redirect=${back}${tplId?`&tpl=${encodeURIComponent(tplId)}`:''}`;
       return;
     }
 
@@ -1022,46 +1026,33 @@ window.addEventListener('load',async()=>{
 
     let loaded=false;
 
-    try{
-      if(designId&&fbDb){
-        clientDesignId=designId;
-        const d=await fbDb.collection('user_designs').doc(designId).get();
-        if(d.exists){
-          const designTpl=extractTemplatePayload(d.data());
-          if(designTpl && Array.isArray(designTpl.layers) && designTpl.layers.length){
-            loadData(designTpl); loaded=true;
-          }
-        }
+    if(designId&&fbDb){
+      clientDesignId=designId;
+      const d=await fbDb.collection('user_designs').doc(designId).get();
+      if(d.exists){
+        const designTpl=extractTemplatePayload(d.data());
+        if(designTpl){ loadData(designTpl); loaded=true; }
       }
+    }
 
-      if(!loaded && tplId && fbDb){
-        const t=await fbDb.collection('templates').doc(tplId).get();
-        if(t.exists){
-          const baseTpl=extractTemplatePayload(t.data());
-          if(baseTpl && Array.isArray(baseTpl.layers)){
-            loadData(baseTpl); loaded=true;
-          }
-        }
+    if(!loaded && tplId && fbDb){
+      const t=await fbDb.collection('templates').doc(tplId).get();
+      if(t.exists){
+        const baseTpl=extractTemplatePayload(t.data());
+        if(baseTpl){ loadData(baseTpl); loaded=true; }
       }
-    }catch(e){
-      console.error('Client template load error:', e);
-      showToast('✗ Error al cargar: '+e.message);
     }
 
     if(!loaded){
-      if(sizeOverlay) sizeOverlay.classList.remove('open');
-      showToast('✗ No se pudo cargar la plantilla compartida');
+      document.getElementById('size-overlay')?.classList.remove('open');
+      showToast('No se pudo cargar la plantilla compartida');
     }
   } else {
     if(tplId&&fbDb){
-      try{
-        const d=await fbDb.collection('templates').doc(tplId).get();
-        if(d.exists){
-          const adminTpl=extractTemplatePayload(d.data());
-          if(adminTpl) loadData(adminTpl);
-        }
-      }catch(e){
-        console.error('Admin template load error:', e);
+      const d=await fbDb.collection('templates').doc(tplId).get();
+      if(d.exists){
+        const adminTpl=extractTemplatePayload(d.data());
+        if(adminTpl) loadData(adminTpl);
       }
     }
   }
@@ -1236,11 +1227,8 @@ async function loadLogoLibrary(){
     return;
   }
   if(!fbAuth || !fbAuth.currentUser){
-    const user = await waitForAuthReady(10000);
-    if(!user){
-      if(emptyEl) emptyEl.textContent='Inicia sesión para ver los logos.';
-      return;
-    }
+    if(emptyEl) emptyEl.textContent='Inicia sesión para ver logos.';
+    return;
   }
   if(emptyEl) emptyEl.textContent='Cargando...';
   try{
@@ -2322,16 +2310,19 @@ async function saveClientDesign(){
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null
     };
-    // Try to get uid from URL param or localStorage
-    const p=new URLSearchParams(window.location.search);
-    const uid=p.get('uid')||localStorage.getItem('ts_uid')||'unknown';
-    data.uid=uid;
+    const authUser = fbAuth?.currentUser || await waitForFirebaseUser(10000);
+    if(!authUser) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+    data.uid=authUser.uid;
     if(clientDesignId){
       await fbDb.collection('user_designs').doc(clientDesignId).update(data);
     } else {
       data.createdAt=Date.now();
       const ref=await fbDb.collection('user_designs').add(data);
       clientDesignId=ref.id;
+      const url = new URL(window.location.href);
+      url.searchParams.set('did', clientDesignId);
+      if(data.tplId) url.searchParams.set('tpl', data.tplId);
+      window.history.replaceState({}, '', url.toString());
     }
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
