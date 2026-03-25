@@ -589,50 +589,24 @@ let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
 let isMultiDrag=false;
 let frameSnapTarget=null; // frame layer that is currently being hovered during drag
 
-let guideV=null, guideH=null, gapGuideH=null, gapGuideV=null;
+let guideV=null, guideH=null;
 const SNAP_THRESHOLD=6;
 const GRID_SIZE=10;
 const GRID_SNAP_THRESHOLD=3;
 
 function ensureSmartGuides(){
-  if(guideV&&guideH&&gapGuideH&&gapGuideV) return;
+  if(guideV&&guideH) return;
   guideV=document.createElement('div'); guideV.className='smart-guide v';
   guideH=document.createElement('div'); guideH.className='smart-guide h';
-  gapGuideH=document.createElement('div'); gapGuideH.className='smart-gap';
-  gapGuideV=document.createElement('div'); gapGuideV.className='smart-gap';
-  gapGuideV.style.borderTop='none';
-  gapGuideV.style.borderLeft='1px dashed rgba(255,77,141,.95)';
-  gapGuideV.style.width='0px';
-  gapGuideV.style.display='none';
-  cvs.appendChild(guideV); cvs.appendChild(guideH); cvs.appendChild(gapGuideH); cvs.appendChild(gapGuideV);
+  cvs.appendChild(guideV); cvs.appendChild(guideH);
 }
 function hideSmartGuides(){
   ensureSmartGuides();
   guideV.style.display='none';
   guideH.style.display='none';
-  gapGuideH.style.display='none';
-  gapGuideV.style.display='none';
 }
 function showGuideV(x){ ensureSmartGuides(); guideV.style.left=Math.round(x)+'px'; guideV.style.display='block'; }
 function showGuideH(y){ ensureSmartGuides(); guideH.style.top=Math.round(y)+'px'; guideH.style.display='block'; }
-function showGapGuideH(x1,x2,y){
-  ensureSmartGuides();
-  const left=Math.min(x1,x2), width=Math.abs(x2-x1);
-  if(width<8){ gapGuideH.style.display='none'; return; }
-  gapGuideH.style.left=Math.round(left)+'px';
-  gapGuideH.style.top=Math.round(y)+'px';
-  gapGuideH.style.width=Math.round(width)+'px';
-  gapGuideH.style.display='block';
-}
-function showGapGuideV(y1,y2,x){
-  ensureSmartGuides();
-  const top=Math.min(y1,y2), height=Math.abs(y2-y1);
-  if(height<8){ gapGuideV.style.display='none'; return; }
-  gapGuideV.style.left=Math.round(x)+'px';
-  gapGuideV.style.top=Math.round(top)+'px';
-  gapGuideV.style.height=Math.round(height)+'px';
-  gapGuideV.style.display='block';
-}
 function maybeGridSnap(value){
   const snapped=Math.round(value/GRID_SIZE)*GRID_SIZE;
   return Math.abs(snapped-value)<=GRID_SNAP_THRESHOLD ? snapped : value;
@@ -661,29 +635,14 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   [[0,0],[cw/2,cw/2-w/2],[cw,cw-w]].forEach(([gx,nx])=>considerX(gx,nx));
   [[0,0],[ch/2,ch/2-h/2],[ch,ch-h]].forEach(([gy,ny])=>considerY(gy,ny));
 
-  // other elements
   layers.forEach(o=>{
     if(!o || o.id===layer.id || movingIds.includes(o.id) || o.visible===false) return;
     const ox=o.x, oy=o.y, ow=o.w, oh=o.h;
 
-    [
-      [ox, ox],                   // left-left
-      [ox+ow/2, ox+ow/2-w/2],     // center-center
-      [ox+ow, ox+ow-w],           // right-right
-      [ox, ox-w],                 // right-left
-      [ox+ow, ox+ow]              // left-right
-    ].forEach(([gx,nx])=>considerX(gx,nx));
-
-    [
-      [oy, oy],                   // top-top
-      [oy+oh/2, oy+oh/2-h/2],     // middle-middle
-      [oy+oh, oy+oh-h],           // bottom-bottom
-      [oy, oy-h],                 // bottom-top
-      [oy+oh, oy+oh]              // top-bottom
-    ].forEach(([gy,ny])=>considerY(gy,ny));
+    [[ox,ox],[ox+ow/2,ox+ow/2-w/2],[ox+ow,ox+ow-w]].forEach(([gx,nx])=>considerX(gx,nx));
+    [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h]].forEach(([gy,ny])=>considerY(gy,ny));
   });
 
-  // grid fallback
   const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
   if(bestX.val===null && gx!==x) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
   if(bestY.val===null && gy!==y) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
@@ -691,45 +650,8 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   if(bestX.val!==null){ x=Math.round(bestX.val); showGuideV(bestX.guide); }
   if(bestY.val!==null){ y=Math.round(bestY.val); showGuideH(bestY.guide); }
 
-  // basic equal spacing helpers
-  const others=layers.filter(o=>o && o.id!==layer.id && !movingIds.includes(o.id) && o.visible!==false);
-  const ghost={x,y,w,h};
-  const overlapY=(a,b)=>!(a.y+a.h<b.y || b.y+b.h<a.y);
-  const overlapX=(a,b)=>!(a.x+a.w<b.x || b.x+b.w<a.x);
-
-  const lefts=others.filter(o=>overlapY(ghost,o) && o.x+o.w<=x).sort((a,b)=>(b.x+b.w)-(a.x+a.w));
-  const rights=others.filter(o=>overlapY(ghost,o) && o.x>=x+w).sort((a,b)=>a.x-b.x);
-  if(lefts.length && rights.length){
-    const L=lefts[0], R=rights[0];
-    const gapL=x-(L.x+L.w), gapR=R.x-(x+w);
-    if(Math.abs(gapL-gapR)<=SNAP_THRESHOLD){
-      const snapX=Math.round((L.x+L.w + R.x - w)/2);
-      if(Math.abs(snapX-x)<=SNAP_THRESHOLD){
-        x=snapX;
-        showGapGuideH(L.x+L.w, x, Math.max(L.y,y)+8);
-        showGapGuideH(x+w, R.x, Math.max(R.y,y)+8);
-      }
-    }
-  }
-
-  const tops=others.filter(o=>overlapX(ghost,o) && o.y+o.h<=y).sort((a,b)=>(b.y+b.h)-(a.y+a.h));
-  const bottoms=others.filter(o=>overlapX(ghost,o) && o.y>=y+h).sort((a,b)=>a.y-b.y);
-  if(tops.length && bottoms.length){
-    const T=tops[0], B=bottoms[0];
-    const gapT=y-(T.y+T.h), gapB=B.y-(y+h);
-    if(Math.abs(gapT-gapB)<=SNAP_THRESHOLD){
-      const snapY=Math.round((T.y+T.h + B.y - h)/2);
-      if(Math.abs(snapY-y)<=SNAP_THRESHOLD){
-        y=snapY;
-        showGapGuideV(T.y+T.h, y, Math.max(T.x,x)+8);
-        showGapGuideV(y+h, B.y, Math.max(B.x,x)+8);
-      }
-    }
-  }
-
   return {x,y};
 }
-
 
 function getSelLayer(){ return layers.find(x=>x.id===selId); }
 
@@ -1964,8 +1886,8 @@ document.addEventListener('mousemove',ev=>{
       const ids=[...selIds];
       if(ids.length){
         const box=getMultiBounds(ids);
-        let bx=box.x+dx, by=box.y+dy;
-        const snapped=applySmartSnapToLayer({id:-1,x:bx,y:by,w:box.w,h:box.h}, ids);
+        const ghost={id:-1,x:box.x+dx,y:box.y+dy,w:box.w,h:box.h};
+        const snapped=applySmartSnapToLayer(ghost, ids);
         const sdx=snapped.x-box.x, sdy=snapped.y-box.y;
         multiDragStart.forEach(({id,x,y})=>{
           const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
@@ -2126,15 +2048,16 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
   ev.stopPropagation();
   const l=layers.find(x=>x.id===selId);if(!l)return;
   const s=ev.deltaY<0?1.04:0.96;
+  const keepRatio=true;
   const ratio=(l.h||1)/(l.w||1);
-  const cx=l.x+l.w/2, cy=l.y+l.h/2;
+  const cx=l.x+l.w/2,cy=l.y+l.h/2;
   l.w=Math.max(10,l.w*s);
-  l.h=Math.max(10,l.w*ratio);
+  l.h=keepRatio?Math.max(10,l.w*ratio):Math.max(10,l.h*s);
   l.x=cx-l.w/2; l.y=cy-l.h/2;
   const snapped=applySmartSnapToLayer(l, selIds);
   l.x=snapped.x; l.y=snapped.y;
-  l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
-  l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+  l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
+  l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
   const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${Math.round(l.w)}×${Math.round(l.h)}`;
   syncP();
 },{passive:false});
@@ -2327,21 +2250,19 @@ function scaleEl(f){
     if(l.origW&&l.origH){
       const cw=parseInt(cvs.style.width)||800,ch=parseInt(cvs.style.height)||800;
       const s=Math.min(1,Math.min(cw*0.9/l.origW,ch*0.9/l.origH));
-      l.w=l.origW*s; l.h=l.origH*s;
-      l.x=(cw-l.w)/2; l.y=(ch-l.h)/2;
-      l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
-      l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+      l.w=Math.round(l.origW*s);l.h=Math.round(l.origH*s);
+      l.x=Math.round((cw-l.w)/2);l.y=Math.round((ch-l.h)/2);
+      l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
+      l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
       syncP();return;
     }return;
   }
-  const cx=l.x+l.w/2, cy=l.y+l.h/2;
-  l.w=Math.max(10,l.w*f); l.h=Math.max(10,l.h*f);
-  l.x=cx-l.w/2; l.y=cy-l.h/2;
-  const snapped=applySmartSnapToLayer(l, selIds);
-  l.x=snapped.x; l.y=snapped.y;
-  l.el.style.width=l.w+'px'; l.el.style.height=l.h+'px';
-  l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
-  const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${Math.round(l.w)}×${Math.round(l.h)}`;
+  const cx=l.x+l.w/2,cy=l.y+l.h/2;
+  l.w=Math.max(10,Math.round(l.w*f));l.h=Math.max(10,Math.round(l.h*f));
+  l.x=Math.round(cx-l.w/2);l.y=Math.round(cy-l.h/2);
+  l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
+  l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
+  const sh=document.getElementById('sh-'+l.id);if(sh)sh.textContent=`${l.w}×${l.h}`;
   syncP();
 }
 function bringFwd(){const l=layers.find(x=>x.id===selId);if(!l?.el)return;l.zIndex++;l.el.style.zIndex=l.zIndex;}
