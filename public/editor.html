@@ -193,6 +193,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
     <button class="tbtn tbtn-ghost" id="btn-back" onclick="goBack()">← Admin</button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">👁 Vista cliente</button>
     <button class="tbtn tbtn-green" id="btn-save" onclick="openSave()">💾 Guardar plantilla</button>
+    <button class="tbtn tbtn-ghost" id="btn-copy-template-link" onclick="copyCurrentTemplateLink(this)" style="display:none;">🔗 Copiar link</button>
     <button class="tbtn tbtn-blue" onclick="downloadPNG()">⬇ PNG</button>
   </div>
 </div>
@@ -2264,6 +2265,7 @@ function setClientUI(){
   // Hide admin-only topbar buttons
   document.getElementById('btn-prev').style.display='none';
   document.getElementById('btn-save').style.display='none';
+  const copyBtn=document.getElementById('btn-copy-template-link'); if(copyBtn) copyBtn.style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
   document.querySelector('.add-text-btn').style.display='none';
@@ -2289,6 +2291,7 @@ function setAdminUI(){
   document.getElementById('btn-prev').style.display='';
   document.getElementById('btn-prev').textContent='👁 Vista cliente';
   document.getElementById('btn-save').style.display='';
+  updateTemplateLinkButton();
   document.getElementById('upload-zone').style.display='';
   document.querySelector('.add-text-btn').style.display='';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='';
@@ -2350,6 +2353,41 @@ function getClientTemplateLink(id){
   return `${window.location.origin}/editor.html?mode=client&tpl=${id}`;
 }
 
+function updateTemplateLinkButton(){
+  const btn = document.getElementById('btn-copy-template-link');
+  if(!btn) return;
+  const isClient = new URLSearchParams(window.location.search).get('mode') === 'client';
+  if(isClient || !tplId || tplStatus !== 'published'){
+    btn.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+  btn.style.display = '';
+  btn.disabled = false;
+}
+
+async function copyCurrentTemplateLink(btn){
+  if(!tplId || tplStatus !== 'published'){
+    showToast('Publica la plantilla para copiar su link');
+    return;
+  }
+  const link = getClientTemplateLink(tplId);
+  const old = btn.textContent;
+  try{
+    await navigator.clipboard.writeText(link);
+  }catch(_){
+    const tmp = document.createElement('input');
+    tmp.value = link;
+    document.body.appendChild(tmp);
+    tmp.select();
+    document.execCommand('copy');
+    tmp.remove();
+  }
+  btn.textContent='✓ Link copiado';
+  showToast('✓ Link de plantilla copiado');
+  setTimeout(()=>{ btn.textContent = old; }, 1600);
+}
+
 async function populateSaveModalMeta(){
   if(!tplId || !fbDb) return;
   try{
@@ -2368,13 +2406,15 @@ async function populateSaveModalMeta(){
       }
       catSel.value = cat;
     }
-    if(data.status === 'published'){
+    tplStatus = data.status || 'published';
+    if(tplStatus === 'published'){
       const linkEl = document.getElementById('save-link');
       if(linkEl){
         linkEl.value = getClientTemplateLink(tplId);
         document.getElementById('save-link-row').style.display = 'block';
       }
     }
+    updateTemplateLinkButton();
   }catch(e){
     console.warn('No se pudo leer meta de la plantilla actual:', e.message);
   }
@@ -2555,9 +2595,11 @@ async function doSave(status){
       console.log('✓ Nuevo doc:', tplId);
     }
 
+    tplStatus = status;
     if(status==='draft'){
       st.textContent='📁 Borrador guardado — solo visible para ti';
       st.style.color='#F5C842';
+      document.getElementById('save-link-row').style.display='none';
     } else {
       st.textContent='✓ ¡Publicada! Tus clientes ya pueden verla.';
       st.style.color='var(--accent)';
@@ -2565,6 +2607,7 @@ async function doSave(status){
       const linkEl=document.getElementById('save-link');
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
+    updateTemplateLinkButton();
     showAutoSaveIndicator('✓ Guardado');
     // Update name field title
     document.getElementById('save-name').value=name;
