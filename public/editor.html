@@ -902,8 +902,6 @@ function fitAllOutOfBounds(){
 }
 const CLOUDINARY_CLOUD = 'dwqtksxrp';
 const CLOUDINARY_PRESET = 'templatestudio';
-
-// Config Firebase hardcodeada
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
   authDomain: "plantillas-bfaeb.firebaseapp.com",
@@ -912,12 +910,11 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "",
   appId: ""
 };
+const CLOUDINARY_PRESET = 'templatestudio';
 
 async function initFB(){
-  // Usar config hardcodeada, con fallback a localStorage
   const savedCfg=localStorage.getItem('ts_firebase_config');
   const config=savedCfg?JSON.parse(savedCfg):FIREBASE_CONFIG;
-  // Guardar en localStorage para otros módulos
   if(!savedCfg) localStorage.setItem('ts_firebase_config',JSON.stringify(config));
   try{
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
@@ -926,6 +923,14 @@ async function initFB(){
     fbApp=firebase.initializeApp(config,'psd-ed-'+Date.now());
     fbDb=firebase.firestore(fbApp);
     fbAuth=firebase.auth(fbApp);
+    // Auto-login como admin si hay credenciales guardadas
+    const adminEmail=localStorage.getItem('ts_admin_email');
+    const adminPass=localStorage.getItem('ts_admin_pass');
+    if(adminEmail && adminPass){
+      try{ await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
+        console.log('✓ Editor: auto-login admin OK');
+      }catch(e){ console.warn('Auto-login admin falló:',e.message); }
+    }
   }catch(e){console.warn('Firebase init error:',e);}
 }
 
