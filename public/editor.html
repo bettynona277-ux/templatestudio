@@ -190,7 +190,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
     <button class="tbtn tbtn-ghost" id="btn-undo" onclick="undo()" title="Deshacer (Ctrl+Z)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↩</button>
     <button class="tbtn tbtn-ghost" id="btn-redo" onclick="redo()" title="Rehacer (Ctrl+Y)" style="opacity:0.35;font-size:1rem;padding:7px 10px;">↪</button>
     <button class="tbtn tbtn-ghost" onclick="fitAllOutOfBounds()" title="Traer capas fuera del canvas al centro" style="font-size:0.75rem;">🎯 Corregir capas</button>
-    <button class="tbtn tbtn-ghost" onclick="history.back()">← Admin</button>
+    <button class="tbtn tbtn-ghost" id="btn-back" onclick="goBack()">← Admin</button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">👁 Vista cliente</button>
     <button class="tbtn tbtn-green" id="btn-save" onclick="openSave()">💾 Guardar plantilla</button>
     <button class="tbtn tbtn-blue" onclick="downloadPNG()">⬇ PNG</button>
@@ -949,8 +949,29 @@ window.addEventListener('load',async()=>{
   const p=new URLSearchParams(window.location.search);
   tplId=p.get('tpl')||null;
   const mode=p.get('mode');
-  if(mode==='client'){isPrev=true;setClientUI();}
-  if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
+  const uid=p.get('uid');
+  const designId=p.get('did'); // existing client design id
+
+  if(uid) localStorage.setItem('ts_uid', uid);
+
+  if(mode==='client'){
+    isPrev=true;
+    setClientUI();
+    // Load existing design or template
+    if(designId&&fbDb){
+      clientDesignId=designId;
+      const d=await fbDb.collection('user_designs').doc(designId).get();
+      if(d.exists&&d.data().template) loadData(d.data().template);
+      else if(tplId){ const t=await fbDb.collection('templates').doc(tplId).get(); if(t.exists) loadData(t.data().template); }
+    } else if(tplId&&fbDb){
+      const d=await fbDb.collection('templates').doc(tplId).get();
+      if(d.exists) loadData(d.data().template);
+    }
+  } else {
+    if(tplId&&fbDb){const d=await fbDb.collection('templates').doc(tplId).get();if(d.exists)loadData(d.data().template);}
+  }
+  // Load logo library
+  if(fbDb) loadLogoLibrary();
 });
 
 // Drag & drop PSD on upload zone
@@ -2138,26 +2159,84 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
 },{passive:false});
 
 // PREVIEW
-function togglePreview(){
+function goBack(){
+  const p=new URLSearchParams(window.location.search);
+  if(p.get('mode')==='client') window.location.href='index.html';
+  else window.history.back();
+}
   isPrev=!isPrev;
   if(isPrev)setClientUI();else setAdminUI();
 }
+function setClientUI(){
+  document.getElementById('mode-pill').textContent='✏ CLIENTE';
+  document.getElementById('mode-pill').className='mode-pill pill-client';
+  // Hide admin-only topbar buttons
+  document.getElementById('btn-prev').style.display='none';
+  document.getElementById('btn-save').style.display='none';
+  document.getElementById('btn-back').textContent='← Mis diseños';
+  document.getElementById('upload-zone').style.display='none';
+  document.querySelector('.add-text-btn').style.display='none';
+  const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
+  const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='none';
+  // Show client save button
+  let csbtn=document.getElementById('btn-client-save');
+  if(!csbtn){
+    csbtn=document.createElement('button');
+    csbtn.id='btn-client-save';
+    csbtn.className='tbtn tbtn-green';
+    csbtn.textContent='💾 Guardar diseño';
+    csbtn.onclick=saveClientDesign;
+    document.querySelector('.btn-row').appendChild(csbtn);
+  }
+  csbtn.style.display='';
+  desel();
+}
+
 function setAdminUI(){
-  document.getElementById('mode-pill').textContent='⚙ ADMIN';document.getElementById('mode-pill').className='mode-pill pill-admin';
+  document.getElementById('mode-pill').textContent='⚙ ADMIN';
+  document.getElementById('mode-pill').className='mode-pill pill-admin';
+  document.getElementById('btn-prev').style.display='';
   document.getElementById('btn-prev').textContent='👁 Vista cliente';
   document.getElementById('btn-save').style.display='';
   document.getElementById('upload-zone').style.display='';
   document.querySelector('.add-text-btn').style.display='';
+  const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='';
+  const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='';
+  const csbtn=document.getElementById('btn-client-save'); if(csbtn) csbtn.style.display='none';
   desel();
 }
-function setClientUI(){
-  document.getElementById('mode-pill').textContent='✏ CLIENTE';document.getElementById('mode-pill').className='mode-pill pill-client';
-  document.getElementById('btn-prev').textContent='⚙ Admin';
-  document.getElementById('btn-save').style.display='none';
-  document.getElementById('upload-zone').style.display='none';
-  document.querySelector('.add-text-btn').style.display='none';
-  const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
-  desel();
+
+// Client design save
+let clientDesignId=null;
+async function saveClientDesign(){
+  if(!fbDb){ showToast('Firebase no conectado'); return; }
+  const btn=document.getElementById('btn-client-save');
+  btn.disabled=true; btn.textContent='Guardando...';
+  try{
+    const layerData=await buildLayerData();
+    const data={
+      updatedAt:Date.now(),
+      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
+      tplId:tplId||null
+    };
+    // Try to get uid from URL param or localStorage
+    const p=new URLSearchParams(window.location.search);
+    const uid=p.get('uid')||localStorage.getItem('ts_uid')||'unknown';
+    data.uid=uid;
+    if(clientDesignId){
+      await fbDb.collection('user_designs').doc(clientDesignId).update(data);
+    } else {
+      data.createdAt=Date.now();
+      const ref=await fbDb.collection('user_designs').add(data);
+      clientDesignId=ref.id;
+    }
+    showToast('✓ Diseño guardado');
+    btn.textContent='💾 Guardado ✓';
+    setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
+  }catch(e){
+    showToast('✗ Error: '+e.message);
+    btn.textContent='💾 Guardar diseño'; btn.disabled=false;
+  }
 }
 
 // DOWNLOAD
