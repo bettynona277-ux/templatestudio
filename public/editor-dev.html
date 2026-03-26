@@ -2727,16 +2727,186 @@ async function saveClientDesign(){
 }
 
 // DOWNLOAD
+function loadImgForExport(src){
+  return new Promise((resolve,reject)=>{
+    if(!src) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = ()=>resolve(img);
+    img.onerror = ()=>resolve(null);
+    img.src = src;
+  });
+}
+
+function roundedRectPath(ctx,x,y,w,h,r){
+  const rr = Math.max(0, Math.min(r||0, Math.min(w,h)/2));
+  ctx.beginPath();
+  ctx.moveTo(x+rr,y);
+  ctx.arcTo(x+w,y,x+w,y+h,rr);
+  ctx.arcTo(x+w,y+h,x,y+h,rr);
+  ctx.arcTo(x,y+h,x,y,rr);
+  ctx.arcTo(x,y,x+w,y,rr);
+  ctx.closePath();
+}
+
+async function renderDesignToCanvas(scale=2){
+  const canvasW = parseInt(cvs.style.width) || 1080;
+  const canvasH = parseInt(cvs.style.height) || 1080;
+  const out = document.createElement('canvas');
+  out.width = Math.round(canvasW * scale);
+  out.height = Math.round(canvasH * scale);
+  const ctx = out.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const visibleLayers = [...layers]
+    .filter(l => l && l.visible !== false)
+    .sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
+
+  for(const l of visibleLayers){
+    ctx.save();
+    ctx.globalAlpha = (l.opacity ?? 1);
+
+    // Frame with image
+    if(l.type === 'frame'){
+      if(l.frameImage){
+        const img = await loadImgForExport(l.frameImage);
+        if(img){
+          roundedRectPath(ctx, l.x, l.y, l.w, l.h, l.frameRadius||0);
+          ctx.clip();
+
+          const blur = Number(l.blur || 0);
+          ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
+
+          // object-fit: cover calculations
+          const sw = img.width || l.w;
+          const sh = img.height || l.h;
+          const scaleCover = Math.max(l.w / sw, l.h / sh);
+          const dw = sw * scaleCover;
+          const dh = sh * scaleCover;
+          const dx = l.x + (l.w - dw)/2;
+          const dy = l.y + (l.h - dh)/2;
+
+          const cx = l.x + l.w/2;
+          const cy = l.y + l.h/2;
+          ctx.translate(cx, cy);
+          ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+          ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
+        }
+      }
+      ctx.restore();
+      continue;
+    }
+
+    // Normal image / logo
+    if(l.type === 'img' && l.src){
+      const img = await loadImgForExport(l.src);
+      if(img){
+        const blur = Number(l.blur || 0);
+        ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
+        const cx = l.x + l.w/2;
+        const cy = l.y + l.h/2;
+        ctx.translate(cx, cy);
+        ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+        ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+      }
+      ctx.restore();
+      continue;
+    }
+
+    // Text
+    if(l.type === 'text' && l.tp){
+      const tp = l.tp || {};
+      const fontSize = Number(tp.fontSize || 16);
+      const fontWeight = tp.fontWeight || '400';
+      const fontFamily = (tp.fontFamily || "'Poppins'").replace(/'/g,'');
+      const fontStyle = tp.italic ? 'italic' : 'normal';
+      ctx.filter = 'none';
+      ctx.fillStyle = tp.color || '#ffffff';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+
+      const lines = String(tp.text || '').split('\n');
+      const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
+      const letterSpacing = Number(tp.letterSpacing || 0);
+
+      const drawLine = (line, x, y)=>{
+        if(letterSpacing === 0){
+          if((tp.strokeWidth||0) > 0){
+            ctx.lineWidth = Number(tp.strokeWidth||0);
+            ctx.strokeStyle = tp.strokeColor || '#000000';
+            ctx.strokeText(line, x, y);
+          }
+          ctx.fillText(line, x, y);
+          return;
+        }
+        let cursorX = x;
+        if(ctx.textAlign === 'center'){
+          const total = [...line].reduce((acc,ch)=>acc + ctx.measureText(ch).width + letterSpacing, 0) - letterSpacing;
+          cursorX = x - total/2;
+        }else if(ctx.textAlign === 'right'){
+          const total = [...line].reduce((acc,ch)=>acc + ctx.measureText(ch).width + letterSpacing, 0) - letterSpacing;
+          cursorX = x - total;
+        }
+        for(const ch of [...line]){
+          if((tp.strokeWidth||0) > 0){
+            ctx.lineWidth = Number(tp.strokeWidth||0);
+            ctx.strokeStyle = tp.strokeColor || '#000000';
+            ctx.strokeText(ch, cursorX, y);
+          }
+          ctx.fillText(ch, cursorX, y);
+          cursorX += ctx.measureText(ch).width + letterSpacing;
+        }
+      };
+
+      const anchorX = tp.align === 'center' ? l.x + l.w/2 : tp.align === 'right' ? l.x + l.w : l.x;
+      lines.forEach((line, idx)=> drawLine(line, anchorX, l.y + idx * lineHeight));
+
+      // underline approximation
+      if(tp.underline){
+        lines.forEach((line, idx)=>{
+          const metrics = ctx.measureText(line);
+          const width = metrics.width + Math.max(0, (line.length-1) * letterSpacing);
+          let startX = l.x;
+          if(tp.align === 'center') startX = l.x + l.w/2 - width/2;
+          if(tp.align === 'right') startX = l.x + l.w - width;
+          const y = l.y + idx*lineHeight + fontSize + 2;
+          ctx.strokeStyle = tp.color || '#ffffff';
+          ctx.lineWidth = Math.max(1, fontSize/15);
+          ctx.beginPath();
+          ctx.moveTo(startX, y);
+          ctx.lineTo(startX + width, y);
+          ctx.stroke();
+        });
+      }
+      ctx.restore();
+      continue;
+    }
+
+    ctx.restore();
+  }
+
+  return out;
+}
+
 async function downloadPNG(){
   desel();
   document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
-  const sv=cvs.style.transform;cvs.style.transform='scale(1)';
-  await new Promise(r=>setTimeout(r,80));
-  const c=await html2canvas(cvs,{scale:2,useCORS:true,allowTaint:true,backgroundColor:null,logging:false,width:parseInt(cvs.style.width),height:parseInt(cvs.style.height)});
-  cvs.style.transform=sv;
-  document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-  document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
-  const a=document.createElement('a');a.download='mi-diseno.png';a.href=c.toDataURL('image/png');a.click();
+  try{
+    const c = await renderDesignToCanvas(2);
+    const a=document.createElement('a');
+    a.download='mi-diseno.png';
+    a.href=c.toDataURL('image/png');
+    a.click();
+  }catch(e){
+    console.error('PNG export error:', e);
+    showToast('✗ Error al exportar PNG');
+  }finally{
+    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+  }
 }
 
 // SAVE
