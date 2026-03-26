@@ -1281,6 +1281,14 @@ function snapshotState(){
   updateUndoUI();
 }
 
+// Versión con debounce para cambios continuos (texto, sliders)
+// Espera 600ms sin cambios antes de guardar el snapshot
+let _snapDebTimer = null;
+function snapshotDebounced(){
+  clearTimeout(_snapDebTimer);
+  _snapDebTimer = setTimeout(()=>{ snapshotState(); }, 600);
+}
+
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
@@ -2928,26 +2936,26 @@ function updFrameShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameShadow = parseInt(v||0);
   applyFrameBorder(l);
-  snapshotState();
+  snapshotDebounced();
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameInnerShadow = parseInt(v||0);
   applyFrameBorder(l);
-  snapshotState();
+  snapshotDebounced();
 }
 
 function updFrameBorderWidth(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderWidth = parseInt(v||0);
   applyFrameBorder(l); syncP();
-  snapshotState();
+  snapshotDebounced();
 }
 function updFrameBorderColor(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderColor = v || '#00ffc3';
   applyFrameBorder(l); syncP();
-  snapshotState();
+  snapshotDebounced();
 }
 
 
@@ -3082,14 +3090,14 @@ function updSz(a,v){
 function updOp(v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   l.opacity=v/100;l.el.style.opacity=l.opacity;
-  snapshotState();
+  snapshotDebounced();
 }
 function updTxt(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.text=v;
   const d=document.getElementById('ti-'+selId);if(d)d.textContent=v;
   applyTextStyles(l);
-  snapshotState();
+  snapshotDebounced();
 }
 
 // Font size: update ONLY font size, not box size
@@ -3097,7 +3105,7 @@ function updTxtSize(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.fontSize=parseInt(v)||16;
   applyTextStyles(l);
-  snapshotState();
+  snapshotDebounced();
 }
 
 function updTS(p,v){
@@ -3114,7 +3122,7 @@ function updTS(p,v){
     const hex=document.getElementById('pp-fc-hex');
     if(hex) hex.value = v;
   }
-  snapshotState();
+  snapshotDebounced();
 }
 
 function toggleFmt(type){
