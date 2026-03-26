@@ -1304,6 +1304,8 @@ function showToast(msg){
 }
 
 // ── GROUPS ───────────────────────────────────────────────────
+let copiedStyle = null;
+let styleMode = false;
 let groups = {};   // { groupId: [layerIds] }
 let gCtr = 0;
 
@@ -2642,6 +2644,98 @@ cvs.addEventListener('mousedown',ev=>{
   desel();
   startMarquee(ev);
 });
+
+function updateStyleBrushUI(){
+  const btn=document.getElementById('btn-style-brush');
+  if(!btn) return;
+  btn.style.borderColor = styleMode ? 'var(--accent)' : 'var(--border)';
+  btn.style.color = styleMode ? 'var(--accent)' : 'var(--text)';
+  btn.style.boxShadow = styleMode ? '0 0 0 2px rgba(0,200,150,0.12)' : '';
+  document.body.style.cursor = styleMode ? 'copy' : '';
+}
+function toggleStyleMode(){
+  styleMode = !styleMode;
+  if(styleMode) copiedStyle = null;
+  updateStyleBrushUI();
+  showToast(styleMode ? '🖌️ Toca un elemento para copiar su estilo, luego otro para aplicarlo' : '✕ Modo brocha desactivado');
+}
+function copyStyleFromLayer(layer){
+  if(!layer) return;
+  if(layer.type==='text' && layer.tp){
+    copiedStyle = {type:'text', data: JSON.parse(JSON.stringify(layer.tp))};
+  }else if(layer.type==='frame'){
+    copiedStyle = {
+      type:'frame',
+      data:{
+        frameRadius: layer.frameRadius||0,
+        frameBorderWidth: layer.frameBorderWidth||0,
+        frameBorderColor: layer.frameBorderColor||'#00ffc3',
+        frameInnerShadow: layer.frameInnerShadow||0,
+        frameShadow: layer.frameShadow||0,
+        opacity: layer.opacity ?? 1,
+        blur: layer.blur||0,
+        flipX: !!layer.flipX,
+        flipY: !!layer.flipY
+      }
+    };
+  }else if(layer.type==='img'){
+    copiedStyle = {
+      type:'img',
+      data:{
+        opacity: layer.opacity ?? 1,
+        blur: layer.blur||0,
+        flipX: !!layer.flipX,
+        flipY: !!layer.flipY
+      }
+    };
+  }else{
+    copiedStyle = {type:layer.type||'generic', data:{}};
+  }
+  showToast('✓ Estilo copiado');
+}
+function applyCopiedStyleToLayer(layer){
+  if(!layer || !copiedStyle) return;
+  if(copiedStyle.type==='text' && layer.type==='text' && layer.tp){
+    const keepText = layer.tp.text;
+    Object.assign(layer.tp, JSON.parse(JSON.stringify(copiedStyle.data)));
+    layer.tp.text = keepText;
+    applyTextStyles(layer);
+    syncP();
+    snapshotState();
+    showToast('✓ Estilo aplicado');
+    return;
+  }
+  if(copiedStyle.type==='frame' && layer.type==='frame'){
+    Object.assign(layer, JSON.parse(JSON.stringify(copiedStyle.data)));
+    if(layer.el){
+      layer.el.style.opacity = layer.opacity ?? 1;
+      const clip=document.getElementById('fc-'+layer.id);
+      if(clip) clip.style.borderRadius=(layer.frameRadius||0)+'px';
+      const img=document.getElementById('fi-'+layer.id);
+      if(img) img.style.borderRadius=(layer.frameRadius||0)+'px';
+      applyImageVisuals(layer);
+      applyFrameBorder(layer);
+    }
+    syncP();
+    snapshotState();
+    showToast('✓ Estilo aplicado');
+    return;
+  }
+  if(copiedStyle.type==='img' && layer.type==='img'){
+    Object.assign(layer, JSON.parse(JSON.stringify(copiedStyle.data)));
+    if(layer.el){
+      layer.el.style.opacity = layer.opacity ?? 1;
+      applyImageVisuals(layer);
+    }
+    syncP();
+    snapshotState();
+    showToast('✓ Estilo aplicado');
+    return;
+  }
+  showToast('Ese estilo no aplica a este elemento');
+}
+
+
 function desel(){
   hideSmartGuides();
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
