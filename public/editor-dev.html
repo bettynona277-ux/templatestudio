@@ -605,6 +605,11 @@ body:not(.theme-light) .rh{
 #pp-txt .panel-grid2{gap:8px !important;}
 #pp-txt .fmt-btn{min-width:30px;}
 
+
+/* brush active helper */
+#btn-style-brush{font-size:0.9rem;}
+#btn-style-brush:hover{border-color:var(--accent);}
+
 </style>
 </head>
 <body>
@@ -1095,6 +1100,7 @@ let frameSnapTarget=null; // frame layer that is currently being hovered during 
 let guideV=null, guideH=null;
 let copiedStyle = null;
 let styleMode = false;
+let styleSourceId = null;
 
 const SNAP_THRESHOLD=2;
 const GRID_SIZE=10;
@@ -2263,6 +2269,22 @@ function mkEl(l){
   el.onmousedown=ev=>{
     // Allow clicks on resize handles through
     if(ev.target.classList.contains('rh')) return;
+    if(styleMode){
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(!copiedStyle){
+        copyStyleFromLayer(l);
+      }else{
+        const applied = applyCopiedStyleToLayer(l);
+        if(applied){
+          styleMode = false;
+          copiedStyle = null;
+          styleSourceId = null;
+        }
+      }
+      updateStyleBrushUI();
+      return;
+    }
     if(document.activeElement?.contentEditable==='true') return;
     ev.stopPropagation();
     if(ev.shiftKey){
@@ -2611,20 +2633,26 @@ document.addEventListener('mouseup',ev=>{
 
 function updateStyleBrushUI(){
   const btn=document.getElementById('btn-style-brush');
-  if(!btn) return;
-  btn.style.borderColor = styleMode ? 'var(--accent)' : 'var(--border)';
-  btn.style.color = styleMode ? 'var(--accent)' : 'var(--text)';
-  btn.style.boxShadow = styleMode ? '0 0 0 2px rgba(21,214,164,0.14)' : '';
+  if(btn){
+    btn.style.borderColor = styleMode ? 'var(--accent)' : 'var(--border)';
+    btn.style.color = styleMode ? 'var(--accent)' : 'var(--text)';
+    btn.style.boxShadow = styleMode ? '0 0 0 2px rgba(21,214,164,0.16)' : '';
+    btn.style.transform = styleMode ? 'translateY(-1px)' : '';
+  }
   document.body.style.cursor = styleMode ? 'copy' : '';
+  if(typeof cvs !== 'undefined' && cvs) cvs.style.cursor = styleMode ? 'copy' : '';
 }
 function toggleStyleMode(){
   styleMode = !styleMode;
-  if(styleMode) copiedStyle = null;
+  if(!styleMode){
+    copiedStyle = null;
+    styleSourceId = null;
+  }
   updateStyleBrushUI();
-  showToast(styleMode ? '🪄 Toca un elemento para copiar su estilo y luego otro para aplicarlo' : '✕ Modo brocha desactivado');
+  showToast(styleMode ? '🪄 Modo copiar estilo activo' : '✕ Modo brocha desactivado');
 }
 function copyStyleFromLayer(layer){
-  if(!layer) return;
+  if(!layer) return false;
   if(layer.type==='text' && layer.tp){
     copiedStyle = { type:'text', data: JSON.parse(JSON.stringify(layer.tp)) };
   } else if(layer.type==='frame'){
@@ -2653,12 +2681,18 @@ function copyStyleFromLayer(layer){
       }
     };
   } else {
-    copiedStyle = { type: layer.type||'generic', data:{} };
+    return false;
   }
-  showToast('✓ Estilo copiado');
+  styleSourceId = layer.id;
+  showToast('✓ Estilo copiado. Ahora toca otro elemento');
+  return true;
 }
 function applyCopiedStyleToLayer(layer){
-  if(!layer || !copiedStyle) return;
+  if(!layer || !copiedStyle) return false;
+  if(styleSourceId === layer.id){
+    showToast('Toca otro elemento para pegar el estilo');
+    return false;
+  }
 
   if(copiedStyle.type==='text' && layer.type==='text' && layer.tp){
     const keepText = layer.tp.text;
@@ -2668,7 +2702,7 @@ function applyCopiedStyleToLayer(layer){
     syncP();
     snapshotState();
     showToast('✓ Estilo aplicado');
-    return;
+    return true;
   }
 
   if(copiedStyle.type==='frame' && layer.type==='frame'){
@@ -2685,7 +2719,7 @@ function applyCopiedStyleToLayer(layer){
     syncP();
     snapshotState();
     showToast('✓ Estilo aplicado');
-    return;
+    return true;
   }
 
   if(copiedStyle.type==='img' && layer.type==='img'){
@@ -2697,10 +2731,11 @@ function applyCopiedStyleToLayer(layer){
     syncP();
     snapshotState();
     showToast('✓ Estilo aplicado');
-    return;
+    return true;
   }
 
   showToast('Ese estilo no aplica a este elemento');
+  return false;
 }
 
 
@@ -2710,12 +2745,18 @@ function sel(id, additive=false){
   if(styleMode){
     if(!copiedStyle){
       copyStyleFromLayer(clickedLayer);
-    } else {
-      applyCopiedStyleToLayer(clickedLayer);
+      updateStyleBrushUI();
+      return;
+    }else{
+      const applied = applyCopiedStyleToLayer(clickedLayer);
+      if(applied){
+        styleMode = false;
+        copiedStyle = null;
+        styleSourceId = null;
+        updateStyleBrushUI();
+      }
+      return;
     }
-    styleMode = false;
-    updateStyleBrushUI();
-    return;
   }
 
   let clickedIds = [id];
