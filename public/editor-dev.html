@@ -1261,66 +1261,124 @@ initMultiBoxHandles();
 cvs.style.transform=`scale(${zoom_})`;
 
 // ── UNDO / REDO ───────────────────────────────────────────────
-const HISTORY_MAX = 50;
+const HISTORY_MAX = 80;
 let undoStack = [];      // array of JSON snapshots
-let historyIdx = -1;   // current position
+let historyIdx = -1;     // current position
 let _suppressHistory = false;
-let _historyTimer=null;
+let _historyTimer = null;
+let _historyDirty = false;
+
+function serializeHistoryState(){
+  syncLayersFromDOM();
+  const snap = layers.map(l=>({
+    ...l,
+    el:null,
+    tp: l.tp ? {...l.tp} : null
+  }));
+  return JSON.stringify(snap);
+}
 
 function scheduleSnapshot(delay=180){
   if(_suppressHistory) return;
+  _historyDirty = true;
   clearTimeout(_historyTimer);
   _historyTimer = setTimeout(()=>{
     snapshotState();
   }, delay);
 }
 
-function snapshotState(){
+function flushPendingSnapshot(){
   if(_suppressHistory) return;
-  // Serialize current layers (no DOM refs)
-  const snap = layers.map(l=>({
-    ...l, el:null,
-    tp: l.tp ? {...l.tp} : null
-  }));
+  if(_historyTimer){
+    clearTimeout(_historyTimer);
+    _historyTimer = null;
+  }
+  if(_historyDirty){
+    snapshotState();
+  }
+}
+
+function snapshotState(force=false){
+  if(_suppressHistory) return;
+  const serialized = serializeHistoryState();
+
+  if(!force && historyIdx >= 0 && undoStack[historyIdx] === serialized){
+    _historyDirty = false;
+    updateUndoUI();
+    return;
+  }
+
   // Truncate forward history
-  undoStack = undoStack.slice(0, historyIdx+1);
-  undoStack.push(JSON.stringify(snap));
-  if(undoStack.length > HISTORY_MAX) undoStack.shift();
+  undoStack = undoStack.slice(0, historyIdx + 1);
+  undoStack.push(serialized);
+
+  if(undoStack.length > HISTORY_MAX){
+    const overflow = undoStack.length - HISTORY_MAX;
+    undoStack.splice(0, overflow);
+    historyIdx = Math.max(-1, historyIdx - overflow);
+  }
+
   historyIdx = undoStack.length - 1;
+  _historyDirty = false;
   updateUndoUI();
-  if(historyIdx < 0) snapshotState(); // baseline history
 }
 
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
-  // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+
+  Array.from(cvs.children).forEach(el=>{
+    if(el.id!=='multi-box') el.remove();
+  });
+
   layers = [];
+  lCtr = 0;
+
   data.forEach(ld=>{
-    const l = {...ld, el:null, tp:ld.tp?{...ld.tp}:null};
+    lCtr = Math.max(lCtr, (ld.id||0) + 1);
+    const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
     layers.push(l);
     mkEl(l);
   });
+
   desel();
   renderList();
   _suppressHistory = false;
 }
 
 function undo(){
+  flushPendingSnapshot();
   if(historyIdx <= 0) return;
   historyIdx--;
   restoreSnapshot(undoStack[historyIdx]);
   updateUndoUI();
   showToast('↩ Deshacer');
 }
+
 function redo(){
-  if(historyIdx >= undoStack.length-1) return;
+  if(_historyTimer){
+    clearTimeout(_historyTimer);
+    _historyTimer = null;
+  }
+  _historyDirty = false;
+  if(historyIdx >= undoStack.length - 1) return;
   historyIdx++;
   restoreSnapshot(undoStack[historyIdx]);
   updateUndoUI();
   showToast('↪ Rehacer');
 }
+
+function resetHistory(){
+  if(_historyTimer){
+    clearTimeout(_historyTimer);
+    _historyTimer = null;
+  }
+  undoStack = [];
+  historyIdx = -1;
+  _historyDirty = false;
+  snapshotState(true);
+}
+
 function updateUndoUI(){
   const bu=document.getElementById('btn-undo'), br=document.getElementById('btn-redo');
   if(bu){ bu.style.opacity=historyIdx>0?'1':'0.35'; bu.style.cursor=historyIdx>0?'pointer':'default'; }
@@ -1637,6 +1695,20 @@ function applyCanvasThemeLayout(){
 }
 
 
+
+async function getFreshDoc(collectionName, docId){
+  if(!fbDb || !docId) return null;
+  try{
+    return await fbDb.collection(collectionName).doc(docId).get({source:'server'});
+  }catch(_){
+    try{
+      return await fbDb.collection(collectionName).doc(docId).get();
+    }catch(__){
+      return null;
+    }
+  }
+}
+
 window.addEventListener('load',async()=>{
   initEditorTheme();
   applyCanvasThemeLayout();
@@ -1683,7 +1755,7 @@ window.addEventListener('load',async()=>{
 
     if(designId&&fbDb){
       clientDesignId=designId;
-      const d=await fbDb.collection('user_designs').doc(designId).get();
+      const d=await getFreshDoc('user_designs', designId);
       if(d.exists){
         const designData = d.data() || {};
         currentClientDesignName = designData.name || currentClientDesignName || '';
@@ -1693,7 +1765,7 @@ window.addEventListener('load',async()=>{
     }
 
     if(!loaded && tplId && fbDb){
-      const t=await fbDb.collection('templates').doc(tplId).get();
+      const t=await getFreshDoc('templates', tplId);
       if(t.exists){
         const tplData = t.data() || {};
         if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
@@ -1708,7 +1780,7 @@ window.addEventListener('load',async()=>{
     }
   } else {
     if(tplId&&fbDb){
-      const d=await fbDb.collection('templates').doc(tplId).get();
+      const d=await getFreshDoc('templates', tplId);
       if(d.exists){
         const adminTpl=extractTemplatePayload(d.data());
         if(adminTpl) loadData(adminTpl);
@@ -3748,6 +3820,53 @@ function openSave(){
   setTimeout(()=>document.getElementById('save-name').focus(),80);
 }
 
+
+function syncLayersFromDOM(){
+  layers.forEach(l=>{
+    if(!l || !l.el) return;
+
+    // position / size / visibility / z / opacity
+    const left = parseFloat(l.el.style.left);
+    const top = parseFloat(l.el.style.top);
+    const width = parseFloat(l.el.style.width);
+    const height = parseFloat(l.el.style.height);
+    const z = parseInt(l.el.style.zIndex);
+    const opacity = parseFloat(l.el.style.opacity);
+
+    if(!Number.isNaN(left)) l.x = Math.round(left);
+    if(!Number.isNaN(top)) l.y = Math.round(top);
+    if(!Number.isNaN(width)) l.w = Math.round(width);
+    if(!Number.isNaN(height)) l.h = Math.round(height);
+    if(!Number.isNaN(z)) l.zIndex = z;
+    if(!Number.isNaN(opacity)) l.opacity = opacity;
+    l.visible = l.el.style.display !== 'none';
+
+    // text content / text box styles
+    if(l.type==='text' && l.tp){
+      const d = document.getElementById('ti-'+l.id);
+      if(d){
+        l.tp.text = d.textContent || l.tp.text || '';
+      }
+    }
+
+    // image / frame image current sources
+    if(l.type==='img'){
+      const img = l.el.querySelector('img');
+      if(img && img.src) l.src = img.src;
+    }
+
+    if(l.type==='frame'){
+      const clip = document.getElementById('fc-'+l.id);
+      const img = document.getElementById('fi-'+l.id);
+      if(clip){
+        const br = parseFloat(clip.style.borderRadius);
+        if(!Number.isNaN(br)) l.frameRadius = Math.round(br);
+      }
+      if(img && img.src) l.frameImage = img.src;
+    }
+  });
+}
+
 async function buildLayerData(){
   const result = [];
   let retryCount = 0;
@@ -3806,6 +3925,9 @@ async function buildLayerData(){
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
     if(l.frameImage) obj.frameImage = l.frameImage.startsWith('data:')?'':l.frameImage;
+    obj.blur = Number(l.blur||0);
+    obj.flipX = !!l.flipX;
+    obj.flipY = !!l.flipY;
     if(l.tp) obj.tp = {
       text: l.tp.text||'',
       fontSize: l.tp.fontSize||16,
@@ -3820,6 +3942,8 @@ async function buildLayerData(){
       lineHeight: l.tp.lineHeight||1.2,
       strokeColor: l.tp.strokeColor||'#000000',
       strokeWidth: l.tp.strokeWidth||0,
+      shadowBlur: Number(l.tp.shadowBlur||0),
+      shadowColor: l.tp.shadowColor||'rgba(0,0,0,0.45)'
     };
     result.push(obj);
   }
@@ -3837,6 +3961,8 @@ async function doSave(status){
   document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=true);
   st.textContent='Preparando...';st.style.color='var(--muted)';
   tplStatus = status;
+
+  syncLayersFromDOM();
 
   // 1. Generate + upload thumbnail (más nítida, pensada para cards de plantilla)
   let thumb='';
@@ -4022,7 +4148,7 @@ function loadData(tpl){
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
   renderList();
-  snapshotState();
+  resetHistory();
 }
 
 // LOADING UI
