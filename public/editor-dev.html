@@ -1268,12 +1268,12 @@ let _suppressHistory = false;
 
 function snapshotState(){
   if(_suppressHistory) return;
-  syncLayersFromDOM();
+  // Serialize current layers (no DOM refs)
   const snap = layers.map(l=>({
-    ...l,
-    el:null,
+    ...l, el:null,
     tp: l.tp ? {...l.tp} : null
   }));
+  // Truncate forward history
   undoStack = undoStack.slice(0, historyIdx+1);
   undoStack.push(JSON.stringify(snap));
   if(undoStack.length > HISTORY_MAX) undoStack.shift();
@@ -1281,40 +1281,17 @@ function snapshotState(){
   updateUndoUI();
 }
 
-function scheduleSnapshot(){
-  snapshotState();
-}
-
-function flushScheduledSnapshot(){
-  // no-op on stable production-style history
-}
-
-function resetHistoryWithCurrentState(){
-  undoStack = [];
-  historyIdx = -1;
-  snapshotState();
-}
-
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
-
+  // Remove cel elements but keep multi-box
   Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
   layers = [];
-  groups = {};
-  gCtr = 0;
-
   data.forEach(ld=>{
     const l = {...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     layers.push(l);
-    if(l.groupId){
-      groups[l.groupId] = groups[l.groupId] || [];
-      groups[l.groupId].push(l.id);
-      gCtr = Math.max(gCtr, parseInt(String(l.groupId).replace(/\D/g,'')) + 1 || gCtr);
-    }
     mkEl(l);
   });
-
   desel();
   renderList();
   _suppressHistory = false;
@@ -1327,7 +1304,6 @@ function undo(){
   updateUndoUI();
   showToast('↩ Deshacer');
 }
-
 function redo(){
   if(historyIdx >= undoStack.length-1) return;
   historyIdx++;
@@ -1335,7 +1311,6 @@ function redo(){
   updateUndoUI();
   showToast('↪ Rehacer');
 }
-
 function updateUndoUI(){
   const bu=document.getElementById('btn-undo'), br=document.getElementById('btn-redo');
   if(bu){ bu.style.opacity=historyIdx>0?'1':'0.35'; bu.style.cursor=historyIdx>0?'pointer':'default'; }
@@ -1364,7 +1339,7 @@ function groupSelected(){
   groups[gid] = [...selIds];
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
   renderList();
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function ungroupSelected(){
@@ -2070,7 +2045,7 @@ function toggleCase(mode){
   applyTextStyles(l);
   document.getElementById('fmt-upper').classList.toggle('active',l.tp.textTransform==='uppercase');
   document.getElementById('fmt-lower').classList.toggle('active',l.tp.textTransform==='lowercase');
-  scheduleSnapshot();
+  snapshotState();
 }
 
 // ── CUSTOM CATEGORY ───────────────────────────────────────────
@@ -2953,26 +2928,26 @@ function updFrameShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameShadow = parseInt(v||0);
   applyFrameBorder(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameInnerShadow = parseInt(v||0);
   applyFrameBorder(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function updFrameBorderWidth(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderWidth = parseInt(v||0);
   applyFrameBorder(l); syncP();
-  scheduleSnapshot();
+  snapshotState();
 }
 function updFrameBorderColor(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderColor = v || '#00ffc3';
   applyFrameBorder(l); syncP();
-  scheduleSnapshot();
+  snapshotState();
 }
 
 
@@ -3008,7 +2983,7 @@ function updImageBlur(value){
   applyImageVisuals(l);
   const lbl = document.getElementById('pp-blur-lbl');
   if(lbl) lbl.textContent = `${l.blur}px`;
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function syncP(){
@@ -3096,25 +3071,25 @@ function updPos(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='x'){l.x=parseInt(v)||0;l.el.style.left=l.x+'px';}
   else{l.y=parseInt(v)||0;l.el.style.top=l.y+'px';}
-  scheduleSnapshot();
+  snapshotState();
 }
 function updSz(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='w'){l.w=Math.max(1,parseInt(v)||1);l.el.style.width=l.w+'px';}
   else{l.h=Math.max(1,parseInt(v)||1);l.el.style.height=l.h+'px';}
-  scheduleSnapshot();
+  snapshotState();
 }
 function updOp(v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   l.opacity=v/100;l.el.style.opacity=l.opacity;
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTxt(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.text=v;
   const d=document.getElementById('ti-'+selId);if(d)d.textContent=v;
   applyTextStyles(l);
-  scheduleSnapshot(220);
+  snapshotState();
 }
 
 // Font size: update ONLY font size, not box size
@@ -3122,7 +3097,7 @@ function updTxtSize(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.fontSize=parseInt(v)||16;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function updTS(p,v){
@@ -3139,7 +3114,7 @@ function updTS(p,v){
     const hex=document.getElementById('pp-fc-hex');
     if(hex) hex.value = v;
   }
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function toggleFmt(type){
@@ -3160,7 +3135,7 @@ function toggleFmt(type){
     document.getElementById('fmt-u').classList.toggle('active',l.tp.underline);
     applyTextStyles(l);
   }
-  scheduleSnapshot();
+  snapshotState();
 }
 
 
@@ -3212,19 +3187,19 @@ function updStroke(){
   l.tp.strokeColor=document.getElementById('pp-stroke-c').value;
   l.tp.strokeWidth=parseInt(document.getElementById('pp-stroke-w').value)||0;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadow(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.shadowBlur=parseInt(v)||0;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadowColor(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.shadowColor=v;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadow(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
@@ -4105,7 +4080,7 @@ function loadData(tpl){
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
   renderList();
-  resetHistoryWithCurrentState();
+  snapshotState();
 }
 
 // LOADING UI
@@ -4119,7 +4094,6 @@ document.addEventListener('keydown',ev=>{
 
   // Undo / Redo
   if((ev.ctrlKey||ev.metaKey) && !active){
-    if((ev.key==='z'||ev.key==='Z') && ev.shiftKey){ ev.preventDefault(); redo(); return; }
     if(ev.key==='z'||ev.key==='Z'){ ev.preventDefault(); undo(); return; }
     if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); return; }
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
