@@ -274,6 +274,17 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
 }
 .dev-badge b{color:#fff;}
 
+
+/* DEV image tools */
+#pp-img.panel-hidden{display:none !important;}
+.toggle-chip{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:8px 10px;border-radius:10px;border:1px solid var(--border);
+  background:rgba(255,255,255,0.03);color:var(--text);font:700 0.72rem 'Plus Jakarta Sans',sans-serif;
+  cursor:pointer;transition:.18s ease;min-height:38px;
+}
+.toggle-chip.active{background:rgba(0,200,150,0.12);border-color:rgba(0,200,150,0.35);color:var(--accent);}
+
 </style>
 </head>
 <body>
@@ -484,6 +495,24 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
         <button class="pp-btn pp-btn-red" style="font-size:0.72rem;" onclick="clearFrameImage()">✕ Quitar imagen del marco</button>
       </div>
 
+      <div class="panel-card panel-hidden" id="pp-img">
+        <div class="panel-title">Imagen <span class="panel-chip">DEV</span></div>
+        <div class="mini-lbl">Voltear</div>
+        <div class="panel-grid2" style="margin-bottom:8px;">
+          <button class="toggle-chip" id="pp-flipx" onclick="toggleImageFlip('x')">↔ Horizontal</button>
+          <button class="toggle-chip" id="pp-flipy" onclick="toggleImageFlip('y')">↕ Vertical</button>
+        </div>
+        <div class="mini-lbl">Desenfoque</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" id="pp-blur" min="0" max="20" step="0.5" value="0"
+            style="flex:1;accent-color:var(--accent);"
+            oninput="updImageBlur(this.value)">
+          <span id="pp-blur-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">0px</span>
+        </div>
+        <div class="mini-lbl" style="margin-top:10px;">Vista</div>
+        <div class="panel-note">Estas opciones están en pruebas y se aplican a imágenes, logos y marcos con imagen.</div>
+      </div>
+
       <div class="panel-card panel-hidden" id="pp-txt">
         <div class="panel-title">Texto <span class="panel-chip">Tipografía</span></div>
         <div class="mini-lbl">Contenido</div>
@@ -612,8 +641,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
   </div>
 </div>
 
-<!-- CANVAS SIZE MODAL (appears first) -->
- (appears first) -->
+<!-- CANVAS SIZE MODAL 
+ 
 <div class="overlay" id="size-overlay">
   <div class="modal">
     <h3>📐 Tamaño del lienzo</h3>
@@ -1641,6 +1670,7 @@ function mkEl(l){
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');img.src=l.src;el.appendChild(img);
+    setTimeout(()=>applyImageVisuals(l),0);
   } else if(l.type==='frame'){
     el.className+=' frame-el';
     el.style.cssText += `border-radius:${l.frameRadius||0}px;overflow:hidden;`;
@@ -1657,6 +1687,7 @@ function mkEl(l){
       img.src=l.frameImage;
       img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
       clip.appendChild(img);
+      setTimeout(()=>applyImageVisuals(l),0);
       el.style.border='none';
       el.style.background='transparent';
     } else {
@@ -1910,6 +1941,7 @@ function applyImageToFrame(frameLayer, src){
   img.src=src;
   img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
   clip.appendChild(img);
+  setTimeout(()=>applyImageVisuals(frameLayer),0);
   // Update frame el border
   el.style.border='none';
   el.style.background='transparent';
@@ -2198,6 +2230,7 @@ function updatePropertyPanelState(targetLayer=null){
   const isMulti = selIds.length>1;
   const isText = !!l && l.type==='text';
   const isFrame = !!l && l.type==='frame';
+  const isImage = !!l && (l.type==='img' || (l.type==='frame' && !!l.frameImage));
 
   const empty=document.getElementById('pp-empty');
   const el=document.getElementById('pp-el');
@@ -2210,10 +2243,48 @@ function updatePropertyPanelState(targetLayer=null){
   const frame=document.getElementById('pp-frame');
   if(frame) frame.classList.toggle('panel-hidden', !(isFrame && !isMulti));
 
+  const img=document.getElementById('pp-img');
+  if(img) img.classList.toggle('panel-hidden', !(isImage && !isMulti));
+
   const chip=document.getElementById('pp-type-chip');
   if(chip){
-    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
+    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
   }
+}
+
+
+function getImageTargetElement(layer){
+  if(!layer) return null;
+  if(layer.type==='img') return layer.el ? layer.el.querySelector('img') : null;
+  if(layer.type==='frame' && layer.frameImage) return document.getElementById('fi-'+layer.id);
+  return null;
+}
+function applyImageVisuals(layer){
+  const img = getImageTargetElement(layer);
+  if(!img) return;
+  const flipX = !!layer.flipX;
+  const flipY = !!layer.flipY;
+  const blur = Number(layer.blur || 0);
+  img.style.transform = `scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`;
+  img.style.filter = `blur(${blur}px)`;
+  img.style.transformOrigin = 'center center';
+}
+function toggleImageFlip(axis){
+  const l=layers.find(x=>x.id===selId); if(!l) return;
+  if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
+  if(axis==='x') l.flipX = !l.flipX;
+  if(axis==='y') l.flipY = !l.flipY;
+  applyImageVisuals(l);
+  syncP();
+  snapshotState();
+}
+function updImageBlur(value){
+  const l=layers.find(x=>x.id===selId); if(!l) return;
+  if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
+  l.blur = parseFloat(value) || 0;
+  applyImageVisuals(l);
+  const lbl=document.getElementById('pp-blur-lbl'); if(lbl) lbl.textContent = `${l.blur||0}px`;
+  syncP();
 }
 
 function syncP(){
@@ -2994,6 +3065,6 @@ document.addEventListener('keydown',ev=>{
 });
 </script>
 
-<div class="dev-badge">🧪 <b>EDITOR DEV</b> · Página de pruebas</div>
+<div class="dev-badge">🧪 <b>EDITOR DEV</b> · Pruebas seguras</div>
 </body>
 </html>
