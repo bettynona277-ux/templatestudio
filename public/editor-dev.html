@@ -1406,7 +1406,7 @@ function groupSelected(){
   groups[gid] = [...selIds];
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
   renderList();
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function ungroupSelected(){
@@ -2112,7 +2112,7 @@ function toggleCase(mode){
   applyTextStyles(l);
   document.getElementById('fmt-upper').classList.toggle('active',l.tp.textTransform==='uppercase');
   document.getElementById('fmt-lower').classList.toggle('active',l.tp.textTransform==='lowercase');
-  scheduleSnapshot();
+  snapshotState();
 }
 
 // ── CUSTOM CATEGORY ───────────────────────────────────────────
@@ -2995,26 +2995,26 @@ function updFrameShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameShadow = parseInt(v||0);
   applyFrameBorder(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameInnerShadow = parseInt(v||0);
   applyFrameBorder(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function updFrameBorderWidth(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderWidth = parseInt(v||0);
   applyFrameBorder(l); syncP();
-  scheduleSnapshot();
+  snapshotState();
 }
 function updFrameBorderColor(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderColor = v || '#00ffc3';
   applyFrameBorder(l); syncP();
-  scheduleSnapshot();
+  snapshotState();
 }
 
 
@@ -3050,7 +3050,7 @@ function updImageBlur(value){
   applyImageVisuals(l);
   const lbl = document.getElementById('pp-blur-lbl');
   if(lbl) lbl.textContent = `${l.blur}px`;
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function syncP(){
@@ -3138,18 +3138,18 @@ function updPos(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='x'){l.x=parseInt(v)||0;l.el.style.left=l.x+'px';}
   else{l.y=parseInt(v)||0;l.el.style.top=l.y+'px';}
-  scheduleSnapshot();
+  snapshotState();
 }
 function updSz(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='w'){l.w=Math.max(1,parseInt(v)||1);l.el.style.width=l.w+'px';}
   else{l.h=Math.max(1,parseInt(v)||1);l.el.style.height=l.h+'px';}
-  scheduleSnapshot();
+  snapshotState();
 }
 function updOp(v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   l.opacity=v/100;l.el.style.opacity=l.opacity;
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTxt(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
@@ -3164,7 +3164,7 @@ function updTxtSize(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.fontSize=parseInt(v)||16;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function updTS(p,v){
@@ -3181,7 +3181,7 @@ function updTS(p,v){
     const hex=document.getElementById('pp-fc-hex');
     if(hex) hex.value = v;
   }
-  scheduleSnapshot();
+  snapshotState();
 }
 
 function toggleFmt(type){
@@ -3202,7 +3202,7 @@ function toggleFmt(type){
     document.getElementById('fmt-u').classList.toggle('active',l.tp.underline);
     applyTextStyles(l);
   }
-  scheduleSnapshot();
+  snapshotState();
 }
 
 
@@ -3233,6 +3233,9 @@ function applyTextStyles(layer){
     const shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
     textShadowParts.push(`0 ${Math.max(1,Math.round(drop*0.18))}px ${Math.max(3,drop*0.8)}px ${shadowColor}`);
   }
+
+// ensure history capture after style changes
+snapshotState();
   d.style.webkitTextStroke = '';
   d.style.textShadow = textShadowParts.join(', ');
   d.style.fontSize = (tp.fontSize||24) + 'px';
@@ -3254,19 +3257,19 @@ function updStroke(){
   l.tp.strokeColor=document.getElementById('pp-stroke-c').value;
   l.tp.strokeWidth=parseInt(document.getElementById('pp-stroke-w').value)||0;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadow(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.shadowBlur=parseInt(v)||0;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadowColor(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.shadowColor=v;
   applyTextStyles(l);
-  scheduleSnapshot();
+  snapshotState();
 }
 function updTextShadow(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
@@ -3395,6 +3398,7 @@ document.addEventListener('mousemove',ev2=>{
   }
 });
 document.addEventListener('mouseup',ev2=>{
+  if(! _suppressHistory){ snapshotState(); }
   if(isPan){ isPan=false; document.getElementById('canvas-area').style.cursor=spaceDown?'grab':''; }
 });
 
