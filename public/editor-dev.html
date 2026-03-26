@@ -1263,47 +1263,49 @@ cvs.style.transform=`scale(${zoom_})`;
 // ── UNDO / REDO ───────────────────────────────────────────────
 const HISTORY_MAX = 50;
 let undoStack = [];      // array of JSON snapshots
-let historyIdx = -1;   // current position
+let historyIdx = -1;     // current position
 let _suppressHistory = false;
-let _snapDebTimer = null;
-
-function _serializeLayers(){
-  return JSON.stringify(layers.map(l=>({
-    ...l, el:null,
-    tp: l.tp ? {...l.tp} : null
-  })));
-}
 
 function snapshotState(){
   if(_suppressHistory) return;
-  clearTimeout(_snapDebTimer);
-  const snap = _serializeLayers();
-  // No guardar si es idéntico al último estado
-  if(undoStack.length > 0 && undoStack[historyIdx] === snap) return;
+  syncLayersFromDOM();
+  const snap = layers.map(l=>({
+    ...l,
+    el:null,
+    tp: l.tp ? {...l.tp} : null
+  }));
+  const json = JSON.stringify(snap);
+  if(historyIdx >= 0 && undoStack[historyIdx] === json) return;
+
   undoStack = undoStack.slice(0, historyIdx+1);
-  undoStack.push(snap);
+  undoStack.push(json);
   if(undoStack.length > HISTORY_MAX) undoStack.shift();
   historyIdx = undoStack.length - 1;
   updateUndoUI();
 }
 
-// Para cambios continuos (texto, sliders): espera 500ms sin cambios
-function snapshotDebounced(){
-  if(_suppressHistory) return;
-  clearTimeout(_snapDebTimer);
-  _snapDebTimer = setTimeout(()=>{ snapshotState(); }, 500);
+function resetHistoryWithCurrentState(){
+  undoStack = [];
+  historyIdx = -1;
+  snapshotState();
 }
 
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
-  // Remove cel elements but keep multi-box
   Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
   layers = [];
+  groups = {};
+  gCtr = 0;
+
   data.forEach(ld=>{
     const l = {...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     layers.push(l);
     mkEl(l);
+    if(l.groupId){
+      groups[l.groupId] = groups[l.groupId] || [];
+      groups[l.groupId].push(l.id);
+    }
   });
   desel();
   renderList();
@@ -1311,11 +1313,7 @@ function restoreSnapshot(snap){
 }
 
 function undo(){
-  // historyIdx=0 es el estado inicial (base) — no se puede deshacer más allá
-  if(historyIdx <= 1) {
-    if(historyIdx === 1){ historyIdx=0; restoreSnapshot(undoStack[0]); updateUndoUI(); showToast('↩ Deshacer'); }
-    return;
-  }
+  if(historyIdx <= 0) return;
   historyIdx--;
   restoreSnapshot(undoStack[historyIdx]);
   updateUndoUI();
@@ -2129,7 +2127,7 @@ function updFrameRadius(v){
     if(img) img.style.borderRadius=v+'px';
     applyFrameBorder(l);
   }
-  snapshotDebounced();
+  snapshotState();
 }
 
 function addText(){
@@ -2945,26 +2943,26 @@ function updFrameShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameShadow = parseInt(v||0);
   applyFrameBorder(l);
-  snapshotDebounced();
+  snapshotState();
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
   l.frameInnerShadow = parseInt(v||0);
   applyFrameBorder(l);
-  snapshotDebounced();
+  snapshotState();
 }
 
 function updFrameBorderWidth(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderWidth = parseInt(v||0);
   applyFrameBorder(l); syncP();
-  snapshotDebounced();
+  snapshotState();
 }
 function updFrameBorderColor(v){
   const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
   l.frameBorderColor = v || '#00ffc3';
   applyFrameBorder(l); syncP();
-  snapshotDebounced();
+  snapshotState();
 }
 
 
@@ -3000,7 +2998,7 @@ function updImageBlur(value){
   applyImageVisuals(l);
   const lbl = document.getElementById('pp-blur-lbl');
   if(lbl) lbl.textContent = `${l.blur}px`;
-  snapshotDebounced();
+  snapshotState();
 }
 
 function syncP(){
@@ -3088,25 +3086,25 @@ function updPos(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='x'){l.x=parseInt(v)||0;l.el.style.left=l.x+'px';}
   else{l.y=parseInt(v)||0;l.el.style.top=l.y+'px';}
-  snapshotDebounced();
+  snapshotState();
 }
 function updSz(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='w'){l.w=Math.max(1,parseInt(v)||1);l.el.style.width=l.w+'px';}
   else{l.h=Math.max(1,parseInt(v)||1);l.el.style.height=l.h+'px';}
-  snapshotDebounced();
+  snapshotState();
 }
 function updOp(v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   l.opacity=v/100;l.el.style.opacity=l.opacity;
-  snapshotDebounced();
+  snapshotState();
 }
 function updTxt(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.text=v;
   const d=document.getElementById('ti-'+selId);if(d)d.textContent=v;
   applyTextStyles(l);
-  snapshotDebounced();
+  snapshotState();
 }
 
 // Font size: update ONLY font size, not box size
@@ -3114,7 +3112,7 @@ function updTxtSize(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
   l.tp.fontSize=parseInt(v)||16;
   applyTextStyles(l);
-  snapshotDebounced();
+  snapshotState();
 }
 
 function updTS(p,v){
@@ -3131,7 +3129,7 @@ function updTS(p,v){
     const hex=document.getElementById('pp-fc-hex');
     if(hex) hex.value = v;
   }
-  snapshotDebounced();
+  snapshotState();
 }
 
 function toggleFmt(type){
@@ -3218,16 +3216,7 @@ function updTextShadowColor(v){
   applyTextStyles(l);
   snapshotState();
 }
-function updTextShadow(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.shadowBlur = parseInt(v)||0;
-  applyTextStyles(l);
-}
-function updTextShadowColor(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.shadowColor = v;
-  applyTextStyles(l);
-}
+
 function scaleEl(f){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(f===1){
@@ -4097,12 +4086,7 @@ function loadData(tpl){
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
   renderList();
-  // Estado inicial: limpia historial y guarda como base NO deshacible
-  undoStack=[]; historyIdx=-1;
-  const initialSnap = JSON.stringify(layers.map(l=>({...l,el:null,tp:l.tp?{...l.tp}:null})));
-  undoStack.push(initialSnap);
-  historyIdx=0;
-  updateUndoUI();
+  resetHistoryWithCurrentState();
 }
 
 // LOADING UI
