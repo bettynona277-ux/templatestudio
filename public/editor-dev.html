@@ -1261,83 +1261,90 @@ initMultiBoxHandles();
 cvs.style.transform=`scale(${zoom_})`;
 
 // ── UNDO / REDO ───────────────────────────────────────────────
-const HISTORY_MAX = 80;
+const HISTORY_MAX = 50;
 let undoStack = [];      // array of JSON snapshots
-let historyIdx = -1;     // current position
+let historyIdx = -1;      // current position
 let _suppressHistory = false;
 let _historyTimer = null;
-let _historyDirty = false;
+let _lastSnapshotHash = '';
 
 function serializeHistoryState(){
   syncLayersFromDOM();
   const snap = layers.map(l=>({
     ...l,
     el:null,
-    tp: l.tp ? {...l.tp} : null
+    tp:l.tp?{...l.tp}:null
   }));
   return JSON.stringify(snap);
 }
 
-function scheduleSnapshot(delay=180){
+function snapshotState(force=false){
+  if(_suppressHistory) return false;
+  clearTimeout(_historyTimer);
+  _historyTimer = null;
+
+  const snap = serializeHistoryState();
+  if(!force){
+    if(historyIdx >= 0 && undoStack[historyIdx] === snap) return false;
+    if(_lastSnapshotHash === snap) return false;
+  }
+
+  // if user undid and then makes a new change, cut future history
+  undoStack = undoStack.slice(0, historyIdx + 1);
+  undoStack.push(snap);
+
+  if(undoStack.length > HISTORY_MAX){
+    undoStack.shift();
+  }
+
+  historyIdx = undoStack.length - 1;
+  _lastSnapshotHash = snap;
+  updateUndoUI();
+  return true;
+}
+
+function scheduleSnapshot(delay=220){
   if(_suppressHistory) return;
-  _historyDirty = true;
   clearTimeout(_historyTimer);
   _historyTimer = setTimeout(()=>{
     snapshotState();
   }, delay);
 }
 
-function flushPendingSnapshot(){
-  if(_suppressHistory) return;
+function flushScheduledSnapshot(){
   if(_historyTimer){
     clearTimeout(_historyTimer);
     _historyTimer = null;
-  }
-  if(_historyDirty){
     snapshotState();
   }
 }
 
-function snapshotState(force=false){
-  if(_suppressHistory) return;
-  const serialized = serializeHistoryState();
-
-  if(!force && historyIdx >= 0 && undoStack[historyIdx] === serialized){
-    _historyDirty = false;
-    updateUndoUI();
-    return;
-  }
-
-  // Truncate forward history
-  undoStack = undoStack.slice(0, historyIdx + 1);
-  undoStack.push(serialized);
-
-  if(undoStack.length > HISTORY_MAX){
-    const overflow = undoStack.length - HISTORY_MAX;
-    undoStack.splice(0, overflow);
-    historyIdx = Math.max(-1, historyIdx - overflow);
-  }
-
-  historyIdx = undoStack.length - 1;
-  _historyDirty = false;
-  updateUndoUI();
+function resetHistoryWithCurrentState(){
+  clearTimeout(_historyTimer);
+  _historyTimer = null;
+  undoStack = [];
+  historyIdx = -1;
+  _lastSnapshotHash = '';
+  snapshotState(true);
 }
 
 function restoreSnapshot(snap){
   _suppressHistory = true;
   const data = JSON.parse(snap);
 
-  Array.from(cvs.children).forEach(el=>{
-    if(el.id!=='multi-box') el.remove();
-  });
-
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
   layers = [];
-  lCtr = 0;
+  groups = {};
+  gCtr = 0;
 
   data.forEach(ld=>{
-    lCtr = Math.max(lCtr, (ld.id||0) + 1);
-    const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
+    const l = {...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     layers.push(l);
+    if(l.groupId){
+      groups[l.groupId] = groups[l.groupId] || [];
+      groups[l.groupId].push(l.id);
+      gCtr = Math.max(gCtr, parseInt(String(l.groupId).replace(/\D/g,'')) + 1 || gCtr);
+    }
     mkEl(l);
   });
 
@@ -1347,42 +1354,34 @@ function restoreSnapshot(snap){
 }
 
 function undo(){
-  flushPendingSnapshot();
+  flushScheduledSnapshot();
   if(historyIdx <= 0) return;
   historyIdx--;
   restoreSnapshot(undoStack[historyIdx]);
+  _lastSnapshotHash = undoStack[historyIdx] || '';
   updateUndoUI();
   showToast('↩ Deshacer');
 }
 
 function redo(){
-  if(_historyTimer){
-    clearTimeout(_historyTimer);
-    _historyTimer = null;
-  }
-  _historyDirty = false;
   if(historyIdx >= undoStack.length - 1) return;
   historyIdx++;
   restoreSnapshot(undoStack[historyIdx]);
+  _lastSnapshotHash = undoStack[historyIdx] || '';
   updateUndoUI();
   showToast('↪ Rehacer');
 }
 
-function resetHistory(){
-  if(_historyTimer){
-    clearTimeout(_historyTimer);
-    _historyTimer = null;
-  }
-  undoStack = [];
-  historyIdx = -1;
-  _historyDirty = false;
-  snapshotState(true);
-}
-
 function updateUndoUI(){
   const bu=document.getElementById('btn-undo'), br=document.getElementById('btn-redo');
-  if(bu){ bu.style.opacity=historyIdx>0?'1':'0.35'; bu.style.cursor=historyIdx>0?'pointer':'default'; }
-  if(br){ br.style.opacity=historyIdx<undoStack.length-1?'1':'0.35'; br.style.cursor=historyIdx<undoStack.length-1?'pointer':'default'; }
+  if(bu){
+    bu.style.opacity = historyIdx > 0 ? '1' : '0.35';
+    bu.style.cursor = historyIdx > 0 ? 'pointer' : 'default';
+  }
+  if(br){
+    br.style.opacity = historyIdx < undoStack.length - 1 ? '1' : '0.35';
+    br.style.cursor = historyIdx < undoStack.length - 1 ? 'pointer' : 'default';
+  }
 }
 
 // Toast notification
@@ -4148,7 +4147,7 @@ function loadData(tpl){
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
   renderList();
-  resetHistory();
+  resetHistoryWithCurrentState();
 }
 
 // LOADING UI
@@ -4162,6 +4161,7 @@ document.addEventListener('keydown',ev=>{
 
   // Undo / Redo
   if((ev.ctrlKey||ev.metaKey) && !active){
+    if((ev.key==='z'||ev.key==='Z') && ev.shiftKey){ ev.preventDefault(); redo(); return; }
     if(ev.key==='z'||ev.key==='Z'){ ev.preventDefault(); undo(); return; }
     if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); return; }
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
