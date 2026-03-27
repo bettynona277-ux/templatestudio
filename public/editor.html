@@ -1295,15 +1295,19 @@ async function initFB(){
       setTimeout(resolve, 3000);
     });
 
-    // Si aún no hay sesión y somos admin, hacer login explícito
-    const adminEmail=localStorage.getItem('ts_admin_email');
-    const adminPass=localStorage.getItem('ts_admin_pass');
-    if(!modeClient && adminEmail && adminPass && !fbAuth.currentUser){
-      try{
-        await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
-        console.log('✅ Admin logueado:', fbAuth.currentUser?.email);
-      }catch(e){
-        console.warn('Auto-login admin falló:',e.message);
+    // Si no hay sesión activa y somos admin, intentar login con credenciales guardadas
+    if(!modeClient && !fbAuth.currentUser){
+      const adminEmail=localStorage.getItem('ts_admin_email');
+      const adminPass=localStorage.getItem('ts_admin_pass');
+      if(adminEmail && adminPass){
+        try{
+          await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
+          console.log('✅ Admin logueado:', fbAuth.currentUser?.email);
+        }catch(e){
+          console.warn('Auto-login admin falló:',e.message);
+        }
+      } else {
+        console.warn('⚠️ Sin credenciales admin en localStorage. Abre el editor desde admin.html');
       }
     }
   }catch(e){console.warn('Firebase init error:',e);}
@@ -1469,7 +1473,7 @@ window.addEventListener('load',async()=>{
 
     if(!loaded && tplId && fbDb){
       const t=await getFreshDoc('templates', tplId);
-      if(t.exists){
+      if(t && t.exists){
         const tplData = t.data() || {};
         if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
         const baseTpl=extractTemplatePayload(tplData);
@@ -1484,12 +1488,19 @@ window.addEventListener('load',async()=>{
   } else {
     if(tplId&&fbDb){
       const d=await getFreshDoc('templates', tplId);
-      if(d.exists){
+      if(d && d.exists){
         const adminTpl=extractTemplatePayload(d.data());
         if(adminTpl) loadData(adminTpl);
       }
     }
   }
+  // Si es admin y no hay sesión, redirigir al panel admin
+  if(!modeClient && !fbAuth?.currentUser){
+    showToast('⚠ Sin sesión. Abriendo desde admin.html...');
+    setTimeout(()=>{ window.location.href='admin.html'; }, 2000);
+    return;
+  }
+
   if(fbDb) loadLogoLibrary();
 });
 
