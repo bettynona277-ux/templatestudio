@@ -370,39 +370,23 @@ async function createUser(){
   const btn=document.getElementById('create-user-btn');
   btn.innerHTML='<span class="spinner"></span> Creando...';btn.disabled=true;
   try{
-    // Crear usuario en Firebase Auth sin cambiar la sesión actual del admin
-    const apiKey = FIREBASE_CONFIG.apiKey;
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        email,
-        password:pass,
-        returnSecureToken:true
-      })
-    });
-    const authData = await res.json();
-
-    if(!res.ok){
-      const msg = authData?.error?.message || 'No se pudo crear la cuenta';
-      if(msg.includes('EMAIL_EXISTS')){
+    // 1. Create in Firebase Auth with Gmail directly
+    let uid;
+    try{
+      const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
+      uid=cred.user.uid;
+    }catch(authErr){
+      if(authErr.code==='auth/email-already-in-use'){
         showStatus('create-user-status','✗ Ese correo ya tiene cuenta','err');
         btn.textContent='+ Crear cuenta';btn.disabled=false;return;
       }
-      throw new Error(msg);
+      throw authErr;
     }
-
-    const uid = authData.localId;
-
-    // Guardar perfil del usuario usando la sesión admin actual
+    // 2. Save profile in Firestore
     await fbDb.collection('users').doc(uid).set({
-      uid,
-      email,
-      name:name||email,
-      createdAt:Date.now(),
-      active:true
+      uid,email,name:name||email,
+      createdAt:Date.now(),active:true
     });
-
     showStatus('create-user-status',`✓ Cuenta creada para ${email}. Contraseña: ${pass}`,'ok');
     document.getElementById('new-user-phone').value='';
     document.getElementById('new-user-pass').value='';
@@ -450,6 +434,24 @@ async function deleteUser(firestoreId, email, btn){
 }
 
 // ============ TEMPLATES ============
+function getClientTemplateLink(id){ return `${window.location.origin}/editor.html?mode=client&tpl=${id}`; }
+
+async function copyTemplateLink(id, btn){
+  const link = getClientTemplateLink(id);
+  const old = btn.textContent;
+  try{
+    await navigator.clipboard.writeText(link);
+    btn.textContent='✓ Copiado';
+  }catch(_){
+    const tmp=document.createElement('input');
+    tmp.value=link; document.body.appendChild(tmp); tmp.select(); document.execCommand('copy'); tmp.remove();
+    btn.textContent='✓ Copiado';
+  }
+  setTimeout(()=>btn.textContent=old, 1600);
+}
+
+function openTemplateLink(id){ window.open(getClientTemplateLink(id), '_blank'); }
+
 async function loadTemplates(){
   if(!fbConnected){document.getElementById('templates-grid-admin').innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">Conecta Firebase primero.</div>';return;}
   const grid=document.getElementById('templates-grid-admin');
@@ -466,12 +468,25 @@ async function loadTemplates(){
       const card=document.createElement('div');card.className='tpl-card';
       const thumb=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-ph">🎨</div>`;
       const draftBadge=isActualDraft?`<div style="position:absolute;top:8px;left:8px;background:rgba(245,200,66,0.9);color:#000;font-size:0.62rem;font-weight:800;padding:2px 8px;border-radius:100px;">📁 BORRADOR</div>`:'';
+      const publicLink = getClientTemplateLink(doc.id);
+      const publicRow = !isActualDraft ? `
+        <div style="margin-top:10px;">
+          <div style="font-size:0.65rem;color:var(--muted);margin-bottom:5px;">🔗 Link cliente</div>
+          <input value="${publicLink}" readonly onclick="this.select()" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:0.68rem;outline:none;">
+        </div>
+      ` : '';
+      const linkButtons = !isActualDraft ? `
+      <div class="tpl-actions" style="margin-top:8px;">
+        <button style="background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.2);" onclick="copyTemplateLink('${doc.id}',this)">📋 Copiar link</button>
+        <button style="background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);" onclick="openTemplateLink('${doc.id}')">↗ Abrir link</button>
+      </div>
+      ` : '';
       card.style.position='relative';
       card.innerHTML=`<div style="position:relative;">${thumb}${draftBadge}</div><div class="tpl-info"><div class="tpl-name">${d.name}</div><div class="tpl-date">${date}</div><div class="tpl-actions">
         <button style="background:rgba(0,200,150,0.1);color:var(--accent);border:1px solid rgba(0,200,150,0.2);" onclick="editTemplate('${doc.id}')">✏ Editar</button>
         ${isActualDraft?`<button style="background:rgba(245,200,66,0.1);color:#F5C842;border:1px solid rgba(245,200,66,0.2);" onclick="publishTemplate('${doc.id}',this)">🚀 Publicar</button>`:`<button style="background:rgba(79,142,247,0.1);color:var(--blue);border:1px solid rgba(79,142,247,0.2);" onclick="draftTemplate('${doc.id}',this)">📁 A borrador</button>`}
         <button style="background:rgba(255,107,107,0.08);color:var(--accent2);border:1px solid rgba(255,107,107,0.15);" onclick="deleteTpl('${doc.id}',this)">🗑</button>
-      </div></div>`;
+      </div>${publicRow}${linkButtons}</div>`;
       grid.appendChild(card);
     });
   }catch(e){grid.innerHTML=`<div style="grid-column:1/-1;color:var(--accent2);padding:20px;">Error: ${e.message}</div>`;}
@@ -479,7 +494,7 @@ async function loadTemplates(){
 
 async function publishTemplate(id,btn){
   btn.textContent='...';btn.disabled=true;
-  try{ await fbDb.collection('templates').doc(id).update({status:'published',updatedAt:Date.now()}); loadTemplates(); showStatus('templates-status','✓ Plantilla publicada','ok'); }
+  try{ await fbDb.collection('templates').doc(id).update({status:'published',updatedAt:Date.now()}); loadTemplates(); showStatus('templates-status',`✓ Plantilla publicada. Link cliente: ${getClientTemplateLink(id)}`,'ok'); }
   catch(e){ alert('Error: '+e.message); btn.textContent='🚀 Publicar'; btn.disabled=false; }
 }
 async function draftTemplate(id,btn){
@@ -567,9 +582,10 @@ const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
   authDomain: "plantillas-bfaeb.firebaseapp.com",
   projectId: "plantillas-bfaeb",
-  storageBucket: "plantillas-bfaeb.appspot.com",
-  messagingSenderId: "",
-  appId: ""
+  storageBucket: "plantillas-bfaeb.firebasestorage.app",
+  messagingSenderId: "382002543593",
+  appId: "1:382002543593:web:87ad0a3b3c1f32b3daa978",
+  measurementId: "G-NX5226C0P4"
 };
 
 window.addEventListener('load',async()=>{
