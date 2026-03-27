@@ -530,42 +530,54 @@ function showStatus(elId,msg,type){
 }
 
 // ============ ADMIN AUTH ============
+// ============ ADMIN AUTH (MODO PRODUCCIÓN) ============
 async function doAdminLogin(){
-  const email=document.getElementById('admin-email').value.trim();
-  const pass=document.getElementById('admin-pass').value;
-  const err=document.getElementById('admin-login-err');
-  const btn=document.getElementById('admin-login-btn');
-  err.textContent='';
-  if(!email||!pass){err.textContent='Ingresa email y contraseña';return;}
-  btn.textContent='Entrando...';btn.disabled=true;
-  try{
-    // Init Firebase si no está conectado
+  const email = document.getElementById('admin-email').value.trim();
+  const pass = document.getElementById('admin-pass').value;
+  const err = document.getElementById('admin-login-err');
+  const btn = document.getElementById('admin-login-btn');
+  
+  if(!err || !btn) return;
+  err.textContent = '';
+  
+  if(!email || !pass){ err.textContent = 'Ingresa email y contraseña'; return; }
+  
+  btn.textContent = 'Entrando...'; btn.disabled = true;
+
+  try {
+    // 1. Aseguramos conexión a Firebase
     if(!fbConnected){
-      const cfg=localStorage.getItem('ts_firebase_config');
-      await initFB(cfg?JSON.parse(cfg):FIREBASE_CONFIG);
+      const cfg = localStorage.getItem('ts_firebase_config');
+      await initFB(cfg ? JSON.parse(cfg) : FIREBASE_CONFIG);
     }
-    if(!fbAuth){err.textContent='Firebase no conectado';btn.textContent='Entrar';btn.disabled=false;return;}
-    const cred=await fbAuth.signInWithEmailAndPassword(email,pass);
-    // Verify this user is in the admins collection
-    const adminDoc=await fbDb.collection('admins').doc(cred.user.uid).get();
+
+    // 2. ACTIVAR MEMORIA: Esto hace que no tengas que loguearte mañana
+    await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+    // 3. Login oficial
+    const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
+
+    // 4. Verificamos si eres Admin en Firestore
+    const adminDoc = await fbDb.collection('admins').doc(cred.user.uid).get();
+    
     if(!adminDoc.exists){
       await fbAuth.signOut();
-      err.textContent='✗ No tienes permisos de administrador';
-      btn.textContent='Entrar';btn.disabled=false;return;
+      err.textContent = '✗ No tienes permisos de administrador';
+      btn.textContent = 'Entrar'; btn.disabled = false;
+      return;
     }
-    // Show main panel
-    document.getElementById('admin-login-screen').style.display='none';
-    document.getElementById('admin-main').style.display='block';
-    document.getElementById('admin-user-email').textContent=email;
-    // Guardar credenciales para uso en editor.html
+
+    // 5. Guardamos solo el email para el editor, NUNCA la contraseña
     localStorage.setItem('ts_admin_email', email);
-    localStorage.setItem('ts_admin_pass', pass);
-    btn.textContent='Entrar';btn.disabled=false;
-  }catch(e){
-    let msg='✗ Email o contraseña incorrectos';
-    if(e.code==='auth/too-many-requests') msg='✗ Demasiados intentos. Espera un momento.';
-    err.textContent=msg;
-    btn.textContent='Entrar';btn.disabled=false;
+    localStorage.removeItem('ts_admin_pass'); // Por seguridad, eliminamos la clave vieja
+
+    // El resto se encarga el "Vigilante" (onAuthStateChanged)
+    btn.textContent = 'Entrar'; btn.disabled = false;
+
+  } catch(e) {
+    console.error(e);
+    err.textContent = '✗ Email o contraseña incorrectos';
+    btn.textContent = 'Entrar'; btn.disabled = false;
   }
 }
 
@@ -599,21 +611,17 @@ window.addEventListener('load',async()=>{
   const savedCfg=localStorage.getItem('ts_firebase_config');
   const cfg=savedCfg?JSON.parse(savedCfg):FIREBASE_CONFIG;
 
-  try{
+  try {
     await initFB(cfg);
-    localStorage.setItem('ts_firebase_config',JSON.stringify(cfg));
-    fbAuth.onAuthStateChanged(async(user)=>{
-      if(user){
-        try{
-          const adminDoc=await fbDb.collection('admins').doc(user.uid).get();
-          if(adminDoc.exists){
-            document.getElementById('admin-login-screen').style.display='none';
-            document.getElementById('admin-main').style.display='block';
-            document.getElementById('admin-user-email').textContent=user.email||'';
-          }
-        }catch(e){}
-      }
+    localStorage.setItem('ts_firebase_config', JSON.stringify(cfg));
+
+    // Aquí pegaste el nuevo Vigilante que te pasé arriba...
+    fbAuth.onAuthStateChanged(async (user) => {
+       // ... el código nuevo ...
     });
+
+  } catch(e) { console.error('Error iniciando Firebase:', e); }
+});
   }catch(e){console.error('Error iniciando Firebase:',e);}
 });
 </script>
