@@ -1425,13 +1425,13 @@ window.addEventListener('load',async()=>{
         settled=true;
         try{ unsub(); }catch(_){}
         resolve(fbAuth.currentUser||null);
-      }, 10000);
+      }, 5000);
     });
 
     if(!user){
-      const wrap=document.getElementById('logo-library-empty');
-      if(wrap) wrap.textContent='Vuelve a iniciar sesión.';
-      showToast('✗ Error: Sesión no disponible');
+      // Sin sesión → redirigir al login del cliente
+      showToast('✗ Sesión expirada, redirigiendo...');
+      setTimeout(()=>{ window.location.href='index.html'; }, 1500);
       return;
     }
 
@@ -1465,6 +1465,32 @@ window.addEventListener('load',async()=>{
       alert('No se pudo cargar la plantilla compartida.');
     }
   } else {
+    // Esperar a que la sesión del admin esté lista antes de operar Firestore
+    if(fbAuth){
+      await new Promise(resolve=>{
+        let settled=false;
+        const unsub=fbAuth.onAuthStateChanged(u=>{
+          if(settled) return;
+          if(!u && !fbAuth.currentUser) return; // esperar usuario real
+          settled=true;
+          try{ unsub(); }catch(_){}
+          resolve();
+        });
+        setTimeout(()=>{
+          if(settled) return;
+          settled=true;
+          try{ unsub(); }catch(_){}
+          resolve();
+        }, 5000);
+      });
+    }
+
+    // Verificar que hay sesión activa
+    if(!fbAuth?.currentUser){
+      showToast('✗ No hay sesión de admin. Vuelve al panel.');
+      console.warn('Admin sin sesión — localStorage ts_admin_email:', localStorage.getItem('ts_admin_email'));
+    }
+
     if(tplId&&fbDb){
       const d=await getFreshDoc('templates', tplId);
       if(d.exists){
@@ -3266,7 +3292,12 @@ async function saveClientDesign(){
     btn.textContent='💾 Guardado ✓';
     setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
   }catch(e){
-    showToast('✗ Error: '+e.message);
+    if(e.message && e.message.includes('permission')){
+      showToast('✗ Sesión expirada. Volviendo al inicio...');
+      setTimeout(()=>{ window.location.href='index.html'; }, 2000);
+    } else {
+      showToast('✗ Error: '+e.message);
+    }
     btn.textContent='💾 Guardar diseño'; btn.disabled=false;
   }
 }
@@ -3646,6 +3677,11 @@ async function buildLayerData(){
 
 async function doSave(status){
   if(!fbDb){alert('Firebase no conectado. Ve a admin.html y conecta Firebase primero.');return;}
+  // Verificar sesión activa antes de guardar
+  if(!fbAuth?.currentUser){
+    alert('No hay sesión activa. Cierra y vuelve a abrir el editor desde el panel de admin.');
+    return;
+  }
   const name=document.getElementById('save-name').value.trim();
   const st=document.getElementById('save-st');
   if(!name){st.textContent='Escribe un nombre para la plantilla';st.style.color='var(--accent2)';return;}
@@ -3894,4 +3930,3 @@ document.addEventListener('keydown',ev=>{
 </script>
 </body>
 </html>
-```
