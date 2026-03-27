@@ -1266,18 +1266,16 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
 
-    const modeNow = new URLSearchParams(window.location.search).get('mode');
-
     const modeClient = new URLSearchParams(window.location.search).get('mode') === 'client';
 
+    // Cliente usa 'ts-client' para heredar sesión del index.html
+    // Admin usa 'ts-editor' con login explícito
     if(modeClient){
-      // Modo cliente: compartir sesión con index.html usando 'ts-client'
       try { fbApp = firebase.app('ts-client'); }
       catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
     } else {
-      // Modo admin: usar app independiente para evitar conflictos de sesión
-      try { fbApp = firebase.app('ts-admin'); }
-      catch(e) { fbApp = firebase.initializeApp(config, 'ts-admin'); }
+      try { fbApp = firebase.app('ts-editor'); }
+      catch(e) { fbApp = firebase.initializeApp(config, 'ts-editor'); }
     }
 
     fbDb = firebase.firestore(fbApp);
@@ -1287,13 +1285,23 @@ async function initFB(){
       await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     }catch(_){}
 
-    // Auto-login admin SOLO en modo admin
+    // Esperar a que Firebase restaure la sesión guardada (si existe)
+    await new Promise(resolve=>{
+      const unsub = fbAuth.onAuthStateChanged(u=>{
+        try{ unsub(); }catch(_){}
+        resolve(u);
+      });
+      // Timeout de seguridad 3s
+      setTimeout(resolve, 3000);
+    });
+
+    // Si aún no hay sesión y somos admin, hacer login explícito
     const adminEmail=localStorage.getItem('ts_admin_email');
     const adminPass=localStorage.getItem('ts_admin_pass');
-    const modeNowForLogin = new URLSearchParams(window.location.search).get('mode');
-    if(modeNowForLogin!=='client' && adminEmail && adminPass && !fbAuth.currentUser){
+    if(!modeClient && adminEmail && adminPass && !fbAuth.currentUser){
       try{
         await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
+        console.log('✅ Admin logueado:', fbAuth.currentUser?.email);
       }catch(e){
         console.warn('Auto-login admin falló:',e.message);
       }
@@ -1474,32 +1482,6 @@ window.addEventListener('load',async()=>{
       alert('No se pudo cargar la plantilla compartida.');
     }
   } else {
-    // Esperar a que la sesión del admin esté lista antes de operar Firestore
-    if(fbAuth){
-      await new Promise(resolve=>{
-        let settled=false;
-        const unsub=fbAuth.onAuthStateChanged(u=>{
-          if(settled) return;
-          if(!u && !fbAuth.currentUser) return; // esperar usuario real
-          settled=true;
-          try{ unsub(); }catch(_){}
-          resolve();
-        });
-        setTimeout(()=>{
-          if(settled) return;
-          settled=true;
-          try{ unsub(); }catch(_){}
-          resolve();
-        }, 5000);
-      });
-    }
-
-    // Verificar que hay sesión activa
-    if(!fbAuth?.currentUser){
-      showToast('✗ No hay sesión de admin. Vuelve al panel.');
-      console.warn('Admin sin sesión — localStorage ts_admin_email:', localStorage.getItem('ts_admin_email'));
-    }
-
     if(tplId&&fbDb){
       const d=await getFreshDoc('templates', tplId);
       if(d.exists){
