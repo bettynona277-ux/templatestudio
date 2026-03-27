@@ -2572,8 +2572,39 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
+    // ── Generar y subir miniatura ───────────────────────
+    btn.textContent='Generando miniatura...';
+    let thumb = '';
+    try{
+      desel(); hideMultiBox();
+      document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+      const savedTransform = cvs.style.transform;
+      cvs.style.transform = 'scale(1)';
+      await new Promise(r=>setTimeout(r,60));
+      const thumbCanvas = await html2canvas(cvs,{
+        scale: 0.3,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#000',
+        logging: false,
+        width: parseInt(cvs.style.width),
+        height: parseInt(cvs.style.height)
+      });
+      cvs.style.transform = savedTransform;
+      document.querySelectorAll('.rh').forEach(e=>e.style.display='');
+      const thumbB64 = thumbCanvas.toDataURL('image/jpeg', 0.7);
+      btn.textContent='Subiendo miniatura...';
+      thumb = await uploadToStorage(thumbB64, `thumbnails/design_${authUser.uid}_${Date.now()}.jpg`);
+    } catch(thumbErr){
+      console.warn('Miniatura falló, continuando sin ella:', thumbErr.message);
+      thumb = '';
+    }
+    // ───────────────────────────────────────────────────
+
+    btn.textContent='Guardando...';
     const data={
       name: chosenName,
+      thumb: thumb,
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
