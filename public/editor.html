@@ -1268,9 +1268,17 @@ async function initFB(){
 
     const modeNow = new URLSearchParams(window.location.search).get('mode');
 
-    // IMPORTANTE: usar el mismo nombre de app que index.html para conservar la sesión del cliente
-    try { fbApp = firebase.app('ts-client'); }
-    catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
+    const modeClient = new URLSearchParams(window.location.search).get('mode') === 'client';
+
+    if(modeClient){
+      // Modo cliente: compartir sesión con index.html usando 'ts-client'
+      try { fbApp = firebase.app('ts-client'); }
+      catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
+    } else {
+      // Modo admin: usar app independiente para evitar conflictos de sesión
+      try { fbApp = firebase.app('ts-admin'); }
+      catch(e) { fbApp = firebase.initializeApp(config, 'ts-admin'); }
+    }
 
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
@@ -1282,7 +1290,8 @@ async function initFB(){
     // Auto-login admin SOLO en modo admin
     const adminEmail=localStorage.getItem('ts_admin_email');
     const adminPass=localStorage.getItem('ts_admin_pass');
-    if(modeNow!=='client' && adminEmail && adminPass && !fbAuth.currentUser){
+    const modeNowForLogin = new URLSearchParams(window.location.search).get('mode');
+    if(modeNowForLogin!=='client' && adminEmail && adminPass && !fbAuth.currentUser){
       try{
         await fbAuth.signInWithEmailAndPassword(adminEmail,adminPass);
       }catch(e){
@@ -3877,7 +3886,7 @@ function loadData(tpl){
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
   renderList();
-  resetHistoryWithCurrentState();
+  snapshotState();
 }
 
 // LOADING UI
@@ -3930,3 +3939,4 @@ document.addEventListener('keydown',ev=>{
 </script>
 </body>
 </html>
+```
