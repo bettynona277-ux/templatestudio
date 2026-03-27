@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diseños Streaming</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{--bg:#08080f;--panel:#111118;--panel2:#1a1a24;--border:rgba(255,255,255,0.07);--accent:#00C896;--accent2:#FF6B6B;--blue:#4F8EF7;--text:#eeeef5;--muted:#666;}
@@ -481,7 +481,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:5px;}
           <option value="'Montserrat'">Montserrat</option>
           <option value="'Plus Jakarta Sans'">Jakarta Sans</option>
           <option value="Impact">Impact</option>
-          <option value="'Bebas Neue', sans-serif">Bebas Neue</option>
+          <option value="'Bebas Neue'">Bebas Neue</option>
           <option value="Arial">Arial</option>
           <option value="Georgia">Georgia</option>
           <option value="'Times New Roman'">Times New Roman</option>
@@ -1053,9 +1053,10 @@ const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
   authDomain: "plantillas-bfaeb.firebaseapp.com",
   projectId: "plantillas-bfaeb",
-  storageBucket: "plantillas-bfaeb.appspot.com",
-  messagingSenderId: "",
-  appId: ""
+  storageBucket: "plantillas-bfaeb.firebasestorage.app",
+  messagingSenderId: "382002543593",
+  appId: "1:382002543593:web:87ad0a3b3c1f32b3daa978",
+  measurementId: "G-NX5226C0P4"
 };
 
 async function initFB(){
@@ -1320,8 +1321,11 @@ async function loadPSDData(data){
       w:Math.round((ld.width||200)*scale), h:Math.round((ld.height||50)*scale),
       opacity:ld.opacity??1, visible:ld.visible??true, zIndex:lCtr,
       tp: ld.isText ? (()=>{
-        // Regla solicitada: todo texto importado desde PSD inicia en 18
-        const fontSize = 18;
+        const rawFs = ld.fontSize||0;
+        // If fontSize from PSD seems invalid (0 or unreasonably large), fallback to 20
+        const fontSize = (rawFs>4 && rawFs<500)
+          ? Math.max(8, Math.round(rawFs*scale))
+          : 20;
         // Calculate box size from font: if PSD box is too small vs fontSize, auto-size
         const minBoxH = Math.round(fontSize*1.4);
         const boxW = Math.round((ld.width||300)*scale);
@@ -1472,7 +1476,7 @@ const FONT_LIST = [
   {label:'Jakarta Sans', value:"'Plus Jakarta Sans'"},
   {label:'Arial', value:'Arial'},
   {label:'Impact', value:'Impact'},
-  {label:'Bebas Neue', value:"'Bebas Neue', sans-serif"},
+  {label:'Bebas Neue', value:"'Bebas Neue'"},
   {label:'Georgia', value:'Georgia'},
   {label:'Times New Roman', value:"'Times New Roman'"},
   {label:'Courier New', value:"'Courier New'"},
@@ -2568,47 +2572,12 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
-    // Miniatura real del diseño para que el cliente la vea en su biblioteca
-    desel();
-    hideMultiBox();
-    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
-    const svTransform = cvs.style.transform;
-    cvs.style.transform='scale(1)';
-    await new Promise(r=>setTimeout(r,60));
-
-    const canvasW = parseInt(cvs.style.width) || 1080;
-    const canvasH = parseInt(cvs.style.height) || 1080;
-    const targetThumbW = 320;
-    const targetScale = Math.min(1, Math.max(0.55, targetThumbW / canvasW));
-
-    const thumbCanvas = await html2canvas(cvs,{
-      scale:targetScale,
-      useCORS:true,
-      allowTaint:true,
-      backgroundColor:null,
-      logging:false,
-      width:canvasW,
-      height:canvasH
-    });
-
-    cvs.style.transform=svTransform;
-    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
-
-    let thumbData = '';
-    try{
-      thumbData = thumbCanvas.toDataURL('image/webp',0.88);
-    }catch(_){
-      thumbData = thumbCanvas.toDataURL('image/jpeg',0.9);
-    }
-
     const data={
       name: chosenName,
       updatedAt:Date.now(),
       template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
       tplId:tplId||null,
-      uid:authUser.uid,
-      thumb: thumbData
+      uid:authUser.uid
     };
 
     if(clientDesignId){
@@ -2738,7 +2707,7 @@ async function doSave(status){
   st.textContent='Preparando...';st.style.color='var(--muted)';
   tplStatus = status;
 
-  // 1. Generate + upload thumbnail (más nítida, pensada para cards de plantilla)
+  // 1. Generate + upload thumbnail
   let thumb='';
   try{
     st.textContent='Generando miniatura...';
@@ -2747,32 +2716,11 @@ async function doSave(status){
     document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
     const sv=cvs.style.transform; cvs.style.transform='scale(1)';
     await new Promise(r=>setTimeout(r,80));
-
-    const canvasW = parseInt(cvs.style.width) || 1080;
-    const canvasH = parseInt(cvs.style.height) || 1080;
-    const targetThumbW = 420; // más clara para la biblioteca admin/cliente sin ser pesada
-    const targetScale = Math.min(1.1, Math.max(0.45, targetThumbW / canvasW));
-
-    const c=await html2canvas(cvs,{
-      scale:targetScale,
-      useCORS:true,
-      allowTaint:true,
-      backgroundColor:'#000',
-      logging:false,
-      width:canvasW,
-      height:canvasH
-    });
+    const c=await html2canvas(cvs,{scale:0.25,useCORS:true,allowTaint:true,backgroundColor:'#000',logging:false,
+      width:parseInt(cvs.style.width), height:parseInt(cvs.style.height)});
     cvs.style.transform=sv;
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
-
-    let thumbB64='';
-    try{
-      thumbB64=c.toDataURL('image/webp',0.9);
-    }catch(_){
-      thumbB64=c.toDataURL('image/jpeg',0.9);
-    }
-
+    const thumbB64=c.toDataURL('image/jpeg',0.6);
     st.textContent='Subiendo miniatura...';
     thumb=await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.jpg`);
     console.log('✓ Thumb:', thumb.substring(0,60));
