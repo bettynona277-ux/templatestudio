@@ -88,7 +88,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <label class="f-label">Contraseña</label>
         <input type="password" id="admin-pass" class="f-input" placeholder="••••••••">
     </div>
-    <div id="admin-login-err" style="color:var(--accent2);font-size:0.75rem;margin-bottom:15px;text-align:center;"></div>
+    <div id="admin-login-err" style="color:var(--accent2);font-size:0.75rem;margin-bottom:15px;text-align:center;line-height:1.4;"></div>
     <button id="admin-login-btn" onclick="doAdminLogin()" class="btn btn-green btn-full">Entrar al Panel</button>
   </div>
 </div>
@@ -195,7 +195,6 @@ async function initFB(cfg) {
 
 // 2. VIGILANTE DE SESIÓN (AUTO-LOGIN)
 window.addEventListener('load', async () => {
-  // Llenar campos de config en la UI
   const fields = ['apiKey', 'projectId'];
   fields.forEach(f => {
     const el = document.getElementById('fb-' + f);
@@ -212,18 +211,16 @@ window.addEventListener('load', async () => {
       try {
         const adminDoc = await fbDb.collection('admins').doc(user.uid).get();
         if (adminDoc.exists) {
-          // ES EL ADMIN: Entrar directo
           loginScreen.style.display = 'none';
           adminMain.style.display = 'block';
           document.getElementById('admin-user-email').textContent = user.email;
-          
           loadTemplates();
           loadUsers();
         } else {
-          // No es admin, cerrar sesion
+          console.warn("Acceso denegado: El UID no está en la colección 'admins'");
           await fbAuth.signOut();
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Error en AuthState:", e); }
     } else {
       loginScreen.style.display = 'flex';
       adminMain.style.display = 'none';
@@ -231,19 +228,18 @@ window.addEventListener('load', async () => {
   });
 });
 
-// 3. FUNCIÓN DE LOGIN
+// 3. FUNCIÓN DE LOGIN CORREGIDA CON ERRORES DETALLADOS
 async function doAdminLogin() {
   const email = document.getElementById('admin-email').value.trim();
   const pass = document.getElementById('admin-pass').value;
   const err = document.getElementById('admin-login-err');
   const btn = document.getElementById('admin-login-btn');
 
-  if (!email || !pass) { err.textContent = '✗ Ingresa datos'; return; }
+  if (!email || !pass) { err.textContent = '✗ Ingresa email y contraseña'; return; }
   btn.innerHTML = '<span class="spinner"></span> Verificando...'; btn.disabled = true;
   err.textContent = '';
 
   try {
-    // Activar persistencia para que nos recuerde
     await fbAuth.setPersistence(firebase.auth.Persistence.LOCAL);
     const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
     
@@ -251,16 +247,23 @@ async function doAdminLogin() {
     const adminDoc = await fbDb.collection('admins').doc(cred.user.uid).get();
     if(!adminDoc.exists){
         await fbAuth.signOut();
-        err.textContent = '✗ No tienes permisos de administrador';
+        err.textContent = '✗ Autenticado, pero no tienes permisos de administrador en Firestore';
         btn.textContent = 'Entrar al Panel'; btn.disabled = false;
         return;
     }
 
     localStorage.setItem('ts_admin_email', email);
-    localStorage.removeItem('ts_admin_pass'); // Limpieza de seguridad
     btn.textContent = 'Entrar al Panel'; btn.disabled = false;
   } catch (e) {
-    err.textContent = '✗ Correo o contraseña incorrectos';
+    console.error("Error completo de Firebase:", e);
+    // Muestra el mensaje real de Firebase para saber por qué rebota
+    if (e.code === 'auth/too-many-requests') {
+        err.textContent = '✗ Demasiados intentos fallidos. Por seguridad, espera unos minutos o cambia tu clave.';
+    } else if (e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found') {
+        err.textContent = '✗ Correo o contraseña incorrectos';
+    } else {
+        err.textContent = '✗ Error: ' + e.message;
+    }
     btn.textContent = 'Entrar al Panel'; btn.disabled = false;
   }
 }
@@ -320,9 +323,6 @@ async function createUser() {
 
     btn.disabled = true;
     try {
-        // En un flujo real de Firebase Client SDK no puedes crear otros usuarios 
-        // sin que se te cierre la sesión actual, a menos que uses Firebase Functions (Backend).
-        // Sin embargo, podemos guardar el "perfil" en Firestore para que el admin lo vea.
         await fbDb.collection('users').add({
             email: email,
             role: 'client',
@@ -336,6 +336,7 @@ async function createUser() {
     } catch(e) {
         status.textContent = 'Error: ' + e.message;
         status.className = 'status-msg status-err';
+        status.style.display = 'block';
     }
     btn.disabled = false;
 }
