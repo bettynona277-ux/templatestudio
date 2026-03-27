@@ -3738,6 +3738,18 @@ async function doSave(status){
 
   // 4. Save to Firestore
   try{
+    // Asegurar que el uid del admin está en la colección admins
+    const uid = fbAuth.currentUser.uid;
+    try{
+      const adminDoc = await fbDb.collection('admins').doc(uid).get();
+      if(!adminDoc.exists){
+        await fbDb.collection('admins').doc(uid).set({ role: 'admin', email: fbAuth.currentUser.email });
+        console.log('✅ Documento admin creado para uid:', uid);
+      }
+    }catch(adminErr){
+      console.warn('No se pudo verificar/crear doc admin:', adminErr.message);
+    }
+
     st.textContent = status==='draft' ? 'Guardando borrador...' : 'Publicando...';
     if(tplId){
       await fbDb.collection('templates').doc(tplId).update(payload);
@@ -3765,7 +3777,14 @@ async function doSave(status){
     document.getElementById('save-name').value=name;
   }catch(e){
     console.error('❌ Firestore error:', e);
-    st.textContent='✗ Error Firestore: '+e.message;
+    const uid = fbAuth?.currentUser?.uid || 'sin-uid';
+    const email = fbAuth?.currentUser?.email || 'sin-email';
+    console.error('UID:', uid, '| Email:', email);
+    if(e.message && e.message.includes('permission')){
+      st.textContent='✗ Sin permisos. Verifica que tu UID esté en la colección admins: '+uid;
+    } else {
+      st.textContent='✗ Error Firestore: '+e.message;
+    }
     st.style.color='var(--accent2)';
   }
 
