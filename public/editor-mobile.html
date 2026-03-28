@@ -139,6 +139,24 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .modal-btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);}
 .modal-status{font-size:0.75rem;text-align:center;min-height:16px;margin-top:4px;}
 
+/* ── HANDLES DE TRANSFORMACIÓN ── */
+.sel-box{
+  position:absolute;pointer-events:none;z-index:9000;
+  border:2px solid var(--accent);
+  box-shadow:0 0 0 1px rgba(0,0,0,0.4);
+}
+.sel-handle{
+  position:absolute;width:22px;height:22px;
+  background:var(--accent);border:2px solid #fff;
+  border-radius:4px;pointer-events:all;cursor:pointer;
+  transform:translate(-50%,-50%);z-index:9001;
+  box-shadow:0 2px 6px rgba(0,0,0,0.4);
+}
+.sel-handle.nw{top:0;left:0;}
+.sel-handle.ne{top:0;left:100%;}
+.sel-handle.sw{top:100%;left:0;}
+.sel-handle.se{top:100%;left:100%;}
+
 /* ── ZOOM BAR ── */
 .zoom-bar{
   position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
@@ -240,6 +258,14 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
       </div>
     </div>
   </div>
+</div>
+
+<!-- SEL BOX (handles de transformación) -->
+<div id="sel-box" class="sel-box" style="display:none;">
+  <div class="sel-handle nw" id="sh-nw"></div>
+  <div class="sel-handle ne" id="sh-ne"></div>
+  <div class="sel-handle sw" id="sh-sw"></div>
+  <div class="sel-handle se" id="sh-se"></div>
 </div>
 
 <!-- TOAST -->
@@ -347,6 +373,9 @@ function loadDesign(tpl){
   if(!tpl||tpl.type!=='psd-layers') return;
   Array.from(cvs.children).forEach(el=>el.remove());
   layers = [];
+  // Mover el sel-box dentro del canvas para que escale con el zoom
+  const box = document.getElementById('sel-box');
+  if(box && box.parentNode !== cvs) cvs.appendChild(box);
 
   cvs.style.width = (tpl.canvasW||800)+'px';
   cvs.style.height = (tpl.canvasH||800)+'px';
@@ -362,12 +391,128 @@ function loadDesign(tpl){
 }
 
 // ══════════════════════════════════════════
-// DRAG TOUCH PARA CAPAS
+// SISTEMA DE SELECCIÓN Y TRANSFORMACIÓN
 // ══════════════════════════════════════════
+let selBox = null;
+let activeLayer = null; // capa actualmente seleccionada para mover/escalar
+
+function getSelBox(){ return document.getElementById('sel-box'); }
+
+function showSelBox(layer){
+  const box = getSelBox();
+  if(!box||!layer||!layer.el) return;
+  activeLayer = layer;
+  updateSelBox();
+  box.style.display = 'block';
+  // Attach resize handles
+  attachHandles(layer);
+}
+
+function updateSelBox(){
+  if(!activeLayer) return;
+  const box = getSelBox();
+  const l = activeLayer;
+  // Posición relativa al canvas (ya en coordenadas del canvas)
+  box.style.left = (l.x - 2) + 'px';
+  box.style.top  = (l.y - 2) + 'px';
+  box.style.width  = (l.w + 4) + 'px';
+  box.style.height = (l.h + 4) + 'px';
+  box.style.transformOrigin = 'top left';
+  box.style.transform = `scale(${1})`; // el box está dentro del canvas que ya está escalado
+}
+
+function hideSelBox(){
+  const box = getSelBox();
+  if(box) box.style.display = 'none';
+  activeLayer = null;
+}
+
+// Handles de escala proporcional desde esquinas
+function attachHandles(layer){
+  const handles = {
+    nw: document.getElementById('sh-nw'),
+    ne: document.getElementById('sh-ne'),
+    sw: document.getElementById('sh-sw'),
+    se: document.getElementById('sh-se')
+  };
+  Object.entries(handles).forEach(([corner, handle])=>{
+    if(!handle) return;
+    // Limpiar listeners anteriores
+    const newHandle = handle.cloneNode(true);
+    handle.parentNode.replaceChild(newHandle, handle);
+    
+    let t0x, t0y, origW, origH, origX, origY;
+    
+    newHandle.addEventListener('touchstart', e=>{
+      e.stopPropagation(); e.preventDefault();
+      const t = e.touches[0];
+      t0x = t.clientX; t0y = t.clientY;
+      origW = layer.w; origH = layer.h;
+      origX = layer.x; origY = layer.y;
+    },{passive:false});
+
+    newHandle.addEventListener('touchmove', e=>{
+      e.stopPropagation(); e.preventDefault();
+      const t = e.touches[0];
+      const dx = (t.clientX - t0x) / zoom_;
+      const dy = (t.clientY - t0y) / zoom_;
+      
+      // Escalar proporcionalmente usando la diagonal
+      const diag = Math.sqrt(dx*dx + dy*dy);
+      const sign = (dx + dy) > 0 ? 1 : -1;
+      const delta = sign * diag * 0.7;
+      
+      let newW, newH, newX, newY;
+      const ratio = origH / origW;
+      
+      if(corner === 'se'){
+        newW = Math.max(20, origW + delta);
+        newH = Math.max(20, newW * ratio);
+        newX = origX; newY = origY;
+      } else if(corner === 'sw'){
+        newW = Math.max(20, origW - delta);
+        newH = Math.max(20, newW * ratio);
+        newX = origX + (origW - newW); newY = origY;
+      } else if(corner === 'ne'){
+        newW = Math.max(20, origW + delta);
+        newH = Math.max(20, newW * ratio);
+        newX = origX; newY = origY + (origH - newH);
+      } else { // nw
+        newW = Math.max(20, origW - delta);
+        newH = Math.max(20, newW * ratio);
+        newX = origX + (origW - newW);
+        newY = origY + (origH - newH);
+      }
+      
+      layer.w = Math.round(newW);
+      layer.h = Math.round(newH);
+      layer.x = Math.round(newX);
+      layer.y = Math.round(newY);
+      
+      if(layer.el){
+        layer.el.style.width  = layer.w + 'px';
+        layer.el.style.height = layer.h + 'px';
+        layer.el.style.left   = layer.x + 'px';
+        layer.el.style.top    = layer.y + 'px';
+        // Actualizar tamaño del texto si aplica
+        if(layer.type==='text' && layer.tp){
+          const ratio2 = layer.w / origW;
+          layer.tp.fontSize = Math.round((layer.tp.fontSize||24) * ratio2 / (layer.w/origW) * ratio2);
+          // Solo escalar el contenedor, no el texto
+        }
+      }
+      updateSelBox();
+    },{passive:false});
+
+    newHandle.addEventListener('touchend', e=>{ e.stopPropagation(); },{passive:true});
+  });
+}
+
+// Drag de la capa cuando ya está seleccionada
 function makeDraggable(el, layer, onTap){
   let startX=0, startY=0, startL=0, startT=0;
   let moved=false;
-  const MOVE_THRESHOLD = 6; // px mínimos para considerar drag
+  const MOVE_THRESHOLD = 8;
 
   el.addEventListener('touchstart', e=>{
     if(e.touches.length!==1) return;
@@ -376,13 +521,13 @@ function makeDraggable(el, layer, onTap){
     startX=t.clientX; startY=t.clientY;
     startL=layer.x; startT=layer.y;
     moved=false;
-    el.style.opacity='0.85';
   },{passive:true});
 
   el.addEventListener('touchmove', e=>{
     if(e.touches.length!==1) return;
-    e.preventDefault();
-    e.stopPropagation();
+    // Solo mover si esta capa está activa
+    if(activeLayer !== layer) return;
+    e.preventDefault(); e.stopPropagation();
     const t=e.touches[0];
     const dx=(t.clientX-startX)/zoom_;
     const dy=(t.clientY-startY)/zoom_;
@@ -392,13 +537,32 @@ function makeDraggable(el, layer, onTap){
       layer.y=Math.round(startT+dy);
       el.style.left=layer.x+'px';
       el.style.top=layer.y+'px';
+      updateSelBox();
     }
   },{passive:false});
 
   el.addEventListener('touchend', e=>{
     e.stopPropagation();
-    el.style.opacity= layer.opacity!==undefined ? layer.opacity : '1';
-    if(!moved && onTap) onTap();
+    if(!moved){
+      // TAP: seleccionar esta capa y mostrar handles
+      if(activeLayer === layer){
+        // Segundo tap en la misma capa = acción (editar texto / seleccionar frame)
+        if(onTap) onTap();
+      } else {
+        // Primer tap = seleccionar
+        layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+        layer.el?.classList.add('active-touch');
+        showSelBox(layer);
+        selId = layer.id;
+        // Actualizar panel si es texto
+        if(layer.type==='text'){
+          fillTextPanel(layer);
+        } else if(layer.type==='frame'){
+          // Mostrar hint de logos
+          if(onTap) onTap();
+        }
+      }
+    }
     moved=false;
   },{passive:true});
 }
@@ -503,16 +667,7 @@ function buildShapeSVG(l){
 // ══════════════════════════════════════════
 // SELECCIÓN Y EDICIÓN DE TEXTO
 // ══════════════════════════════════════════
-function selectLayer(id){
-  const l = layers.find(x=>x.id===id);
-  if(!l || l.type!=='text') return;
-
-  // Quitar selección anterior
-  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
-  selId = id;
-  if(l.el) l.el.classList.add('active-touch');
-
-  // Llenar panel
+function fillTextPanel(l){
   const tp = l.tp||{};
   document.getElementById('text-empty').style.display = 'none';
   document.getElementById('text-editor').style.display = 'block';
@@ -522,14 +677,23 @@ function selectLayer(id){
   document.getElementById('txt-color').value = col;
   document.getElementById('color-swatch').style.background = col;
   document.getElementById('size-lbl').textContent = tp.fontSize||24;
-
-  // Cambiar a tab texto
   if(currentTab !== 'text') switchTab('text');
+}
+
+function selectLayer(id){
+  const l = layers.find(x=>x.id===id);
+  if(!l || l.type!=='text') return;
+  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+  selId = id;
+  if(l.el) l.el.classList.add('active-touch');
+  showSelBox(l);
+  fillTextPanel(l);
 }
 
 function desel(){
   selId = null;
   frameSelId = null;
+  hideSelBox();
   layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
   document.getElementById('text-empty').style.display = 'block';
   document.getElementById('text-editor').style.display = 'none';
@@ -728,6 +892,9 @@ document.getElementById('canvas-area').addEventListener('touchmove',e=>{
 },{passive:false});
 
 // Tap en canvas vacío → deseleccionar
+cvs.addEventListener('touchend', e=>{
+  if(e.target===cvs){ e.preventDefault(); desel(); }
+},{passive:false});
 cvs.addEventListener('click', e=>{ if(e.target===cvs) desel(); });
 
 // ══════════════════════════════════════════
