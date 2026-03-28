@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Diseños Streaming — Editor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#070b14;--panel:#0e1422;--panel2:#141c2f;
+  --border:rgba(255,255,255,0.08);
+  --accent:#15d6a4;--blue:#5b8cff;--red:#ff6b81;
+  --text:#eef4ff;--muted:#93a0bb;
+}
+html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);}
+
+/* ── TOPBAR ── */
+.topbar{
+  height:52px;background:var(--panel);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;flex-shrink:0;position:relative;z-index:100;
+}
+.topbar-logo{display:flex;align-items:center;gap:8px;}
+.topbar-logo img{height:32px;width:32px;border-radius:7px;object-fit:contain;}
+.topbar-logo span{font-weight:800;font-size:0.9rem;background:linear-gradient(135deg,var(--accent),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.topbar-actions{display:flex;gap:8px;}
+.tbtn{height:36px;padding:0 14px;border-radius:10px;border:none;font-family:inherit;font-size:0.78rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.tbtn-green{background:var(--accent);color:#002b22;}
+.tbtn-blue{background:var(--blue);color:#fff;}
+.tbtn-ghost{background:rgba(255,255,255,0.07);color:var(--text);border:1px solid var(--border);}
+
+/* ── LAYOUT ── */
+.layout{display:flex;flex-direction:column;height:calc(100vh - 52px);}
+.canvas-wrap{
+  flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  background:#040408;
+  background-image:radial-gradient(circle,rgba(255,255,255,0.025) 1px,transparent 1px);
+  background-size:18px 18px;
+  position:relative;
+}
+#cvs{
+  position:relative;overflow:hidden;flex-shrink:0;
+  box-shadow:0 16px 56px rgba(0,0,0,0.7);
+  transform-origin:center center;
+}
+.cel{position:absolute;cursor:pointer;user-select:none;overflow:visible;}
+.cel.active-touch{outline:2px solid var(--accent);outline-offset:2px;}
+.txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
+
+/* ── BOTTOM PANEL ── */
+.bottom-panel{
+  background:var(--panel);border-top:1px solid var(--border);
+  flex-shrink:0;transition:height 0.3s ease;overflow:hidden;
+}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);}
+.ptab{
+  flex:1;padding:11px 4px;font-size:0.72rem;font-weight:700;
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;font-family:inherit;
+  transition:all 0.2s;
+}
+.ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.panel-body{overflow-y:auto;max-height:260px;}
+.panel-body::-webkit-scrollbar{width:3px;}
+.panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
+
+/* ── TEXT EDITOR PANEL ── */
+.text-panel{padding:14px;}
+.text-panel-empty{text-align:center;padding:28px 16px;color:var(--muted);font-size:0.82rem;line-height:1.6;}
+.text-panel-empty .icon{font-size:2rem;margin-bottom:8px;}
+.field-label{font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px;}
+.text-input{
+  width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);
+  border-radius:10px;padding:10px 12px;color:var(--text);font-family:inherit;
+  font-size:0.9rem;outline:none;resize:none;
+}
+.text-input:focus{border-color:rgba(21,214,164,0.5);box-shadow:0 0 0 3px rgba(21,214,164,0.1);}
+.color-row{display:flex;gap:10px;align-items:center;margin-top:12px;}
+.color-preview{width:40px;height:40px;border-radius:10px;border:2px solid var(--border);cursor:pointer;overflow:hidden;position:relative;}
+.color-preview input[type=color]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.color-preview-swatch{width:100%;height:100%;}
+.size-row{display:flex;gap:8px;margin-top:12px;}
+.size-btn{flex:1;height:38px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);font-size:1rem;cursor:pointer;}
+.size-btn:active{background:rgba(21,214,164,0.15);}
+.layer-name-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(21,214,164,0.12);border:1px solid rgba(21,214,164,0.25);
+  border-radius:999px;padding:4px 12px;font-size:0.75rem;font-weight:700;
+  color:var(--accent);margin-bottom:12px;
+}
+
+/* ── LOGOS PANEL ── */
+.logos-panel{padding:12px;}
+.logos-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.logo-card{
+  background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  border-radius:12px;aspect-ratio:1;position:relative;overflow:hidden;
+  cursor:pointer;transition:all 0.15s;
+}
+.logo-card:active{transform:scale(0.93);border-color:var(--accent);}
+.logo-card img{width:100%;height:100%;object-fit:contain;padding:6px;pointer-events:none;}
+.logo-card .add-btn{
+  position:absolute;bottom:3px;right:3px;
+  background:var(--accent);color:#002b22;
+  border:none;border-radius:6px;
+  width:22px;height:22px;font-size:0.9rem;font-weight:900;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.logos-empty{text-align:center;padding:28px 16px;color:var(--muted);font-size:0.82rem;}
+
+/* ── LOADING ── */
+.loading{position:fixed;inset:0;background:rgba(7,11,20,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.loading.show{opacity:1;pointer-events:all;}
+.spin{width:44px;height:44px;border:3px solid rgba(21,214,164,0.15);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin-bottom:14px;}
+@keyframes sp{to{transform:rotate(360deg);}}
+.load-text{font-size:0.85rem;color:var(--muted);}
+
+/* ── TOAST ── */
+#m-toast{
+  position:fixed;bottom:300px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,0.88);color:#fff;
+  padding:8px 18px;border-radius:999px;font-size:0.78rem;font-weight:600;
+  z-index:9999;pointer-events:none;opacity:0;transition:opacity 0.3s;
+  white-space:nowrap;
+}
+
+/* ── SAVE MODAL ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;}
+.overlay.open{opacity:1;pointer-events:all;}
+.modal-sheet{background:var(--panel);border-radius:20px 20px 0 0;padding:24px 20px 32px;width:100%;max-width:480px;}
+.modal-sheet h3{font-size:1rem;font-weight:800;margin-bottom:6px;}
+.modal-sheet p{font-size:0.8rem;color:var(--muted);margin-bottom:16px;}
+.modal-inp{width:100%;background:rgba(255,255,255,0.05);border:1.5px solid var(--border);border-radius:11px;padding:12px 14px;color:var(--text);font-family:inherit;font-size:0.9rem;outline:none;margin-bottom:10px;}
+.modal-inp:focus{border-color:var(--accent);}
+.modal-btn{width:100%;padding:13px;border-radius:12px;border:none;font-family:inherit;font-weight:700;font-size:0.9rem;cursor:pointer;margin-bottom:8px;}
+.modal-btn-green{background:var(--accent);color:#002b22;}
+.modal-btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);}
+.modal-status{font-size:0.75rem;text-align:center;min-height:16px;margin-top:4px;}
+
+/* ── ZOOM BAR ── */
+.zoom-bar{
+  position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+  display:flex;gap:4px;background:rgba(10,12,22,0.9);
+  border:1px solid var(--border);padding:4px 10px;border-radius:999px;
+  align-items:center;backdrop-filter:blur(10px);z-index:50;
+}
+.z-btn{background:none;border:none;color:var(--text);font-size:1.1rem;cursor:pointer;padding:2px 8px;border-radius:6px;}
+.z-lbl{font-size:0.7rem;color:var(--muted);min-width:36px;text-align:center;}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading" id="loading">
+  <div class="spin"></div>
+  <div class="load-text" id="load-text">Cargando diseño...</div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-logo">
+    <img src="data:image/jpeg;base64,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" alt="Diseños Streaming" style="height:32px;width:32px;object-fit:contain;border-radius:7px;">
+    <span>Diseños Streaming</span>
+  </div>
+  <div class="topbar-actions">
+    <button class="tbtn tbtn-ghost" onclick="downloadPNG()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      PNG
+    </button>
+    <button class="tbtn tbtn-green" onclick="openSave()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+      Guardar
+    </button>
+  </div>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <!-- CANVAS -->
+  <div class="canvas-wrap" id="canvas-area">
+    <div id="cvs"></div>
+    <div class="zoom-bar">
+      <button class="z-btn" onclick="doZoom(-0.1)">−</button>
+      <span class="z-lbl" id="zlbl">100%</span>
+      <button class="z-btn" onclick="doZoom(0.1)">+</button>
+    </div>
+  </div>
+
+  <!-- BOTTOM PANEL -->
+  <div class="bottom-panel">
+    <div class="panel-tabs">
+      <button class="ptab active" id="ptab-text" onclick="switchTab('text')">✏️ Texto</button>
+      <button class="ptab" id="ptab-logos" onclick="switchTab('logos')">🖼 Logos</button>
+    </div>
+    <div class="panel-body">
+      <!-- TEXT TAB -->
+      <div id="tab-text" class="text-panel">
+        <div class="text-panel-empty" id="text-empty">
+          <div class="icon">👆</div>
+          Toca una capa de texto<br>para editarla
+        </div>
+        <div id="text-editor" style="display:none;">
+          <div class="layer-name-badge" id="layer-name-badge">
+            <span>✏️</span><span id="layer-name-lbl">Texto</span>
+          </div>
+          <div class="field-label">Contenido</div>
+          <textarea class="text-input" id="txt-content" rows="2" oninput="updateText(this.value)"></textarea>
+          <div class="color-row">
+            <div>
+              <div class="field-label">Color</div>
+              <div class="color-preview">
+                <div class="color-preview-swatch" id="color-swatch" style="background:#ffffff;"></div>
+                <input type="color" id="txt-color" value="#ffffff" oninput="updateColor(this.value)">
+              </div>
+            </div>
+            <div style="flex:1;">
+              <div class="field-label">Tamaño</div>
+              <div class="size-row">
+                <button class="size-btn" onclick="changeSize(-2)">−</button>
+                <button class="size-btn" style="flex:2;font-size:0.85rem;font-weight:700;" id="size-lbl">24</button>
+                <button class="size-btn" onclick="changeSize(2)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOGOS TAB -->
+      <div id="tab-logos" style="display:none;" class="logos-panel">
+        <div class="logos-empty" id="logos-empty">Cargando logos...</div>
+        <div class="logos-grid" id="logos-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="m-toast"></div>
+
+<!-- SAVE MODAL -->
+<div class="overlay" id="save-overlay">
+  <div class="modal-sheet">
+    <h3>💾 Guardar diseño</h3>
+    <p>Tu diseño se guardará en tu biblioteca personal.</p>
+    <input class="modal-inp" id="save-name" placeholder="Nombre del diseño" autocomplete="off">
+    <button class="modal-btn modal-btn-green" onclick="doSave()">Guardar</button>
+    <button class="modal-btn modal-btn-ghost" onclick="closeSave()">Cancelar</button>
+    <div class="modal-status" id="save-st"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
+  authDomain: "plantillas-bfaeb.firebaseapp.com",
+  projectId: "plantillas-bfaeb",
+  storageBucket: "plantillas-bfaeb.appspot.com",
+  messagingSenderId: "382002543593",
+  appId: "1:382002543593:web:87ad0a3b3c1f32b3daa978"
+};
+const CLOUDINARY_CLOUD = 'dwqtksxrp';
+const CLOUDINARY_PRESET = 'templatestudio';
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let fbApp, fbDb, fbAuth;
+let layers = [];
+let selId = null;
+let tplId = null;
+let clientDesignId = null;
+let zoom_ = 1;
+let logoCache = [];
+let currentTab = 'text';
+
+const cvs = document.getElementById('cvs');
+
+// ══════════════════════════════════════════
+// FIREBASE
+// ══════════════════════════════════════════
+function ls(src){
+  return new Promise((r,j)=>{
+    if(document.querySelector(`script[src="${src}"]`)) return r();
+    const s=document.createElement('script');
+    s.src=src; s.onload=r; s.onerror=j;
+    document.head.appendChild(s);
+  });
+}
+
+async function initFB(){
+  const savedCfg = localStorage.getItem('ts_firebase_config');
+  const config = savedCfg ? JSON.parse(savedCfg) : FIREBASE_CONFIG;
+  try{
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
+
+    try { fbApp = firebase.app('ts-client'); }
+    catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
+
+    fbDb = firebase.firestore(fbApp);
+    fbAuth = firebase.auth(fbApp);
+
+    try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+  }catch(e){ console.warn('Firebase init error:', e); }
+}
+
+// ══════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════
+function toast(msg){
+  const t = document.getElementById('m-toast');
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>t.style.opacity='0', 2000);
+}
+
+// ══════════════════════════════════════════
+// LOADING
+// ══════════════════════════════════════════
+function showLoad(txt){ document.getElementById('loading').classList.add('show'); document.getElementById('load-text').textContent=txt||'Cargando...'; }
+function hideLoad(){ document.getElementById('loading').classList.remove('show'); }
+
+// ══════════════════════════════════════════
+// CANVAS & LAYERS
+// ══════════════════════════════════════════
+function extractPayload(data){
+  if(!data||typeof data!=='object') return null;
+  if(data.template&&typeof data.template==='object') return data.template;
+  if(data.templateData&&typeof data.templateData==='object') return data.templateData;
+  if(data.type==='psd-layers'&&Array.isArray(data.layers)) return data;
+  return null;
+}
+
+function loadDesign(tpl){
+  if(!tpl||tpl.type!=='psd-layers') return;
+  Array.from(cvs.children).forEach(el=>el.remove());
+  layers = [];
+
+  cvs.style.width = (tpl.canvasW||800)+'px';
+  cvs.style.height = (tpl.canvasH||800)+'px';
+
+  (tpl.layers||[]).forEach(ld=>{
+    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null};
+    layers.push(l);
+    buildEl(l);
+  });
+
+  fitCanvas();
+  desel();
+}
+
+function buildEl(l){
+  const el = document.createElement('div');
+  el.className = 'cel';
+  el.style.cssText = `left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};position:absolute;`;
+  if(l.opacity !== undefined) el.style.opacity = l.opacity;
+  if(!l.visible) el.style.display = 'none';
+
+  if(l.type === 'text' && l.tp){
+    const tp = l.tp;
+    const d = document.createElement('div');
+    d.className = 'txt-inner';
+    d.id = 'ti-'+l.id;
+    d.textContent = tp.text || '';
+    d.style.cssText = `
+      font-family:${tp.fontFamily||"'Poppins'"};
+      font-size:${tp.fontSize||24}px;
+      font-weight:${tp.fontWeight||'400'};
+      color:${tp.color||'#fff'};
+      text-align:${tp.textAlign||'left'};
+      font-style:${tp.italic?'italic':'normal'};
+      text-decoration:${tp.underline?'underline':'none'};
+      text-transform:${tp.textTransform||'none'};
+      letter-spacing:${tp.letterSpacing||0};
+      line-height:${tp.lineHeight||1.2};
+      width:100%;height:100%;
+      ${tp.shadowBlur?`text-shadow:2px 2px ${tp.shadowBlur}px ${tp.shadowColor||'#000'}`:''}
+    `;
+    if(tp.strokeWidth>0){
+      d.style.webkitTextStroke = `${tp.strokeWidth}px ${tp.strokeColor||'#000'}`;
+    }
+    el.appendChild(d);
+
+    // TAP para editar texto
+    el.addEventListener('touchend', e=>{
+      e.preventDefault();
+      selectLayer(l.id);
+    });
+    el.addEventListener('click', ()=> selectLayer(l.id));
+
+  } else if(l.type === 'img'){
+    const img = document.createElement('img');
+    img.src = l.src||'';
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
+    if(l.flipX||l.flipY) img.style.transform=`scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
+    el.appendChild(img);
+
+  } else if(l.type === 'frame'){
+    el.style.borderRadius = (l.frameRadius||0)+'px';
+    el.style.overflow = 'hidden';
+    if(l.src){
+      const img = document.createElement('img');
+      img.src = l.src;
+      img.className = 'frame-inner';
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
+      el.appendChild(img);
+    }
+
+  } else if(l.type === 'shape'){
+    if(l.shapeType === 'rect'||!l.shapeType){
+      el.style.background = l.fill||'rgba(255,255,255,0.2)';
+      el.style.borderRadius = (l.radius||0)+'px';
+    } else {
+      const svg = document.createElement('div');
+      svg.innerHTML = buildShapeSVG(l);
+      svg.style.cssText = 'width:100%;height:100%;';
+      el.appendChild(svg);
+    }
+  }
+
+  cvs.appendChild(el);
+  l.el = el;
+}
+
+function buildShapeSVG(l){
+  const fill = l.fill||'rgba(255,255,255,0.2)';
+  const w = l.w, h = l.h;
+  if(l.shapeType==='circle') return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" fill="${fill}"/></svg>`;
+  if(l.shapeType==='triangle') return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><polygon points="${w/2},0 ${w},${h} 0,${h}" fill="${fill}"/></svg>`;
+  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><rect width="${w}" height="${h}" fill="${fill}"/></svg>`;
+}
+
+// ══════════════════════════════════════════
+// SELECCIÓN Y EDICIÓN DE TEXTO
+// ══════════════════════════════════════════
+function selectLayer(id){
+  const l = layers.find(x=>x.id===id);
+  if(!l || l.type!=='text') return;
+
+  // Quitar selección anterior
+  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+  selId = id;
+  if(l.el) l.el.classList.add('active-touch');
+
+  // Llenar panel
+  const tp = l.tp||{};
+  document.getElementById('text-empty').style.display = 'none';
+  document.getElementById('text-editor').style.display = 'block';
+  document.getElementById('layer-name-lbl').textContent = l.name||'Texto';
+  document.getElementById('txt-content').value = tp.text||'';
+  const col = (tp.color||'#ffffff').startsWith('#') ? tp.color : '#ffffff';
+  document.getElementById('txt-color').value = col;
+  document.getElementById('color-swatch').style.background = col;
+  document.getElementById('size-lbl').textContent = tp.fontSize||24;
+
+  // Cambiar a tab texto
+  if(currentTab !== 'text') switchTab('text');
+}
+
+function desel(){
+  selId = null;
+  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+  document.getElementById('text-empty').style.display = 'block';
+  document.getElementById('text-editor').style.display = 'none';
+}
+
+function updateText(val){
+  const l = layers.find(x=>x.id===selId);
+  if(!l||l.type!=='text') return;
+  l.tp.text = val;
+  const d = document.getElementById('ti-'+selId);
+  if(d) d.textContent = val;
+}
+
+function updateColor(val){
+  const l = layers.find(x=>x.id===selId);
+  if(!l||l.type!=='text') return;
+  l.tp.color = val;
+  document.getElementById('color-swatch').style.background = val;
+  const d = document.getElementById('ti-'+selId);
+  if(d) d.style.color = val;
+}
+
+function changeSize(delta){
+  const l = layers.find(x=>x.id===selId);
+  if(!l||l.type!=='text') return;
+  const newSize = Math.max(8, Math.min(200, (l.tp.fontSize||24)+delta));
+  l.tp.fontSize = newSize;
+  document.getElementById('size-lbl').textContent = newSize;
+  const d = document.getElementById('ti-'+selId);
+  if(d) d.style.fontSize = newSize+'px';
+}
+
+// ══════════════════════════════════════════
+// LOGOS
+// ══════════════════════════════════════════
+async function loadLogos(){
+  const grid = document.getElementById('logos-grid');
+  const empty = document.getElementById('logos-empty');
+  if(!fbDb){ empty.textContent='Firebase no conectado.'; return; }
+  if(!fbAuth?.currentUser){ empty.textContent='Inicia sesión para ver logos.'; return; }
+  empty.textContent='Cargando logos...';
+  try{
+    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    logoCache = [];
+    snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    renderLogos();
+  }catch(e){
+    empty.textContent='Error al cargar logos.';
+    console.warn(e);
+  }
+}
+
+function renderLogos(){
+  const grid = document.getElementById('logos-grid');
+  const empty = document.getElementById('logos-empty');
+  if(logoCache.length===0){ empty.textContent='No hay logos en la biblioteca.'; grid.innerHTML=''; return; }
+  empty.style.display='none';
+  grid.innerHTML='';
+  logoCache.forEach(logo=>{
+    const card = document.createElement('div');
+    card.className='logo-card';
+    card.innerHTML=`
+      <img src="${logo.url||logo.src||''}" alt="${logo.name||'Logo'}">
+      <button class="add-btn" onclick="addLogoToCanvas('${logo.url||logo.src||''}','${(logo.name||'Logo').replace(/'/g,"\\'")}')">+</button>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function addLogoToCanvas(src, name){
+  const cw = parseInt(cvs.style.width)||800;
+  const ch = parseInt(cvs.style.height)||800;
+  const size = Math.round(Math.min(cw,ch)*0.25);
+  const l = {
+    id: Date.now(),
+    type:'img',
+    name: name||'Logo',
+    src,
+    x: Math.round((cw-size)/2),
+    y: Math.round((ch-size)/2),
+    w: size, h: size,
+    zIndex: layers.length,
+    opacity: 1,
+    visible: true
+  };
+  layers.push(l);
+  buildEl(l);
+  toast('✓ Logo añadido');
+}
+
+// ══════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════
+function switchTab(tab){
+  currentTab = tab;
+  document.getElementById('tab-text').style.display = tab==='text'?'block':'none';
+  document.getElementById('tab-logos').style.display = tab==='logos'?'block':'none';
+  document.getElementById('ptab-text').classList.toggle('active', tab==='text');
+  document.getElementById('ptab-logos').classList.toggle('active', tab==='logos');
+  if(tab==='logos' && logoCache.length===0) loadLogos();
+}
+
+// ══════════════════════════════════════════
+// ZOOM
+// ══════════════════════════════════════════
+function fitCanvas(){
+  const area = document.getElementById('canvas-area');
+  const aw = area.clientWidth - 32;
+  const ah = area.clientHeight - 32;
+  const w = parseInt(cvs.style.width)||800;
+  const h = parseInt(cvs.style.height)||800;
+  zoom_ = Math.min(1, Math.min(aw/w, ah/h));
+  zoom_ = Math.max(0.1, Math.round(zoom_*100)/100);
+  applyZoom();
+}
+
+function doZoom(d){
+  zoom_ = Math.min(3, Math.max(0.05, zoom_+d));
+  applyZoom();
+}
+
+function applyZoom(){
+  cvs.style.transform = `scale(${zoom_})`;
+  document.getElementById('zlbl').textContent = Math.round(zoom_*100)+'%';
+}
+
+// Pinch to zoom
+let initDist=0, initZoom=1;
+document.getElementById('canvas-area').addEventListener('touchstart',e=>{
+  if(e.touches.length===2){
+    initDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    initZoom=zoom_;
+  }
+},{passive:true});
+document.getElementById('canvas-area').addEventListener('touchmove',e=>{
+  if(e.touches.length===2){
+    e.preventDefault();
+    const dist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    zoom_=Math.min(3,Math.max(0.1,initZoom*(dist/initDist)));
+    applyZoom();
+  }
+},{passive:false});
+
+// Tap en canvas vacío → deseleccionar
+cvs.addEventListener('click', e=>{ if(e.target===cvs) desel(); });
+
+// ══════════════════════════════════════════
+// GUARDAR
+// ══════════════════════════════════════════
+function openSave(){
+  const name = localStorage.getItem('ts_design_name')||'';
+  document.getElementById('save-name').value = name;
+  document.getElementById('save-st').textContent='';
+  document.getElementById('save-overlay').classList.add('open');
+}
+function closeSave(){ document.getElementById('save-overlay').classList.remove('open'); }
+
+async function doSave(){
+  if(!fbDb||!fbAuth?.currentUser){ toast('✗ Sin sesión. Vuelve al inicio.'); return; }
+  const name = document.getElementById('save-name').value.trim();
+  if(!name){ document.getElementById('save-st').textContent='Escribe un nombre'; return; }
+
+  const st = document.getElementById('save-st');
+  st.textContent='Generando miniatura...';st.style.color='var(--muted)';
+
+  // Miniatura
+  let thumb='';
+  try{
+    desel();
+    const savedT=cvs.style.transform; cvs.style.transform='scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+    const cw=parseInt(cvs.style.width)||800;
+    const sc=Math.min(1,320/cw);
+    const tc=await html2canvas(cvs,{scale:sc,useCORS:true,allowTaint:true,backgroundColor:'#000',logging:false,width:cw,height:parseInt(cvs.style.height)||800});
+    cvs.style.transform=savedT;
+    const b64=tc.toDataURL('image/jpeg',0.8);
+    st.textContent='Subiendo...';
+    const fd=new FormData();
+    fd.append('file',b64);fd.append('upload_preset',CLOUDINARY_PRESET);fd.append('folder','templatestudio');
+    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
+    if(res.ok){ const d=await res.json(); thumb=d.secure_url||''; }
+  }catch(e){ console.warn('Thumb error:',e.message); }
+
+  // Layers data
+  const layerData = layers.map(l=>({
+    id:l.id,type:l.type,name:l.name,
+    x:l.x,y:l.y,w:l.w,h:l.h,
+    zIndex:l.zIndex,opacity:l.opacity,visible:l.visible,
+    src:l.src||null,
+    tp:l.tp?{...l.tp}:null,
+    fill:l.fill||null,shapeType:l.shapeType||null,
+    frameRadius:l.frameRadius||null,
+    flipX:l.flipX||false,flipY:l.flipY||false
+  }));
+
+  const data={
+    name,thumb,
+    updatedAt:Date.now(),
+    template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
+    tplId:tplId||null,
+    uid:fbAuth.currentUser.uid
+  };
+
+  st.textContent='Guardando...';
+  try{
+    if(clientDesignId){
+      await fbDb.collection('user_designs').doc(clientDesignId).update(data);
+    } else {
+      data.createdAt=Date.now();
+      const ref=await fbDb.collection('user_designs').add(data);
+      clientDesignId=ref.id;
+      const u=new URL(window.location.href);
+      u.searchParams.set('did',clientDesignId);
+      window.history.replaceState({},'',u.toString());
+    }
+    localStorage.setItem('ts_design_name',name);
+    st.textContent='✓ Guardado correctamente';st.style.color='var(--accent)';
+    toast('✓ Diseño guardado');
+    setTimeout(closeSave,1500);
+  }catch(e){
+    st.textContent='✗ Error: '+e.message;st.style.color='var(--red)';
+  }
+}
+
+// ══════════════════════════════════════════
+// DESCARGAR PNG
+// ══════════════════════════════════════════
+async function downloadPNG(){
+  toast('Generando PNG...');
+  desel();
+  const savedT=cvs.style.transform; cvs.style.transform='scale(1)';
+  await new Promise(r=>setTimeout(r,80));
+  try{
+    const c=await html2canvas(cvs,{
+      scale:2,useCORS:true,allowTaint:true,
+      backgroundColor:null,logging:false,
+      width:parseInt(cvs.style.width),height:parseInt(cvs.style.height)
+    });
+    cvs.style.transform=savedT;
+    const a=document.createElement('a');
+    a.download='diseño.png';
+    a.href=c.toDataURL('image/png');
+    a.click();
+    toast('✓ PNG descargado');
+  }catch(e){
+    cvs.style.transform=savedT;
+    toast('✗ Error al exportar');
+  }
+}
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+window.addEventListener('load', async()=>{
+  showLoad('Conectando...');
+  await initFB();
+
+  // Esperar sesión
+  const user = await new Promise(resolve=>{
+    if(!fbAuth){ resolve(null); return; }
+    let settled=false;
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      if(settled) return;
+      if(!u&&!fbAuth.currentUser) return;
+      settled=true;try{unsub();}catch(_){}
+      resolve(u||fbAuth.currentUser||null);
+    });
+    setTimeout(()=>{ if(settled)return; settled=true; try{unsub();}catch(_){} resolve(fbAuth.currentUser||null); },8000);
+  });
+
+  if(!user){
+    hideLoad();
+    document.getElementById('load-text').textContent='';
+    toast('✗ Sin sesión. Vuelve al inicio.');
+    setTimeout(()=>window.location.href='index.html',2000);
+    return;
+  }
+
+  const p=new URLSearchParams(window.location.search);
+  tplId=p.get('tpl')||null;
+  const did=p.get('did')||null;
+
+  let loaded=false;
+
+  // Cargar diseño guardado
+  if(did&&fbDb){
+    showLoad('Cargando tu diseño...');
+    clientDesignId=did;
+    try{
+      const d=await fbDb.collection('user_designs').doc(did).get();
+      if(d&&d.exists){
+        const dd=d.data()||{};
+        if(dd.name) localStorage.setItem('ts_design_name',dd.name);
+        const pl=extractPayload(dd);
+        if(pl){ loadDesign(pl); loaded=true; }
+      }
+    }catch(e){ console.warn('Error cargando diseño:',e); }
+  }
+
+  // Cargar desde plantilla base
+  if(!loaded&&tplId&&fbDb){
+    showLoad('Cargando plantilla...');
+    try{
+      const t=await fbDb.collection('templates').doc(tplId).get();
+      if(t&&t.exists){
+        const td=t.data()||{};
+        const pl=extractPayload(td);
+        if(pl){ loadDesign(pl); loaded=true; }
+      }
+    }catch(e){ console.warn('Error cargando plantilla:',e); }
+  }
+
+  hideLoad();
+
+  if(!loaded){
+    toast('⚠ No se pudo cargar el diseño');
+  }
+});
+</script>
+</body>
+</html>
