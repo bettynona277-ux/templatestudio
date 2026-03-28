@@ -59,9 +59,23 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .bottom-panel{
   background:var(--panel);border-top:1px solid var(--border);
   flex-shrink:0;
-  /* Altura dinámica: ~38% de la pantalla */
   height:38vh;
+  min-height:120px;
+  max-height:80vh;
   display:flex;flex-direction:column;
+  transition:none;
+}
+.panel-drag-handle{
+  width:100%;height:20px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:ns-resize;flex-shrink:0;
+  touch-action:none;
+}
+.panel-drag-handle::before{
+  content:'';display:block;
+  width:36px;height:4px;
+  background:rgba(255,255,255,0.2);
+  border-radius:2px;
 }
 .panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
 .ptab{
@@ -243,7 +257,8 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   </div>
 
   <!-- BOTTOM PANEL -->
-  <div class="bottom-panel">
+  <div class="bottom-panel" id="bottom-panel">
+    <div class="panel-drag-handle" id="panel-drag-handle"></div>
     <div class="panel-tabs">
       <button class="ptab active" id="ptab-text" onclick="switchTab('text')">✏️ Texto</button>
       <button class="ptab" id="ptab-logos" onclick="switchTab('logos')">🖼 Logos</button>
@@ -1786,6 +1801,39 @@ window.addEventListener('load', async()=>{
     toast('⚠ No se pudo cargar el diseño');
   }
 });
+
+// ══════════════════════════════════════════
+// PANEL DRAG — redimensionar panel inferior
+// ══════════════════════════════════════════
+(function(){
+  const panel = document.getElementById('bottom-panel');
+  const handle = document.getElementById('panel-drag-handle');
+  if(!panel || !handle) return;
+
+  let startY = 0, startH = 0, dragging = false;
+
+  handle.addEventListener('touchstart', e=>{
+    if(e.touches.length !== 1) return;
+    e.preventDefault();
+    dragging = true;
+    startY = e.touches[0].clientY;
+    startH = panel.getBoundingClientRect().height;
+  }, {passive: false});
+
+  window.addEventListener('touchmove', e=>{
+    if(!dragging || e.touches.length !== 1) return;
+    e.preventDefault();
+    const dy = startY - e.touches[0].clientY; // arrastrar hacia arriba = aumentar
+    const newH = Math.min(
+      window.innerHeight * 0.80,
+      Math.max(120, startH + dy)
+    );
+    panel.style.height = newH + 'px';
+    if(activeLayer) requestAnimationFrame(updateSelBox);
+  }, {passive: false});
+
+  window.addEventListener('touchend', ()=>{ dragging = false; }, {passive: true});
+})();
 </script>
 </body>
 </html>
