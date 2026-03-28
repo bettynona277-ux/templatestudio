@@ -157,6 +157,18 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .sel-handle.sw{top:100%;left:0;}
 .sel-handle.se{top:100%;left:100%;}
 
+/* ── BOTÓN ELIMINAR ── */
+#del-btn{
+  position:absolute;z-index:9002;
+  background:var(--red);color:#fff;
+  border:none;border-radius:8px;
+  padding:6px 12px;font-size:0.75rem;font-weight:700;
+  font-family:inherit;cursor:pointer;
+  display:none;white-space:nowrap;
+  box-shadow:0 2px 8px rgba(255,107,129,0.5);
+  transform:translateX(-50%);
+}
+
 /* ── ZOOM BAR ── */
 .zoom-bar{
   position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
@@ -185,6 +197,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   <div class="topbar-actions">
     <button class="tbtn tbtn-ghost" onclick="window.location.href='index.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </button>
+    <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
     </button>
     <button class="tbtn tbtn-ghost" onclick="downloadPNG()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -266,6 +281,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   <div class="sel-handle ne" id="sh-ne"></div>
   <div class="sel-handle sw" id="sh-sw"></div>
   <div class="sel-handle se" id="sh-se"></div>
+  <button id="del-btn" onclick="deleteActive()">🗑 Eliminar</button>
 </div>
 
 <!-- TOAST -->
@@ -388,6 +404,8 @@ function loadDesign(tpl){
 
   fitCanvas();
   desel();
+  history_ = []; // limpiar historial al cargar
+  snapshot();    // guardar estado inicial
 }
 
 // ══════════════════════════════════════════
@@ -395,6 +413,45 @@ function loadDesign(tpl){
 // ══════════════════════════════════════════
 let selBox = null;
 let activeLayer = null; // capa actualmente seleccionada para mover/escalar
+
+// ── HISTORIAL ──
+const HISTORY_MAX = 20;
+let history_ = [];
+
+function snapshot(){
+  const state = JSON.stringify(layers.map(l=>({
+    ...l, el:null,
+    tp: l.tp ? {...l.tp} : null
+  })));
+  if(history_.length && history_[history_.length-1] === state) return;
+  history_.push(state);
+  if(history_.length > HISTORY_MAX) history_.shift();
+  updateUndoBtn();
+}
+
+function undoStep(){
+  if(history_.length < 2){ toast('No hay más pasos'); return; }
+  history_.pop(); // quitar estado actual
+  const prev = JSON.parse(history_[history_.length-1]);
+  desel();
+  // Reconstruir capas
+  Array.from(cvs.children).forEach(el=>{
+    if(el.id!=='sel-box'&&el.id!=='del-btn') el.remove();
+  });
+  layers = [];
+  prev.forEach(ld=>{
+    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null};
+    layers.push(l);
+    buildEl(l);
+  });
+  toast('↩ Deshecho');
+  updateUndoBtn();
+}
+
+function updateUndoBtn(){
+  const btn = document.getElementById('btn-undo');
+  if(btn) btn.style.opacity = history_.length > 1 ? '1' : '0.35';
+}
 
 function getSelBox(){ return document.getElementById('sel-box'); }
 
@@ -404,8 +461,14 @@ function showSelBox(layer){
   activeLayer = layer;
   updateSelBox();
   box.style.display = 'block';
-  // Attach resize handles
   attachHandles(layer);
+  // Mostrar botón eliminar centrado arriba del sel-box
+  const delBtn = document.getElementById('del-btn');
+  if(delBtn){
+    delBtn.style.display = 'block';
+    delBtn.style.top = '-32px';
+    delBtn.style.left = '50%';
+  }
 }
 
 function updateSelBox(){
@@ -424,6 +487,8 @@ function updateSelBox(){
 function hideSelBox(){
   const box = getSelBox();
   if(box) box.style.display = 'none';
+  const delBtn = document.getElementById('del-btn');
+  if(delBtn) delBtn.style.display = 'none';
   activeLayer = null;
 }
 
@@ -543,6 +608,9 @@ function makeDraggable(el, layer, onTap){
 
   el.addEventListener('touchend', e=>{
     e.stopPropagation();
+    if(moved){
+      snapshot(); // guardar después de mover
+    }
     if(!moved){
       // TAP: seleccionar esta capa y mostrar handles
       if(activeLayer === layer){
@@ -636,8 +704,33 @@ function buildEl(l){
       hint.textContent = '🖼';
       el.appendChild(hint);
     }
-    // Tap en marco → abrir panel logos para insertar
-    makeDraggable(el, l, ()=>selectFrame(l.id));
+    // Frame: drag para mover, tap para seleccionar/insertar logo
+    {
+      let sx,sy,sl,st,moved=false;
+      el.addEventListener('touchstart',e=>{
+        if(e.touches.length!==1)return;
+        e.stopPropagation();
+        const t=e.touches[0];
+        sx=t.clientX;sy=t.clientY;sl=l.x;st=l.y;moved=false;
+      },{passive:true});
+      el.addEventListener('touchmove',e=>{
+        if(e.touches.length!==1)return;
+        e.preventDefault();e.stopPropagation();
+        const t=e.touches[0];
+        const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
+        if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
+        if(moved){
+          l.x=Math.round(sl+dx);l.y=Math.round(st+dy);
+          el.style.left=l.x+'px';el.style.top=l.y+'px';
+          if(activeLayer===l) updateSelBox();
+        }
+      },{passive:false});
+      el.addEventListener('touchend',e=>{
+        e.stopPropagation();
+        if(!moved) selectFrame(l.id);
+        moved=false;
+      },{passive:true});
+    }
 
   } else if(l.type === 'shape'){
     if(l.shapeType === 'rect'||!l.shapeType){
@@ -690,6 +783,16 @@ function selectLayer(id){
   fillTextPanel(l);
 }
 
+function deleteActive(){
+  if(!activeLayer) return;
+  snapshot(); // guardar estado ANTES de eliminar
+  const l = activeLayer;
+  if(l.el) l.el.remove();
+  layers = layers.filter(x=>x.id !== l.id);
+  desel();
+  toast('🗑 Capa eliminada');
+}
+
 function desel(){
   selId = null;
   frameSelId = null;
@@ -733,21 +836,50 @@ function applyLogoToFrame(src, name){
     img.id = 'fi-'+l.id;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
     l.el.appendChild(img);
-    makeDraggable(l.el, l, ()=>selectFrame(l.id));
+    {
+      let sx,sy,sl,st,moved=false;
+      l.el.addEventListener('touchstart',e=>{
+        if(e.touches.length!==1)return;
+        e.stopPropagation();
+        const t=e.touches[0];
+        sx=t.clientX;sy=t.clientY;sl=l.x;st=l.y;moved=false;
+      },{passive:true});
+      l.el.addEventListener('touchmove',e=>{
+        if(e.touches.length!==1)return;
+        e.preventDefault();e.stopPropagation();
+        const t=e.touches[0];
+        const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
+        if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
+        if(moved){
+          l.x=Math.round(sl+dx);l.y=Math.round(st+dy);
+          l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
+        }
+      },{passive:false});
+      l.el.addEventListener('touchend',e=>{
+        e.stopPropagation();
+        if(!moved) selectFrame(l.id);
+        moved=false;
+      },{passive:true});
+    }
   }
   frameSelId = null;
   l.el?.classList.remove('active-touch');
   document.getElementById('frame-hint').style.display = 'none';
+  snapshot();
   toast('✓ Logo aplicado al marco');
   return true;
 }
 
+let _textSnapTimer = null;
 function updateText(val){
   const l = layers.find(x=>x.id===selId);
   if(!l||l.type!=='text') return;
   l.tp.text = val;
   const d = document.getElementById('ti-'+selId);
   if(d) d.textContent = val;
+  // Snapshot con debounce 800ms
+  clearTimeout(_textSnapTimer);
+  _textSnapTimer = setTimeout(snapshot, 800);
 }
 
 function updateColor(val){
@@ -835,6 +967,7 @@ function addLogoToCanvas(src, name){
   };
   layers.push(l);
   buildEl(l);
+  snapshot();
   toast('✓ Logo añadido');
 }
 
