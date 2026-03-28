@@ -700,6 +700,54 @@ function makeDraggable(el, layer, onTap){
   },{passive:true});
 }
 
+function buildOuterStrokeShadow(width, color){
+  const w = parseInt(width||0);
+  if(w <= 0) return '';
+  const offsets = [];
+  for(let x=-w; x<=w; x++){
+    for(let y=-w; y<=w; y++){
+      if(x===0 && y===0) continue;
+      if(Math.max(Math.abs(x), Math.abs(y)) <= w){
+        offsets.push(`${x}px ${y}px 0 ${color}`);
+      }
+    }
+  }
+  return offsets.join(', ');
+}
+
+function applyTextStylesMobile(layer){
+  if(!layer?.tp) return;
+  const d = document.getElementById('ti-'+layer.id);
+  if(!d) return;
+  const tp = layer.tp;
+  // Construir text-shadow: borde exterior + sombra
+  const parts = [];
+  const outerStroke = buildOuterStrokeShadow(tp.strokeWidth||0, tp.strokeColor||'#000000');
+  if(outerStroke) parts.push(outerStroke);
+  const drop = parseInt(tp.shadowBlur||0);
+  if(drop > 0){
+    const sc = tp.shadowColor || 'rgba(0,0,0,0.45)';
+    parts.push(`0 ${Math.max(1,Math.round(drop*0.18))}px ${Math.max(3,drop*0.8)}px ${sc}`);
+  }
+  d.style.webkitTextStroke = '';
+  d.style.textShadow = parts.join(', ');
+  d.style.fontSize = (tp.fontSize||24) + 'px';
+  d.style.fontWeight = tp.fontWeight || '400';
+  d.style.fontFamily = tp.fontFamily || "'Poppins'";
+  d.style.color = tp.color || '#fff';
+  d.style.textAlign = tp.textAlign || tp.align || 'left';
+  d.style.width = '100%';
+  d.style.height = '100%';
+  d.style.fontStyle = tp.italic ? 'italic' : 'normal';
+  d.style.textDecoration = tp.underline ? 'underline' : 'none';
+  d.style.letterSpacing = (parseFloat(tp.letterSpacing)||0) + 'px';
+  d.style.lineHeight = tp.lineHeight || 1.2;
+  d.style.textTransform = tp.textTransform || 'none';
+  d.style.whiteSpace = 'pre-wrap';
+  d.style.wordBreak = 'break-word';
+  d.style.pointerEvents = 'none';
+}
+
 function buildEl(l){
   const el = document.createElement('div');
   el.className = 'cel';
@@ -708,31 +756,13 @@ function buildEl(l){
   if(!l.visible) el.style.display = 'none';
 
   if(l.type === 'text' && l.tp){
-    const tp = l.tp;
     const d = document.createElement('div');
     d.className = 'txt-inner';
     d.id = 'ti-'+l.id;
-    d.textContent = tp.text || '';
-    d.style.cssText = `
-      font-family:${tp.fontFamily||"'Poppins'"};
-      font-size:${tp.fontSize||24}px;
-      font-weight:${tp.fontWeight||'400'};
-      color:${tp.color||'#fff'};
-      text-align:${tp.textAlign||'left'};
-      font-style:${tp.italic?'italic':'normal'};
-      text-decoration:${tp.underline?'underline':'none'};
-      text-transform:${tp.textTransform||'none'};
-      letter-spacing:${tp.letterSpacing||0};
-      line-height:${tp.lineHeight||1.2};
-      width:100%;height:100%;
-      ${tp.shadowBlur?`text-shadow:2px 2px ${tp.shadowBlur}px ${tp.shadowColor||'#000'}`:''}
-    `;
-    if(tp.strokeWidth>0){
-      d.style.webkitTextStroke = `${tp.strokeWidth}px ${tp.strokeColor||'#000'}`;
-    }
+    d.textContent = l.tp.text || '';
     el.appendChild(d);
-
-    // TAP para editar texto (distingue tap vs drag)
+    // Aplicar todos los efectos visuales (borde, sombra, fuente, etc.)
+    applyTextStylesMobile(l);
     makeDraggable(el, l, ()=>selectLayer(l.id));
 
   } else if(l.type === 'img'){
@@ -1050,8 +1080,7 @@ function updateColor(val){
   if(!l||l.type!=='text') return;
   l.tp.color = val;
   document.getElementById('color-swatch').style.background = val;
-  const d = document.getElementById('ti-'+selId);
-  if(d) d.style.color = val;
+  applyTextStylesMobile(l);
   snapshot();
 }
 
@@ -1061,8 +1090,7 @@ function changeSize(delta){
   const newSize = Math.max(8, Math.min(200, (l.tp.fontSize||24)+delta));
   l.tp.fontSize = newSize;
   document.getElementById('size-lbl').textContent = newSize;
-  const d = document.getElementById('ti-'+selId);
-  if(d) d.style.fontSize = newSize+'px';
+  applyTextStylesMobile(l);
 }
 
 // ══════════════════════════════════════════
