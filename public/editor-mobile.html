@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Oswald:wght@400;700&family=Raleway:wght@400;700&family=Nunito:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 :root{
@@ -457,7 +457,13 @@ function loadDesign(tpl){
   cvs.style.height = (tpl.canvasH||800)+'px';
 
   (tpl.layers||[]).forEach(ld=>{
-    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null};
+    // Deep copy para evitar que capas compartan referencias
+    const l = {
+      ...ld,
+      el: null,
+      tp: ld.tp ? {...ld.tp} : null,
+      src: ld.src || null  // cada capa tiene su propio src
+    };
     layers.push(l);
     buildEl(l);
   });
@@ -786,7 +792,9 @@ function buildEl(l){
     if(l.shadowBlur>0) el.style.boxShadow = `0 4px ${l.shadowBlur}px rgba(0,0,0,0.6)`;
     if(l.innerShadow>0) el.style.boxShadow = (el.style.boxShadow?el.style.boxShadow+', ':'')+`inset 0 0 ${l.innerShadow}px rgba(0,0,0,0.7)`;
     if(l.src){
+      // Marco con imagen — quitar borde y mostrar imagen
       el.style.border = 'none';
+      el.style.outline = 'none';
       const img = document.createElement('img');
       img.src = l.src;
       img.className = 'frame-inner';
@@ -794,9 +802,10 @@ function buildEl(l){
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
       el.appendChild(img);
     } else {
-      // Marco vacío - mostrar hint
+      // Marco vacío — hint de que se puede insertar logo
       const hint = document.createElement('div');
-      hint.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:rgba(21,214,164,0.5);';
+      hint.className = 'frame-empty-hint';
+      hint.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:rgba(21,214,164,0.4);pointer-events:none;';
       hint.textContent = '🖼';
       el.appendChild(hint);
     }
@@ -1317,8 +1326,14 @@ async function doSave(){
     tp:l.tp?{...l.tp}:null,
     fill:l.fill||null,shapeType:l.shapeType||null,
     frameRadius:l.frameRadius||null,
+    borderWidth:l.borderWidth||0,
+    borderColor:l.borderColor||null,
+    shadowBlur:l.shadowBlur||0,
+    innerShadow:l.innerShadow||0,
     flipX:l.flipX||false,flipY:l.flipY||false,
-    blur:l.blur||0
+    blur:l.blur||0,
+    radius:l.radius||null,
+    groupId:l.groupId||null
   }));
 
   const data={
