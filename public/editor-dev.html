@@ -3999,7 +3999,56 @@ function copyLayers(){
   showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
 }
 
-function pasteLayers(){
+function addImageLayerFromUrl(url){
+  const cw = parseInt(cvs.style.width)||1080;
+  const ch = parseInt(cvs.style.height)||1080;
+  const size = Math.round(Math.min(cw, ch) * 0.4);
+  const l = {
+    id: lCtr++, type: 'img', name: 'Imagen pegada',
+    src: url,
+    x: Math.round((cw - size) / 2),
+    y: Math.round((ch - size) / 2),
+    w: size, h: size,
+    opacity: 1, visible: true, zIndex: layers.length,
+    flipX: false, flipY: false, blur: 0
+  };
+  layers.push(l);
+  mkEl(l);
+  renderList();
+  sel(l.id);
+  snapshotState();
+  showToast('🖼 Imagen pegada desde internet');
+}
+
+async function pasteLayers(){
+  // Primero intentar leer imagen web del portapapeles del sistema
+  try{
+    const clipItems = await navigator.clipboard.read();
+    for(const item of clipItems){
+      // Buscar si tiene una URL de imagen (Caso 1 - imagen de internet)
+      if(item.types.includes('text/plain')){
+        const blob = await item.getType('text/plain');
+        const text = await blob.text();
+        if(text.match(/^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg)/i) ||
+           text.match(/^https?:\/\/.+/)){
+          // Es una URL — cargar directamente sin subir a Cloudinary
+          const url = text.trim();
+          addImageLayerFromUrl(url);
+          return;
+        }
+      }
+      // Si tiene imagen binaria (WhatsApp, screenshot, etc.) → rechazar
+      if(item.types.some(t => t.startsWith('image/'))){
+        showToast('⚠ Solo se pueden pegar imágenes de internet.
+Usa clic derecho → "Copiar imagen" en una web.');
+        return;
+      }
+    }
+  }catch(e){
+    // Sin permiso de portapapeles o vacío — continuar con portapapeles interno
+  }
+
+  // Portapapeles interno del editor (capas copiadas con Ctrl+C)
   const raw = localStorage.getItem('ds_clipboard');
   if(!raw){ showToast('No hay nada en el portapapeles'); return; }
   try{
