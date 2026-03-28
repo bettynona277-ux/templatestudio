@@ -43,6 +43,34 @@ if('serviceWorker' in navigator){
 }
 html,body{height:100%;font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;}
 
+/* ── INSTALL BANNER ── */
+#install-banner{
+  position:fixed;bottom:0;left:0;right:0;
+  background:linear-gradient(135deg,#1a1f2e,#0e1422);
+  border-top:1px solid rgba(124,92,252,0.3);
+  padding:14px 16px 20px;
+  display:none;align-items:center;gap:12px;
+  z-index:9999;
+  box-shadow:0 -4px 24px rgba(0,0,0,0.4);
+}
+#install-banner.show{display:flex;}
+.install-icon{width:44px;height:44px;border-radius:12px;flex-shrink:0;object-fit:contain;}
+.install-text{flex:1;}
+.install-text strong{display:block;font-size:0.88rem;font-weight:800;color:#eef4ff;}
+.install-text span{font-size:0.72rem;color:#93a0bb;}
+.install-btn{
+  padding:10px 16px;border-radius:10px;border:none;
+  background:linear-gradient(135deg,#7c5cfc,#5b3fdb);
+  color:#fff;font-family:inherit;font-size:0.8rem;font-weight:700;
+  cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+.install-close{
+  width:28px;height:28px;border-radius:50%;border:none;
+  background:rgba(255,255,255,0.08);color:#93a0bb;
+  font-size:1rem;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+
 /* ── LOADING ── */
 #app-loading{
   position:fixed;inset:0;background:var(--bg);
@@ -405,10 +433,58 @@ html,body{height:100%;font-family:'Plus Jakarta Sans',sans-serif;background:var(
   </div>
 </div>
 
+<!-- INSTALL BANNER -->
+<div id="install-banner">
+  <img class="install-icon" src="/icons/icon-192.png" alt="Diseños Streaming">
+  <div class="install-text">
+    <strong>Instalar Diseños Streaming</strong>
+    <span>Agrega la app a tu pantalla de inicio</span>
+  </div>
+  <button class="install-btn" onclick="doInstall()">Instalar</button>
+  <button class="install-close" onclick="dismissInstall()">✕</button>
+</div>
+
 <!-- TOAST -->
 <div id="toast"></div>
 
 <script>
+// ════════════════════════════════
+// PWA INSTALL
+// ════════════════════════════════
+let _deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredPrompt = e;
+  // Show banner only if not already installed and not dismissed recently
+  const dismissed = localStorage.getItem('pwa_dismissed');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+  if(!isStandalone && (!dismissed || Date.now() - parseInt(dismissed) > 7*24*60*60*1000)){
+    setTimeout(()=>document.getElementById('install-banner')?.classList.add('show'), 3000);
+  }
+});
+
+// Also show a manual install button in the topbar if PWA is installable
+window.addEventListener('appinstalled', ()=>{
+  document.getElementById('install-banner')?.classList.remove('show');
+  _deferredPrompt = null;
+  toast('✓ App instalada correctamente');
+});
+
+async function doInstall(){
+  if(!_deferredPrompt) return;
+  _deferredPrompt.prompt();
+  const { outcome } = await _deferredPrompt.userChoice;
+  _deferredPrompt = null;
+  document.getElementById('install-banner')?.classList.remove('show');
+  if(outcome === 'accepted') toast('✓ Instalando app...');
+}
+
+function dismissInstall(){
+  document.getElementById('install-banner')?.classList.remove('show');
+  localStorage.setItem('pwa_dismissed', Date.now().toString());
+}
+
 // ════════════════════════════════
 // CONFIG
 // ════════════════════════════════
