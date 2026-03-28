@@ -68,7 +68,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   transition:all 0.2s;
 }
 .ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
-.panel-body{overflow-y:auto;max-height:320px;}
+.panel-body{overflow-y:auto;max-height:340px;padding-bottom:16px;}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
 
@@ -95,7 +95,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   display:inline-flex;align-items:center;gap:6px;
   background:rgba(21,214,164,0.12);border:1px solid rgba(21,214,164,0.25);
   border-radius:999px;padding:4px 12px;font-size:0.75rem;font-weight:700;
-  color:var(--accent);margin-bottom:12px;
+  color:var(--accent);margin-bottom:8px;
 }
 
 /* ── LOGOS PANEL ── */
@@ -178,15 +178,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   border:1.5px solid rgba(255,255,255,0.2);
 }
 
-/* ── ZOOM BAR ── */
-.zoom-bar{
-  position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
-  display:flex;gap:4px;background:rgba(10,12,22,0.9);
-  border:1px solid var(--border);padding:4px 10px;border-radius:999px;
-  align-items:center;backdrop-filter:blur(10px);z-index:50;
-}
-.z-btn{background:none;border:none;color:var(--text);font-size:1.1rem;cursor:pointer;padding:2px 8px;border-radius:6px;}
-.z-lbl{font-size:0.7rem;color:var(--muted);min-width:36px;text-align:center;}
+/* zoom via pinch only */
 </style>
 </head>
 <body>
@@ -228,11 +220,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     <div class="canvas-inner">
       <div id="cvs"></div>
     </div>
-    <div class="zoom-bar">
-      <button class="z-btn" onclick="doZoom(-0.1)">−</button>
-      <span class="z-lbl" id="zlbl">100%</span>
-      <button class="z-btn" onclick="doZoom(0.1)">+</button>
-    </div>
+
   </div>
 
   <!-- BOTTOM PANEL -->
@@ -254,7 +242,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
             <span>✏️</span><span id="layer-name-lbl">Texto</span>
           </div>
           <div class="field-label">Contenido</div>
-          <textarea class="text-input" id="txt-content" rows="2" oninput="updateText(this.value)"></textarea>
+          <textarea class="text-input" id="txt-content" rows="3" oninput="updateText(this.value)"></textarea>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
             <div>
               <div class="field-label">Color</div>
@@ -280,12 +268,12 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
         <div class="layer-name-badge" id="img-layer-name-badge">
           <span>🎨</span><span id="img-layer-name-lbl">Imagen</span>
         </div>
-        <div class="field-label">Voltear</div>
+        <div class="field-label">Orientación</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
           <button class="size-btn" style="height:42px;font-size:0.8rem;font-weight:700;" onclick="toggleFlip('x')" id="btn-flipx">↔ Horizontal</button>
           <button class="size-btn" style="height:42px;font-size:0.8rem;font-weight:700;" onclick="toggleFlip('y')" id="btn-flipy">↕ Vertical</button>
         </div>
-        <div class="field-label">Desenfoque <span id="blur-lbl" style="color:var(--accent);">0px</span></div>
+        <div class="field-label">Desenfocar <span id="blur-lbl" style="color:var(--accent);">0px</span></div>
         <input type="range" id="img-blur" min="0" max="20" step="0.5" value="0"
           style="width:100%;accent-color:var(--accent);margin-bottom:4px;"
           oninput="updateBlur(this.value)">
@@ -845,19 +833,23 @@ let frameSelId = null;
 function selectFrame(id){
   const l = layers.find(x=>x.id===id);
   if(!l || l.type!=='frame') return;
+  const alreadySel = frameSelId === id;
   layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
   frameSelId = id;
-  selId = null;
+  selId = l.id;
   if(l.el) l.el.classList.add('active-touch');
-  // Mostrar sel-box y del-btn (sin overflow del marco)
   showSelBox(l);
-  // Mostrar hint en panel logos
-  document.getElementById('text-empty').style.display = 'none';
-  document.getElementById('text-editor').style.display = 'none';
-  document.getElementById('frame-hint').style.display = 'block';
-  // Ir a tab logos
-  switchTab('logos');
-  if(logoCache.length===0) loadLogos();
+  if(alreadySel){
+    // Segundo tap → panel imagen (flip/blur/orientación)
+    openImgPanel(l);
+  } else {
+    // Primer tap → mostrar logos para insertar
+    document.getElementById('text-empty').style.display = 'none';
+    document.getElementById('text-editor').style.display = 'none';
+    document.getElementById('frame-hint').style.display = 'block';
+    switchTab('logos');
+    if(logoCache.length===0) loadLogos();
+  }
 }
 
 function applyLogoToFrame(src, name){
@@ -1036,7 +1028,8 @@ function updateBlur(val){
 
 function openImgPanel(layer){
   selId = layer.id;
-  document.getElementById('img-layer-name-lbl').textContent = layer.name||'Imagen';
+  // Solo mostrar el tipo, no el nombre de la capa
+  document.getElementById('img-layer-name-lbl').textContent = layer.type==='frame' ? 'Marco' : 'Imagen';
   // Reset controles
   const blurVal = layer.blur||0;
   document.getElementById('img-blur').value = blurVal;
@@ -1087,8 +1080,6 @@ function doZoom(d){
 
 function applyZoom(){
   cvs.style.transform = `scale(${zoom_})`;
-  document.getElementById('zlbl').textContent = Math.round(zoom_*100)+'%';
-  // Reposicionar sel-box al cambiar zoom
   if(activeLayer) requestAnimationFrame(updateSelBox);
 }
 
