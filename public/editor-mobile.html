@@ -141,16 +141,16 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
 /* ── HANDLES DE TRANSFORMACIÓN ── */
 .sel-box{
-  position:absolute;pointer-events:none;z-index:9000;
-  border:2px solid var(--accent);
-  box-shadow:0 0 0 1px rgba(0,0,0,0.4);
+  position:fixed;pointer-events:none;z-index:9000;
+  border:2.5px solid var(--accent);
+  box-shadow:0 0 0 1px rgba(0,0,0,0.5),0 0 12px rgba(21,214,164,0.3);
 }
 .sel-handle{
-  position:absolute;width:22px;height:22px;
-  background:var(--accent);border:2px solid #fff;
-  border-radius:4px;pointer-events:all;cursor:pointer;
+  position:absolute;width:24px;height:24px;
+  background:var(--accent);border:2.5px solid #fff;
+  border-radius:5px;pointer-events:all;cursor:pointer;
   transform:translate(-50%,-50%);z-index:9001;
-  box-shadow:0 2px 6px rgba(0,0,0,0.4);
+  box-shadow:0 2px 8px rgba(0,0,0,0.5);
 }
 .sel-handle.nw{top:0;left:0;}
 .sel-handle.ne{top:0;left:100%;}
@@ -159,14 +159,16 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
 /* ── BOTÓN ELIMINAR ── */
 #del-btn{
-  position:absolute;z-index:9002;
-  background:var(--red);color:#fff;
-  border:none;border-radius:8px;
-  padding:6px 12px;font-size:0.75rem;font-weight:700;
+  position:fixed;z-index:9002;
+  background:linear-gradient(135deg,#ff4757,#ff6b81);
+  color:#fff;border:none;border-radius:10px;
+  padding:8px 16px;font-size:0.8rem;font-weight:800;
   font-family:inherit;cursor:pointer;
   display:none;white-space:nowrap;
-  box-shadow:0 2px 8px rgba(255,107,129,0.5);
+  box-shadow:0 4px 16px rgba(255,71,87,0.5);
   transform:translateX(-50%);
+  letter-spacing:0.02em;
+  border:1.5px solid rgba(255,255,255,0.2);
 }
 
 /* ── ZOOM BAR ── */
@@ -281,7 +283,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   <div class="sel-handle ne" id="sh-ne"></div>
   <div class="sel-handle sw" id="sh-sw"></div>
   <div class="sel-handle se" id="sh-se"></div>
-  <button id="del-btn" onclick="deleteActive()">🗑 Eliminar</button>
+  <button id="del-btn" onclick="deleteActive()">✕ Eliminar</button>
 </div>
 
 <!-- TOAST -->
@@ -389,9 +391,11 @@ function loadDesign(tpl){
   if(!tpl||tpl.type!=='psd-layers') return;
   Array.from(cvs.children).forEach(el=>el.remove());
   layers = [];
-  // Mover el sel-box dentro del canvas para que escale con el zoom
+  // sel-box es fixed, asegurarse que esté en el body
   const box = document.getElementById('sel-box');
-  if(box && box.parentNode !== cvs) cvs.appendChild(box);
+  if(box && box.parentNode !== document.body) document.body.appendChild(box);
+  const delBtn = document.getElementById('del-btn');
+  if(delBtn && delBtn.parentNode !== document.body) document.body.appendChild(delBtn);
 
   cvs.style.width = (tpl.canvasW||800)+'px';
   cvs.style.height = (tpl.canvasH||800)+'px';
@@ -462,26 +466,33 @@ function showSelBox(layer){
   updateSelBox();
   box.style.display = 'block';
   attachHandles(layer);
-  // Mostrar botón eliminar centrado arriba del sel-box
+  // Mostrar botón eliminar usando coordenadas de pantalla
+  const rect = layer.el.getBoundingClientRect();
   const delBtn = document.getElementById('del-btn');
   if(delBtn){
     delBtn.style.display = 'block';
-    delBtn.style.top = '-32px';
-    delBtn.style.left = '50%';
+    delBtn.style.left = (rect.left + rect.width/2) + 'px';
+    delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
+    delBtn.style.transform = 'translateX(-50%)';
   }
 }
 
 function updateSelBox(){
-  if(!activeLayer) return;
+  if(!activeLayer || !activeLayer.el) return;
   const box = getSelBox();
-  const l = activeLayer;
-  // Posición relativa al canvas (ya en coordenadas del canvas)
-  box.style.left = (l.x - 2) + 'px';
-  box.style.top  = (l.y - 2) + 'px';
-  box.style.width  = (l.w + 4) + 'px';
-  box.style.height = (l.h + 4) + 'px';
-  box.style.transformOrigin = 'top left';
-  box.style.transform = `scale(${1})`; // el box está dentro del canvas que ya está escalado
+  const rect = activeLayer.el.getBoundingClientRect();
+  // Usar posición real en pantalla (fixed)
+  box.style.left   = (rect.left - 3) + 'px';
+  box.style.top    = (rect.top  - 3) + 'px';
+  box.style.width  = (rect.width  + 6) + 'px';
+  box.style.height = (rect.height + 6) + 'px';
+  // Reposicionar el del-btn
+  const delBtn = document.getElementById('del-btn');
+  if(delBtn && delBtn.style.display !== 'none'){
+    delBtn.style.left = (rect.left + rect.width/2) + 'px';
+    delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
+    delBtn.style.transform = 'translateX(-50%)';
+  }
 }
 
 function hideSelBox(){
@@ -519,16 +530,17 @@ function attachHandles(layer){
     newHandle.addEventListener('touchmove', e=>{
       e.stopPropagation(); e.preventDefault();
       const t = e.touches[0];
+      // Diferencia en pantalla → convertir a espacio canvas
       const dx = (t.clientX - t0x) / zoom_;
       const dy = (t.clientY - t0y) / zoom_;
       
-      // Escalar proporcionalmente usando la diagonal
+      // Escalar proporcionalmente
       const diag = Math.sqrt(dx*dx + dy*dy);
       const sign = (dx + dy) > 0 ? 1 : -1;
       const delta = sign * diag * 0.7;
       
-      let newW, newH, newX, newY;
       const ratio = origH / origW;
+      let newW, newH, newX, newY;
       
       if(corner === 'se'){
         newW = Math.max(20, origW + delta);
@@ -559,12 +571,6 @@ function attachHandles(layer){
         layer.el.style.height = layer.h + 'px';
         layer.el.style.left   = layer.x + 'px';
         layer.el.style.top    = layer.y + 'px';
-        // Actualizar tamaño del texto si aplica
-        if(layer.type==='text' && layer.tp){
-          const ratio2 = layer.w / origW;
-          layer.tp.fontSize = Math.round((layer.tp.fontSize||24) * ratio2 / (layer.w/origW) * ratio2);
-          // Solo escalar el contenedor, no el texto
-        }
       }
       updateSelBox();
     },{passive:false});
@@ -785,12 +791,13 @@ function selectLayer(id){
 
 function deleteActive(){
   if(!activeLayer) return;
-  snapshot(); // guardar estado ANTES de eliminar
+  snapshot();
   const l = activeLayer;
   if(l.el) l.el.remove();
   layers = layers.filter(x=>x.id !== l.id);
+  frameSelId = null;
   desel();
-  toast('🗑 Capa eliminada');
+  toast('🗑 Eliminado');
 }
 
 function desel(){
@@ -812,6 +819,8 @@ function selectFrame(id){
   frameSelId = id;
   selId = null;
   if(l.el) l.el.classList.add('active-touch');
+  // Mostrar sel-box y del-btn (sin overflow del marco)
+  showSelBox(l);
   // Mostrar hint en panel logos
   document.getElementById('text-empty').style.display = 'none';
   document.getElementById('text-editor').style.display = 'none';
