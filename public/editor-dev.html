@@ -3981,15 +3981,81 @@ function setLoad(txt,pct){document.getElementById('load-text').textContent=txt;d
 function hideLoad(){document.getElementById('loading').classList.remove('show');}
 
 // KEYBOARD
+
+// ── COPY / PASTE entre pestañas via localStorage ──────────────
+function copyLayers(){
+  const ids = selIds.length > 0 ? selIds : (selId !== null ? [selId] : []);
+  if(!ids.length){ showToast('Selecciona algo para copiar'); return; }
+  const copied = ids.map(id=>{
+    const l = layers.find(x=>x.id===id);
+    if(!l) return null;
+    return JSON.parse(JSON.stringify({...l, el:null}));
+  }).filter(Boolean);
+  if(!copied.length) return;
+  localStorage.setItem('ds_clipboard', JSON.stringify({
+    layers: copied,
+    copiedAt: Date.now()
+  }));
+  showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
+}
+
+function pasteLayers(){
+  const raw = localStorage.getItem('ds_clipboard');
+  if(!raw){ showToast('No hay nada en el portapapeles'); return; }
+  try{
+    const { layers: copied } = JSON.parse(raw);
+    if(!copied?.length) return;
+    const newIds = [];
+    // Calcular offset para que no se pegue encima
+    const offset = 20;
+    copied.forEach(l=>{
+      const nl = {...JSON.parse(JSON.stringify(l)), id: lCtr++, el: null};
+      nl.x += offset;
+      nl.y += offset;
+      nl.zIndex = layers.length;
+      // Nuevo groupId si tenía grupo
+      if(nl.groupId){
+        // Crear nuevo groupId único por grupo
+        if(!pasteLayers._gmap) pasteLayers._gmap = {};
+        if(!pasteLayers._gmap[nl.groupId]){
+          pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
+        }
+        nl.groupId = pasteLayers._gmap[nl.groupId];
+      }
+      layers.push(nl);
+      mkEl(nl);
+      newIds.push(nl.id);
+    });
+    pasteLayers._gmap = {}; // reset group map for next paste
+    // Registrar nuevos grupos
+    newIds.forEach(id=>{
+      const l = layers.find(x=>x.id===id);
+      if(l?.groupId){
+        if(!groups[l.groupId]) groups[l.groupId] = [];
+        if(!groups[l.groupId].includes(id)) groups[l.groupId].push(id);
+      }
+    });
+    renderList();
+    selMulti(newIds);
+    snapshotState();
+    showToast(`📋 ${newIds.length} capa${newIds.length>1?'s':''} pegada${newIds.length>1?'s':''}`);
+  }catch(e){
+    showToast('✗ Error al pegar');
+    console.warn(e);
+  }
+}
+
 document.addEventListener('keydown',ev=>{
   const active=document.activeElement?.contentEditable==='true'||document.activeElement?.tagName==='INPUT'||document.activeElement?.tagName==='TEXTAREA';
 
-  // Undo / Redo
+  // Undo / Redo / Copy / Paste
   if((ev.ctrlKey||ev.metaKey) && !active){
     if(ev.key==='z'||ev.key==='Z'){ ev.preventDefault(); undo(); return; }
     if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); return; }
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
     if(ev.key==='g'||ev.key==='G'){ ev.preventDefault(); ev.shiftKey?ungroupSelected():groupSelected(); return; }
+    if(ev.key==='c'||ev.key==='C'){ ev.preventDefault(); copyLayers(); return; }
+    if(ev.key==='v'||ev.key==='V'){ ev.preventDefault(); pasteLayers(); return; }
   }
 
   if((ev.key==='Delete'||ev.key==='Backspace')&&!active){
