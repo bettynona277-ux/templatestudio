@@ -62,7 +62,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   transition:all 0.2s;
 }
 .ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
-.panel-body{overflow-y:auto;max-height:260px;}
+.panel-body{overflow-y:auto;max-height:300px;}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
 
@@ -165,6 +165,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     <span>Diseños Streaming</span>
   </div>
   <div class="topbar-actions">
+    <button class="tbtn tbtn-ghost" onclick="window.location.href='index.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </button>
     <button class="tbtn tbtn-ghost" onclick="downloadPNG()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
@@ -207,17 +210,17 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
           </div>
           <div class="field-label">Contenido</div>
           <textarea class="text-input" id="txt-content" rows="2" oninput="updateText(this.value)"></textarea>
-          <div class="color-row">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
             <div>
               <div class="field-label">Color</div>
-              <div class="color-preview">
-                <div class="color-preview-swatch" id="color-swatch" style="background:#ffffff;"></div>
+              <div class="color-preview" style="width:100%;height:38px;border-radius:10px;">
+                <div class="color-preview-swatch" id="color-swatch" style="background:#ffffff;width:100%;height:100%;border-radius:9px;"></div>
                 <input type="color" id="txt-color" value="#ffffff" oninput="updateColor(this.value)">
               </div>
             </div>
-            <div style="flex:1;">
+            <div>
               <div class="field-label">Tamaño</div>
-              <div class="size-row">
+              <div class="size-row" style="margin-top:0;">
                 <button class="size-btn" onclick="changeSize(-2)">−</button>
                 <button class="size-btn" style="flex:2;font-size:0.85rem;font-weight:700;" id="size-lbl">24</button>
                 <button class="size-btn" onclick="changeSize(2)">+</button>
@@ -229,6 +232,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
       <!-- LOGOS TAB -->
       <div id="tab-logos" style="display:none;" class="logos-panel">
+        <div id="frame-hint" style="display:none;background:rgba(21,214,164,0.1);border:1px solid rgba(21,214,164,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:0.78rem;color:var(--accent);font-weight:600;">
+          🖼 Toca un logo para ponerlo en el marco seleccionado
+        </div>
         <div class="logos-empty" id="logos-empty">Cargando logos...</div>
         <div class="logos-grid" id="logos-grid"></div>
       </div>
@@ -443,14 +449,31 @@ function buildEl(l){
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
     el.style.overflow = 'hidden';
+    // Aplicar estilos del marco
+    if(l.borderWidth>0){
+      el.style.border = `${l.borderWidth}px solid ${l.borderColor||'#00ffc3'}`;
+    } else {
+      el.style.border = '2px dashed rgba(21,214,164,0.3)';
+    }
+    if(l.shadowBlur>0) el.style.boxShadow = `0 4px ${l.shadowBlur}px rgba(0,0,0,0.6)`;
+    if(l.innerShadow>0) el.style.boxShadow = (el.style.boxShadow?el.style.boxShadow+', ':'')+`inset 0 0 ${l.innerShadow}px rgba(0,0,0,0.7)`;
     if(l.src){
+      el.style.border = 'none';
       const img = document.createElement('img');
       img.src = l.src;
       img.className = 'frame-inner';
+      img.id = 'fi-'+l.id;
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
       el.appendChild(img);
+    } else {
+      // Marco vacío - mostrar hint
+      const hint = document.createElement('div');
+      hint.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:rgba(21,214,164,0.5);';
+      hint.textContent = '🖼';
+      el.appendChild(hint);
     }
-    makeDraggable(el, l);
+    // Tap en marco → abrir panel logos para insertar
+    makeDraggable(el, l, ()=>selectFrame(l.id));
 
   } else if(l.type === 'shape'){
     if(l.shapeType === 'rect'||!l.shapeType){
@@ -506,9 +529,53 @@ function selectLayer(id){
 
 function desel(){
   selId = null;
+  frameSelId = null;
   layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
   document.getElementById('text-empty').style.display = 'block';
   document.getElementById('text-editor').style.display = 'none';
+  document.getElementById('frame-hint').style.display = 'none';
+}
+
+let frameSelId = null;
+
+function selectFrame(id){
+  const l = layers.find(x=>x.id===id);
+  if(!l || l.type!=='frame') return;
+  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+  frameSelId = id;
+  selId = null;
+  if(l.el) l.el.classList.add('active-touch');
+  // Mostrar hint en panel logos
+  document.getElementById('text-empty').style.display = 'none';
+  document.getElementById('text-editor').style.display = 'none';
+  document.getElementById('frame-hint').style.display = 'block';
+  // Ir a tab logos
+  switchTab('logos');
+  if(logoCache.length===0) loadLogos();
+}
+
+function applyLogoToFrame(src, name){
+  if(!frameSelId) return false;
+  const l = layers.find(x=>x.id===frameSelId);
+  if(!l || l.type!=='frame') return false;
+  l.src = src;
+  // Actualizar el elemento visual
+  if(l.el){
+    l.el.style.border = 'none';
+    l.el.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = 'frame-inner';
+    img.id = 'fi-'+l.id;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
+    l.el.appendChild(img);
+    makeDraggable(l.el, l, ()=>selectFrame(l.id));
+  }
+  frameSelId = null;
+  l.el?.classList.remove('active-touch');
+  document.getElementById('frame-hint').style.display = 'none';
+  toast('✓ Logo aplicado al marco');
+  return true;
 }
 
 function updateText(val){
@@ -565,14 +632,25 @@ function renderLogos(){
   empty.style.display='none';
   grid.innerHTML='';
   logoCache.forEach(logo=>{
+    const src = (logo.url||logo.src||'').replace(/'/g,"%27");
+    const name = (logo.name||'Logo').replace(/'/g,"%27");
     const card = document.createElement('div');
     card.className='logo-card';
     card.innerHTML=`
       <img src="${logo.url||logo.src||''}" alt="${logo.name||'Logo'}">
-      <button class="add-btn" onclick="addLogoToCanvas('${logo.url||logo.src||''}','${(logo.name||'Logo').replace(/'/g,"\\'")}')">+</button>
+      <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
     `;
     grid.appendChild(card);
   });
+}
+
+function handleLogoTap(src, name){
+  // Si hay un marco seleccionado, insertar ahí; si no, añadir al canvas
+  if(frameSelId){
+    applyLogoToFrame(src, name);
+  } else {
+    addLogoToCanvas(src, name);
+  }
 }
 
 function addLogoToCanvas(src, name){
@@ -763,18 +841,17 @@ window.addEventListener('load', async()=>{
   showLoad('Conectando...');
   await initFB();
 
-  // Esperar sesión — Firebase siempre llama onAuthStateChanged una vez al inicio
+  // Esperar sesión
   const user = await new Promise(resolve=>{
     if(!fbAuth){ resolve(null); return; }
     let settled=false;
     const unsub=fbAuth.onAuthStateChanged(u=>{
       if(settled) return;
-      settled=true;
-      try{unsub();}catch(_){}
-      resolve(u||null); // resuelve con null si no hay sesión, sin quedarse colgado
+      if(!u&&!fbAuth.currentUser) return;
+      settled=true;try{unsub();}catch(_){}
+      resolve(u||fbAuth.currentUser||null);
     });
-    // Timeout de seguridad 5s
-    setTimeout(()=>{ if(settled)return; settled=true; try{unsub();}catch(_){} resolve(fbAuth.currentUser||null); },5000);
+    setTimeout(()=>{ if(settled)return; settled=true; try{unsub();}catch(_){} resolve(fbAuth.currentUser||null); },8000);
   });
 
   if(!user){
