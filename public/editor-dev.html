@@ -824,6 +824,7 @@ const cvs=document.getElementById('cvs');
 // ── MULTI-SELECT ──────────────────────────────────────────────
 let selIds=[];          // array of selected ids (multi)
 let isMarquee=false;    // rubber-band selection active
+let _justMarqueed=false; // evitar que click post-marquee deseleccione
 let marqueeStart={x:0,y:0};
 let marqueeEl=null;     // the marquee div
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
@@ -2407,11 +2408,8 @@ document.addEventListener('mouseup',ev=>{
       const rx2=parseFloat(marqueeEl.style.left), ry2=parseFloat(marqueeEl.style.top);
       const rw2=parseFloat(marqueeEl.style.width), rh2=parseFloat(marqueeEl.style.height);
       marqueeEl.style.display='none';
-      console.log('MARQUEE END - rect:', {rx2,ry2,rw2,rh2}, 'zoom:', zoom_);
-      console.log('LAYERS:', layers.map(l=>({id:l.id,x:Math.round(l.x),y:Math.round(l.y),w:Math.round(l.w),h:Math.round(l.h),v:l.visible})));
       if(rw2>6&&rh2>6){
         const hit=layers.filter(l=>l.visible&&l.x<rx2+rw2&&l.x+l.w>rx2&&l.y<ry2+rh2&&l.y+l.h>ry2).map(l=>l.id);
-        console.log('HIT:', hit);
         if(hit.length){
           // Expandir para incluir grupos completos
           const extraFromGroups = [];
@@ -2422,6 +2420,7 @@ document.addEventListener('mouseup',ev=>{
             }
           });
           selMulti([...new Set([...hit,...extraFromGroups])]);
+          _justMarqueed = true; // evitar deselección por el click que sigue
         }
         renderList();
       }
@@ -2635,15 +2634,39 @@ function sel(id, additive=false){
   selMulti(clickedIds);
   renderList();
 }
-function canvasClick(ev){if(ev.target===cvs||ev.target.id==='canvas-area')desel();}
+function canvasClick(ev){
+  if(_justMarqueed){ _justMarqueed=false; return; } // ignorar click post-marquee
+  if(ev.target===cvs||ev.target.id==='canvas-area') desel();
+}
 
-// Marquee: start rubber-band on empty canvas
+// Marquee: start rubber-band on empty canvas OR when dragging with no layer hit
+let _marqueeMouseStart = null;
 cvs.addEventListener('mousedown',ev=>{
-  if(ev.target!==cvs) return; // only on empty canvas
   if(ev.button!==0) return;
-  desel();
-  startMarquee(ev);
+  // Siempre guardar el punto de inicio por si se convierte en marquee
+  _marqueeMouseStart = {x:ev.clientX, y:ev.clientY, ev};
+  // Solo iniciar marquee inmediatamente si el click es en el canvas vacío
+  if(ev.target===cvs){
+    desel();
+    startMarquee(ev);
+    _marqueeMouseStart = null;
+  }
 });
+
+// Si el mouse se mueve más de 8px desde el inicio y no hay drag de capa activo → marquee
+document.addEventListener('mousemove', ev=>{
+  if(_marqueeMouseStart && !isDrag && !isMarquee){
+    const dx = Math.abs(ev.clientX - _marqueeMouseStart.x);
+    const dy = Math.abs(ev.clientY - _marqueeMouseStart.y);
+    if(dx > 8 || dy > 8){
+      desel();
+      startMarquee(_marqueeMouseStart.ev);
+      _marqueeMouseStart = null;
+    }
+  }
+}, {capture: true});
+
+document.addEventListener('mouseup', ()=>{ _marqueeMouseStart = null; }, {capture:true});
 
 // Also allow marquee from canvas-area (outside the scaled cvs)
 document.getElementById('canvas-area')?.addEventListener('mousedown',ev=>{
