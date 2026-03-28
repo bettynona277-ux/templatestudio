@@ -34,11 +34,17 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 /* ── LAYOUT ── */
 .layout{display:flex;flex-direction:column;height:calc(100vh - 52px);}
 .canvas-wrap{
-  flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  flex:1;overflow:scroll;
   background:#040408;
   background-image:radial-gradient(circle,rgba(255,255,255,0.025) 1px,transparent 1px);
   background-size:18px 18px;
   position:relative;
+  -webkit-overflow-scrolling:touch;
+}
+.canvas-inner{
+  min-width:100%;min-height:100%;
+  display:flex;align-items:center;justify-content:center;
+  padding:40px;box-sizing:border-box;
 }
 #cvs{
   position:relative;overflow:hidden;flex-shrink:0;
@@ -62,7 +68,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   transition:all 0.2s;
 }
 .ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
-.panel-body{overflow-y:auto;max-height:300px;}
+.panel-body{overflow-y:auto;max-height:320px;}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
 
@@ -84,6 +90,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .size-row{display:flex;gap:8px;margin-top:12px;}
 .size-btn{flex:1;height:38px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);font-size:1rem;cursor:pointer;}
 .size-btn:active{background:rgba(21,214,164,0.15);}
+.active-flip{background:rgba(21,214,164,0.2)!important;border-color:var(--accent)!important;color:var(--accent)!important;}
 .layer-name-badge{
   display:inline-flex;align-items:center;gap:6px;
   background:rgba(21,214,164,0.12);border:1px solid rgba(21,214,164,0.25);
@@ -218,7 +225,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 <div class="layout">
   <!-- CANVAS -->
   <div class="canvas-wrap" id="canvas-area">
-    <div id="cvs"></div>
+    <div class="canvas-inner">
+      <div id="cvs"></div>
+    </div>
     <div class="zoom-bar">
       <button class="z-btn" onclick="doZoom(-0.1)">−</button>
       <span class="z-lbl" id="zlbl">100%</span>
@@ -231,6 +240,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     <div class="panel-tabs">
       <button class="ptab active" id="ptab-text" onclick="switchTab('text')">✏️ Texto</button>
       <button class="ptab" id="ptab-logos" onclick="switchTab('logos')">🖼 Logos</button>
+      <button class="ptab" id="ptab-img" onclick="switchTab('img')" style="display:none;">🎨 Imagen</button>
     </div>
     <div class="panel-body">
       <!-- TEXT TAB -->
@@ -263,6 +273,22 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- IMG TAB -->
+      <div id="tab-img" style="display:none;" class="text-panel">
+        <div class="layer-name-badge" id="img-layer-name-badge">
+          <span>🎨</span><span id="img-layer-name-lbl">Imagen</span>
+        </div>
+        <div class="field-label">Voltear</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+          <button class="size-btn" style="height:42px;font-size:0.8rem;font-weight:700;" onclick="toggleFlip('x')" id="btn-flipx">↔ Horizontal</button>
+          <button class="size-btn" style="height:42px;font-size:0.8rem;font-weight:700;" onclick="toggleFlip('y')" id="btn-flipy">↕ Vertical</button>
+        </div>
+        <div class="field-label">Desenfoque <span id="blur-lbl" style="color:var(--accent);">0px</span></div>
+        <input type="range" id="img-blur" min="0" max="20" step="0.5" value="0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:4px;"
+          oninput="updateBlur(this.value)">
       </div>
 
       <!-- LOGOS TAB -->
@@ -620,21 +646,24 @@ function makeDraggable(el, layer, onTap){
     if(!moved){
       // TAP: seleccionar esta capa y mostrar handles
       if(activeLayer === layer){
-        // Segundo tap en la misma capa = acción (editar texto / seleccionar frame)
-        if(onTap) onTap();
+        // Segundo tap = acción específica del tipo
+        if(layer.type==='text') fillTextPanel(layer);
+        else if(layer.type==='img') openImgPanel(layer);
+        else if(onTap) onTap();
       } else {
-        // Primer tap = seleccionar
+        // Primer tap = seleccionar y mostrar handles
         layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
         layer.el?.classList.add('active-touch');
         showSelBox(layer);
         selId = layer.id;
-        // Actualizar panel si es texto
-        if(layer.type==='text'){
-          fillTextPanel(layer);
-        } else if(layer.type==='frame'){
-          // Mostrar hint de logos
-          if(onTap) onTap();
+        // Ocultar tab img si no es imagen
+        if(layer.type!=='img' && layer.type!=='frame'){
+          document.getElementById('ptab-img').style.display = 'none';
+          if(currentTab==='img') switchTab('text');
         }
+        if(layer.type==='text') fillTextPanel(layer);
+        else if(layer.type==='img') openImgPanel(layer);
+        else if(layer.type==='frame' && onTap) onTap();
       }
     }
     moved=false;
@@ -681,6 +710,7 @@ function buildEl(l){
     img.src = l.src||'';
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
     if(l.flipX||l.flipY) img.style.transform=`scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
+    if(l.blur>0) img.style.filter=`blur(${l.blur}px)`;
     el.appendChild(img);
     makeDraggable(el, l);
 
@@ -981,15 +1011,59 @@ function addLogoToCanvas(src, name){
 }
 
 // ══════════════════════════════════════════
+// IMAGEN: FLIP Y BLUR
+// ══════════════════════════════════════════
+function toggleFlip(axis){
+  const l = layers.find(x=>x.id===selId);
+  if(!l) return;
+  if(axis==='x') l.flipX = !l.flipX;
+  else l.flipY = !l.flipY;
+  const img = l.el?.querySelector('img');
+  if(img) img.style.transform = `scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
+  document.getElementById('btn-flipx')?.classList.toggle('active-flip', !!l.flipX);
+  document.getElementById('btn-flipy')?.classList.toggle('active-flip', !!l.flipY);
+  snapshot();
+}
+
+function updateBlur(val){
+  const l = layers.find(x=>x.id===selId);
+  if(!l) return;
+  l.blur = parseFloat(val);
+  const img = l.el?.querySelector('img');
+  if(img) img.style.filter = val>0 ? `blur(${val}px)` : '';
+  document.getElementById('blur-lbl').textContent = val+'px';
+}
+
+function openImgPanel(layer){
+  selId = layer.id;
+  document.getElementById('img-layer-name-lbl').textContent = layer.name||'Imagen';
+  // Reset controles
+  const blurVal = layer.blur||0;
+  document.getElementById('img-blur').value = blurVal;
+  document.getElementById('blur-lbl').textContent = blurVal+'px';
+  document.getElementById('btn-flipx')?.classList.toggle('active-flip', !!layer.flipX);
+  document.getElementById('btn-flipy')?.classList.toggle('active-flip', !!layer.flipY);
+  // Mostrar tab imagen
+  document.getElementById('ptab-img').style.display = 'block';
+  switchTab('img');
+}
+
+// ══════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════
 function switchTab(tab){
   currentTab = tab;
   document.getElementById('tab-text').style.display = tab==='text'?'block':'none';
   document.getElementById('tab-logos').style.display = tab==='logos'?'block':'none';
+  document.getElementById('tab-img').style.display = tab==='img'?'block':'none';
   document.getElementById('ptab-text').classList.toggle('active', tab==='text');
   document.getElementById('ptab-logos').classList.toggle('active', tab==='logos');
+  document.getElementById('ptab-img').classList.toggle('active', tab==='img');
   if(tab==='logos' && logoCache.length===0) loadLogos();
+  if(tab!=='img'){
+    // Ocultar tab img si no hay imagen seleccionada
+    if(tab!=='img') document.getElementById('ptab-img').style.display = (currentTab==='img'?'block':'none');
+  }
 }
 
 // ══════════════════════════════════════════
@@ -1091,7 +1165,8 @@ async function doSave(){
     tp:l.tp?{...l.tp}:null,
     fill:l.fill||null,shapeType:l.shapeType||null,
     frameRadius:l.frameRadius||null,
-    flipX:l.flipX||false,flipY:l.flipY||false
+    flipX:l.flipX||false,flipY:l.flipY||false,
+    blur:l.blur||0
   }));
 
   const data={
