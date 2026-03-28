@@ -458,11 +458,11 @@ function loadDesign(tpl){
 
   (tpl.layers||[]).forEach(ld=>{
     // Deep copy para evitar que capas compartan referencias
-    // Para frames: el editor PC guarda el logo en 'frameImage', el móvil usa 'src'
-    let resolvedSrc = ld.src || null;
-    if(ld.type === 'frame' && !resolvedSrc && ld.frameImage) {
-      resolvedSrc = ld.frameImage;
-    }
+    // Para frames: SIEMPRE usar frameImage (tiene prioridad sobre src que puede estar corrupto)
+    // El editor PC guarda el logo correcto en frameImage; src puede tener URL incorrecta
+    let resolvedSrc = (ld.type === 'frame')
+      ? (ld.frameImage || ld.src || null)
+      : (ld.src || null);
     const l = {
       ...ld,
       el: null,
@@ -511,8 +511,9 @@ function undoStep(){
   });
   layers = [];
   prev.forEach(ld=>{
-    let resolvedSrc = ld.src || null;
-    if(ld.type === 'frame' && !resolvedSrc && ld.frameImage) resolvedSrc = ld.frameImage;
+    const resolvedSrc = (ld.type === 'frame')
+      ? (ld.frameImage || ld.src || null)
+      : (ld.src || null);
     const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null, src: resolvedSrc};
     layers.push(l);
     buildEl(l);
