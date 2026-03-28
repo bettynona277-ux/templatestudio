@@ -1497,16 +1497,23 @@ async function downloadPNG(){
       const img = imgMap[l.id];
       if(img){
         ctx.save();
-        // Flip
+        // Pre-blur en offscreen canvas (ctx.filter no es fiable en móvil)
+        const blurPx = l.blur || 0;
+        let drawSrc = img;
+        if(blurPx > 0){
+          const off = document.createElement('canvas');
+          off.width = w; off.height = h;
+          const octx = off.getContext('2d');
+          octx.filter = `blur(${blurPx}px)`;
+          octx.drawImage(img, 0, 0, w, h);
+          drawSrc = off;
+        }
         if(l.flipX || l.flipY){
           ctx.translate(x + (l.flipX?w:0), y + (l.flipY?h:0));
           ctx.scale(l.flipX?-1:1, l.flipY?-1:1);
-          // blur
-          if(l.blur>0) ctx.filter = `blur(${l.blur}px)`;
-          ctx.drawImage(img, 0, 0, w, h);
+          ctx.drawImage(drawSrc, 0, 0, w, h);
         } else {
-          if(l.blur>0) ctx.filter = `blur(${l.blur}px)`;
-          ctx.drawImage(img, x, y, w, h);
+          ctx.drawImage(drawSrc, x, y, w, h);
         }
         ctx.restore();
       }
@@ -1518,64 +1525,88 @@ async function downloadPNG(){
       const fBC    = l.frameBorderColor || l.borderColor || '#00ffc3';
       const fSh    = Number(l.frameShadow    || l.shadowBlur  || 0);
       const fISh   = Number(l.frameInnerShadow || l.innerShadow || 0);
+      const blurPx = l.blur || 0;
 
-      ctx.save();
-
-      // Sombra exterior
+      // ── Sombra exterior: antes del clip ──
       if(fSh > 0){
+        ctx.save();
         ctx.shadowColor   = 'rgba(0,0,0,0.6)';
         ctx.shadowBlur    = fSh;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 4;
+        roundedRectPath(ctx, x, y, w, h, radius);
+        ctx.fillStyle = 'rgba(0,0,0,0.01)';
+        ctx.fill();
+        ctx.restore();
       }
 
       const img = imgMap[l.id];
       if(img){
+        ctx.save();
         // Clip con border-radius
         roundedRectPath(ctx, x, y, w, h, radius);
         ctx.clip();
-        ctx.shadowColor = 'transparent'; // evitar que sombra afecte la imagen
-        // Flip
+
+        // Pre-blur en offscreen si necesario
+        let drawSrc = img;
+        if(blurPx > 0){
+          const off = document.createElement('canvas');
+          off.width = w; off.height = h;
+          const octx = off.getContext('2d');
+          octx.filter = `blur(${blurPx}px)`;
+          octx.drawImage(img, 0, 0, w, h);
+          drawSrc = off;
+        }
+
         if(l.flipX || l.flipY){
           ctx.translate(x+(l.flipX?w:0), y+(l.flipY?h:0));
           ctx.scale(l.flipX?-1:1, l.flipY?-1:1);
-          if(l.blur>0) ctx.filter=`blur(${l.blur}px)`;
-          ctx.drawImage(img, 0, 0, w, h);
+          ctx.drawImage(drawSrc, 0, 0, w, h);
         } else {
-          if(l.blur>0) ctx.filter=`blur(${l.blur}px)`;
-          ctx.drawImage(img, x, y, w, h);
+          ctx.drawImage(drawSrc, x, y, w, h);
         }
+
+        // ── Inner shadow: gradientes oscuros en los 4 bordes dentro del clip ──
+        if(fISh > 0){
+          const d = Math.min(fISh * 2, Math.min(w, h) * 0.5);
+          // top
+          let gr = ctx.createLinearGradient(x, y, x, y+d);
+          gr.addColorStop(0, 'rgba(0,0,0,0.7)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr; ctx.fillRect(x, y, w, d);
+          // bottom
+          gr = ctx.createLinearGradient(x, y+h, x, y+h-d);
+          gr.addColorStop(0, 'rgba(0,0,0,0.7)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr; ctx.fillRect(x, y+h-d, w, d);
+          // left
+          gr = ctx.createLinearGradient(x, y, x+d, y);
+          gr.addColorStop(0, 'rgba(0,0,0,0.7)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr; ctx.fillRect(x, y, d, h);
+          // right
+          gr = ctx.createLinearGradient(x+w, y, x+w-d, y);
+          gr.addColorStop(0, 'rgba(0,0,0,0.7)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr; ctx.fillRect(x+w-d, y, d, h);
+        }
+
+        ctx.restore();
       } else {
         // Marco vacío: fondo semitransparente
+        ctx.save();
         roundedRectPath(ctx, x, y, w, h, radius);
         ctx.fillStyle = 'rgba(21,214,164,0.08)';
         ctx.fill();
+        ctx.restore();
       }
-      ctx.restore();
 
-      // Borde del marco (outline = dibujado encima)
+      // ── Borde del marco (outline encima de todo) ──
       if(fBW > 0){
         ctx.save();
         roundedRectPath(ctx, x, y, w, h, radius);
         ctx.strokeStyle = fBC;
         ctx.lineWidth   = fBW;
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Inner shadow (dibujado encima con clip)
-      if(fISh > 0){
-        ctx.save();
-        roundedRectPath(ctx, x, y, w, h, radius);
-        ctx.clip();
-        ctx.shadowColor   = 'rgba(0,0,0,0.7)';
-        ctx.shadowBlur    = fISh;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-        // Truco: dibujar un rect exterior grande con clip interior
-        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-        ctx.lineWidth   = fISh * 2;
-        roundedRectPath(ctx, x, y, w, h, radius);
         ctx.stroke();
         ctx.restore();
       }
