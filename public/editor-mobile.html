@@ -458,11 +458,16 @@ function loadDesign(tpl){
 
   (tpl.layers||[]).forEach(ld=>{
     // Deep copy para evitar que capas compartan referencias
+    // Para frames: el editor PC guarda el logo en 'frameImage', el móvil usa 'src'
+    let resolvedSrc = ld.src || null;
+    if(ld.type === 'frame' && !resolvedSrc && ld.frameImage) {
+      resolvedSrc = ld.frameImage;
+    }
     const l = {
       ...ld,
       el: null,
       tp: ld.tp ? {...ld.tp} : null,
-      src: ld.src || null  // cada capa tiene su propio src
+      src: resolvedSrc
     };
     layers.push(l);
     buildEl(l);
@@ -506,7 +511,9 @@ function undoStep(){
   });
   layers = [];
   prev.forEach(ld=>{
-    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null};
+    let resolvedSrc = ld.src || null;
+    if(ld.type === 'frame' && !resolvedSrc && ld.frameImage) resolvedSrc = ld.frameImage;
+    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null, src: resolvedSrc};
     layers.push(l);
     buildEl(l);
   });
@@ -1326,14 +1333,23 @@ async function doSave(){
     id:l.id,type:l.type,name:l.name,
     x:l.x,y:l.y,w:l.w,h:l.h,
     zIndex:l.zIndex,opacity:l.opacity,visible:l.visible,
-    src:l.src||null,
+    // Para frames: guardar src también como frameImage (compatibilidad con editor PC)
+    src: (l.type==='frame') ? null : (l.src||null),
+    frameImage: (l.type==='frame') ? (l.src||null) : null,
     tp:l.tp?{...l.tp}:null,
     fill:l.fill||null,shapeType:l.shapeType||null,
     frameRadius:l.frameRadius||null,
-    borderWidth:l.borderWidth||0,
-    borderColor:l.borderColor||null,
-    shadowBlur:l.shadowBlur||0,
-    innerShadow:l.innerShadow||0,
+    // Guardar con nombres del editor PC Y legacy para máxima compatibilidad
+    frameBorderWidth: l.frameBorderWidth || l.borderWidth || 0,
+    frameBorderColor: l.frameBorderColor || l.borderColor || '#00ffc3',
+    frameBorderStyle: 'inner',
+    frameShadow: l.frameShadow || l.shadowBlur || 0,
+    frameInnerShadow: l.frameInnerShadow || l.innerShadow || 0,
+    // Legacy (por si acaso el PC los lee)
+    borderWidth: l.frameBorderWidth || l.borderWidth || 0,
+    borderColor: l.frameBorderColor || l.borderColor || '#00ffc3',
+    shadowBlur: l.frameShadow || l.shadowBlur || 0,
+    innerShadow: l.frameInnerShadow || l.innerShadow || 0,
     flipX:l.flipX||false,flipY:l.flipY||false,
     blur:l.blur||0,
     radius:l.radius||null,
