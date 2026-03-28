@@ -767,8 +767,6 @@ function buildEl(l){
     d.id = 'ti-'+l.id;
     d.textContent = l.tp.text || '';
     el.appendChild(d);
-    // Aplicar todos los efectos visuales (borde, sombra, fuente, etc.)
-    applyTextStylesMobile(l);
     makeDraggable(el, l, ()=>selectLayer(l.id));
 
   } else if(l.type === 'img'){
@@ -783,18 +781,16 @@ function buildEl(l){
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
     el.style.overflow = 'hidden';
-    // Aplicar estilos del marco
-    if(l.borderWidth>0){
-      el.style.border = `${l.borderWidth}px solid ${l.borderColor||'#00ffc3'}`;
-    } else {
-      el.style.border = '2px dashed rgba(21,214,164,0.3)';
-    }
-    if(l.shadowBlur>0) el.style.boxShadow = `0 4px ${l.shadowBlur}px rgba(0,0,0,0.6)`;
-    if(l.innerShadow>0) el.style.boxShadow = (el.style.boxShadow?el.style.boxShadow+', ':'')+`inset 0 0 ${l.innerShadow}px rgba(0,0,0,0.7)`;
+    // Sombras del marco (no dependen de si tiene imagen)
+    const shadowParts = [];
+    if(l.shadowBlur>0) shadowParts.push(`0 4px ${l.shadowBlur}px rgba(0,0,0,0.6)`);
+    if(l.innerShadow>0) shadowParts.push(`inset 0 0 ${l.innerShadow}px rgba(0,0,0,0.7)`);
+    if(shadowParts.length) el.style.boxShadow = shadowParts.join(', ');
     if(l.src){
-      // Marco con imagen — quitar borde y mostrar imagen
-      el.style.border = 'none';
-      el.style.outline = 'none';
+      // Marco con imagen — borde de efectos o nada
+      if(l.borderWidth>0){
+        el.style.outline = `${l.borderWidth}px solid ${l.borderColor||'#00ffc3'}`;
+      }
       const img = document.createElement('img');
       img.src = l.src;
       img.className = 'frame-inner';
@@ -802,7 +798,12 @@ function buildEl(l){
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
       el.appendChild(img);
     } else {
-      // Marco vacío — hint de que se puede insertar logo
+      // Marco vacío — mostrar borde de efectos o dashed
+      if(l.borderWidth>0){
+        el.style.border = `${l.borderWidth}px solid ${l.borderColor||'#00ffc3'}`;
+      } else {
+        el.style.border = '2px dashed rgba(21,214,164,0.3)';
+      }
       const hint = document.createElement('div');
       hint.className = 'frame-empty-hint';
       hint.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:rgba(21,214,164,0.4);pointer-events:none;';
@@ -852,6 +853,8 @@ function buildEl(l){
 
   cvs.appendChild(el);
   l.el = el;
+  // Aplicar efectos DESPUÉS de que el elemento está en el DOM
+  if(l.type === 'text') applyTextStylesMobile(l);
 }
 
 function buildShapeSVG(l){
