@@ -171,6 +171,8 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
   display:none;box-shadow:0 2px 6px rgba(0,0,0,0.2);
 }
 .cel.sel .rh{display:block;}
+/* Ocultar nodos individuales cuando hay selección múltiple */
+.multi-active .cel.sel .rh{display:none;}
 .rh.tl{top:-6px;left:-6px;cursor:nwse-resize;}
 .rh.tr{top:-6px;right:-6px;cursor:nesw-resize;}
 .rh.bl{bottom:-6px;left:-6px;cursor:nesw-resize;}
@@ -902,6 +904,12 @@ function selMulti(ids){
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   selIds = ids;
+  // Mostrar/ocultar nodos individuales según si es multi-selección
+  if(ids.length > 1){
+    cvs.classList.add('multi-active');
+  } else {
+    cvs.classList.remove('multi-active');
+  }
   selId = ids.length===1 ? ids[0] : null;
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id);
@@ -2214,15 +2222,24 @@ function applyImageToFrame(frameLayer, src){
 
 // ── MARQUEE SELECTION ─────────────────────────────────────────
 function startMarquee(ev){
+  // Usar canvas-area como referencia para evitar distorsión del transform:scale del cvs
   const cr=cvs.getBoundingClientRect();
   isMarquee=true;
-  marqueeStart={x:(ev.clientX-cr.left)/zoom_, y:(ev.clientY-cr.top)/zoom_};
+  // Coordenadas en espacio del canvas (sin zoom)
+  marqueeStart={
+    x:(ev.clientX-cr.left)/zoom_,
+    y:(ev.clientY-cr.top)/zoom_,
+    // También guardar coords de pantalla para dibujar el marquee fuera del cvs
+    sx:ev.clientX-cr.left,
+    sy:ev.clientY-cr.top
+  };
   if(!marqueeEl){
     marqueeEl=document.createElement('div');
     marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;';
     cvs.appendChild(marqueeEl);
   }
   marqueeEl.style.display='block';
+  // Posicionar en coordenadas del canvas (el marquee está dentro del cvs escalado)
   marqueeEl.style.left=marqueeStart.x+'px'; marqueeEl.style.top=marqueeStart.y+'px';
   marqueeEl.style.width='0px'; marqueeEl.style.height='0px';
 }
@@ -2230,10 +2247,16 @@ function startMarquee(ev){
 document.addEventListener('mousemove',ev=>{
   if(isMarquee){
     const cr=cvs.getBoundingClientRect();
+    // Coordenadas en espacio canvas (sin zoom) para intersección con capas
     const cx=(ev.clientX-cr.left)/zoom_, cy=(ev.clientY-cr.top)/zoom_;
     const rx=Math.min(cx,marqueeStart.x), ry=Math.min(cy,marqueeStart.y);
     const rw=Math.abs(cx-marqueeStart.x), rh=Math.abs(cy-marqueeStart.y);
-    if(marqueeEl){ marqueeEl.style.left=rx+'px'; marqueeEl.style.top=ry+'px'; marqueeEl.style.width=rw+'px'; marqueeEl.style.height=rh+'px'; }
+    if(marqueeEl){
+      marqueeEl.style.left=rx+'px';
+      marqueeEl.style.top=ry+'px';
+      marqueeEl.style.width=rw+'px';
+      marqueeEl.style.height=rh+'px';
+    }
     return;
   }
   if(isMultiRes){
@@ -2367,8 +2390,14 @@ document.addEventListener('mouseup',ev=>{
       const rx=parseInt(marqueeEl.style.left), ry=parseInt(marqueeEl.style.top);
       const rw=parseInt(marqueeEl.style.width), rh=parseInt(marqueeEl.style.height);
       marqueeEl.style.display='none';
-      if(rw>6&&rh>6){
-        const hit=layers.filter(l=>l.visible&&l.x<rx+rw&&l.x+l.w>rx&&l.y<ry+rh&&l.y+l.h>ry).map(l=>l.id);
+      if(rw2>6&&rh2>6){
+        // Usar parseFloat para evitar pérdida de precisión con zoom
+      const rx2=parseFloat(marqueeEl.style.left), ry2=parseFloat(marqueeEl.style.top);
+      const rw2=parseFloat(marqueeEl.style.width), rh2=parseFloat(marqueeEl.style.height);
+      console.log('Marquee rect (canvas coords):', {rx2,ry2,rw2,rh2});
+      console.log('Layers:', layers.map(l=>({id:l.id,x:l.x,y:l.y,w:l.w,h:l.h,visible:l.visible})));
+      const hit=layers.filter(l=>l.visible&&l.x<rx2+rw2&&l.x+l.w>rx2&&l.y<ry2+rh2&&l.y+l.h>ry2).map(l=>l.id);
+      console.log('Hit layers:', hit);
         if(hit.length){
           // Expand hit ids to include full groups
           const extraFromGroups = [];
@@ -2601,10 +2630,19 @@ cvs.addEventListener('mousedown',ev=>{
   desel();
   startMarquee(ev);
 });
+
+// Also allow marquee from canvas-area (outside the scaled cvs)
+document.getElementById('canvas-area')?.addEventListener('mousedown',ev=>{
+  if(ev.target !== document.getElementById('canvas-area')) return;
+  if(ev.button!==0) return;
+  desel();
+  startMarquee(ev);
+});
 function desel(){
   hideSmartGuides();
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
+  cvs.classList.remove('multi-active');
   selId=null; selIds=[];
   updatePropertyPanelState(null);
   hideMultiBox();
