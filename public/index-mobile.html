@@ -229,7 +229,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
   </div>
   <div class="topbar-actions">
-    <button class="tbtn tbtn-ghost" onclick="window.location.href='index-mobile.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
+    <button class="tbtn tbtn-ghost" onclick="window.location.href='index.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     </button>
     <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
@@ -1654,13 +1654,15 @@ async function downloadPNG(){
       ctx.save();
       ctx.font = `${italic}${fw} ${fs}px ${ff}`;
       ctx.textAlign = align==='center'?'center':align==='right'?'right':'left';
-      ctx.textBaseline = 'top';
-      // CSS renderiza texto con line-height: espacio extra = (lineH - fs) distribuido 50% arriba/abajo
-      // textBaseline:'top' en Canvas = borde superior de la caja de texto (sin half-leading)
-      // → el offset correcto es solo halfLeading para igualar al CSS
+      ctx.textBaseline = 'alphabetic';
+      // CSS line-height distribuye espacio extra mitad arriba, mitad abajo (half-leading)
+      // El texto CSS empieza en: y + halfLeading
+      // En Canvas alphabetic: necesitamos y + halfLeading + ascent
       const lineH = fs * lh;
       const halfLeading = (lineH - fs) / 2;
-      const baselineOffset = halfLeading;
+      const metrics = ctx.measureText('Ag');
+      const actualAscent = metrics.actualBoundingBoxAscent || fs * 0.78;
+      const baselineOffset = halfLeading + actualAscent;
 
       // Text shadow
       if(shadowBlur_ > 0){
@@ -1710,8 +1712,8 @@ async function downloadPNG(){
           const tw = ctx.measureText(line).width;
           const ux = align==='center'?textX-tw/2:align==='right'?textX-tw:textX;
           ctx.beginPath();
-          ctx.moveTo(ux, yU + fs + 2);
-          ctx.lineTo(ux+tw, yU + fs + 2);
+          ctx.moveTo(ux, yU+2);
+          ctx.lineTo(ux+tw, yU+2);
           ctx.stroke();
           yU += lineH;
         }
@@ -1762,7 +1764,7 @@ window.addEventListener('load', async()=>{
     hideLoad();
     document.getElementById('load-text').textContent='';
     toast('✗ Sin sesión. Vuelve al inicio.');
-    setTimeout(()=>window.location.href='index-mobile.html',2000);
+    setTimeout(()=>window.location.href='index.html',2000);
     return;
   }
 
