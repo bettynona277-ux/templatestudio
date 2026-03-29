@@ -122,6 +122,8 @@ body.theme-light .topbar{background:rgba(255,255,255,0.95);box-shadow:0 4px 16px
 .layer-item:hover{border-color:var(--border);}
 .layer-item.selected{border-color:var(--accent);background:rgba(21,214,164,0.08);}
 .layer-item.hidden-l{opacity:0.4;}
+.layer-item.locked-l{background:rgba(255,165,0,0.06);}
+.layer-item.locked-l .l-name::after{content:' 🔒';font-size:0.65rem;}
 .l-thumb{width:32px;height:32px;border-radius:var(--radius-sm);object-fit:contain;background:var(--panel);flex-shrink:0;}
 .l-thumb-t{width:32px;height:32px;border-radius:var(--radius-sm);background:rgba(91,140,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;color:var(--blue);font-weight:800;}
 .l-info{flex:1;min-width:0;}
@@ -172,7 +174,7 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 }
 .cel.sel .rh{display:block;}
 /* Ocultar nodos individuales cuando hay selección múltiple */
-.multi-active .cel.sel .rh{display:none;}
+.multi-active .cel.sel .rh{display:none !important;}
 .rh.tl{top:-6px;left:-6px;cursor:nwse-resize;}
 .rh.tr{top:-6px;right:-6px;cursor:nesw-resize;}
 .rh.bl{bottom:-6px;left:-6px;cursor:nesw-resize;}
@@ -342,6 +344,15 @@ body.style-mode-active textarea,
 body.style-mode-active select{
   cursor: var(--style-brush-cursor) !important;
 }
+
+/* ── FUENTES PERSONALIZADAS ── */
+@font-face{font-family:'Horizon';src:url('/fonts/horizon.otf') format('opentype');font-weight:400;font-style:normal;}
+@font-face{font-family:'Horizon';src:url('/fonts/horizon-bold.otf') format('opentype');font-weight:700;font-style:normal;}
+@font-face{font-family:'Akira Expanded';src:url('/fonts/akira-expanded.otf') format('opentype');font-weight:700;font-style:normal;}
+@font-face{font-family:'Podium Sharp';src:url('/fonts/podium-sharp-light.otf') format('opentype');font-weight:300;font-style:normal;}
+@font-face{font-family:'Podium Sharp';src:url('/fonts/podium-sharp-regular.otf') format('opentype');font-weight:400;font-style:normal;}
+@font-face{font-family:'Podium Sharp';src:url('/fonts/podium-sharp-bold.otf') format('opentype');font-weight:700;font-style:normal;}
+@font-face{font-family:'Podium Sharp';src:url('/fonts/podium-sharp-black.otf') format('opentype');font-weight:900;font-style:normal;}
 </style>
 </head>
 <body>
@@ -905,15 +916,22 @@ function selMulti(ids){
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   selIds = ids;
-  // Mostrar/ocultar nodos individuales según si es multi-selección
-  if(ids.length > 1){ cvs.classList.add('multi-active'); }
-  else { cvs.classList.remove('multi-active'); }
   selId = ids.length===1 ? ids[0] : null;
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id);
     if(l?.el) l.el.classList.add('sel');
     document.getElementById('li-'+id)?.classList.add('selected');
   });
+  // Ocultar/mostrar handles DESPUÉS de aplicar clases sel
+  if(ids.length > 1){
+    cvs.classList.add('multi-active');
+    requestAnimationFrame(()=>{
+      document.querySelectorAll('.cel.sel .rh').forEach(rh=>rh.style.setProperty('display','none','important'));
+    });
+  } else {
+    cvs.classList.remove('multi-active');
+    document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+  }
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     updatePropertyPanelState(l);
@@ -1748,9 +1766,16 @@ const FONT_LIST = [
   {label:'Poppins', value:"'Poppins'"},
   {label:'Montserrat', value:"'Montserrat'"},
   {label:'Jakarta Sans', value:"'Plus Jakarta Sans'"},
+  {label:'Bebas Neue', value:"'Bebas Neue', sans-serif"},
+  {label:'Horizon', value:"'Horizon'"},
+  {label:'Horizon Bold', value:"'Horizon'", weight:'700'},
+  {label:'Akira Expanded', value:"'Akira Expanded'"},
+  {label:'Podium Sharp Light', value:"'Podium Sharp'", weight:'300'},
+  {label:'Podium Sharp', value:"'Podium Sharp'"},
+  {label:'Podium Sharp Bold', value:"'Podium Sharp'", weight:'700'},
+  {label:'Podium Sharp Black', value:"'Podium Sharp'", weight:'900'},
   {label:'Arial', value:'Arial'},
   {label:'Impact', value:'Impact'},
-  {label:'Bebas Neue', value:"'Bebas Neue', sans-serif"},
   {label:'Georgia', value:'Georgia'},
   {label:'Times New Roman', value:"'Times New Roman'"},
   {label:'Courier New', value:"'Courier New'"},
@@ -1762,12 +1787,12 @@ function filterFonts(q){
   dd.innerHTML='';
   list.forEach(f=>{
     const item=document.createElement('div');
-    item.style.cssText=`padding:8px 12px;cursor:pointer;font-size:0.85rem;font-family:${f.value};transition:background 0.15s;color:var(--text);`;
+    item.style.cssText=`padding:8px 12px;cursor:pointer;font-size:0.85rem;font-family:${f.value};font-weight:${f.weight||'400'};transition:background 0.15s;color:var(--text);`;
     item.textContent=f.label;
     // Use mousedown so it fires before the input loses focus and closes dropdown
     item.addEventListener('mousedown',ev=>{
       ev.preventDefault(); // prevent input blur
-      applyFont(f.value);
+      applyFont(f.value, f.weight);
     });
     item.addEventListener('mouseover',()=>item.style.background='rgba(21,214,164,0.12)');
     item.addEventListener('mouseout',()=>item.style.background='');
@@ -1776,8 +1801,9 @@ function filterFonts(q){
   dd.style.display=list.length?'block':'none';
 }
 
-function applyFont(val){
+function applyFont(val, weight){
   updTS('fontFamily',val);
+  if(weight) updTS('fontWeight', weight);
   const lbl=FONT_LIST.find(f=>f.value===val);
   const fs=document.getElementById('font-search');
   if(fs) fs.value=lbl?lbl.label:val.replace(/'/g,'');
@@ -2187,6 +2213,8 @@ function duplicateSelected(sourceId){
 }
 
 function startRes(ev,id,c){
+  const ll=layers.find(x=>x.id===id);
+  if(ll?.locked){ev.preventDefault();return;}
   isRes=true;const l=layers.find(x=>x.id===id);
   const origFs=l.tp?l.tp.fontSize:0;
   rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
@@ -2589,6 +2617,8 @@ function applyCopiedStyleToLayer(layer){
 
 
 function sel(id, additive=false){
+  const lockCheck = layers.find(x=>x.id===id);
+  if(lockCheck?.locked) return; // no seleccionar capas bloqueadas
   const clickedLayer = layers.find(x=>x.id===id);
   // Get the ids this click represents (single layer or whole group)
   if(styleMode){
@@ -3123,7 +3153,8 @@ function renderList(){
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(91,140,255,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
     const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
     const typeLabel = l.type==='text'?'Texto':l.type==='frame'?'Marco':l.isShape?'Forma':'Imagen';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    li.className+=`${l.locked?' locked-l':''}`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
@@ -3133,6 +3164,7 @@ function renderList(){
   });
 }
 function togVis(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;l.visible=!l.visible;if(l.el)l.el.style.display=l.visible?'block':'none';renderList();}
+function togLock(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;l.locked=!l.locked;if(l.locked&&selId===id){desel();}renderList();snapshotState();}
 function delL(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;if(l.el)l.el.remove();layers=layers.filter(x=>x.id!==id);if(selId===id){selId=null;desel();}renderList();}
 function reorder(fid,tid){
   const fi=layers.findIndex(x=>x.id===fid),ti=layers.findIndex(x=>x.id===tid);
