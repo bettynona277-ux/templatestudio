@@ -2001,7 +2001,7 @@ function rebuildShapeSvg(l){
     if(!strokeImg){
       strokeImg = document.createElement('img');
       strokeImg.className = 'shape-stroke-img';
-      strokeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:3;';
+      strokeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:6;isolation:isolate;';
       l.el.appendChild(strokeImg);
     }
     strokeImg.src = urlS;
@@ -2049,18 +2049,21 @@ function applyShapeShadow(l){
     const shapePath = buildShapePathData(type, w, h);
     const blur  = Math.max(3, inner*1.2);
     const spread= inner;
-    // Técnica: dibujamos la forma, la invertimos con feFlood+feComposite(out),
-    // le aplicamos blur, y la recortamos de vuelta a la silueta con feComposite(in).
-    // Resultado: sombra oscura solo en los bordes internos de la forma.
+    // Técnica clásica inner shadow:
+    // 1. Dibujamos la forma con gran offset fuera del viewport
+    // 2. La difuminamos
+    // 3. Recortamos con feComposite(in) a la silueta original
+    // La sombra aparece solo desde los bordes hacia el interior
+    const OFF = Math.max(w, h) * 2; // offset grande para sacar la forma del canvas
     const svgInner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
       <defs>
-        <filter id="isf" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
+        <filter id="isf" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
           <feFlood flood-color="rgb(${ri},${gi},${bi})" result="color"/>
-          <feComposite in="color" in2="SourceGraphic" operator="in" result="colorInShape"/>
-          <feComposite in="SourceGraphic" in2="colorInShape" operator="out" result="outside"/>
-          <feGaussianBlur in="outside" stdDeviation="${blur}" result="blurredEdge"/>
-          <feComposite in="blurredEdge" in2="SourceGraphic" operator="in" result="clipped"/>
-          <feComposite in="SourceGraphic" in2="clipped" operator="over"/>
+          <feComposite in="color" in2="SourceGraphic" operator="in" result="shaped"/>
+          <feOffset dx="${OFF}" dy="${OFF}" in="shaped" result="offset"/>
+          <feGaussianBlur stdDeviation="${blur}" in="offset" result="blurred"/>
+          <feOffset dx="${-OFF}" dy="${-OFF}" in="blurred" result="back"/>
+          <feComposite in="back" in2="SourceGraphic" operator="in"/>
         </filter>
       </defs>
       ${shapePath}
@@ -2068,7 +2071,7 @@ function applyShapeShadow(l){
     if(!ov){
       ov=document.createElement('img');
       ov.className='shape-inner-ov';
-      ov.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:4;';
+      ov.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:5;isolation:isolate;';
       l.el.appendChild(ov);
     }
     ov.style.opacity = innerOp;
@@ -2181,7 +2184,7 @@ function mkEl(l){
       if(l.shapeStrokeWidth>0){
         const strokeImg=document.createElement('img');
         strokeImg.className='shape-stroke-img';
-        strokeImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:3;';
+        strokeImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:6;isolation:isolate;';
         const svgS=buildShapeSvgStroke(l.shapeType||'rect',l.shapeStrokeColor||'#fff',l.shapeStrokeWidth,l.origW||l.w,l.origH||l.h);
         strokeImg.src=URL.createObjectURL(new Blob([svgS],{type:'image/svg+xml'}));
         el.appendChild(strokeImg);
