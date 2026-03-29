@@ -645,6 +645,12 @@ body.style-mode-active select{
           <input class="pp-inp" id="pp-shape-fill-hex" value="#4F8EF7" style="flex:1;padding:6px;" oninput="updShapeFill(this.value)">
         </div>
 
+        <div class="mini-lbl" id="pp-shape-radius-row" style="display:none;">Radio de esquinas</div>
+        <div id="pp-shape-radius-wrap" style="display:none;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="range" id="pp-shape-radius" min="0" max="200" value="20" style="flex:1;" oninput="updShapeRadius(this.value)">
+          <span id="pp-shape-radius-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">20px</span>
+        </div>
+
         <div class="mini-lbl">Borde</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
           <input type="color" id="pp-shape-stroke-c" value="#ffffff" oninput="updShapeStroke()" style="width:36px;height:36px;border:none;cursor:pointer;border-radius:6px;">
@@ -1949,10 +1955,10 @@ function addShape(type){
 
 // ── SHAPE EDIT ───────────────────────────────────────────────
 // Genera SVG SOLO con fill (sin stroke) — el stroke va en overlay separado
-function buildShapeSvgFill(type, fill, w, h){
+function buildShapeSvgFill(type, fill, w, h, opts){
   switch(type){
     case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="0" fill="${fill}"/></svg>`;
-    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="20" fill="${fill}"/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="${opts?.rx??20}" fill="${fill}"/></svg>`;
     case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" fill="${fill}"/></svg>`;
     case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},0 ${w},${h} 0,${h}" fill="${fill}"/></svg>`;
     case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="4" stroke-linecap="round"/></svg>`;
@@ -1961,12 +1967,12 @@ function buildShapeSvgFill(type, fill, w, h){
   }
 }
 // Genera SVG SOLO con stroke (fill transparent) — overlay encima del fill
-function buildShapeSvgStroke(type, stroke, strokeW, w, h){
+function buildShapeSvgStroke(type, stroke, strokeW, w, h, opts){
   const sw2 = strokeW*2;
   const s = ` fill="none" stroke="${stroke}" stroke-width="${strokeW}"`;
   switch(type){
     case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
-    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="20"${s}/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="${opts?.rx??20}"${s}/></svg>`;
     case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW/2}" ry="${h/2-strokeW/2}"${s}/></svg>`;
     case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW/2} ${w-strokeW/2},${h-strokeW/2} ${strokeW/2},${h-strokeW/2}"${s}/></svg>`;
     case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
@@ -1984,7 +1990,8 @@ function rebuildShapeSvg(l){
   const h = l.origH || l.h;
 
   // ── Fill SVG → img principal (drop-shadow sigue esta forma) ──
-  const svgFill = buildShapeSvgFill(type, fill, w, h);
+  const opts = {rx: l.shapeRadius??20};
+  const svgFill = buildShapeSvgFill(type, fill, w, h, opts);
   l.shapeSvg = svgFill;
   const blob = new Blob([svgFill],{type:'image/svg+xml'});
   const url  = URL.createObjectURL(blob);
@@ -1995,7 +2002,7 @@ function rebuildShapeSvg(l){
   // ── Stroke SVG → overlay img encima (no recibe drop-shadow) ──
   let strokeImg = l.el?.querySelector('img.shape-stroke-img');
   if(strokeW > 0){
-    const svgStroke = buildShapeSvgStroke(type, stroke, strokeW, w, h);
+    const svgStroke = buildShapeSvgStroke(type, stroke, strokeW, w, h, opts);
     const blobS = new Blob([svgStroke],{type:'image/svg+xml'});
     const urlS  = URL.createObjectURL(blobS);
     if(!strokeImg){
@@ -2049,24 +2056,19 @@ function applyShapeShadow(l){
     const shapePath = buildShapePathData(type, w, h);
     const blur  = Math.max(3, inner*1.2);
     const spread= inner;
-    // Técnica clásica inner shadow:
-    // 1. Dibujamos la forma con gran offset fuera del viewport
-    // 2. La difuminamos
-    // 3. Recortamos con feComposite(in) a la silueta original
-    // La sombra aparece solo desde los bordes hacia el interior
-    const OFF = Math.max(w, h) * 2; // offset grande para sacar la forma del canvas
+    // Técnica inner shadow con clipPath:
+    // Dibujamos la forma coloreada, la difuminamos con gran stdDeviation,
+    // y recortamos con clipPath a la silueta. Solo queda la sombra en los bordes.
+    const clipId = `isc_${Date.now()}`;
     const svgInner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
       <defs>
-        <filter id="isf" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
-          <feFlood flood-color="rgb(${ri},${gi},${bi})" result="color"/>
-          <feComposite in="color" in2="SourceGraphic" operator="in" result="shaped"/>
-          <feOffset dx="${OFF}" dy="${OFF}" in="shaped" result="offset"/>
-          <feGaussianBlur stdDeviation="${blur}" in="offset" result="blurred"/>
-          <feOffset dx="${-OFF}" dy="${-OFF}" in="blurred" result="back"/>
-          <feComposite in="back" in2="SourceGraphic" operator="in"/>
-        </filter>
+        <clipPath id="${clipId}">${buildShapeClipPath(type,w,h,l.shapeRadius??20)}</clipPath>
       </defs>
-      ${shapePath}
+      <g clip-path="url(#${clipId})">
+        <rect width="${w}" height="${h}" fill="rgb(${ri},${gi},${bi})"/>
+        <rect width="${w}" height="${h}" fill="rgb(${ri},${gi},${bi})"
+          style="filter:blur(${blur}px); transform:translate(-${blur*0.5}px,-${blur*0.5}px) scale(${1+blur/Math.max(w,h)})"/>
+      </g>
     </svg>`;
     if(!ov){
       ov=document.createElement('img');
@@ -2081,17 +2083,24 @@ function applyShapeShadow(l){
   }
 }
 
-// Genera el elemento de forma para usar en SVG de inner shadow
-function buildShapePathData(type, w, h){
+// Geometría de la forma para clipPath del inner shadow
+function buildShapeClipPath(type, w, h, rx){
+  const r = rx || 0;
   switch(type){
-    case 'rect':     return `<rect width="${w}" height="${h}" fill="black" filter="url(#isf)"/>`;
-    case 'rect-r':   return `<rect width="${w}" height="${h}" rx="20" fill="black" filter="url(#isf)"/>`;
-    case 'circle':   return `<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" fill="black" filter="url(#isf)"/>`;
-    case 'triangle': return `<polygon points="${w/2},0 ${w},${h} 0,${h}" fill="black" filter="url(#isf)"/>`;
-    case 'line':     return `<rect width="${w}" height="${h}" fill="black" filter="url(#isf)"/>`;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;const sw=w/160,sh=h/160;pts.push(`${80*sw+r*sw*Math.cos(a)},${80*sh+r*sh*Math.sin(a)}`);}return `<polygon points="${pts.join(' ')}" fill="black" filter="url(#isf)"/>`;}
-    default:         return `<rect width="${w}" height="${h}" fill="black" filter="url(#isf)"/>`;
+    case 'rect':     return `<rect width="${w}" height="${h}"/>`;
+    case 'rect-r':   return `<rect width="${w}" height="${h}" rx="${rx||20}"/>`;
+    case 'circle':   return `<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"/>`;
+    case 'triangle': return `<polygon points="${w/2},0 ${w},${h} 0,${h}"/>`;
+    case 'line':     return `<rect width="${w}" height="${h}"/>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r2=i%2===0?70:30;const sx=w/160,sy=h/160;pts.push(`${80*sx+r2*sx*Math.cos(a)},${80*sy+r2*sy*Math.sin(a)}`);}return `<polygon points="${pts.join(' ')}"/>`;}
+    default:         return `<rect width="${w}" height="${h}"/>`;
   }
+}
+function updShapeRadius(v){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  l.shapeRadius = parseInt(v)||0;
+  const lbl=document.getElementById('pp-shape-radius-lbl'); if(lbl) lbl.textContent=l.shapeRadius+'px';
+  rebuildShapeSvg(l); snapshotState();
 }
 function updShapeFill(v){
   const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
@@ -3162,6 +3171,12 @@ function syncP(){
   document.getElementById('pp-op').value=Math.round(l.opacity*100);
   if(l.isShape){
     const sf=document.getElementById('pp-shape-fill'); if(sf) sf.value=l.shapeFill||'#4F8EF7';
+    // Mostrar slider radio solo para rect-r
+    const isRectR = (l.shapeType||'rect')==='rect-r';
+    const rrow=document.getElementById('pp-shape-radius-row'); if(rrow) rrow.style.display=isRectR?'block':'none';
+    const rwrap=document.getElementById('pp-shape-radius-wrap'); if(rwrap) rwrap.style.display=isRectR?'flex':'none';
+    const rslider=document.getElementById('pp-shape-radius'); if(rslider) rslider.value=l.shapeRadius??20;
+    const rlbl=document.getElementById('pp-shape-radius-lbl'); if(rlbl) rlbl.textContent=(l.shapeRadius??20)+'px';
     const sfh=document.getElementById('pp-shape-fill-hex'); if(sfh) sfh.value=l.shapeFill||'#4F8EF7';
     const sc=document.getElementById('pp-shape-stroke-c'); if(sc) sc.value=l.shapeStrokeColor||'#ffffff';
     const sw=document.getElementById('pp-shape-stroke-w'); if(sw) sw.value=l.shapeStrokeWidth||0;
@@ -4063,6 +4078,7 @@ async function buildLayerData(){
     if(l.isShape){
       obj.isShape=true;
       if(l.shapeType) obj.shapeType=l.shapeType;
+      if(l.shapeRadius!=null) obj.shapeRadius=l.shapeRadius;
       if(l.shapeFill) obj.shapeFill=l.shapeFill;
       if(l.shapeStrokeColor) obj.shapeStrokeColor=l.shapeStrokeColor;
       if(l.shapeStrokeWidth) obj.shapeStrokeWidth=l.shapeStrokeWidth;
