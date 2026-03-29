@@ -925,18 +925,11 @@ function selMulti(ids){
   // Ocultar/mostrar handles DESPUÉS de aplicar clases sel
   if(ids.length > 1){
     cvs.classList.add('multi-active');
-    requestAnimationFrame(()=>{
-      document.querySelectorAll('.cel.sel .rh').forEach(rh=>rh.style.setProperty('display','none','important'));
-    });
   } else {
     cvs.classList.remove('multi-active');
-    // Restaurar TODOS los handles quitando el estilo inline
-    document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
-    // Forzar re-render para que el CSS tome control
-    requestAnimationFrame(()=>{
-      document.querySelectorAll('.cel.sel .rh').forEach(rh=>rh.style.removeProperty('display'));
-    });
   }
+  // Limpiar SIEMPRE los estilos inline de display en .rh para que el CSS tome control
+  document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     updatePropertyPanelState(l);
@@ -2334,7 +2327,7 @@ document.addEventListener('mousemove',ev=>{
         const snapped=applySmartSnapToLayer(ghost, ids);
         const sdx=snapped.x-box.x, sdy=snapped.y-box.y;
         multiDragStart.forEach(({id,x,y})=>{
-          const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
+          const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
           l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
           l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
         });
@@ -2446,7 +2439,7 @@ document.addEventListener('mouseup',ev=>{
       const rw2=parseFloat(marqueeEl.style.width), rh2=parseFloat(marqueeEl.style.height);
       marqueeEl.style.display='none';
       if(rw2>6&&rh2>6){
-        const hit=layers.filter(l=>l.visible&&l.x<rx2+rw2&&l.x+l.w>rx2&&l.y<ry2+rh2&&l.y+l.h>ry2).map(l=>l.id);
+        const hit=layers.filter(l=>l.visible&&!l.locked&&l.x<rx2+rw2&&l.x+l.w>rx2&&l.y<ry2+rh2&&l.y+l.h>ry2).map(l=>l.id);
         if(hit.length){
           // Expandir para incluir grupos completos
           const extraFromGroups = [];
@@ -2719,6 +2712,7 @@ function desel(){
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   cvs.classList.remove('multi-active');
+  document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
   selId=null; selIds=[];
   updatePropertyPanelState(null);
   hideMultiBox();
