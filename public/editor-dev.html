@@ -3816,6 +3816,20 @@ async function renderDesignToCanvas(scale=2){
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
+  // Warm-up: dibujar cada fuente usada en el canvas antes de renderizar
+  // Esto fuerza al navegador a activar las fuentes en el contexto 2D
+  const fontWarmups = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
+    const fw = l.tp.fontWeight||'400';
+    const fi = l.tp.italic?'italic':'normal';
+    const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
+    return `${fi} ${fw} 12px ${ff}`;
+  }))];
+  for(const f of fontWarmups){
+    ctx.font = f;
+    ctx.fillStyle = 'rgba(0,0,0,0)';
+    ctx.fillText(' ', -100, -100); // fuera del canvas visible
+  }
+
   const visibleLayers = [...layers]
     .filter(l => l && l.visible !== false)
     .sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
@@ -4004,6 +4018,15 @@ async function downloadPNG(){
   desel();
   document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
   try{
+    // Esperar que todas las fuentes estén cargadas antes de renderizar
+    await document.fonts.ready;
+    // Forzar que las fuentes usadas en el diseño estén activas en Canvas
+    const usedFonts = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
+      const fw = l.tp.fontWeight||'400';
+      const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
+      return `${fw} 16px ${ff}`;
+    }))];
+    await Promise.all(usedFonts.map(f => document.fonts.load(f).catch(()=>{})));
     const c = await renderDesignToCanvas(2);
     const a=document.createElement('a');
     a.download='mi-diseno.png';
