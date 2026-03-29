@@ -4089,23 +4089,26 @@ async function buildLayerData(){
       }
     }
 
-    // If src is still base64, try to upload to Cloudinary now (retry)
+    // Si src es base64: imágenes pegadas por el usuario (comprimidas ~50KB) se guardan directo en Firestore
+    // Imágenes PSD grandes (>100KB) se suben a Cloudinary
     if(src && src.startsWith('data:')){
-      try{
-        retryCount++;
-        console.log(`📤 Resubiendo capa "${l.name}" a Cloudinary...`);
-        const compressed = await compressImage(src, 1500, 1500, 0.88);
-        const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
-        src = uploaded;
-        l.src = uploaded; // update in memory
-        // Update DOM img too
-        const domImg = l.el?.querySelector('img');
-        if(domImg) domImg.src = uploaded;
-        console.log(`✓ Capa "${l.name}" subida:`, uploaded.substring(0,60));
-      }catch(e){
-        console.warn(`❌ No se pudo subir capa "${l.name}":`, e.message);
-        src = ''; // can't save base64 to Firestore
+      const approxKB = Math.round(src.length * 0.75 / 1024);
+      if(approxKB > 100){
+        // Grande → subir a Cloudinary
+        try{
+          retryCount++;
+          const compressed = await compressImage(src, 1500, 1500, 0.88);
+          const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
+          src = uploaded;
+          l.src = uploaded;
+          const domImg = l.el?.querySelector('img');
+          if(domImg) domImg.src = uploaded;
+        }catch(e){
+          console.warn(`No se pudo subir capa "${l.name}":`, e.message);
+          // Mantener base64 aunque sea grande — mejor que perder la imagen
+        }
       }
+      // ≤100KB → guardar base64 directo en Firestore (imágenes pegadas comprimidas)
     }
 
     const obj = {
