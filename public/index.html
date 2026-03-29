@@ -902,6 +902,14 @@ window.addEventListener('load', async () => {
       // User is signed in — get their profile from Firestore
       const doc = await fbDb.collection('users').doc(user.uid).get();
       if (doc.exists && doc.data().active !== false) {
+        // Verificar límite de dispositivos
+        const devResult = await registerDevice(user.uid);
+        if (!devResult.ok) {
+          fbAuth.signOut();
+          const err = document.getElementById('login-err');
+          if(err) err.textContent = '✗ Límite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador para liberar un dispositivo.';
+          return;
+        }
         currentUser = { uid: user.uid, ...doc.data() };
         localStorage.setItem('ts_session', JSON.stringify(currentUser));
         const urlTpl = new URLSearchParams(window.location.search).get('tpl');
@@ -925,6 +933,61 @@ window.addEventListener('load', async () => {
 // ================================================================
 // LOGIN
 // ================================================================
+
+// ================================================================
+// CONTROL DE DISPOSITIVOS — máximo 5 por cuenta
+// ================================================================
+const MAX_DEVICES = 5;
+
+function getDeviceId() {
+  let id = localStorage.getItem('ts_device_id');
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    localStorage.setItem('ts_device_id', id);
+  }
+  return id;
+}
+
+function getDeviceName() {
+  const ua = navigator.userAgent;
+  let name = 'Dispositivo desconocido';
+  if (/iPhone/i.test(ua)) name = 'iPhone';
+  else if (/iPad/i.test(ua)) name = 'iPad';
+  else if (/Android/i.test(ua)) name = ua.includes('Mobile') ? 'Android móvil' : 'Android tablet';
+  else if (/Windows/i.test(ua)) name = 'Windows PC';
+  else if (/Mac/i.test(ua)) name = 'Mac';
+  else if (/Linux/i.test(ua)) name = 'Linux PC';
+  if (/Chrome/i.test(ua) && !/Edg/i.test(ua)) name += ' · Chrome';
+  else if (/Firefox/i.test(ua)) name += ' · Firefox';
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) name += ' · Safari';
+  else if (/Edg/i.test(ua)) name += ' · Edge';
+  return name;
+}
+
+async function registerDevice(uid) {
+  const deviceId = getDeviceId();
+  const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const existing = devices.find(d => d.id === deviceId);
+  if (existing) {
+    await devRef.update({ lastSeen: Date.now(), name: getDeviceName() });
+    return { ok: true };
+  }
+  if (devices.length >= MAX_DEVICES) {
+    return { ok: false, count: devices.length };
+  }
+  await devRef.set({ name: getDeviceName(), registeredAt: Date.now(), lastSeen: Date.now() });
+  return { ok: true };
+}
+
+async function unregisterDevice(uid) {
+  try {
+    const deviceId = getDeviceId();
+    await fbDb.collection('users').doc(uid).collection('devices').doc(deviceId).delete();
+  } catch(e) {}
+}
+
 async function doLogin() {
   const phone = document.getElementById('login-phone').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -950,6 +1013,7 @@ async function doLogin() {
 }
 
 function doLogout() {
+  if(currentUser?.uid) unregisterDevice(currentUser.uid);
   fbAuth.signOut();
   localStorage.removeItem('ts_session');
   currentUser = null;
