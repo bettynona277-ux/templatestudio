@@ -930,7 +930,12 @@ function selMulti(ids){
     });
   } else {
     cvs.classList.remove('multi-active');
+    // Restaurar TODOS los handles quitando el estilo inline
     document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+    // Forzar re-render para que el CSS tome control
+    requestAnimationFrame(()=>{
+      document.querySelectorAll('.cel.sel .rh').forEach(rh=>rh.style.removeProperty('display'));
+    });
   }
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
@@ -1865,13 +1870,14 @@ function addShape(type){
   if(type==='line'){w=200;h=20;}
   if(type==='star'){w=160;h=160;}
   const sw=strokeW>0?` stroke="${stroke}" stroke-width="${strokeW}"`:'';
+  // SVG con preserveAspectRatio="none" para que se estire libremente al redimensionar
   switch(type){
-    case 'rect': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
-    case 'rect-r': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
-    case 'circle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'line': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="10" viewBox="0 0 ${w} 10"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; h=10; break;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
+    case 'rect': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
+    case 'rect-r': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
+    case 'circle': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
+    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
+    case 'line': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; h=10; break;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
   }
   const blob=new Blob([svg],{type:'image/svg+xml'});
   const url=URL.createObjectURL(blob);
@@ -1929,7 +1935,10 @@ function mkEl(l){
   });
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
-    const img=document.createElement('img');img.crossOrigin='anonymous';img.src=l.src;el.appendChild(img);
+    const img=document.createElement('img');img.crossOrigin='anonymous';img.src=l.src;
+    // Formas SVG: object-fit:fill para que se estiren libremente
+    if(l.isShape) img.style.objectFit='fill';
+    el.appendChild(img);
     setTimeout(()=>applyImageVisuals(l),0);
   } else if(l.type==='frame'){
     el.className+=' frame-el';
