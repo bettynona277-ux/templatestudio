@@ -122,6 +122,8 @@ body.theme-light .topbar{background:rgba(255,255,255,0.95);box-shadow:0 4px 16px
 .layer-item:hover{border-color:var(--border);}
 .layer-item.selected{border-color:var(--accent);background:rgba(21,214,164,0.08);}
 .layer-item.hidden-l{opacity:0.4;}
+.layer-item.locked-l{background:rgba(255,165,0,0.06);}
+.layer-item.locked-l .l-name::after{content:' 🔒';font-size:0.65rem;}
 .l-thumb{width:32px;height:32px;border-radius:var(--radius-sm);object-fit:contain;background:var(--panel);flex-shrink:0;}
 .l-thumb-t{width:32px;height:32px;border-radius:var(--radius-sm);background:rgba(91,140,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;color:var(--blue);font-weight:800;}
 .l-info{flex:1;min-width:0;}
@@ -150,15 +152,16 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 .cel{position:absolute;cursor:move;user-select:none;overflow:visible !important;}
 /* Esto evita que el marco se ponga grueso al darle clic */
 .cel.sel:not(.frame-el) {
-  outline: 2px solid var(--accent) !important;
-  outline-offset: 0 !important;
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 1px var(--accent) !important;
+  outline: none !important;
 }
 
 /* Esto asegura que el marco mantenga su línea fina al seleccionarse */
 .cel.frame-el.sel {
+  box-shadow: inset 0 0 0 1px var(--accent) !important;
   outline: none !important;
 }
-.cel:not(.sel):hover{outline:1px solid rgba(21,214,164,0.4);outline-offset:0;}
+.cel:not(.sel):hover{box-shadow: inset 0 0 0 1px rgba(21,214,164,0.3);}
 .cel img{display:block;pointer-events:none;width:100%;height:100%;object-fit:contain;}
 
 /* Eliminar la indicación de medidas al seleccionar elementos */
@@ -166,18 +169,20 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 
 /* Handles de transformación */
 .rh{
-  position:absolute;width:12px;height:12px;background:#ffffff;
-  border:2px solid var(--accent);border-radius:50%;z-index:30;
-  display:none;box-shadow:0 2px 6px rgba(0,0,0,0.2);
+  position:absolute;width:8px;height:8px;background:#ffffff;
+  border:1.5px solid var(--accent);border-radius:50%;z-index:30;
+  display:none;box-shadow:0 1px 4px rgba(0,0,0,0.2);
 }
 .cel.sel .rh{display:block;}
-.rh.tl{top:-6px;left:-6px;cursor:nwse-resize;}
-.rh.tr{top:-6px;right:-6px;cursor:nesw-resize;}
-.rh.bl{bottom:-6px;left:-6px;cursor:nesw-resize;}
-.rh.br{bottom:-6px;right:-6px;cursor:nwse-resize;}
-.rh.tm{top:-6px;left:calc(50% - 6px);cursor:ns-resize;}
-.rh.bm{bottom:-6px;left:calc(50% - 6px);cursor:ns-resize;}
-.rh.ml{left:-6px;top:calc(50% - 6px);cursor:ew-resize;}
+/* Ocultar nodos individuales cuando hay selección múltiple */
+.multi-active .cel.sel .rh{display:none !important;}
+.rh.tl{top:-4px;left:-4px;cursor:nwse-resize;}
+.rh.tr{top:-4px;right:-4px;cursor:nesw-resize;}
+.rh.bl{bottom:-4px;left:-4px;cursor:nesw-resize;}
+.rh.br{bottom:-4px;right:-4px;cursor:nwse-resize;}
+.rh.tm{top:-4px;left:calc(50% - 4px);cursor:ns-resize;}
+.rh.bm{bottom:-4px;left:calc(50% - 4px);cursor:ns-resize;}
+.rh.ml{left:-4px;top:calc(50% - 4px);cursor:ew-resize;}
 .rh.mr{right:-6px;top:calc(50% - 6px);cursor:ew-resize;}
 
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
@@ -340,6 +345,11 @@ body.style-mode-active textarea,
 body.style-mode-active select{
   cursor: var(--style-brush-cursor) !important;
 }
+
+/* ── FUENTES PERSONALIZADAS ── */
+@font-face{font-family:'Horizon';src:url('/fonts/Horizon.otf') format('opentype');font-weight:400;font-style:normal;}
+@font-face{font-family:'Horizon';src:url('/fonts/horizon_0.otf') format('opentype');font-weight:700;font-style:normal;}
+@font-face{font-family:'Akira Expanded';src:url('/fonts/akira-expanded.otf') format('opentype');font-weight:400 900;font-style:normal;}
 </style>
 </head>
 <body>
@@ -583,16 +593,26 @@ body.style-mode-active select{
           </div>
         </div>
 
-        <div class="mini-lbl">Efectos</div>
-        <div class="panel-grid2" style="margin-bottom:8px;">
-          <div>
-            <div class="mini-lbl">Paralela</div>
-            <input type="range" id="pp-frame-shadow" min="0" max="40" step="1" style="width:100%;" oninput="updFrameShadow(this.value)">
-          </div>
-          <div>
-            <div class="mini-lbl">Interna</div>
-            <input type="range" id="pp-frame-inner-shadow" min="0" max="40" step="1" style="width:100%;" oninput="updFrameInnerShadow(this.value)">
-          </div>
+        <div class="mini-lbl">Sombra paralela</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <input type="range" id="pp-frame-shadow" min="0" max="60" step="1" style="flex:1;" oninput="updFrameShadow(this.value)">
+          <span id="pp-frame-shadow-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">0px</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="color" id="pp-frame-shadow-c" value="#000000" oninput="updFrameShadow()" style="width:36px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">
+          <input type="range" id="pp-frame-shadow-op" min="0" max="100" value="22" step="1" style="flex:1;" oninput="updFrameShadow()">
+          <span id="pp-frame-shadow-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">22%</span>
+        </div>
+
+        <div class="mini-lbl">Sombra interna</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <input type="range" id="pp-frame-inner-shadow" min="0" max="60" step="1" style="flex:1;" oninput="updFrameInnerShadow(this.value)">
+          <span id="pp-frame-inner-shadow-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">0px</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="color" id="pp-frame-inner-shadow-c" value="#000000" oninput="updFrameInnerShadow()" style="width:36px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">
+          <input type="range" id="pp-frame-inner-shadow-op" min="0" max="100" value="28" step="1" style="flex:1;" oninput="updFrameInnerShadow()">
+          <span id="pp-frame-inner-shadow-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">28%</span>
         </div>
 
         <button class="pp-btn pp-btn-red" style="font-size:0.72rem; margin-top:8px;" onclick="clearFrameImage()">✕ Quitar imagen del marco</button>
@@ -610,6 +630,51 @@ body.style-mode-active select{
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <input type="range" id="pp-blur" min="0" max="20" step="0.5" style="flex:1;" oninput="updImageBlur(this.value)">
           <span id="pp-blur-lbl" style="font-size:0.72rem;color:var(--muted);min-width:40px;">0px</span>
+        </div>
+      </div>
+
+      <div class="panel-card panel-hidden" id="pp-shape">
+        <div class="panel-title">Forma <span class="panel-chip">Forma</span></div>
+
+        <div class="mini-lbl">Color de relleno</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="color" id="pp-shape-fill" value="#4F8EF7" oninput="updShapeFill(this.value)" style="width:36px;height:36px;border:none;cursor:pointer;border-radius:6px;">
+          <input class="pp-inp" id="pp-shape-fill-hex" value="#4F8EF7" style="flex:1;padding:6px;" oninput="updShapeFill(this.value)">
+        </div>
+
+        <div class="mini-lbl" id="pp-shape-radius-row" style="display:none;">Radio de esquinas</div>
+        <div id="pp-shape-radius-wrap" style="display:none;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="range" id="pp-shape-radius" min="0" max="200" value="20" style="flex:1;" oninput="updShapeRadius(this.value)">
+          <span id="pp-shape-radius-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">20px</span>
+        </div>
+
+        <div class="mini-lbl">Borde</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <input type="color" id="pp-shape-stroke-c" value="#ffffff" oninput="updShapeStroke()" style="width:36px;height:36px;border:none;cursor:pointer;border-radius:6px;">
+          <input type="number" id="pp-shape-stroke-w" value="0" min="0" max="30" class="pp-inp" style="flex:1;padding:6px;" oninput="updShapeStroke()" placeholder="Ancho">
+        </div>
+        <div style="margin-bottom:10px;font-size:0.7rem;color:var(--muted);">Color · Ancho px</div>
+
+        <div class="mini-lbl">Sombra paralela</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <input type="range" id="pp-shape-shadow" min="0" max="60" step="1" style="flex:1;" oninput="updShapeShadow(this.value)">
+          <span id="pp-shape-shadow-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">0px</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="color" id="pp-shape-shadow-c" value="#000000" oninput="updShapeShadow()" style="width:36px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">
+          <input type="range" id="pp-shape-shadow-op" min="0" max="100" value="60" step="1" style="flex:1;" oninput="updShapeShadow()">
+          <span id="pp-shape-shadow-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">60%</span>
+        </div>
+
+        <div class="mini-lbl">Sombra interna</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <input type="range" id="pp-shape-inner-shadow" min="0" max="60" step="1" style="flex:1;" oninput="updShapeInnerShadow(this.value)">
+          <span id="pp-shape-inner-shadow-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">0px</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <input type="color" id="pp-shape-inner-shadow-c" value="#000000" oninput="updShapeInnerShadow()" style="width:36px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">
+          <input type="range" id="pp-shape-inner-shadow-op" min="0" max="100" value="50" step="1" style="flex:1;" oninput="updShapeInnerShadow()">
+          <span id="pp-shape-inner-shadow-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:32px;">50%</span>
         </div>
       </div>
 
@@ -822,6 +887,7 @@ const cvs=document.getElementById('cvs');
 // ── MULTI-SELECT ──────────────────────────────────────────────
 let selIds=[];          // array of selected ids (multi)
 let isMarquee=false;    // rubber-band selection active
+let _justMarqueed=false; // evitar que click post-marquee deseleccione
 let marqueeStart={x:0,y:0};
 let marqueeEl=null;     // the marquee div
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
@@ -908,6 +974,14 @@ function selMulti(ids){
     if(l?.el) l.el.classList.add('sel');
     document.getElementById('li-'+id)?.classList.add('selected');
   });
+  // Ocultar/mostrar handles DESPUÉS de aplicar clases sel
+  if(ids.length > 1){
+    cvs.classList.add('multi-active');
+  } else {
+    cvs.classList.remove('multi-active');
+  }
+  // Limpiar SIEMPRE los estilos inline de display en .rh para que el CSS tome control
+  document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     updatePropertyPanelState(l);
@@ -972,6 +1046,25 @@ function initMultiBoxHandles(){
 }
 // Call immediately (script runs at end of body, DOM already exists)
 initMultiBoxHandles();
+
+// Snapshot al SOLTAR sliders de sombra (evita lag durante drag)
+(function initShadowSliderSnapshots(){
+  const shapeSliders = ['pp-shape-shadow','pp-shape-shadow-op','pp-shape-inner-shadow','pp-shape-inner-shadow-op'];
+  const frameSliders = ['pp-frame-shadow','pp-frame-shadow-op','pp-frame-inner-shadow','pp-frame-inner-shadow-op'];
+  shapeSliders.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+  frameSliders.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+  // Colors disparan change al cerrar el picker
+  ['pp-shape-shadow-c','pp-shape-inner-shadow-c','pp-frame-shadow-c','pp-frame-inner-shadow-c'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+})();
 
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
@@ -1547,6 +1640,8 @@ async function loadPSDData(data){
   // Remove cel elements but keep multi-box
   Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
   layers=[]; lCtr=0;
+  // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
+  cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
   // Set canvas to PSD size (with max display cap)
   const maxD=900;
   const scale=Math.min(1,maxD/Math.max(data.width,data.height));
@@ -1624,6 +1719,11 @@ async function loadPSDData(data){
   renderList();
   document.getElementById('empty-lp')?.remove();
   snapshotState();
+  // Seleccionar la primera capa para que el panel no quede en "SIN SELECCIÓN"
+  if(layers.length > 0){
+    const firstVisible = layers.slice().reverse().find(l=>l.visible && !l.locked);
+    if(firstVisible) setTimeout(()=>sel(firstVisible.id), 50);
+  }
 }
 
 // ADD TEXT MANUALLY
@@ -1742,9 +1842,16 @@ const FONT_LIST = [
   {label:'Poppins', value:"'Poppins'"},
   {label:'Montserrat', value:"'Montserrat'"},
   {label:'Jakarta Sans', value:"'Plus Jakarta Sans'"},
+  {label:'Bebas Neue', value:"'Bebas Neue', sans-serif"},
+  {label:'Horizon', value:"'Horizon'"},
+  {label:'Horizon Bold', value:"'Horizon'", weight:'700'},
+  {label:'Akira Expanded', value:"'Akira Expanded'"},
+  {label:'Podium Sharp Light', value:"'Podium Sharp'", weight:'300'},
+  {label:'Podium Sharp', value:"'Podium Sharp'"},
+  {label:'Podium Sharp Bold', value:"'Podium Sharp'", weight:'700'},
+  {label:'Podium Sharp Black', value:"'Podium Sharp'", weight:'900'},
   {label:'Arial', value:'Arial'},
   {label:'Impact', value:'Impact'},
-  {label:'Bebas Neue', value:"'Bebas Neue', sans-serif"},
   {label:'Georgia', value:'Georgia'},
   {label:'Times New Roman', value:"'Times New Roman'"},
   {label:'Courier New', value:"'Courier New'"},
@@ -1756,12 +1863,12 @@ function filterFonts(q){
   dd.innerHTML='';
   list.forEach(f=>{
     const item=document.createElement('div');
-    item.style.cssText=`padding:8px 12px;cursor:pointer;font-size:0.85rem;font-family:${f.value};transition:background 0.15s;color:var(--text);`;
+    item.style.cssText=`padding:8px 12px;cursor:pointer;font-size:0.85rem;font-family:${f.value};font-weight:${f.weight||'400'};transition:background 0.15s;color:var(--text);`;
     item.textContent=f.label;
     // Use mousedown so it fires before the input loses focus and closes dropdown
     item.addEventListener('mousedown',ev=>{
       ev.preventDefault(); // prevent input blur
-      applyFont(f.value);
+      applyFont(f.value, f.weight);
     });
     item.addEventListener('mouseover',()=>item.style.background='rgba(21,214,164,0.12)');
     item.addEventListener('mouseout',()=>item.style.background='');
@@ -1770,8 +1877,9 @@ function filterFonts(q){
   dd.style.display=list.length?'block':'none';
 }
 
-function applyFont(val){
+function applyFont(val, weight){
   updTS('fontFamily',val);
+  if(weight) updTS('fontWeight', weight);
   const lbl=FONT_LIST.find(f=>f.value===val);
   const fs=document.getElementById('font-search');
   if(fs) fs.value=lbl?lbl.label:val.replace(/'/g,'');
@@ -1832,21 +1940,228 @@ function addShape(type){
   if(type==='circle'){w=160;h=160;}
   if(type==='line'){w=200;h=20;}
   if(type==='star'){w=160;h=160;}
-  const sw=strokeW>0?` stroke="${stroke}" stroke-width="${strokeW}"`:'';
+  // SVG solo fill (sin stroke) — el stroke se renderiza como overlay en mkEl
   switch(type){
-    case 'rect': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
-    case 'rect-r': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
-    case 'circle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'line': svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="10" viewBox="0 0 ${w} 10"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; h=10; break;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
+    case 'rect': svg=buildShapeSvgFill('rect',fill,w,h); break;
+    case 'rect-r': svg=buildShapeSvgFill('rect-r',fill,w,h); break;
+    case 'circle': svg=buildShapeSvgFill('circle',fill,w,h); break;
+    case 'triangle': svg=buildShapeSvgFill('triangle',fill,w,h); break;
+    case 'line': svg=buildShapeSvgFill('line',fill,w,h); h=10; break;
+    case 'star': svg=buildShapeSvgFill('star',fill,w,h); break;
   }
   const blob=new Blob([svg],{type:'image/svg+xml'});
   const url=URL.createObjectURL(blob);
   const l={id:lCtr++,type:'img',name:'Forma',src:url,
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
-    opacity,visible:true,zIndex:layers.length,tp:null,el:null,origW:w,origH:h,isShape:true,shapeSvg:svg};
+    opacity,visible:true,zIndex:layers.length,tp:null,el:null,origW:w,origH:h,isShape:true,shapeType:type,shapeFill:fill,shapeStrokeColor:stroke,shapeStrokeWidth:strokeW,shapeSvg:svg};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
+}
+
+// ── SHAPE EDIT ───────────────────────────────────────────────
+// Genera SVG SOLO con fill (sin stroke) — el stroke va en overlay separado
+function buildShapeSvgFill(type, fill, w, h, opts){
+  switch(type){
+    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="0" fill="${fill}"/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="${opts?.rx??20}" fill="${fill}"/></svg>`;
+    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" fill="${fill}"/></svg>`;
+    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},0 ${w},${h} 0,${h}" fill="${fill}"/></svg>`;
+    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="4" stroke-linecap="round"/></svg>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}" fill="${fill}"/></svg>`;}
+    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" fill="${fill}"/></svg>`;
+  }
+}
+// Genera SVG SOLO con stroke (fill transparent) — overlay encima del fill
+function buildShapeSvgStroke(type, stroke, strokeW, w, h, opts){
+  const sw2 = strokeW*2;
+  const s = ` fill="none" stroke="${stroke}" stroke-width="${strokeW}"`;
+  switch(type){
+    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="${opts?.rx??20}"${s}/></svg>`;
+    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW/2}" ry="${h/2-strokeW/2}"${s}/></svg>`;
+    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW/2} ${w-strokeW/2},${h-strokeW/2} ${strokeW/2},${h-strokeW/2}"${s}/></svg>`;
+    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}"${s}/></svg>`;}
+    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+  }
+}
+function rebuildShapeSvg(l){
+  if(!l||!l.isShape) return;
+  const type   = l.shapeType || 'rect';
+  const fill   = l.shapeFill || '#4F8EF7';
+  const stroke = l.shapeStrokeColor || '#ffffff';
+  const strokeW= Number(l.shapeStrokeWidth || 0);
+  const w = l.origW || l.w;
+  const h = l.origH || l.h;
+
+  // ── Fill SVG → img principal (drop-shadow sigue esta forma) ──
+  const opts = {rx: l.shapeRadius??20};
+  const svgFill = buildShapeSvgFill(type, fill, w, h, opts);
+  l.shapeSvg = svgFill;
+  const blob = new Blob([svgFill],{type:'image/svg+xml'});
+  const url  = URL.createObjectURL(blob);
+  l.src = url;
+  const img = l.el?.querySelector('img.shape-fill-img');
+  if(img) img.src = url;
+
+  // ── Stroke SVG → overlay img encima (no recibe drop-shadow) ──
+  let strokeImg = l.el?.querySelector('img.shape-stroke-img');
+  if(strokeW > 0){
+    const svgStroke = buildShapeSvgStroke(type, stroke, strokeW, w, h, opts);
+    const blobS = new Blob([svgStroke],{type:'image/svg+xml'});
+    const urlS  = URL.createObjectURL(blobS);
+    if(!strokeImg){
+      strokeImg = document.createElement('img');
+      strokeImg.className = 'shape-stroke-img';
+      strokeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:6;isolation:isolate;';
+      l.el.appendChild(strokeImg);
+    }
+    strokeImg.src = urlS;
+  } else {
+    if(strokeImg) strokeImg.remove();
+  }
+
+  applyShapeShadow(l);
+}
+function hexToRgb(hex){
+  const m=(hex||'#000000').match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:{r:0,g:0,b:0};
+}
+function applyShapeShadow(l){
+  if(!l?.el) return;
+  const drop  = Number(l.shapeShadow||0);
+  const inner = Number(l.shapeInnerShadow||0);
+  const {r,g,b}   = hexToRgb(l.shapeShadowColor||'#000000');
+  const {r:ri,g:gi,b:bi} = hexToRgb(l.shapeInnerShadowColor||'#000000');
+  const dropOp  = (Number(l.shapeShadowOp  ?? 60)) / 100;
+  const innerOp = (Number(l.shapeInnerShadowOp ?? 50)) / 100;
+  const type    = l.shapeType||'rect';
+
+  // Sombra PARALELA — drop-shadow en img.fill (sigue silueta SVG exacta)
+  l.el.style.boxShadow = '';
+  const fillImg = l.el.querySelector('img.shape-fill-img');
+  if(fillImg){
+    fillImg.style.filter = drop>0
+      ? `drop-shadow(${Math.round(drop*0.4)}px ${Math.round(drop*0.4)}px ${drop}px rgba(${r},${g},${b},${dropOp}))`
+      : '';
+  }
+
+  // Sombra INTERNA
+  // Rect / Rect-r / Círculo: box-shadow inset en div (igual que marcos — suave y correcto)
+  // Triángulo / Estrella: SVG con feFlood+feBlur+feComposite clippeado a la silueta
+  let ov = l.el.querySelector('.shape-inner-ov');
+
+  if(inner > 0){
+    const useBoxShadow = (type==='rect'||type==='rect-r'||type==='circle');
+
+    if(useBoxShadow){
+      if(ov && ov.tagName==='IMG'){ ov.remove(); ov=null; }
+      if(!ov){
+        ov = document.createElement('div');
+        ov.className = 'shape-inner-ov';
+        l.el.appendChild(ov);
+      }
+      const br = type==='circle' ? '50%' : (type==='rect-r' ? (l.shapeRadius??20)+'px' : '0');
+      ov.style.cssText = [
+        'position:absolute','inset:0','pointer-events:none','z-index:5',
+        'box-sizing:border-box',
+        'border-radius:'+br,
+        'box-shadow:inset 0 0 '+Math.max(6,inner*2)+'px rgba('+ri+','+gi+','+bi+','+innerOp+')'
+      ].join(';');
+
+    } else {
+      if(ov && ov.tagName==='DIV'){ ov.remove(); ov=null; }
+      const w = l.origW||l.w, h = l.origH||l.h;
+      const rx = l.shapeRadius??20;
+      const blur = Math.max(2, inner*0.7);
+      const cid = 'isc'+l.id;
+      const geom = buildShapeClipPath(type, w, h, rx);
+      // Técnica: flood del color, blur desde afuera hacia adentro, recortar a la silueta con feComposite in
+      // La clave es hacer el blur ANTES del composite — así la sombra es suave desde el borde
+      const pad = inner * 3; // padding en unidades SVG para que el blur tenga espacio
+      const svgInner = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'
+        +'<defs>'
+        +'<filter id="f'+cid+'" x="-50%" y="-50%" width="200%" height="200%">'
+        // Flood del color de la sombra
+        +'<feFlood flood-color="rgb('+ri+','+gi+','+bi+')" flood-opacity="1" result="color"/>'
+        // Recortar el flood a la forma
+        +'<feComposite in="color" in2="SourceGraphic" operator="in" result="inside"/>'
+        // Invertir: todo lo que NO es la forma (el "exterior" que se filtrará hacia adentro)
+        +'<feComposite in="color" in2="SourceGraphic" operator="out" result="outside"/>'
+        // Blur del exterior — este es el que crea la sombra que "entra" desde el borde
+        +'<feGaussianBlur in="outside" stdDeviation="'+blur+'" result="blurred"/>'
+        // Recortar el blur resultante a la silueta de la forma
+        +'<feComposite in="blurred" in2="SourceGraphic" operator="in" result="shadow"/>'
+        // Mezclar con la forma original (transparente)
+        +'<feBlend in="SourceGraphic" in2="shadow" mode="normal"/>'
+        +'</filter>'
+        +'</defs>'
+        +'<g opacity="'+innerOp+'">'
+        +geom.replace('/>', ' filter="url(#f'+cid+')" fill="black"/>')
+        +'</g>'
+        +'</svg>';
+      if(!ov){
+        ov = document.createElement('img');
+        ov.className = 'shape-inner-ov';
+        ov.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:5;';
+        l.el.appendChild(ov);
+      }
+      ov.src = URL.createObjectURL(new Blob([svgInner],{type:'image/svg+xml'}));
+    }
+  } else {
+    if(ov) ov.remove();
+  }
+}
+// Geometría de la forma para clipPath del inner shadow
+function buildShapeClipPath(type, w, h, rx){
+  const r = rx || 0;
+  switch(type){
+    case 'rect':     return `<rect width="${w}" height="${h}"/>`;
+    case 'rect-r':   return `<rect width="${w}" height="${h}" rx="${rx||20}"/>`;
+    case 'circle':   return `<ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"/>`;
+    case 'triangle': return `<polygon points="${w/2},0 ${w},${h} 0,${h}"/>`;
+    case 'line':     return `<rect width="${w}" height="${h}"/>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r2=i%2===0?70:30;const sx=w/160,sy=h/160;pts.push(`${80*sx+r2*sx*Math.cos(a)},${80*sy+r2*sy*Math.sin(a)}`);}return `<polygon points="${pts.join(' ')}"/>`;}
+    default:         return `<rect width="${w}" height="${h}"/>`;
+  }
+}
+function updShapeRadius(v){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  l.shapeRadius = parseInt(v)||0;
+  const lbl=document.getElementById('pp-shape-radius-lbl'); if(lbl) lbl.textContent=l.shapeRadius+'px';
+  rebuildShapeSvg(l); snapshotState();
+}
+function updShapeFill(v){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  if(v.startsWith('#')&&v.length===7) l.shapeFill=v;
+  else if(!v.startsWith('#')) return;
+  else l.shapeFill=v;
+  const sf=document.getElementById('pp-shape-fill'); if(sf&&sf.value!==v) sf.value=v;
+  const sfh=document.getElementById('pp-shape-fill-hex'); if(sfh&&sfh.value!==v) sfh.value=v;
+  rebuildShapeSvg(l); snapshotState();
+}
+function updShapeStroke(){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  l.shapeStrokeColor=document.getElementById('pp-shape-stroke-c')?.value||'#ffffff';
+  l.shapeStrokeWidth=parseInt(document.getElementById('pp-shape-stroke-w')?.value)||0;
+  rebuildShapeSvg(l); snapshotState();
+}
+function updShapeShadow(v){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  if(v!==undefined){ l.shapeShadow=parseInt(v)||0; }
+  l.shapeShadowColor = document.getElementById('pp-shape-shadow-c')?.value||'#000000';
+  const opEl = document.getElementById('pp-shape-shadow-op');
+  if(opEl){ l.shapeShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-shape-shadow-op-lbl'); if(lop) lop.textContent=l.shapeShadowOp+'%'; }
+  const lbl=document.getElementById('pp-shape-shadow-lbl'); if(lbl) lbl.textContent=(l.shapeShadow||0)+'px';
+  applyShapeShadow(l); // snapshot solo al soltar — ver listeners change en pp-shape-*
+}
+function updShapeInnerShadow(v){
+  const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
+  if(v!==undefined){ l.shapeInnerShadow=parseInt(v)||0; }
+  l.shapeInnerShadowColor = document.getElementById('pp-shape-inner-shadow-c')?.value||'#000000';
+  const opEl = document.getElementById('pp-shape-inner-shadow-op');
+  if(opEl){ l.shapeInnerShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-shape-inner-shadow-op-lbl'); if(lop) lop.textContent=l.shapeInnerShadowOp+'%'; }
+  const lbl=document.getElementById('pp-shape-inner-shadow-lbl'); if(lbl) lbl.textContent=(l.shapeInnerShadow||0)+'px';
+  applyShapeShadow(l); // snapshot solo al soltar
 }
 
 // ── FRAMES ───────────────────────────────────────────────────
@@ -1897,7 +2212,40 @@ function mkEl(l){
   });
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
-    const img=document.createElement('img');img.crossOrigin='anonymous';img.src=l.src;el.appendChild(img);
+    const img=document.createElement('img');
+    // URLs de Cloudinary/propias: crossOrigin para exportar PNG
+    // URLs externas (externalUrl:true): NUNCA crossOrigin — el navegador cachea el fallo y no recupera
+    // Detectar si es URL externa (no Cloudinary, no blob, no data:)
+    const isExternal = l.externalUrl ||
+      (!l.src.startsWith('data:') &&
+       !l.src.startsWith('blob:') &&
+       !l.src.includes('cloudinary.com') &&
+       !l.src.includes('res.cloudinary') &&
+       !l.src.includes('firebasestorage'));
+    if(!isExternal){
+      img.crossOrigin='anonymous';
+      img.src=l.src;
+    } else {
+      // Proxy público con CORS abierto para URLs externas
+      img.crossOrigin='anonymous';
+      img.src='https://images.weserv.nl/?url='+encodeURIComponent(l.src)+'&n=-1';
+    }
+    // Formas SVG: object-fit:fill para que se estiren libremente
+    if(l.isShape){
+      img.className='shape-fill-img';
+      img.style.objectFit='fill';
+      // Stroke overlay si tiene borde
+      if(l.shapeStrokeWidth>0){
+        const strokeImg=document.createElement('img');
+        strokeImg.className='shape-stroke-img';
+        strokeImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:6;isolation:isolate;';
+        const svgS=buildShapeSvgStroke(l.shapeType||'rect',l.shapeStrokeColor||'#fff',l.shapeStrokeWidth,l.origW||l.w,l.origH||l.h);
+        strokeImg.src=URL.createObjectURL(new Blob([svgS],{type:'image/svg+xml'}));
+        el.appendChild(strokeImg);
+      }
+      setTimeout(()=>applyShapeShadow(l),0);
+    }
+    el.appendChild(img);
     setTimeout(()=>applyImageVisuals(l),0);
   } else if(l.type==='frame'){
     el.className+=' frame-el';
@@ -2080,6 +2428,14 @@ function mkEl(l){
       return;
     }
     if(document.activeElement?.contentEditable==='true') return;
+    // Si la capa está bloqueada, iniciar marquee directamente como si fuera click en canvas vacío
+    if(l.locked){
+      ev.stopPropagation();
+      ev.preventDefault(); // cancelar drag HTML5 de la imagen
+      desel();
+      startMarquee(ev);
+      return;
+    }
     ev.stopPropagation();
     if(ev.shiftKey){
       sel(l.id, true);
@@ -2100,6 +2456,8 @@ function mkEl(l){
 // DRAG — supports multi-select + Alt=duplicate
 function startDrag(ev, id){
   if(ev.altKey){
+    const srcL = layers.find(x=>x.id===id);
+    if(srcL?.locked) return;
     duplicateSelected(id);
     return;
   }
@@ -2123,6 +2481,7 @@ function startDrag(ev, id){
   } else {
     const l=layers.find(x=>x.id===id);
     if(!l){ console.warn('startDrag: layer not found', id); return; }
+    if(l.locked) return; // no arrastrar capas bloqueadas
     isDrag=true;
     const cr=cvs.getBoundingClientRect();
     dOff.x=(ev.clientX-cr.left)/zoom_-l.x;
@@ -2133,8 +2492,23 @@ function startDrag(ev, id){
 
 // ── DUPLICATE SELECTED ────────────────────────────────────────
 function duplicateSelected(sourceId){
-  const ids = selIds.length>1 ? selIds : (sourceId!==undefined ? [sourceId] : (selId!==null?[selId]:[]));
+  let ids = selIds.length>1 ? selIds : (sourceId!==undefined ? [sourceId] : (selId!==null?[selId]:[]));
   if(!ids.length) return;
+  // No duplicar si TODAS las capas están bloqueadas
+  if(ids.every(id=>layers.find(x=>x.id===id)?.locked)) return;
+  // Filtrar las bloqueadas si hay mix
+  ids = ids.filter(id=>!layers.find(x=>x.id===id)?.locked);
+
+  // Si hay capas con groupId, expandir la selección a TODO el grupo
+  // Esto evita que al duplicar via Alt+drag se mezclen grupos
+  const expandedIds = new Set(ids);
+  ids.forEach(id => {
+    const l = layers.find(x=>x.id===id);
+    if(l?.groupId){
+      layers.filter(x=>x.groupId===l.groupId).forEach(x=>expandedIds.add(x.id));
+    }
+  });
+  ids = [...expandedIds];
 
   // Check if all selected ids belong to the same group (duplicating a whole group)
   const srcGroupIds = [...new Set(ids.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean))];
@@ -2147,7 +2521,7 @@ function duplicateSelected(sourceId){
   const newIds=[];
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id); if(!l) return;
-    const nl={...JSON.parse(JSON.stringify(l)), id:lCtr++, el:null};
+    const nl={...JSON.parse(JSON.stringify(l)), id:lCtr++, el:null, locked:false};
     nl.x+=18; nl.y+=18;
     nl.zIndex=layers.length;
     if(nl.tp) nl.tp={...nl.tp};
@@ -2170,6 +2544,8 @@ function duplicateSelected(sourceId){
 }
 
 function startRes(ev,id,c){
+  const ll=layers.find(x=>x.id===id);
+  if(ll?.locked){ev.preventDefault();return;}
   isRes=true;const l=layers.find(x=>x.id===id);
   const origFs=l.tp?l.tp.fontSize:0;
   rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
@@ -2203,15 +2579,24 @@ function applyImageToFrame(frameLayer, src){
 
 // ── MARQUEE SELECTION ─────────────────────────────────────────
 function startMarquee(ev){
+  // Usar canvas-area como referencia para evitar distorsión del transform:scale del cvs
   const cr=cvs.getBoundingClientRect();
   isMarquee=true;
-  marqueeStart={x:(ev.clientX-cr.left)/zoom_, y:(ev.clientY-cr.top)/zoom_};
+  // Coordenadas en espacio del canvas (sin zoom)
+  marqueeStart={
+    x:(ev.clientX-cr.left)/zoom_,
+    y:(ev.clientY-cr.top)/zoom_,
+    // También guardar coords de pantalla para dibujar el marquee fuera del cvs
+    sx:ev.clientX-cr.left,
+    sy:ev.clientY-cr.top
+  };
   if(!marqueeEl){
     marqueeEl=document.createElement('div');
     marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;';
     cvs.appendChild(marqueeEl);
   }
   marqueeEl.style.display='block';
+  // Posicionar en coordenadas del canvas (el marquee está dentro del cvs escalado)
   marqueeEl.style.left=marqueeStart.x+'px'; marqueeEl.style.top=marqueeStart.y+'px';
   marqueeEl.style.width='0px'; marqueeEl.style.height='0px';
 }
@@ -2219,10 +2604,16 @@ function startMarquee(ev){
 document.addEventListener('mousemove',ev=>{
   if(isMarquee){
     const cr=cvs.getBoundingClientRect();
+    // Coordenadas en espacio canvas (sin zoom) para intersección con capas
     const cx=(ev.clientX-cr.left)/zoom_, cy=(ev.clientY-cr.top)/zoom_;
     const rx=Math.min(cx,marqueeStart.x), ry=Math.min(cy,marqueeStart.y);
     const rw=Math.abs(cx-marqueeStart.x), rh=Math.abs(cy-marqueeStart.y);
-    if(marqueeEl){ marqueeEl.style.left=rx+'px'; marqueeEl.style.top=ry+'px'; marqueeEl.style.width=rw+'px'; marqueeEl.style.height=rh+'px'; }
+    if(marqueeEl){
+      marqueeEl.style.left=rx+'px';
+      marqueeEl.style.top=ry+'px';
+      marqueeEl.style.width=rw+'px';
+      marqueeEl.style.height=rh+'px';
+    }
     return;
   }
   if(isMultiRes){
@@ -2265,7 +2656,7 @@ document.addEventListener('mousemove',ev=>{
         const snapped=applySmartSnapToLayer(ghost, ids);
         const sdx=snapped.x-box.x, sdy=snapped.y-box.y;
         multiDragStart.forEach(({id,x,y})=>{
-          const l=layers.find(xl=>xl.id===id); if(!l?.el) return;
+          const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
           l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
           l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
         });
@@ -2321,11 +2712,14 @@ document.addEventListener('mousemove',ev=>{
     let{x:ox,y:oy,w:ow,h:oh,ratio,c,origFs,origW}=rSt;
     let nx=ox,ny=oy,nw=ow,nh=oh;
     const isCorner=['tl','tr','bl','br'].includes(c);
-    if(c==='br'){nw=Math.max(10,ow+dx);nh=lock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=lock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='tr'){nw=Math.max(10,ow+dx);nh=lock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!lock)ny=oy+oh-nh;}
-    else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=lock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!lock)ny=oy+oh-nh;}
-    if(lock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
+    // Para textos: esquinas siempre proporcionales (no deformar)
+    const forceProportional = isCorner && l.type==='text';
+    const propLock = lock || forceProportional;
+    if(c==='br'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+    else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+    else if(c==='tr'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+    else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+    if(propLock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
     else if(c==='mr'){nw=Math.max(10,ow+dx);}
     else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
     else if(c==='bm'){nh=Math.max(10,oh+dy);}
@@ -2349,17 +2743,34 @@ document.addEventListener('mousemove',ev=>{
     syncP();
   }
 });
+// Cancelar marquee si el mouse sale de la ventana
+document.addEventListener('mouseleave', ()=>{
+  if(isMarquee){
+    isMarquee=false;
+    if(marqueeEl) marqueeEl.style.display='none';
+  }
+});
+
+// Cancelar marquee si la ventana pierde el foco
+window.addEventListener('blur', ()=>{
+  if(isMarquee){
+    isMarquee=false;
+    if(marqueeEl) marqueeEl.style.display='none';
+  }
+  if(isDrag){ isDrag=false; }
+});
+
 document.addEventListener('mouseup',ev=>{
   if(isMarquee){
     isMarquee=false;
     if(marqueeEl){
-      const rx=parseInt(marqueeEl.style.left), ry=parseInt(marqueeEl.style.top);
-      const rw=parseInt(marqueeEl.style.width), rh=parseInt(marqueeEl.style.height);
+      const rx2=parseFloat(marqueeEl.style.left), ry2=parseFloat(marqueeEl.style.top);
+      const rw2=parseFloat(marqueeEl.style.width), rh2=parseFloat(marqueeEl.style.height);
       marqueeEl.style.display='none';
-      if(rw>6&&rh>6){
-        const hit=layers.filter(l=>l.visible&&l.x<rx+rw&&l.x+l.w>rx&&l.y<ry+rh&&l.y+l.h>ry).map(l=>l.id);
+      if(rw2>6&&rh2>6){
+        const hit=layers.filter(l=>l.visible&&!l.locked&&l.x<rx2+rw2&&l.x+l.w>rx2&&l.y<ry2+rh2&&l.y+l.h>ry2).map(l=>l.id);
         if(hit.length){
-          // Expand hit ids to include full groups
+          // Expandir para incluir grupos completos
           const extraFromGroups = [];
           hit.forEach(id=>{
             const l=layers.find(x=>x.id===id);
@@ -2368,6 +2779,7 @@ document.addEventListener('mouseup',ev=>{
             }
           });
           selMulti([...new Set([...hit,...extraFromGroups])]);
+          _justMarqueed = true; // evitar deselección por el click que sigue
         }
         renderList();
       }
@@ -2536,6 +2948,8 @@ function applyCopiedStyleToLayer(layer){
 
 
 function sel(id, additive=false){
+  const lockCheck = layers.find(x=>x.id===id);
+  if(lockCheck?.locked) return; // no seleccionar capas bloqueadas
   const clickedLayer = layers.find(x=>x.id===id);
   // Get the ids this click represents (single layer or whole group)
   if(styleMode){
@@ -2581,11 +2995,43 @@ function sel(id, additive=false){
   selMulti(clickedIds);
   renderList();
 }
-function canvasClick(ev){if(ev.target===cvs||ev.target.id==='canvas-area')desel();}
+function canvasClick(ev){
+  if(_justMarqueed){ _justMarqueed=false; return; } // ignorar click post-marquee
+  if(ev.target===cvs||ev.target.id==='canvas-area') desel();
+}
 
-// Marquee: start rubber-band on empty canvas
+// Marquee: start rubber-band on empty canvas OR when dragging with no layer hit
+let _marqueeMouseStart = null;
 cvs.addEventListener('mousedown',ev=>{
-  if(ev.target!==cvs) return; // only on empty canvas
+  if(ev.button!==0) return;
+  // Siempre guardar el punto de inicio por si se convierte en marquee
+  _marqueeMouseStart = {x:ev.clientX, y:ev.clientY, ev};
+  // Solo iniciar marquee inmediatamente si el click es en el canvas vacío
+  if(ev.target===cvs){
+    desel();
+    startMarquee(ev);
+    _marqueeMouseStart = null;
+  }
+});
+
+// Si el mouse se mueve más de 8px desde el inicio y no hay drag de capa activo → marquee
+document.addEventListener('mousemove', ev=>{
+  if(_marqueeMouseStart && !isDrag && !isMarquee){
+    const dx = Math.abs(ev.clientX - _marqueeMouseStart.x);
+    const dy = Math.abs(ev.clientY - _marqueeMouseStart.y);
+    if(dx > 8 || dy > 8){
+      desel();
+      startMarquee(_marqueeMouseStart.ev);
+      _marqueeMouseStart = null;
+    }
+  }
+}, {capture: true});
+
+document.addEventListener('mouseup', ()=>{ _marqueeMouseStart = null; }, {capture:true});
+
+// Also allow marquee from canvas-area (outside the scaled cvs)
+document.getElementById('canvas-area')?.addEventListener('mousedown',ev=>{
+  if(ev.target !== document.getElementById('canvas-area')) return;
   if(ev.button!==0) return;
   desel();
   startMarquee(ev);
@@ -2594,6 +3040,8 @@ function desel(){
   hideSmartGuides();
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
+  cvs.classList.remove('multi-active');
+  document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
   selId=null; selIds=[];
   updatePropertyPanelState(null);
   hideMultiBox();
@@ -2605,7 +3053,8 @@ function updatePropertyPanelState(targetLayer=null){
   const isMulti = selIds.length>1;
   const isText = !!l && l.type==='text';
   const isFrame = !!l && l.type==='frame';
-  const isImage = !!l && (l.type==='img' || (l.type==='frame' && !!l.frameImage));
+  const isShape = !!l && !!l.isShape;
+  const isImage = !!l && (l.type==='img' || (l.type==='frame' && !!l.frameImage)) && !isShape;
 
   const empty=document.getElementById('pp-empty');
   const el=document.getElementById('pp-el');
@@ -2623,9 +3072,12 @@ function updatePropertyPanelState(targetLayer=null){
   const img=document.getElementById('pp-img');
   if(img) img.classList.toggle('panel-hidden', !(isImage && !isMulti));
 
+  const shape=document.getElementById('pp-shape');
+  if(shape) shape.classList.toggle('panel-hidden', !(isShape && !isMulti));
+
   const chip=document.getElementById('pp-type-chip');
   if(chip){
-    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
+    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isShape ? 'Forma' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
   }
 }
 
@@ -2654,6 +3106,10 @@ function applyFrameBorder(layer){
   if(shadowLayer) shadowLayer.remove();
 
   if(drop > 0){
+    const sc = layer.frameShadowColor||'#000000';
+    const {r:sr,g:sg,b:sb} = hexToRgb(sc);
+    const op1 = (Number(layer.frameShadowOp ?? 22)) / 100;
+    const op2 = op1 * 0.65;
     shadowLayer = document.createElement('div');
     shadowLayer.className = 'frame-shadow-layer';
     shadowLayer.style.cssText = `
@@ -2664,8 +3120,8 @@ function applyFrameBorder(layer){
       z-index:0;
       background:transparent;
       box-shadow:
-        0 ${Math.max(2, Math.round(drop*0.22))}px ${Math.max(10, drop*1.1)}px rgba(0,0,0,0.22),
-        0 ${Math.max(8, Math.round(drop*0.55))}px ${Math.max(18, drop*1.7)}px rgba(0,0,0,0.14);
+        0 ${Math.max(2, Math.round(drop*0.22))}px ${Math.max(10, drop*1.1)}px rgba(${sr},${sg},${sb},${op1}),
+        0 ${Math.max(8, Math.round(drop*0.55))}px ${Math.max(18, drop*1.7)}px rgba(${sr},${sg},${sb},${op2});
     `;
     layer.el.insertBefore(shadowLayer, layer.el.firstChild);
   }
@@ -2676,7 +3132,10 @@ function applyFrameBorder(layer){
   ov = document.createElement('div');
   ov.className = 'frame-border-overlay';
   const borderPart = w > 0 ? `inset 0 0 0 ${w}px ${c}` : '';
-  const innerPart = inner > 0 ? `${borderPart ? ',' : ''} inset 0 0 ${Math.max(6,inner*2)}px rgba(0,0,0,0.28)` : '';
+  const isc = layer.frameInnerShadowColor||'#000000';
+  const {r:ir,g:ig,b:ib} = hexToRgb(isc);
+  const iop = (Number(layer.frameInnerShadowOp ?? 28)) / 100;
+  const innerPart = inner > 0 ? `${borderPart ? ',' : ''} inset 0 0 ${Math.max(6,inner*2)}px rgba(${ir},${ig},${ib},${iop})` : '';
   ov.style.cssText = `
     position:absolute;
     inset:0;
@@ -2690,15 +3149,21 @@ function applyFrameBorder(layer){
 }
 function updFrameShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
-  l.frameShadow = parseInt(v||0);
-  applyFrameBorder(l);
-  snapshotState();
+  if(v!==undefined){ l.frameShadow=parseInt(v)||0; }
+  l.frameShadowColor = document.getElementById('pp-frame-shadow-c')?.value||'#000000';
+  const opEl=document.getElementById('pp-frame-shadow-op');
+  if(opEl){ l.frameShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-shadow-op-lbl'); if(lop) lop.textContent=l.frameShadowOp+'%'; }
+  const lbl=document.getElementById('pp-frame-shadow-lbl'); if(lbl) lbl.textContent=(l.frameShadow||0)+'px';
+  applyFrameBorder(l); // snapshot al soltar slider — ver change listeners
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
-  l.frameInnerShadow = parseInt(v||0);
-  applyFrameBorder(l);
-  snapshotState();
+  if(v!==undefined){ l.frameInnerShadow=parseInt(v)||0; }
+  l.frameInnerShadowColor = document.getElementById('pp-frame-inner-shadow-c')?.value||'#000000';
+  const opEl=document.getElementById('pp-frame-inner-shadow-op');
+  if(opEl){ l.frameInnerShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(lop) lop.textContent=l.frameInnerShadowOp+'%'; }
+  const lbl=document.getElementById('pp-frame-inner-shadow-lbl'); if(lbl) lbl.textContent=(l.frameInnerShadow||0)+'px';
+  applyFrameBorder(l); // snapshot al soltar slider
 }
 
 function updFrameBorderWidth(v){
@@ -2758,6 +3223,28 @@ function syncP(){
   document.getElementById('pp-w').value=Math.round(l.w);
   document.getElementById('pp-h').value=Math.round(l.h);
   document.getElementById('pp-op').value=Math.round(l.opacity*100);
+  if(l.isShape){
+    const sf=document.getElementById('pp-shape-fill'); if(sf) sf.value=l.shapeFill||'#4F8EF7';
+    // Mostrar slider radio solo para rect-r
+    const isRectR = (l.shapeType||'rect')==='rect-r';
+    const rrow=document.getElementById('pp-shape-radius-row'); if(rrow) rrow.style.display=isRectR?'block':'none';
+    const rwrap=document.getElementById('pp-shape-radius-wrap'); if(rwrap) rwrap.style.display=isRectR?'flex':'none';
+    const rslider=document.getElementById('pp-shape-radius'); if(rslider) rslider.value=l.shapeRadius??20;
+    const rlbl=document.getElementById('pp-shape-radius-lbl'); if(rlbl) rlbl.textContent=(l.shapeRadius??20)+'px';
+    const sfh=document.getElementById('pp-shape-fill-hex'); if(sfh) sfh.value=l.shapeFill||'#4F8EF7';
+    const sc=document.getElementById('pp-shape-stroke-c'); if(sc) sc.value=l.shapeStrokeColor||'#ffffff';
+    const sw=document.getElementById('pp-shape-stroke-w'); if(sw) sw.value=l.shapeStrokeWidth||0;
+    const ss=document.getElementById('pp-shape-shadow'); if(ss) ss.value=l.shapeShadow||0;
+    const ssl=document.getElementById('pp-shape-shadow-lbl'); if(ssl) ssl.textContent=(l.shapeShadow||0)+'px';
+    const ssc=document.getElementById('pp-shape-shadow-c'); if(ssc) ssc.value=l.shapeShadowColor||'#000000';
+    const ssop=document.getElementById('pp-shape-shadow-op'); if(ssop) ssop.value=l.shapeShadowOp??60;
+    const ssopl=document.getElementById('pp-shape-shadow-op-lbl'); if(ssopl) ssopl.textContent=(l.shapeShadowOp??60)+'%';
+    const si=document.getElementById('pp-shape-inner-shadow'); if(si) si.value=l.shapeInnerShadow||0;
+    const sil=document.getElementById('pp-shape-inner-shadow-lbl'); if(sil) sil.textContent=(l.shapeInnerShadow||0)+'px';
+    const sic=document.getElementById('pp-shape-inner-shadow-c'); if(sic) sic.value=l.shapeInnerShadowColor||'#000000';
+    const siop=document.getElementById('pp-shape-inner-shadow-op'); if(siop) siop.value=l.shapeInnerShadowOp??50;
+    const siopl=document.getElementById('pp-shape-inner-shadow-op-lbl'); if(siopl) siopl.textContent=(l.shapeInnerShadowOp??50)+'%';
+  }
   if(l.type==='text'&&l.tp){
     document.getElementById('pp-tc').value=l.tp.text||'';
     const ff=document.getElementById('pp-ff'); if(ff)ff.value=l.tp.fontFamily||"'Poppins'";
@@ -2785,6 +3272,16 @@ function syncP(){
     const r=l.frameRadius||0;
     const rs=document.getElementById('pp-frame-radius'); if(rs) rs.value=r;
     const rl=document.getElementById('pp-frame-radius-lbl'); if(rl) rl.textContent=r+'px';
+    const fshdEl=document.getElementById('pp-frame-shadow'); if(fshdEl) fshdEl.value=l.frameShadow||0;
+    const fshdLbl=document.getElementById('pp-frame-shadow-lbl'); if(fshdLbl) fshdLbl.textContent=(l.frameShadow||0)+'px';
+    const fshdC=document.getElementById('pp-frame-shadow-c'); if(fshdC) fshdC.value=l.frameShadowColor||'#000000';
+    const fshdOp=document.getElementById('pp-frame-shadow-op'); if(fshdOp) fshdOp.value=l.frameShadowOp??22;
+    const fshdOpL=document.getElementById('pp-frame-shadow-op-lbl'); if(fshdOpL) fshdOpL.textContent=(l.frameShadowOp??22)+'%';
+    const fishdEl=document.getElementById('pp-frame-inner-shadow'); if(fishdEl) fishdEl.value=l.frameInnerShadow||0;
+    const fishdLbl=document.getElementById('pp-frame-inner-shadow-lbl'); if(fishdLbl) fishdLbl.textContent=(l.frameInnerShadow||0)+'px';
+    const fishdC=document.getElementById('pp-frame-inner-shadow-c'); if(fishdC) fishdC.value=l.frameInnerShadowColor||'#000000';
+    const fishdOp=document.getElementById('pp-frame-inner-shadow-op'); if(fishdOp) fishdOp.value=l.frameInnerShadowOp??28;
+    const fishdOpL=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(fishdOpL) fishdOpL.textContent=(l.frameInnerShadowOp??28)+'%';
   }
 }
 
@@ -3037,7 +3534,8 @@ function renderList(){
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(91,140,255,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
     const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
     const typeLabel = l.type==='text'?'Texto':l.type==='frame'?'Marco':l.isShape?'Forma':'Imagen';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    li.className+=`${l.locked?' locked-l':''}`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
@@ -3047,6 +3545,7 @@ function renderList(){
   });
 }
 function togVis(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;l.visible=!l.visible;if(l.el)l.el.style.display=l.visible?'block':'none';renderList();}
+function togLock(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;l.locked=!l.locked;if(l.locked&&selId===id){desel();}renderList();snapshotState();}
 function delL(id,ev){ev.stopPropagation();const l=layers.find(x=>x.id===id);if(!l)return;if(l.el)l.el.remove();layers=layers.filter(x=>x.id!==id);if(selId===id){selId=null;desel();}renderList();}
 function reorder(fid,tid){
   const fi=layers.findIndex(x=>x.id===fid),ti=layers.findIndex(x=>x.id===tid);
@@ -3322,6 +3821,20 @@ async function renderDesignToCanvas(scale=2){
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
+  // Warm-up: dibujar cada fuente usada en el canvas antes de renderizar
+  // Esto fuerza al navegador a activar las fuentes en el contexto 2D
+  const fontWarmups = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
+    const fw = l.tp.fontWeight||'400';
+    const fi = l.tp.italic?'italic':'normal';
+    const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
+    return `${fi} ${fw} 12px ${ff}`;
+  }))];
+  for(const f of fontWarmups){
+    ctx.font = f;
+    ctx.fillStyle = 'rgba(0,0,0,0)';
+    ctx.fillText(' ', -100, -100); // fuera del canvas visible
+  }
+
   const visibleLayers = [...layers]
     .filter(l => l && l.visible !== false)
     .sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
@@ -3417,15 +3930,52 @@ async function renderDesignToCanvas(scale=2){
       const tp = l.tp || {};
       const fontSize = Number(tp.fontSize || 16);
       const fontWeight = tp.fontWeight || '400';
-      const fontFamily = (tp.fontFamily || "'Poppins'").replace(/'/g,'');
       const fontStyle = tp.italic ? 'italic' : 'normal';
+      // Limpiar fontFamily: quitar comillas, fallbacks (ej: "'Bebas Neue', sans-serif" → "Bebas Neue")
+      let fontFamily = (tp.fontFamily || "'Poppins'")
+        .replace(/'/g,'').replace(/"/g,'')
+        .split(',')[0].trim(); // tomar solo la primera fuente, ignorar fallbacks
+      // Normalizar fontWeight: algunas fuentes solo tienen 400/700
+      // Si el navegador no encuentra el peso exacto usa fallback del sistema
+      // Forzar a 400 o 700 según corresponda
+      let fontWeightCanvas = fontWeight;
+      const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+      if(singleWeightFonts.includes(fontFamily)){
+        // Estas fuentes solo tienen un peso — forzar a 400
+        fontWeightCanvas = '400';
+      } else {
+        // Para otras fuentes: redondear 500/600 a 700, mantener 300/400/800 como están
+        const w = parseInt(fontWeight) || 400;
+        if(w >= 500 && w < 700) fontWeightCanvas = '700';
+        else if(w < 400) fontWeightCanvas = '300';
+        else fontWeightCanvas = String(w);
+      }
+      // Mapear fuentes custom locales que fallan a equivalentes de Google Fonts
+      const fontMap = {
+        'Horizon': 'Oswald',
+        'Horizon Bold': 'Oswald',
+        'Akira Expanded': 'Bebas Neue',
+        'Podium Sharp': 'Montserrat',
+        'Podium Sharp Light': 'Montserrat',
+        'Podium Sharp Bold': 'Montserrat',
+        'Podium Sharp Black': 'Montserrat',
+      };
+      if(fontMap[fontFamily]) fontFamily = fontMap[fontFamily];
       ctx.filter = 'none';
       ctx.fillStyle = tp.color || '#ffffff';
       ctx.textBaseline = 'top';
       ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
-      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+      // Limpiar fontFamily para ctx.font — Canvas no acepta fallbacks con coma
+      const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
+      ctx.font = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${canvasFontFamily}`;
 
-      const lines = String(tp.text || '').split('\n');
+
+      // Aplicar textTransform igual que en el DOM
+      let rawText = String(tp.text || '');
+      if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
+      else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
+      const lines = rawText.split('\n');
+
       const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
       const letterSpacing = Number(tp.letterSpacing || 0);
 
@@ -3443,10 +3993,17 @@ async function renderDesignToCanvas(scale=2){
             ctx.restore();
           }
           if(shadow > 0){
+            // Dibujar sombra primero
             ctx.save();
             ctx.shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
             ctx.shadowBlur = Math.max(3, shadow*0.8);
             ctx.shadowOffsetY = Math.max(1, Math.round(shadow*0.18));
+            ctx.fillText(txt, px, py);
+            ctx.restore();
+            // Dibujar fill encima sin sombra
+            ctx.save();
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
             ctx.fillText(txt, px, py);
             ctx.restore();
           }else{
@@ -3507,20 +4064,45 @@ async function renderDesignToCanvas(scale=2){
 }
 
 async function downloadPNG(){
-  desel();
-  document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+  desel(); hideMultiBox();
+  const btn = document.getElementById('btn-png');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
+  document.querySelectorAll('.rh,.sz-hint,.sel').forEach(e=>{
+    e.style.outline='none'; e.style.boxShadow='none';
+  });
+  document.querySelectorAll('.rh').forEach(e=>e.style.display='none');
+  const savedTransform = cvs.style.transform;
+  cvs.style.transform = 'scale(1)';
+  await new Promise(r=>setTimeout(r,80));
   try{
-    const c = await renderDesignToCanvas(2);
-    const a=document.createElement('a');
-    a.download='mi-diseno.png';
-    a.href=c.toDataURL('image/png');
+    const canvasW = parseInt(cvs.style.width)||1080;
+    const canvasH = parseInt(cvs.style.height)||1080;
+    const c = await html2canvas(cvs,{
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: null,
+      logging: false,
+      width: canvasW,
+      height: canvasH,
+      windowWidth: canvasW,
+      windowHeight: canvasH,
+    });
+    const a = document.createElement('a');
+    a.download = 'mi-diseno.png';
+    a.href = c.toDataURL('image/png');
     a.click();
+    showToast('✓ PNG descargado');
   }catch(e){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
+    cvs.style.transform = savedTransform;
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+    document.querySelectorAll('.cel.sel').forEach(e=>{
+      e.style.outline=''; e.style.boxShadow='';
+    });
+    if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
 
@@ -3528,6 +4110,11 @@ async function downloadPNG(){
 let tplStatus = 'draft'; // track current template status
 let currentClientDesignName = '';
 function openSave(){
+  // Si ya está publicada, guardar directamente sin abrir el modal
+  if(tplId && tplStatus === 'published'){
+    doSave('published');
+    return;
+  }
   document.getElementById('save-overlay').classList.add('open');
   document.getElementById('save-st').textContent='';
   document.getElementById('save-link-row').style.display='none';
@@ -3576,7 +4163,17 @@ function syncLayersFromDOM(){
         const br = parseFloat(clip.style.borderRadius);
         if(!Number.isNaN(br)) l.frameRadius = Math.round(br);
       }
-      if(img && img.src) l.frameImage = img.src;
+      // Solo actualizar frameImage desde DOM si es URL real (no proxy ni blob)
+      // Si ya tenemos base64 en l.frameImage, mantenerlo
+      if(img && img.src){
+        const domSrc = img.src;
+        if(!domSrc.startsWith('data:') && !domSrc.includes('weserv.nl')){
+          l.frameImage = domSrc;
+        } else if(!l.frameImage){
+          l.frameImage = domSrc;
+        }
+        // Si l.frameImage ya tiene base64, dejarlo — es más confiable que el DOM
+      }
     }
   });
 }
@@ -3595,23 +4192,26 @@ async function buildLayerData(){
       }
     }
 
-    // If src is still base64, try to upload to Cloudinary now (retry)
+    // Si src es base64: imágenes pegadas por el usuario (comprimidas ~50KB) se guardan directo en Firestore
+    // Imágenes PSD grandes (>100KB) se suben a Cloudinary
     if(src && src.startsWith('data:')){
-      try{
-        retryCount++;
-        console.log(`📤 Resubiendo capa "${l.name}" a Cloudinary...`);
-        const compressed = await compressImage(src, 1500, 1500, 0.88);
-        const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
-        src = uploaded;
-        l.src = uploaded; // update in memory
-        // Update DOM img too
-        const domImg = l.el?.querySelector('img');
-        if(domImg) domImg.src = uploaded;
-        console.log(`✓ Capa "${l.name}" subida:`, uploaded.substring(0,60));
-      }catch(e){
-        console.warn(`❌ No se pudo subir capa "${l.name}":`, e.message);
-        src = ''; // can't save base64 to Firestore
+      const approxKB = Math.round(src.length * 0.75 / 1024);
+      if(approxKB > 100){
+        // Grande → subir a Cloudinary
+        try{
+          retryCount++;
+          const compressed = await compressImage(src, 1500, 1500, 0.88);
+          const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
+          src = uploaded;
+          l.src = uploaded;
+          const domImg = l.el?.querySelector('img');
+          if(domImg) domImg.src = uploaded;
+        }catch(e){
+          console.warn(`No se pudo subir capa "${l.name}":`, e.message);
+          // Mantener base64 aunque sea grande — mejor que perder la imagen
+        }
       }
+      // ≤100KB → guardar base64 directo en Firestore (imágenes pegadas comprimidas)
     }
 
     const obj = {
@@ -3630,7 +4230,21 @@ async function buildLayerData(){
     if(l.groupId) obj.groupId = l.groupId;
     if(l.origW) obj.origW = l.origW;
     if(l.origH) obj.origH = l.origH;
-    if(l.isShape) obj.isShape = true;
+    if(l.externalUrl){ obj.externalUrl=true; obj._cbust=l._cbust||Date.now(); }
+    if(l.isShape){
+      obj.isShape=true;
+      if(l.shapeType) obj.shapeType=l.shapeType;
+      if(l.shapeRadius!=null) obj.shapeRadius=l.shapeRadius;
+      if(l.shapeFill) obj.shapeFill=l.shapeFill;
+      if(l.shapeStrokeColor) obj.shapeStrokeColor=l.shapeStrokeColor;
+      if(l.shapeStrokeWidth) obj.shapeStrokeWidth=l.shapeStrokeWidth;
+      if(l.shapeShadow) obj.shapeShadow=l.shapeShadow;
+      if(l.shapeShadowColor) obj.shapeShadowColor=l.shapeShadowColor;
+      if(l.shapeShadowOp!=null) obj.shapeShadowOp=l.shapeShadowOp;
+      if(l.shapeInnerShadow) obj.shapeInnerShadow=l.shapeInnerShadow;
+      if(l.shapeInnerShadowColor) obj.shapeInnerShadowColor=l.shapeInnerShadowColor;
+      if(l.shapeInnerShadowOp!=null) obj.shapeInnerShadowOp=l.shapeInnerShadowOp;
+    }
     if(l.frameRadius!==undefined) obj.frameRadius = l.frameRadius;
     if(l.frameType) obj.frameType = l.frameType;
     obj.frameBorderWidth = Number(l.frameBorderWidth||0);
@@ -3638,7 +4252,16 @@ async function buildLayerData(){
     obj.frameBorderStyle = 'inner';
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
-    if(l.frameImage) obj.frameImage = l.frameImage.startsWith('data:')?'':l.frameImage;
+    if(l.frameImage){
+      // Base64 pequeño (<100KB) → guardar directo en Firestore
+      // Base64 grande → era imagen PSD, ya debería estar en Cloudinary; si no, descartar
+      if(l.frameImage.startsWith('data:')){
+        const sizeKB = Math.round(l.frameImage.length * 0.75 / 1024);
+        obj.frameImage = sizeKB <= 100 ? l.frameImage : '';
+      } else {
+        obj.frameImage = l.frameImage;
+      }
+    }
     obj.blur = Number(l.blur||0);
     obj.flipX = !!l.flipX;
     obj.flipY = !!l.flipY;
@@ -3836,10 +4459,13 @@ async function autoSaveToFirestore(){
     const snap=JSON.stringify(layerData);
     if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
+    const templatePayload = {type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData};
+    const payloadSize = Math.round(JSON.stringify(templatePayload).length / 1024);
+    console.log('Template payload size:', payloadSize+'KB');
     await fbDb.collection('templates').doc(tplId).update({
       updatedAt:Date.now(),
       status: tplStatus,
-      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData}
+      template: templatePayload
     });
     showAutoSaveIndicator('✓ Autoguardado');
   }catch(e){
@@ -3895,15 +4521,192 @@ function setLoad(txt,pct){document.getElementById('load-text').textContent=txt;d
 function hideLoad(){document.getElementById('loading').classList.remove('show');}
 
 // KEYBOARD
+
+// ── WARMUP FUENTES PARA CANVAS 2D ──────────────────────────────
+// Las fuentes custom ya están declaradas en CSS @font-face.
+// Para activarlas en Canvas 2D, basta con renderizar texto invisible en el DOM
+// usando cada fuente — esto fuerza al navegador a cargarlas.
+function warmupFontsForCanvas(){
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;opacity:0;font-size:1px;pointer-events:none;';
+  const spans = [
+    ['Horizon','400'],['Horizon','700'],
+    ['Akira Expanded','700'],
+    ['Podium Sharp','300'],['Podium Sharp','400'],
+    ['Podium Sharp','700'],['Podium Sharp','900'],
+  ].map(([f,w])=>{
+    const s = document.createElement('span');
+    s.style.fontFamily = f;
+    s.style.fontWeight = w;
+    s.textContent = '.';
+    return s;
+  });
+  spans.forEach(s=>el.appendChild(s));
+  document.body.appendChild(el);
+  // Remover después de que el CSS haya tenido tiempo de cargar
+  setTimeout(()=>el.remove(), 5000);
+}
+// warmupFontsForCanvas() — desactivado, Railway no sirve las fuentes correctamente
+
+// ── COPY / PASTE entre pestañas via localStorage ──────────────
+function copyLayers(){
+  const ids = selIds.length > 0 ? selIds : (selId !== null ? [selId] : []);
+  if(!ids.length){ showToast('Selecciona algo para copiar'); return; }
+  const copied = ids.map(id=>{
+    const l = layers.find(x=>x.id===id);
+    if(!l) return null;
+    return JSON.parse(JSON.stringify({...l, el:null}));
+  }).filter(Boolean);
+  if(!copied.length) return;
+  localStorage.setItem('ds_clipboard', JSON.stringify({
+    layers: copied,
+    copiedAt: Date.now()
+  }));
+  showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
+}
+
+function addImageLayerFromUrl(url){
+  const cw = parseInt(cvs.style.width)||1080;
+  const ch = parseInt(cvs.style.height)||1080;
+  const maxSize = Math.round(Math.min(cw, ch) * 0.6);
+  // Cargar via proxy weserv (CORS abierto), comprimir a base64 ~30-50KB y guardar en Firestore
+  // Así la imagen es permanente y no depende de URLs externas
+  const proxyUrl = 'https://images.weserv.nl/?url='+encodeURIComponent(url)+'&n=-1';
+  showToast('⏳ Cargando imagen...');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = async function(){
+    const nat = img.naturalWidth || maxSize;
+    const nath = img.naturalHeight || maxSize;
+    const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
+    const w = Math.round(nat * ratio);
+    const h = Math.round(nath * ratio);
+    try{
+      // Dibujar en canvas para obtener base64
+      const tmpCanvas = document.createElement('canvas');
+      // Max 300px, calidad 0.4 → ~15-25KB base64 para caber bien en Firestore
+      const scale = Math.min(1, 300/Math.max(nat,nath));
+      tmpCanvas.width  = Math.round(nat*scale);
+      tmpCanvas.height = Math.round(nath*scale);
+      tmpCanvas.getContext('2d').drawImage(img, 0, 0, tmpCanvas.width, tmpCanvas.height);
+      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.4);
+      console.log('Imagen pegada base64 size:', Math.round(b64.length*0.75/1024)+'KB');
+      const l = {
+        id: lCtr++, type: 'img', name: 'Imagen pegada',
+        src: b64,
+        x: Math.round((cw-w)/2), y: Math.round((ch-h)/2),
+        w, h,
+        opacity:1, visible:true, zIndex:layers.length,
+        flipX:false, flipY:false, blur:0
+      };
+      layers.push(l); mkEl(l); renderList(); sel(l.id); snapshotState();
+      showToast('🖼 Imagen pegada');
+    }catch(e){
+      showToast('✗ Error al procesar la imagen');
+    }
+  };
+  img.onerror = function(){
+    showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
+  };
+  img.src = proxyUrl;
+}
+
+async function pasteLayers(){
+  // 1. Revisar si el portapapeles del SISTEMA tiene una URL de imagen → prioridad
+  try{
+    const clipItems = await navigator.clipboard.read();
+    for(const item of clipItems){
+      if(item.types.includes('text/plain')){
+        const blob = await item.getType('text/plain');
+        const text = (await blob.text()).trim();
+        if(text.match(/^https?:\/\//)){
+          addImageLayerFromUrl(text);
+          return;
+        }
+      }
+      if(item.types.some(t=>t.startsWith('image/'))){
+        showToast('⚠ Solo imágenes de internet. Usa clic derecho → Copiar imagen en una web.');
+        return;
+      }
+    }
+  }catch(e){ /* sin permiso de portapapeles — continuar */ }
+
+  // 2. Portapapeles INTERNO del editor (capas copiadas con Ctrl+C)
+  const raw = localStorage.getItem('ds_clipboard');
+  if(!raw){ showToast('No hay nada en el portapapeles'); return; }
+  try{
+    const { layers: copied } = JSON.parse(raw);
+    if(!copied?.length) return;
+    const newIds = [];
+    // Calcular offset para que no se pegue encima
+    const offset = 20;
+    copied.forEach(l=>{
+      const nl = {...JSON.parse(JSON.stringify(l)), id: lCtr++, el: null};
+      nl.x += offset;
+      nl.y += offset;
+      nl.zIndex = layers.length;
+      // Nuevo groupId si tenía grupo
+      if(nl.groupId){
+        // Crear nuevo groupId único por grupo
+        if(!pasteLayers._gmap) pasteLayers._gmap = {};
+        if(!pasteLayers._gmap[nl.groupId]){
+          pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
+        }
+        nl.groupId = pasteLayers._gmap[nl.groupId];
+      }
+      layers.push(nl);
+      mkEl(nl);
+      newIds.push(nl.id);
+    });
+    pasteLayers._gmap = {}; // reset group map for next paste
+    // Registrar nuevos grupos
+    newIds.forEach(id=>{
+      const l = layers.find(x=>x.id===id);
+      if(l?.groupId){
+        if(!groups[l.groupId]) groups[l.groupId] = [];
+        if(!groups[l.groupId].includes(id)) groups[l.groupId].push(id);
+      }
+    });
+    renderList();
+    selMulti(newIds);
+    snapshotState();
+    showToast(`📋 ${newIds.length} capa${newIds.length>1?'s':''} pegada${newIds.length>1?'s':''}`);
+  }catch(e){
+    showToast('✗ Error al pegar');
+    console.warn(e);
+  }
+}
+async function pasteFromSystem(){
+  try{
+    const clipItems = await navigator.clipboard.read();
+    for(const item of clipItems){
+      if(item.types.includes('text/plain')){
+        const blob = await item.getType('text/plain');
+        const text = (await blob.text()).trim();
+        if(text.match(/^https?:\/\//)){
+          addImageLayerFromUrl(text);
+          return;
+        }
+      }
+      if(item.types.some(t => t.startsWith('image/'))){
+        showToast('⚠ Solo imágenes de internet. Usa clic derecho → Copiar imagen en una web.');
+        return;
+      }
+    }
+  }catch(e){ /* sin permiso */ }
+}
+
 document.addEventListener('keydown',ev=>{
   const active=document.activeElement?.contentEditable==='true'||document.activeElement?.tagName==='INPUT'||document.activeElement?.tagName==='TEXTAREA';
 
-  // Undo / Redo
+  // Undo / Redo / Copy / Paste
   if((ev.ctrlKey||ev.metaKey) && !active){
     if(ev.key==='z'||ev.key==='Z'){ ev.preventDefault(); undo(); return; }
     if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); return; }
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
     if(ev.key==='g'||ev.key==='G'){ ev.preventDefault(); ev.shiftKey?ungroupSelected():groupSelected(); return; }
+    if(ev.key==='c'||ev.key==='C'){ ev.preventDefault(); copyLayers(); return; }
+    if(ev.key==='v'||ev.key==='V'){ ev.preventDefault(); pasteLayers(); return; }
   }
 
   if((ev.key==='Delete'||ev.key==='Backspace')&&!active){
