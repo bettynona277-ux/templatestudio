@@ -3966,7 +3966,6 @@ async function renderDesignToCanvas(scale=2){
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
       const lines = rawText.split('\n');
-      console.log('RENDER:', JSON.stringify({t:rawText.substring(0,20), fw:fontWeightCanvas, ff:canvasFontFamily, font:ctx.font, x:Math.round(l.x), y:Math.round(l.y), w:Math.round(l.w), h:Math.round(l.h), tt:tp.textTransform, orig:tp.text?.substring(0,20)}));
 
       const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
       const letterSpacing = Number(tp.letterSpacing || 0);
@@ -4056,24 +4055,45 @@ async function renderDesignToCanvas(scale=2){
 }
 
 async function downloadPNG(){
-  desel();
-  document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
+  desel(); hideMultiBox();
+  const btn = document.getElementById('btn-png');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
+  document.querySelectorAll('.rh,.sz-hint,.sel').forEach(e=>{
+    e.style.outline='none'; e.style.boxShadow='none';
+  });
+  document.querySelectorAll('.rh').forEach(e=>e.style.display='none');
+  const savedTransform = cvs.style.transform;
+  cvs.style.transform = 'scale(1)';
+  await new Promise(r=>setTimeout(r,80));
   try{
-    // Esperar que todas las fuentes CSS estén listas
-    await document.fonts.ready;
-    // Pausa para que Canvas 2D active las fuentes cargadas via CSS @font-face
-    await new Promise(r => setTimeout(r, 200));
-    const c = await renderDesignToCanvas(2);
-    const a=document.createElement('a');
-    a.download='mi-diseno.png';
-    a.href=c.toDataURL('image/png');
+    const canvasW = parseInt(cvs.style.width)||1080;
+    const canvasH = parseInt(cvs.style.height)||1080;
+    const c = await html2canvas(cvs,{
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: null,
+      logging: false,
+      width: canvasW,
+      height: canvasH,
+      windowWidth: canvasW,
+      windowHeight: canvasH,
+    });
+    const a = document.createElement('a');
+    a.download = 'mi-diseno.png';
+    a.href = c.toDataURL('image/png');
     a.click();
+    showToast('✓ PNG descargado');
   }catch(e){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
+    cvs.style.transform = savedTransform;
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+    document.querySelectorAll('.cel.sel').forEach(e=>{
+      e.style.outline=''; e.style.boxShadow='';
+    });
+    if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
 
