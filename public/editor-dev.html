@@ -4406,22 +4406,55 @@ function copyLayers(){
 function addImageLayerFromUrl(url){
   const cw = parseInt(cvs.style.width)||1080;
   const ch = parseInt(cvs.style.height)||1080;
-  const size = Math.round(Math.min(cw, ch) * 0.4);
-  const l = {
-    id: lCtr++, type: 'img', name: 'Imagen pegada',
-    src: url,
-    x: Math.round((cw - size) / 2),
-    y: Math.round((ch - size) / 2),
-    w: size, h: size,
-    opacity: 1, visible: true, zIndex: layers.length,
-    flipX: false, flipY: false, blur: 0
+  const maxSize = Math.round(Math.min(cw, ch) * 0.6);
+  // Cargar imagen para obtener dimensiones reales
+  const probe = new Image();
+  probe.crossOrigin = 'anonymous';
+  probe.onload = function(){
+    const nat = probe.naturalWidth || probe.width || maxSize;
+    const nath = probe.naturalHeight || probe.height || maxSize;
+    // Escalar proporcionalmente para que quepa en maxSize
+    const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
+    const w = Math.round(nat * ratio);
+    const h = Math.round(nath * ratio);
+    const l = {
+      id: lCtr++, type: 'img', name: 'Imagen pegada',
+      src: url,
+      x: Math.round((cw - w) / 2),
+      y: Math.round((ch - h) / 2),
+      w, h,
+      opacity: 1, visible: true, zIndex: layers.length,
+      flipX: false, flipY: false, blur: 0
+    };
+    layers.push(l);
+    mkEl(l);
+    // Forzar object-fit:contain para imágenes sueltas (no marcos)
+    const img = l.el?.querySelector('img');
+    if(img) img.style.objectFit = 'contain';
+    renderList();
+    sel(l.id);
+    snapshotState();
+    showToast('🖼 Imagen pegada desde internet');
   };
-  layers.push(l);
-  mkEl(l);
-  renderList();
-  sel(l.id);
-  snapshotState();
-  showToast('🖼 Imagen pegada desde internet');
+  probe.onerror = function(){
+    // Si no carga (CORS u otro error) insertar con tamaño por defecto
+    const l = {
+      id: lCtr++, type: 'img', name: 'Imagen pegada',
+      src: url,
+      x: Math.round((cw - maxSize) / 2),
+      y: Math.round((ch - maxSize) / 2),
+      w: maxSize, h: maxSize,
+      opacity: 1, visible: true, zIndex: layers.length,
+      flipX: false, flipY: false, blur: 0
+    };
+    layers.push(l);
+    mkEl(l);
+    renderList();
+    sel(l.id);
+    snapshotState();
+    showToast('🖼 Imagen pegada (tamaño estimado)');
+  };
+  probe.src = url;
 }
 
 async function pasteLayers(){
