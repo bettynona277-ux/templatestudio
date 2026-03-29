@@ -1044,6 +1044,25 @@ function initMultiBoxHandles(){
 // Call immediately (script runs at end of body, DOM already exists)
 initMultiBoxHandles();
 
+// Snapshot al SOLTAR sliders de sombra (evita lag durante drag)
+(function initShadowSliderSnapshots(){
+  const shapeSliders = ['pp-shape-shadow','pp-shape-shadow-op','pp-shape-inner-shadow','pp-shape-inner-shadow-op'];
+  const frameSliders = ['pp-frame-shadow','pp-frame-shadow-op','pp-frame-inner-shadow','pp-frame-inner-shadow-op'];
+  shapeSliders.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+  frameSliders.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+  // Colors disparan change al cerrar el picker
+  ['pp-shape-shadow-c','pp-shape-inner-shadow-c','pp-frame-shadow-c','pp-frame-inner-shadow-c'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change',()=>snapshotState());
+  });
+})();
+
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
 
@@ -2030,15 +2049,18 @@ function applyShapeShadow(l){
     const shapePath = buildShapePathData(type, w, h);
     const blur  = Math.max(3, inner*1.2);
     const spread= inner;
+    // Técnica: dibujamos la forma, la invertimos con feFlood+feComposite(out),
+    // le aplicamos blur, y la recortamos de vuelta a la silueta con feComposite(in).
+    // Resultado: sombra oscura solo en los bordes internos de la forma.
     const svgInner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
       <defs>
-        <filter id="isf" x="-20%" y="-20%" width="140%" height="140%">
-          <feFlood flood-color="rgba(${ri},${gi},${bi},1)" result="flood"/>
-          <feComposite in="flood" in2="SourceGraphic" operator="in" result="shadow"/>
-          <feMorphology in="shadow" operator="erode" radius="${spread}" result="eroded"/>
-          <feGaussianBlur in="eroded" stdDeviation="${blur}" result="blurred"/>
-          <feComposite in="blurred" in2="SourceGraphic" operator="in" result="clipped"/>
-          <feBlend in="SourceGraphic" in2="clipped" mode="normal"/>
+        <filter id="isf" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
+          <feFlood flood-color="rgb(${ri},${gi},${bi})" result="color"/>
+          <feComposite in="color" in2="SourceGraphic" operator="in" result="colorInShape"/>
+          <feComposite in="SourceGraphic" in2="colorInShape" operator="out" result="outside"/>
+          <feGaussianBlur in="outside" stdDeviation="${blur}" result="blurredEdge"/>
+          <feComposite in="blurredEdge" in2="SourceGraphic" operator="in" result="clipped"/>
+          <feComposite in="SourceGraphic" in2="clipped" operator="over"/>
         </filter>
       </defs>
       ${shapePath}
@@ -2090,7 +2112,7 @@ function updShapeShadow(v){
   const opEl = document.getElementById('pp-shape-shadow-op');
   if(opEl){ l.shapeShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-shape-shadow-op-lbl'); if(lop) lop.textContent=l.shapeShadowOp+'%'; }
   const lbl=document.getElementById('pp-shape-shadow-lbl'); if(lbl) lbl.textContent=(l.shapeShadow||0)+'px';
-  applyShapeShadow(l); snapshotState();
+  applyShapeShadow(l); // snapshot solo al soltar — ver listeners change en pp-shape-*
 }
 function updShapeInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l?.isShape) return;
@@ -2099,7 +2121,7 @@ function updShapeInnerShadow(v){
   const opEl = document.getElementById('pp-shape-inner-shadow-op');
   if(opEl){ l.shapeInnerShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-shape-inner-shadow-op-lbl'); if(lop) lop.textContent=l.shapeInnerShadowOp+'%'; }
   const lbl=document.getElementById('pp-shape-inner-shadow-lbl'); if(lbl) lbl.textContent=(l.shapeInnerShadow||0)+'px';
-  applyShapeShadow(l); snapshotState();
+  applyShapeShadow(l); // snapshot solo al soltar
 }
 
 // ── FRAMES ───────────────────────────────────────────────────
@@ -3066,7 +3088,7 @@ function updFrameShadow(v){
   const opEl=document.getElementById('pp-frame-shadow-op');
   if(opEl){ l.frameShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-shadow-op-lbl'); if(lop) lop.textContent=l.frameShadowOp+'%'; }
   const lbl=document.getElementById('pp-frame-shadow-lbl'); if(lbl) lbl.textContent=(l.frameShadow||0)+'px';
-  applyFrameBorder(l); snapshotState();
+  applyFrameBorder(l); // snapshot al soltar slider — ver change listeners
 }
 function updFrameInnerShadow(v){
   const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
@@ -3075,7 +3097,7 @@ function updFrameInnerShadow(v){
   const opEl=document.getElementById('pp-frame-inner-shadow-op');
   if(opEl){ l.frameInnerShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(lop) lop.textContent=l.frameInnerShadowOp+'%'; }
   const lbl=document.getElementById('pp-frame-inner-shadow-lbl'); if(lbl) lbl.textContent=(l.frameInnerShadow||0)+'px';
-  applyFrameBorder(l); snapshotState();
+  applyFrameBorder(l); // snapshot al soltar slider
 }
 
 function updFrameBorderWidth(v){
