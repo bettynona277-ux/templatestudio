@@ -4070,7 +4070,17 @@ function syncLayersFromDOM(){
         const br = parseFloat(clip.style.borderRadius);
         if(!Number.isNaN(br)) l.frameRadius = Math.round(br);
       }
-      if(img && img.src) l.frameImage = img.src;
+      // Solo actualizar frameImage desde DOM si es URL real (no proxy ni blob)
+      // Si ya tenemos base64 en l.frameImage, mantenerlo
+      if(img && img.src){
+        const domSrc = img.src;
+        if(!domSrc.startsWith('data:') && !domSrc.includes('weserv.nl')){
+          l.frameImage = domSrc;
+        } else if(!l.frameImage){
+          l.frameImage = domSrc;
+        }
+        // Si l.frameImage ya tiene base64, dejarlo — es más confiable que el DOM
+      }
     }
   });
 }
@@ -4149,7 +4159,16 @@ async function buildLayerData(){
     obj.frameBorderStyle = 'inner';
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
-    if(l.frameImage) obj.frameImage = l.frameImage.startsWith('data:')?'':l.frameImage;
+    if(l.frameImage){
+      // Base64 pequeño (<100KB) → guardar directo en Firestore
+      // Base64 grande → era imagen PSD, ya debería estar en Cloudinary; si no, descartar
+      if(l.frameImage.startsWith('data:')){
+        const sizeKB = Math.round(l.frameImage.length * 0.75 / 1024);
+        obj.frameImage = sizeKB <= 100 ? l.frameImage : '';
+      } else {
+        obj.frameImage = l.frameImage;
+      }
+    }
     obj.blur = Number(l.blur||0);
     obj.flipX = !!l.flipX;
     obj.flipY = !!l.flipY;
