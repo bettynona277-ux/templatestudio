@@ -4347,10 +4347,13 @@ async function autoSaveToFirestore(){
     const snap=JSON.stringify(layerData);
     if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
+    const templatePayload = {type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData};
+    const payloadSize = Math.round(JSON.stringify(templatePayload).length / 1024);
+    console.log('Template payload size:', payloadSize+'KB');
     await fbDb.collection('templates').doc(tplId).update({
       updatedAt:Date.now(),
       status: tplStatus,
-      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData}
+      template: templatePayload
     });
     showAutoSaveIndicator('✓ Autoguardado');
   }catch(e){
@@ -4443,12 +4446,13 @@ function addImageLayerFromUrl(url){
     try{
       // Dibujar en canvas para obtener base64
       const tmpCanvas = document.createElement('canvas');
-      // Max 400px para mantener el base64 pequeño (~30-50KB)
-      const scale = Math.min(1, 400/Math.max(nat,nath));
+      // Max 300px, calidad 0.4 → ~15-25KB base64 para caber bien en Firestore
+      const scale = Math.min(1, 300/Math.max(nat,nath));
       tmpCanvas.width  = Math.round(nat*scale);
       tmpCanvas.height = Math.round(nath*scale);
       tmpCanvas.getContext('2d').drawImage(img, 0, 0, tmpCanvas.width, tmpCanvas.height);
-      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.5);
+      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.4);
+      console.log('Imagen pegada base64 size:', Math.round(b64.length*0.75/1024)+'KB');
       const l = {
         id: lCtr++, type: 'img', name: 'Imagen pegada',
         src: b64,
