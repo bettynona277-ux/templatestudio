@@ -4425,50 +4425,45 @@ function addImageLayerFromUrl(url){
   const cw = parseInt(cvs.style.width)||1080;
   const ch = parseInt(cvs.style.height)||1080;
   const maxSize = Math.round(Math.min(cw, ch) * 0.6);
-  // Cargar imagen para obtener dimensiones reales
-  // Probe SIN crossOrigin para obtener dimensiones — no necesitamos acceso a píxeles
-  const doInsert = (w, h) => {
-    const l = {
-      id: lCtr++, type: 'img', name: 'Imagen pegada',
-      src: url,
-      x: Math.round((cw - w) / 2),
-      y: Math.round((ch - h) / 2),
-      w, h,
-      opacity: 1, visible: true, zIndex: layers.length,
-      flipX: false, flipY: false, blur: 0,
-      externalUrl: true  // marca para no usar crossOrigin
-    };
-    layers.push(l);
-    mkEl(l);
-    renderList();
-    sel(l.id);
-    snapshotState();
-    showToast('🖼 Imagen pegada');
-  };
-
-  const probe = new Image();
-  probe.onload = function(){
-    const nat = probe.naturalWidth || maxSize;
-    const nath = probe.naturalHeight || maxSize;
+  // Cargar via proxy weserv (CORS abierto), comprimir a base64 ~30-50KB y guardar en Firestore
+  // Así la imagen es permanente y no depende de URLs externas
+  const proxyUrl = 'https://images.weserv.nl/?url='+encodeURIComponent(url)+'&n=-1';
+  showToast('⏳ Cargando imagen...');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = async function(){
+    const nat = img.naturalWidth || maxSize;
+    const nath = img.naturalHeight || maxSize;
     const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
-    doInsert(Math.round(nat * ratio), Math.round(nath * ratio));
+    const w = Math.round(nat * ratio);
+    const h = Math.round(nath * ratio);
+    try{
+      // Dibujar en canvas para obtener base64
+      const tmpCanvas = document.createElement('canvas');
+      // Max 400px para mantener el base64 pequeño (~30-50KB)
+      const scale = Math.min(1, 400/Math.max(nat,nath));
+      tmpCanvas.width  = Math.round(nat*scale);
+      tmpCanvas.height = Math.round(nath*scale);
+      tmpCanvas.getContext('2d').drawImage(img, 0, 0, tmpCanvas.width, tmpCanvas.height);
+      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.5);
+      const l = {
+        id: lCtr++, type: 'img', name: 'Imagen pegada',
+        src: b64,
+        x: Math.round((cw-w)/2), y: Math.round((ch-h)/2),
+        w, h,
+        opacity:1, visible:true, zIndex:layers.length,
+        flipX:false, flipY:false, blur:0
+      };
+      layers.push(l); mkEl(l); renderList(); sel(l.id); snapshotState();
+      showToast('🖼 Imagen pegada');
+    }catch(e){
+      showToast('✗ Error al procesar la imagen');
+    }
   };
-  probe.onerror = function(){
-    // Reintentar con proxy CORS
-    const proxyUrl = 'https://images.weserv.nl/?url='+encodeURIComponent(url)+'&n=-1';
-    const probe2 = new Image();
-    probe2.onload = function(){
-      const nat = probe2.naturalWidth || maxSize;
-      const nath = probe2.naturalHeight || maxSize;
-      const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
-      doInsert(Math.round(nat * ratio), Math.round(nath * ratio));
-    };
-    probe2.onerror = function(){
-      showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
-    };
-    probe2.src = proxyUrl;
+  img.onerror = function(){
+    showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
   };
-  probe.src = url;
+  img.src = proxyUrl;
 }
 
 async function pasteLayers(){
