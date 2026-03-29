@@ -8,7 +8,10 @@ const PORT = process.env.PORT || 3000;
 const MIME = {
   '.html':'text/html','.css':'text/css','.js':'application/javascript',
   '.json':'application/json','.png':'image/png','.jpg':'image/jpeg',
-  '.svg':'image/svg+xml','.ico':'image/x-icon'
+  '.svg':'image/svg+xml','.ico':'image/x-icon',
+  '.otf':'font/otf','.ttf':'font/ttf',
+  '.woff':'font/woff','.woff2':'font/woff2',
+  '.webp':'image/webp','.gif':'image/gif'
 };
 
 function rawRGBAtoPNG(pixelData, width, height) {
