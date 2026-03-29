@@ -2134,6 +2134,8 @@ function mkEl(l){
 // DRAG — supports multi-select + Alt=duplicate
 function startDrag(ev, id){
   if(ev.altKey){
+    const srcL = layers.find(x=>x.id===id);
+    if(srcL?.locked) return;
     duplicateSelected(id);
     return;
   }
@@ -2169,6 +2171,10 @@ function startDrag(ev, id){
 function duplicateSelected(sourceId){
   let ids = selIds.length>1 ? selIds : (sourceId!==undefined ? [sourceId] : (selId!==null?[selId]:[]));
   if(!ids.length) return;
+  // No duplicar si TODAS las capas están bloqueadas
+  if(ids.every(id=>layers.find(x=>x.id===id)?.locked)) return;
+  // Filtrar las bloqueadas si hay mix
+  ids = ids.filter(id=>!layers.find(x=>x.id===id)?.locked);
 
   // Si hay capas con groupId, expandir la selección a TODO el grupo
   // Esto evita que al duplicar via Alt+drag se mezclen grupos
@@ -2192,7 +2198,7 @@ function duplicateSelected(sourceId){
   const newIds=[];
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id); if(!l) return;
-    const nl={...JSON.parse(JSON.stringify(l)), id:lCtr++, el:null};
+    const nl={...JSON.parse(JSON.stringify(l)), id:lCtr++, el:null, locked:false};
     nl.x+=18; nl.y+=18;
     nl.zIndex=layers.length;
     if(nl.tp) nl.tp={...nl.tp};
