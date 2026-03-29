@@ -2228,8 +2228,12 @@ function mkEl(l){
        !l.src.includes('firebasestorage'));
     if(!isExternal){
       img.crossOrigin='anonymous';
+      img.src=l.src;
+    } else {
+      // Proxy público con CORS abierto para URLs externas
+      img.crossOrigin='anonymous';
+      img.src='https://images.weserv.nl/?url='+encodeURIComponent(l.src)+'&n=-1';
     }
-    img.src=l.src;
     // Formas SVG: object-fit:fill para que se estiren libremente
     if(l.isShape){
       img.className='shape-fill-img';
@@ -4450,7 +4454,19 @@ function addImageLayerFromUrl(url){
     doInsert(Math.round(nat * ratio), Math.round(nath * ratio));
   };
   probe.onerror = function(){
-    showToast('✗ Esta imagen no permite pegarse (CORS bloqueado). Usa Google Images → clic derecho → Copiar dirección de imagen, o sube la imagen directamente.');
+    // Reintentar con proxy CORS
+    const proxyUrl = 'https://images.weserv.nl/?url='+encodeURIComponent(url)+'&n=-1';
+    const probe2 = new Image();
+    probe2.onload = function(){
+      const nat = probe2.naturalWidth || maxSize;
+      const nath = probe2.naturalHeight || maxSize;
+      const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
+      doInsert(Math.round(nat * ratio), Math.round(nath * ratio));
+    };
+    probe2.onerror = function(){
+      showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
+    };
+    probe2.src = proxyUrl;
   };
   probe.src = url;
 }
