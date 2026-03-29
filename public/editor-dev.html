@@ -2071,18 +2071,28 @@ function applyShapeShadow(l){
       const blur = Math.max(2, inner*0.7);
       const cid = 'isc'+l.id;
       const geom = buildShapeClipPath(type, w, h, rx);
+      // Técnica: flood del color, blur desde afuera hacia adentro, recortar a la silueta con feComposite in
+      // La clave es hacer el blur ANTES del composite — así la sombra es suave desde el borde
+      const pad = inner * 3; // padding en unidades SVG para que el blur tenga espacio
       const svgInner = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'
         +'<defs>'
-        +'<clipPath id="'+cid+'">'+geom+'</clipPath>'
-        +'<filter id="f'+cid+'" x="-10%" y="-10%" width="120%" height="120%">'
-        +'<feMorphology operator="dilate" radius="'+Math.max(1,Math.round(inner*0.4))+'" result="d"/>'
-        +'<feFlood flood-color="rgb('+ri+','+gi+','+bi+')" result="c"/>'
-        +'<feComposite in="c" in2="d" operator="in" result="ring"/>'
-        +'<feGaussianBlur in="ring" stdDeviation="'+blur+'"/>'
+        +'<filter id="f'+cid+'" x="-50%" y="-50%" width="200%" height="200%">'
+        // Flood del color de la sombra
+        +'<feFlood flood-color="rgb('+ri+','+gi+','+bi+')" flood-opacity="1" result="color"/>'
+        // Recortar el flood a la forma
+        +'<feComposite in="color" in2="SourceGraphic" operator="in" result="inside"/>'
+        // Invertir: todo lo que NO es la forma (el "exterior" que se filtrará hacia adentro)
+        +'<feComposite in="color" in2="SourceGraphic" operator="out" result="outside"/>'
+        // Blur del exterior — este es el que crea la sombra que "entra" desde el borde
+        +'<feGaussianBlur in="outside" stdDeviation="'+blur+'" result="blurred"/>'
+        // Recortar el blur resultante a la silueta de la forma
+        +'<feComposite in="blurred" in2="SourceGraphic" operator="in" result="shadow"/>'
+        // Mezclar con la forma original (transparente)
+        +'<feBlend in="SourceGraphic" in2="shadow" mode="normal"/>'
         +'</filter>'
         +'</defs>'
-        +'<g clip-path="url(#'+cid+')" opacity="'+innerOp+'">'
-        +geom.replace('/>', ' filter="url(#f'+cid+')" fill="black"/>')
+        +'<g opacity="'+innerOp+'">'
+        +geom.replace('/>', ' filter="url(#f'+cid+')" fill="rgba(0,0,0,0)"/>')
         +'</g>'
         +'</svg>';
       if(!ov){
