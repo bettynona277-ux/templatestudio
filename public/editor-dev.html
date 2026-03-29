@@ -4018,18 +4018,10 @@ async function downloadPNG(){
   desel();
   document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
   try{
-    // Esperar que todas las fuentes estén cargadas (incluyendo custom via FontFace API)
+    // Esperar que todas las fuentes CSS estén listas
     await document.fonts.ready;
-    // Forzar carga de cada fuente usada — importante para fuentes custom locales
-    const usedFonts = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
-      const fw = l.tp.fontWeight||'400';
-      const fi = l.tp.italic?'italic':'normal';
-      const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
-      return `${fi} ${fw} 48px ${ff}`; // 48px para que el warmup sea efectivo
-    }))];
-    await Promise.all(usedFonts.map(f => document.fonts.load(f).catch(()=>{})));
-    // Pausa corta para que el navegador termine de activar las fuentes en Canvas
-    await new Promise(r => setTimeout(r, 100));
+    // Pausa para que Canvas 2D active las fuentes cargadas via CSS @font-face
+    await new Promise(r => setTimeout(r, 200));
     const c = await renderDesignToCanvas(2);
     const a=document.createElement('a');
     a.download='mi-diseno.png';
@@ -4455,26 +4447,31 @@ function hideLoad(){document.getElementById('loading').classList.remove('show');
 
 // KEYBOARD
 
-// ── PRELOAD FUENTES CUSTOM PARA CANVAS 2D ──────────────────────
-// CSS @font-face no siempre activa las fuentes en Canvas — registrarlas via FontFace API garantiza que estén disponibles
-async function preloadCustomFonts(){
-  const customFonts = [
-    new FontFace('Horizon', "url('/fonts/horizon.otf')", {weight:'400', style:'normal'}),
-    new FontFace('Horizon', "url('/fonts/horizon-bold.otf')", {weight:'700', style:'normal'}),
-    new FontFace('Akira Expanded', "url('/fonts/akira-expanded.otf')", {weight:'700', style:'normal'}),
-    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-light.otf')", {weight:'300', style:'normal'}),
-    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-regular.otf')", {weight:'400', style:'normal'}),
-    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-bold.otf')", {weight:'700', style:'normal'}),
-    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-black.otf')", {weight:'900', style:'normal'}),
-  ];
-  await Promise.all(customFonts.map(async f => {
-    try{
-      await f.load();
-      document.fonts.add(f);
-    }catch(e){ console.warn('Font preload failed:', f.family, e.message); }
-  }));
+// ── WARMUP FUENTES PARA CANVAS 2D ──────────────────────────────
+// Las fuentes custom ya están declaradas en CSS @font-face.
+// Para activarlas en Canvas 2D, basta con renderizar texto invisible en el DOM
+// usando cada fuente — esto fuerza al navegador a cargarlas.
+function warmupFontsForCanvas(){
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;opacity:0;font-size:1px;pointer-events:none;';
+  const spans = [
+    ['Horizon','400'],['Horizon','700'],
+    ['Akira Expanded','700'],
+    ['Podium Sharp','300'],['Podium Sharp','400'],
+    ['Podium Sharp','700'],['Podium Sharp','900'],
+  ].map(([f,w])=>{
+    const s = document.createElement('span');
+    s.style.fontFamily = f;
+    s.style.fontWeight = w;
+    s.textContent = '.';
+    return s;
+  });
+  spans.forEach(s=>el.appendChild(s));
+  document.body.appendChild(el);
+  // Remover después de que el CSS haya tenido tiempo de cargar
+  setTimeout(()=>el.remove(), 5000);
 }
-preloadCustomFonts();
+warmupFontsForCanvas();
 
 // ── COPY / PASTE entre pestañas via localStorage ──────────────
 function copyLayers(){
