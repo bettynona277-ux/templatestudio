@@ -24,6 +24,21 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .btn-green:hover{opacity:0.85;}
 .btn-blue{background:var(--blue);color:#fff;}
 .btn-blue:hover{opacity:0.85;}
+.btn-devices{background:rgba(21,214,164,0.1);color:var(--accent);border:1px solid rgba(21,214,164,0.25);border-radius:6px;padding:4px 8px;font-size:0.75rem;cursor:pointer;margin-right:4px;}
+.btn-devices:hover{background:rgba(21,214,164,0.2);}
+.devices-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;display:none;align-items:center;justify-content:center;}
+.devices-modal-overlay.open{display:flex;}
+.devices-modal{background:#1a1f2e;border-radius:16px;padding:28px;width:min(480px,92vw);max-height:80vh;overflow-y:auto;}
+.devices-modal h3{margin:0 0 6px;font-size:1rem;}
+.devices-modal .subtitle{color:var(--muted);font-size:0.8rem;margin-bottom:18px;}
+.device-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;margin-bottom:8px;}
+.device-info{font-size:0.82rem;}
+.device-name{font-weight:600;margin-bottom:2px;}
+.device-date{color:var(--muted);font-size:0.75rem;}
+.device-this{color:var(--accent);font-size:0.7rem;margin-top:2px;}
+.btn-del-device{background:rgba(220,53,69,0.15);color:#ff6b7a;border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;}
+.btn-del-device:hover{background:rgba(220,53,69,0.3);}
+.devices-empty{color:var(--muted);font-size:0.85rem;text-align:center;padding:20px 0;}
 .btn-red{background:rgba(255,107,107,0.12);color:var(--accent2);border:1px solid rgba(255,107,107,0.2);font-size:0.75rem;padding:5px 12px;}
 .btn-red:hover{background:rgba(255,107,107,0.22);}
 .btn-ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
@@ -525,6 +540,7 @@ async function loadUsers() {
             <button class="copy-link" onclick="copyText('${loginUrl}')">📋 Copiar</button>
           </td>
           <td>
+            <button class="btn-devices" onclick="showDevices('${doc.id}', '${d.name||d.email}')">📱 Dispositivos</button>
             <button class="btn btn-red" onclick="deleteUser('${doc.id}')">Borrar</button>
           </td>
         </tr>`;
@@ -608,6 +624,69 @@ function showStatus(id, msg, type) {
 document.getElementById('link-modal').addEventListener('click', function(e) {
   if(e.target === this) closeLinkModal();
 });
+
+// ══════════════════════════════════════════
+// GESTIÓN DE DISPOSITIVOS
+// ══════════════════════════════════════════
+let _devicesUserId = null;
+
+async function showDevices(uid, name) {
+  _devicesUserId = uid;
+  document.getElementById('devices-modal-subtitle').textContent = name + ' — máximo 5 dispositivos';
+  document.getElementById('devices-list').innerHTML = '<p style="color:var(--muted);font-size:0.82rem;">Cargando...</p>';
+  document.getElementById('devices-modal-overlay').classList.add('open');
+  await refreshDevicesList(uid);
+}
+
+async function refreshDevicesList(uid) {
+  const list = document.getElementById('devices-list');
+  try {
+    const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
+    if(snap.empty){
+      list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
+      return;
+    }
+    let html = '';
+    snap.forEach(doc => {
+      const d = doc.data();
+      const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('es-PE') : '—';
+      const registered = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString('es-PE') : '—';
+      html += `
+        <div class="device-item">
+          <div class="device-info">
+            <div class="device-name">📱 ${d.name || 'Dispositivo'}</div>
+            <div class="device-date">Registrado: ${registered} · Última vez: ${lastSeen}</div>
+          </div>
+          <button class="btn-del-device" onclick="deleteDevice('${uid}','${doc.id}')">🗑 Quitar</button>
+        </div>`;
+    });
+    const count = snap.size;
+    list.innerHTML = `<p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">${count}/5 dispositivos usados</p>` + html;
+  } catch(e) {
+    list.innerHTML = '<p style="color:var(--accent2);">Error al cargar dispositivos.</p>';
+  }
+}
+
+async function deleteDevice(uid, deviceId) {
+  if(!confirm('¿Quitar este dispositivo? El cliente podrá registrar uno nuevo al iniciar sesión.')) return;
+  await fbDb.collection('users').doc(uid).collection('devices').doc(deviceId).delete();
+  await refreshDevicesList(uid);
+}
+
+function closeDevicesModal() {
+  document.getElementById('devices-modal-overlay').classList.remove('open');
+  _devicesUserId = null;
+}
 </script>
+
+<!-- MODAL DISPOSITIVOS -->
+<div class="devices-modal-overlay" id="devices-modal-overlay">
+  <div class="devices-modal">
+    <h3>📱 Dispositivos registrados</h3>
+    <p class="subtitle" id="devices-modal-subtitle"></p>
+    <div id="devices-list"></div>
+    <button class="btn" style="width:100%;margin-top:16px;" onclick="closeDevicesModal()">Cerrar</button>
+  </div>
+</div>
 </body>
 </html>
