@@ -1911,15 +1911,14 @@ function addShape(type){
   if(type==='circle'){w=160;h=160;}
   if(type==='line'){w=200;h=20;}
   if(type==='star'){w=160;h=160;}
-  const sw=strokeW>0?` stroke="${stroke}" stroke-width="${strokeW}"`:'';
-  // SVG con preserveAspectRatio="none" para que se estire libremente al redimensionar
+  // SVG solo fill (sin stroke) — el stroke se renderiza como overlay en mkEl
   switch(type){
-    case 'rect': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
-    case 'rect-r': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
-    case 'circle': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'line': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; h=10; break;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
+    case 'rect': svg=buildShapeSvgFill('rect',fill,w,h); break;
+    case 'rect-r': svg=buildShapeSvgFill('rect-r',fill,w,h); break;
+    case 'circle': svg=buildShapeSvgFill('circle',fill,w,h); break;
+    case 'triangle': svg=buildShapeSvgFill('triangle',fill,w,h); break;
+    case 'line': svg=buildShapeSvgFill('line',fill,w,h); h=10; break;
+    case 'star': svg=buildShapeSvgFill('star',fill,w,h); break;
   }
   const blob=new Blob([svg],{type:'image/svg+xml'});
   const url=URL.createObjectURL(blob);
@@ -1930,34 +1929,67 @@ function addShape(type){
 }
 
 // ── SHAPE EDIT ───────────────────────────────────────────────
+// Genera SVG SOLO con fill (sin stroke) — el stroke va en overlay separado
+function buildShapeSvgFill(type, fill, w, h){
+  switch(type){
+    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="0" fill="${fill}"/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" rx="20" fill="${fill}"/></svg>`;
+    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}" fill="${fill}"/></svg>`;
+    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},0 ${w},${h} 0,${h}" fill="${fill}"/></svg>`;
+    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="4" stroke-linecap="round"/></svg>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}" fill="${fill}"/></svg>`;}
+    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" fill="${fill}"/></svg>`;
+  }
+}
+// Genera SVG SOLO con stroke (fill transparent) — overlay encima del fill
+function buildShapeSvgStroke(type, stroke, strokeW, w, h){
+  const sw2 = strokeW*2;
+  const s = ` fill="none" stroke="${stroke}" stroke-width="${strokeW}"`;
+  switch(type){
+    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="20"${s}/></svg>`;
+    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW/2}" ry="${h/2-strokeW/2}"${s}/></svg>`;
+    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW/2} ${w-strokeW/2},${h-strokeW/2} ${strokeW/2},${h-strokeW/2}"${s}/></svg>`;
+    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
+    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}"${s}/></svg>`;}
+    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+  }
+}
 function rebuildShapeSvg(l){
   if(!l||!l.isShape) return;
-  // Extraer tipo del SVG original para regenerarlo
-  // Guardamos el tipo al crear; si no existe lo inferimos del shapeSvg
-  let type = l.shapeType || 'rect';
-  const fill = l.shapeFill || '#4F8EF7';
+  const type   = l.shapeType || 'rect';
+  const fill   = l.shapeFill || '#4F8EF7';
   const stroke = l.shapeStrokeColor || '#ffffff';
-  const strokeW = Number(l.shapeStrokeWidth || 0);
-  const sw = strokeW>0 ? ` stroke="${stroke}" stroke-width="${strokeW}"` : '';
+  const strokeW= Number(l.shapeStrokeWidth || 0);
   const w = l.origW || l.w;
   const h = l.origH || l.h;
-  let svg = '';
-  switch(type){
-    case 'rect':     svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`; break;
-    case 'rect-r':   svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="20" fill="${fill}"${sw}/></svg>`; break;
-    case 'circle':   svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW}" ry="${h/2-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'triangle': svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW} ${w-strokeW},${h-strokeW} ${strokeW},${h-strokeW}" fill="${fill}"${sw}/></svg>`; break;
-    case 'line':     svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${fill}" stroke-width="${Math.max(2,strokeW||3)}" stroke-linecap="round"/></svg>`; break;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?70:30;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}" fill="${fill}"${sw}/></svg>`;break;}
-    default:         svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW}" y="${strokeW}" width="${w-strokeW*2}" height="${h-strokeW*2}" rx="0" fill="${fill}"${sw}/></svg>`;
-  }
-  l.shapeSvg = svg;
-  const blob = new Blob([svg],{type:'image/svg+xml'});
-  const url = URL.createObjectURL(blob);
+
+  // ── Fill SVG → img principal (drop-shadow sigue esta forma) ──
+  const svgFill = buildShapeSvgFill(type, fill, w, h);
+  l.shapeSvg = svgFill;
+  const blob = new Blob([svgFill],{type:'image/svg+xml'});
+  const url  = URL.createObjectURL(blob);
   l.src = url;
-  const img = l.el?.querySelector('img');
+  const img = l.el?.querySelector('img.shape-fill-img');
   if(img) img.src = url;
-  // Sombra paralela / interna via filter en el elemento
+
+  // ── Stroke SVG → overlay img encima (no recibe drop-shadow) ──
+  let strokeImg = l.el?.querySelector('img.shape-stroke-img');
+  if(strokeW > 0){
+    const svgStroke = buildShapeSvgStroke(type, stroke, strokeW, w, h);
+    const blobS = new Blob([svgStroke],{type:'image/svg+xml'});
+    const urlS  = URL.createObjectURL(blobS);
+    if(!strokeImg){
+      strokeImg = document.createElement('img');
+      strokeImg.className = 'shape-stroke-img';
+      strokeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:3;';
+      l.el.appendChild(strokeImg);
+    }
+    strokeImg.src = urlS;
+  } else {
+    if(strokeImg) strokeImg.remove();
+  }
+
   applyShapeShadow(l);
 }
 function hexToRgb(hex){
@@ -1973,21 +2005,37 @@ function applyShapeShadow(l){
   const dropOp  = (Number(l.shapeShadowOp  ?? 60)) / 100;
   const innerOp = (Number(l.shapeInnerShadowOp ?? 50)) / 100;
 
-  // Sombra PARALELA → box-shadow en el .cel (NO filter, para no afectar el borde SVG)
-  l.el.style.filter = '';
-  if(drop>0){
-    const offset = Math.round(drop*0.4);
-    const blur   = drop;
-    l.el.style.boxShadow = `${offset}px ${offset}px ${blur}px rgba(${r},${g},${b},${dropOp})`;
-  } else {
-    l.el.style.boxShadow = '';
+  // Sombra PARALELA → filter drop-shadow en el img de fill (sigue la forma del SVG, no el bounding box)
+  // El img de stroke está encima en z-index, por eso el drop-shadow no lo toca
+  l.el.style.boxShadow = '';
+  const fillImg = l.el.querySelector('img.shape-fill-img');
+  if(fillImg){
+    if(drop>0){
+      const offset = Math.round(drop*0.4);
+      fillImg.style.filter = `drop-shadow(${offset}px ${offset}px ${drop}px rgba(${r},${g},${b},${dropOp}))`;
+    } else {
+      fillImg.style.filter = '';
+    }
   }
 
-  // Sombra INTERNA → overlay div con box-shadow inset
+  // Sombra INTERNA → canvas SVG con clipPath — usamos un SVG overlay con feFlood+feComposite
+  // Aproximación: un radial gradient en un div overlay con mix-blend-mode
   let ov=l.el.querySelector('.shape-inner-ov');
   if(inner>0){
-    if(!ov){ov=document.createElement('div');ov.className='shape-inner-ov';ov.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:5;';l.el.appendChild(ov);}
-    ov.style.boxShadow=`inset 0 0 ${Math.max(6,inner*2)}px rgba(${ri},${gi},${bi},${innerOp})`;
+    if(!ov){
+      ov=document.createElement('div');
+      ov.className='shape-inner-ov';
+      ov.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:4;';
+      l.el.appendChild(ov);
+    }
+    // Inner shadow: gradiente oscuro desde los bordes hacia el centro
+    const spread = Math.max(8, inner*2);
+    ov.style.background=`
+      linear-gradient(to bottom, rgba(${ri},${gi},${bi},${innerOp}) 0px, transparent ${spread}px),
+      linear-gradient(to top,    rgba(${ri},${gi},${bi},${innerOp}) 0px, transparent ${spread}px),
+      linear-gradient(to right,  rgba(${ri},${gi},${bi},${innerOp}) 0px, transparent ${spread}px),
+      linear-gradient(to left,   rgba(${ri},${gi},${bi},${innerOp}) 0px, transparent ${spread}px)
+    `;
   } else {
     if(ov) ov.remove();
   }
@@ -2076,7 +2124,20 @@ function mkEl(l){
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');img.crossOrigin='anonymous';img.src=l.src;
     // Formas SVG: object-fit:fill para que se estiren libremente
-    if(l.isShape){ img.style.objectFit='fill'; setTimeout(()=>applyShapeShadow(l),0); }
+    if(l.isShape){
+      img.className='shape-fill-img';
+      img.style.objectFit='fill';
+      // Stroke overlay si tiene borde
+      if(l.shapeStrokeWidth>0){
+        const strokeImg=document.createElement('img');
+        strokeImg.className='shape-stroke-img';
+        strokeImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:3;';
+        const svgS=buildShapeSvgStroke(l.shapeType||'rect',l.shapeStrokeColor||'#fff',l.shapeStrokeWidth,l.origW||l.w,l.origH||l.h);
+        strokeImg.src=URL.createObjectURL(new Blob([svgS],{type:'image/svg+xml'}));
+        el.appendChild(strokeImg);
+      }
+      setTimeout(()=>applyShapeShadow(l),0);
+    }
     el.appendChild(img);
     setTimeout(()=>applyImageVisuals(l),0);
   } else if(l.type==='frame'){
