@@ -4018,15 +4018,18 @@ async function downloadPNG(){
   desel();
   document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
   try{
-    // Esperar que todas las fuentes estén cargadas antes de renderizar
+    // Esperar que todas las fuentes estén cargadas (incluyendo custom via FontFace API)
     await document.fonts.ready;
-    // Forzar que las fuentes usadas en el diseño estén activas en Canvas
+    // Forzar carga de cada fuente usada — importante para fuentes custom locales
     const usedFonts = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
       const fw = l.tp.fontWeight||'400';
+      const fi = l.tp.italic?'italic':'normal';
       const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
-      return `${fw} 16px ${ff}`;
+      return `${fi} ${fw} 48px ${ff}`; // 48px para que el warmup sea efectivo
     }))];
     await Promise.all(usedFonts.map(f => document.fonts.load(f).catch(()=>{})));
+    // Pausa corta para que el navegador termine de activar las fuentes en Canvas
+    await new Promise(r => setTimeout(r, 100));
     const c = await renderDesignToCanvas(2);
     const a=document.createElement('a');
     a.download='mi-diseno.png';
@@ -4451,6 +4454,27 @@ function setLoad(txt,pct){document.getElementById('load-text').textContent=txt;d
 function hideLoad(){document.getElementById('loading').classList.remove('show');}
 
 // KEYBOARD
+
+// ── PRELOAD FUENTES CUSTOM PARA CANVAS 2D ──────────────────────
+// CSS @font-face no siempre activa las fuentes en Canvas — registrarlas via FontFace API garantiza que estén disponibles
+async function preloadCustomFonts(){
+  const customFonts = [
+    new FontFace('Horizon', "url('/fonts/horizon.otf')", {weight:'400', style:'normal'}),
+    new FontFace('Horizon', "url('/fonts/horizon-bold.otf')", {weight:'700', style:'normal'}),
+    new FontFace('Akira Expanded', "url('/fonts/akira-expanded.otf')", {weight:'700', style:'normal'}),
+    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-light.otf')", {weight:'300', style:'normal'}),
+    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-regular.otf')", {weight:'400', style:'normal'}),
+    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-bold.otf')", {weight:'700', style:'normal'}),
+    new FontFace('Podium Sharp', "url('/fonts/podium-sharp-black.otf')", {weight:'900', style:'normal'}),
+  ];
+  await Promise.all(customFonts.map(async f => {
+    try{
+      await f.load();
+      document.fonts.add(f);
+    }catch(e){ console.warn('Font preload failed:', f.family, e.message); }
+  }));
+}
+preloadCustomFonts();
 
 // ── COPY / PASTE entre pestañas via localStorage ──────────────
 function copyLayers(){
