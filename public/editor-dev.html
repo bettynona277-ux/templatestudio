@@ -3926,6 +3926,21 @@ async function renderDesignToCanvas(scale=2){
       let fontFamily = (tp.fontFamily || "'Poppins'")
         .replace(/'/g,'').replace(/"/g,'')
         .split(',')[0].trim(); // tomar solo la primera fuente, ignorar fallbacks
+      // Normalizar fontWeight: algunas fuentes solo tienen 400/700
+      // Si el navegador no encuentra el peso exacto usa fallback del sistema
+      // Forzar a 400 o 700 según corresponda
+      let fontWeightCanvas = fontWeight;
+      const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+      if(singleWeightFonts.includes(fontFamily)){
+        // Estas fuentes solo tienen un peso — forzar a 400
+        fontWeightCanvas = '400';
+      } else {
+        // Para otras fuentes: redondear 500/600 a 700, mantener 300/400/800 como están
+        const w = parseInt(fontWeight) || 400;
+        if(w >= 500 && w < 700) fontWeightCanvas = '700';
+        else if(w < 400) fontWeightCanvas = '300';
+        else fontWeightCanvas = String(w);
+      }
       // Mapear fuentes custom locales que fallan a equivalentes de Google Fonts
       const fontMap = {
         'Horizon': 'Oswald',
@@ -3943,7 +3958,7 @@ async function renderDesignToCanvas(scale=2){
       ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
       // Limpiar fontFamily para ctx.font — Canvas no acepta fallbacks con coma
       const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
-      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${canvasFontFamily}`;
+      ctx.font = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${canvasFontFamily}`;
 
 
       // Aplicar textTransform igual que en el DOM
@@ -3951,7 +3966,7 @@ async function renderDesignToCanvas(scale=2){
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
       const lines = rawText.split('\n');
-      console.log('RENDER TEXT:', rawText.substring(0,25), '| font:', ctx.font, '| x:', Math.round(l.x), 'y:', Math.round(l.y), 'w:', Math.round(l.w), 'h:', Math.round(l.h));
+
       const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
       const letterSpacing = Number(tp.letterSpacing || 0);
 
