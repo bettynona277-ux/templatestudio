@@ -2216,7 +2216,16 @@ function mkEl(l){
   });
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
-    const img=document.createElement('img');img.crossOrigin='anonymous';img.src=l.src;
+    const img=document.createElement('img');
+    // Intentar con crossOrigin para export PNG; si CORS falla, recargar sin él solo para display
+    img.crossOrigin='anonymous';
+    img.onerror=function(){
+      if(img.crossOrigin){
+        img.crossOrigin=''; // quitar y reintentar para display
+        img.src=l.src;
+      }
+    };
+    img.src=l.src;
     // Formas SVG: object-fit:fill para que se estiren libremente
     if(l.isShape){
       img.className='shape-fill-img';
@@ -4408,15 +4417,9 @@ function addImageLayerFromUrl(url){
   const ch = parseInt(cvs.style.height)||1080;
   const maxSize = Math.round(Math.min(cw, ch) * 0.6);
   // Cargar imagen para obtener dimensiones reales
+  // Probe SIN crossOrigin para obtener dimensiones — no necesitamos acceso a píxeles
   const probe = new Image();
-  probe.crossOrigin = 'anonymous';
-  probe.onload = function(){
-    const nat = probe.naturalWidth || probe.width || maxSize;
-    const nath = probe.naturalHeight || probe.height || maxSize;
-    // Escalar proporcionalmente para que quepa en maxSize
-    const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
-    const w = Math.round(nat * ratio);
-    const h = Math.round(nath * ratio);
+  const insertLayer = (w, h) => {
     const l = {
       id: lCtr++, type: 'img', name: 'Imagen pegada',
       src: url,
@@ -4428,31 +4431,20 @@ function addImageLayerFromUrl(url){
     };
     layers.push(l);
     mkEl(l);
-    // Forzar object-fit:contain para imágenes sueltas (no marcos)
-    const img = l.el?.querySelector('img');
-    if(img) img.style.objectFit = 'contain';
     renderList();
     sel(l.id);
     snapshotState();
     showToast('🖼 Imagen pegada desde internet');
   };
+  probe.onload = function(){
+    const nat = probe.naturalWidth || maxSize;
+    const nath = probe.naturalHeight || maxSize;
+    const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
+    insertLayer(Math.round(nat * ratio), Math.round(nath * ratio));
+  };
   probe.onerror = function(){
-    // Si no carga (CORS u otro error) insertar con tamaño por defecto
-    const l = {
-      id: lCtr++, type: 'img', name: 'Imagen pegada',
-      src: url,
-      x: Math.round((cw - maxSize) / 2),
-      y: Math.round((ch - maxSize) / 2),
-      w: maxSize, h: maxSize,
-      opacity: 1, visible: true, zIndex: layers.length,
-      flipX: false, flipY: false, blur: 0
-    };
-    layers.push(l);
-    mkEl(l);
-    renderList();
-    sel(l.id);
-    snapshotState();
-    showToast('🖼 Imagen pegada (tamaño estimado)');
+    // CORS u otro error — insertar con tamaño cuadrado por defecto
+    insertLayer(maxSize, maxSize);
   };
   probe.src = url;
 }
