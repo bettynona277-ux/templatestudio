@@ -2217,13 +2217,16 @@ function mkEl(l){
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');
-    // Intentar con crossOrigin para export PNG; si falla por CORS, recargar sin él (solo display)
-    img.crossOrigin='anonymous';
-    img.onerror=function(){
-      img.onerror=null; // evitar loop infinito
-      img.removeAttribute('crossorigin');
-      img.src=l.src;
-    };
+    // URLs externas (pegadas): no usar crossOrigin, solo display
+    // URLs de Cloudinary/propias: crossOrigin para poder exportar PNG
+    if(!l.externalUrl){
+      img.crossOrigin='anonymous';
+      img.onerror=function(){
+        img.onerror=null;
+        img.removeAttribute('crossorigin');
+        img.src=l.src;
+      };
+    }
     img.src=l.src;
     // Formas SVG: object-fit:fill para que se estiren libremente
     if(l.isShape){
@@ -4417,8 +4420,7 @@ function addImageLayerFromUrl(url){
   const maxSize = Math.round(Math.min(cw, ch) * 0.6);
   // Cargar imagen para obtener dimensiones reales
   // Probe SIN crossOrigin para obtener dimensiones — no necesitamos acceso a píxeles
-  const probe = new Image();
-  const insertLayer = (w, h) => {
+  const doInsert = (w, h) => {
     const l = {
       id: lCtr++, type: 'img', name: 'Imagen pegada',
       src: url,
@@ -4426,24 +4428,26 @@ function addImageLayerFromUrl(url){
       y: Math.round((ch - h) / 2),
       w, h,
       opacity: 1, visible: true, zIndex: layers.length,
-      flipX: false, flipY: false, blur: 0
+      flipX: false, flipY: false, blur: 0,
+      externalUrl: true  // marca para no usar crossOrigin
     };
     layers.push(l);
     mkEl(l);
     renderList();
     sel(l.id);
     snapshotState();
-    showToast('🖼 Imagen pegada desde internet');
+    showToast('🖼 Imagen pegada');
   };
+
+  const probe = new Image();
   probe.onload = function(){
     const nat = probe.naturalWidth || maxSize;
     const nath = probe.naturalHeight || maxSize;
     const ratio = Math.min(maxSize / nat, maxSize / nath, 1);
-    insertLayer(Math.round(nat * ratio), Math.round(nath * ratio));
+    doInsert(Math.round(nat * ratio), Math.round(nath * ratio));
   };
   probe.onerror = function(){
-    // CORS u otro error — insertar con tamaño cuadrado por defecto
-    insertLayer(maxSize, maxSize);
+    doInsert(maxSize, maxSize);
   };
   probe.src = url;
 }
