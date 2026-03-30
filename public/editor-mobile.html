@@ -1455,286 +1455,39 @@ function roundedRectPath(ctx, x, y, w, h, r){
 }
 
 async function downloadPNG(){
-  toast('Generando PNG...');
   desel();
+  const btn = document.querySelector('[onclick="downloadPNG()"]');
+  if(btn){ btn.disabled=true; }
+  toast('⏳ Generando PNG...');
+  await new Promise(r=>setTimeout(r,80));
+  const savedTransform = cvs.style.transform;
+  cvs.style.transform = 'none';
   await new Promise(r=>setTimeout(r,60));
-
-  const CW = parseInt(cvs.style.width)  || 800;
-  const CH = parseInt(cvs.style.height) || 800;
-  const SCALE = 2;
-
-  const canvas = document.createElement('canvas');
-  canvas.width  = CW * SCALE;
-  canvas.height = CH * SCALE;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(SCALE, SCALE);
-
-  // Ordenar capas por zIndex
-  const sorted = [...layers]
-    .filter(l => l.visible !== false)
-    .sort((a,b) => (a.zIndex||0) - (b.zIndex||0));
-
-  // Precargar todas las imágenes en paralelo
-  const imgMap = {};
-  await Promise.all(sorted.map(async l=>{
-    if(l.type==='img' && l.src)       imgMap[l.id] = await loadImgCors(l.src);
-    if(l.type==='frame' && l.src)     imgMap[l.id] = await loadImgCors(l.src);
-  }));
-
-  for(const l of sorted){
-    ctx.save();
-    ctx.globalAlpha = l.opacity ?? 1;
-
-    const x=l.x, y=l.y, w=l.w, h=l.h;
-
-    // ── SHAPE ──
-    if(l.type==='shape'){
-      ctx.save();
-      const fill = l.fill || 'rgba(255,255,255,0.2)';
-      if(l.shapeType==='circle'){
-        ctx.beginPath();
-        ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, Math.PI*2);
-        ctx.fillStyle = fill; ctx.fill();
-      } else if(l.shapeType==='triangle'){
-        ctx.beginPath();
-        ctx.moveTo(x+w/2, y); ctx.lineTo(x+w, y+h); ctx.lineTo(x, y+h);
-        ctx.closePath();
-        ctx.fillStyle = fill; ctx.fill();
-      } else {
-        const r = l.radius||0;
-        roundedRectPath(ctx, x, y, w, h, r);
-        ctx.fillStyle = fill; ctx.fill();
-      }
-      ctx.restore();
-
-    // ── IMG ──
-    } else if(l.type==='img'){
-      const img = imgMap[l.id];
-      if(img){
-        ctx.save();
-        // Pre-blur en offscreen canvas (ctx.filter no es fiable en móvil)
-        const blurPx = l.blur || 0;
-        let drawSrc = img;
-        if(blurPx > 0){
-          const off = document.createElement('canvas');
-          off.width = w; off.height = h;
-          const octx = off.getContext('2d');
-          octx.filter = `blur(${blurPx}px)`;
-          octx.drawImage(img, 0, 0, w, h);
-          drawSrc = off;
-        }
-        if(l.flipX || l.flipY){
-          ctx.translate(x + (l.flipX?w:0), y + (l.flipY?h:0));
-          ctx.scale(l.flipX?-1:1, l.flipY?-1:1);
-          ctx.drawImage(drawSrc, 0, 0, w, h);
-        } else {
-          ctx.drawImage(drawSrc, x, y, w, h);
-        }
-        ctx.restore();
-      }
-
-    // ── FRAME ──
-    } else if(l.type==='frame'){
-      const radius = l.frameRadius || 0;
-      const fBW    = Number(l.frameBorderWidth || l.borderWidth || 0);
-      const fBC    = l.frameBorderColor || l.borderColor || '#00ffc3';
-      const fSh    = Number(l.frameShadow    || l.shadowBlur  || 0);
-      const fISh   = Number(l.frameInnerShadow || l.innerShadow || 0);
-      const blurPx = l.blur || 0;
-
-      // ── Sombra exterior: antes del clip ──
-      if(fSh > 0){
-        ctx.save();
-        ctx.shadowColor   = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur    = fSh;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 4;
-        roundedRectPath(ctx, x, y, w, h, radius);
-        ctx.fillStyle = 'rgba(0,0,0,0.01)';
-        ctx.fill();
-        ctx.restore();
-      }
-
-      const img = imgMap[l.id];
-      if(img){
-        ctx.save();
-        // Clip con border-radius
-        roundedRectPath(ctx, x, y, w, h, radius);
-        ctx.clip();
-
-        // Pre-blur en offscreen si necesario
-        let drawSrc = img;
-        if(blurPx > 0){
-          const off = document.createElement('canvas');
-          off.width = w; off.height = h;
-          const octx = off.getContext('2d');
-          octx.filter = `blur(${blurPx}px)`;
-          octx.drawImage(img, 0, 0, w, h);
-          drawSrc = off;
-        }
-
-        if(l.flipX || l.flipY){
-          ctx.translate(x+(l.flipX?w:0), y+(l.flipY?h:0));
-          ctx.scale(l.flipX?-1:1, l.flipY?-1:1);
-          ctx.drawImage(drawSrc, 0, 0, w, h);
-        } else {
-          ctx.drawImage(drawSrc, x, y, w, h);
-        }
-
-        // ── Inner shadow: simular CSS inset box-shadow con gradientes suaves ──
-        if(fISh > 0){
-          // CSS: inset 0 0 Xpx rgba(0,0,0,0.7) → blur difuso desde bordes
-          // La profundidad del gradiente ≈ el radio de blur CSS
-          const d = Math.min(fISh * 1.2, Math.min(w, h) * 0.45);
-          // Opacidad máxima reducida para imitar el blur difuso del CSS (no un gradiente duro)
-          const maxA = 0.45;
-          // top
-          let gr = ctx.createLinearGradient(x, y, x, y+d);
-          gr.addColorStop(0,   `rgba(0,0,0,${maxA})`);
-          gr.addColorStop(0.4, `rgba(0,0,0,${maxA*0.4})`);
-          gr.addColorStop(1,   'rgba(0,0,0,0)');
-          ctx.fillStyle = gr; ctx.fillRect(x, y, w, d);
-          // bottom
-          gr = ctx.createLinearGradient(x, y+h, x, y+h-d);
-          gr.addColorStop(0,   `rgba(0,0,0,${maxA})`);
-          gr.addColorStop(0.4, `rgba(0,0,0,${maxA*0.4})`);
-          gr.addColorStop(1,   'rgba(0,0,0,0)');
-          ctx.fillStyle = gr; ctx.fillRect(x, y+h-d, w, d);
-          // left
-          gr = ctx.createLinearGradient(x, y, x+d, y);
-          gr.addColorStop(0,   `rgba(0,0,0,${maxA})`);
-          gr.addColorStop(0.4, `rgba(0,0,0,${maxA*0.4})`);
-          gr.addColorStop(1,   'rgba(0,0,0,0)');
-          ctx.fillStyle = gr; ctx.fillRect(x, y, d, h);
-          // right
-          gr = ctx.createLinearGradient(x+w, y, x+w-d, y);
-          gr.addColorStop(0,   `rgba(0,0,0,${maxA})`);
-          gr.addColorStop(0.4, `rgba(0,0,0,${maxA*0.4})`);
-          gr.addColorStop(1,   'rgba(0,0,0,0)');
-          ctx.fillStyle = gr; ctx.fillRect(x+w-d, y, d, h);
-        }
-
-        ctx.restore();
-      } else {
-        // Marco vacío: fondo semitransparente
-        ctx.save();
-        roundedRectPath(ctx, x, y, w, h, radius);
-        ctx.fillStyle = 'rgba(21,214,164,0.08)';
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // ── Borde del marco (outline encima de todo) ──
-      if(fBW > 0){
-        ctx.save();
-        roundedRectPath(ctx, x, y, w, h, radius);
-        ctx.strokeStyle = fBC;
-        ctx.lineWidth   = fBW;
-        ctx.stroke();
-        ctx.restore();
-      }
-
-    // ── TEXT ──
-    } else if(l.type==='text' && l.tp){
-      const tp = l.tp;
-      const fs = tp.fontSize || 24;
-      const fw = tp.fontWeight || '400';
-      const ff = (tp.fontFamily||'Poppins').replace(/'/g,'');
-      const color = tp.color || '#ffffff';
-      const align = tp.align || tp.textAlign || 'left';
-      const italic = tp.italic ? 'italic ' : '';
-      const lh = parseFloat(tp.lineHeight) || 1.2;
-      const ls = parseFloat(tp.letterSpacing) || 0;
-      const tt = tp.textTransform || 'none';
-      const strokeW = parseInt(tp.strokeWidth||0);
-      const strokeC = tp.strokeColor || '#000000';
-      const shadowBlur_ = parseInt(tp.shadowBlur||0);
-      const shadowC = tp.shadowColor || 'rgba(0,0,0,0.45)';
-
-      ctx.save();
-      ctx.font = `${italic}${fw} ${fs}px ${ff}`;
-      ctx.textAlign = align==='center'?'center':align==='right'?'right':'left';
-      ctx.textBaseline = 'top';
-      // CSS renderiza texto con line-height: espacio extra = (lineH - fs) distribuido 50% arriba/abajo
-      // textBaseline:'top' en Canvas = borde superior de la caja de texto (sin half-leading)
-      // → el offset correcto es solo halfLeading para igualar al CSS
-      const lineH = fs * lh;
-      const halfLeading = (lineH - fs) / 2;
-      const baselineOffset = halfLeading;
-
-      // Text shadow
-      if(shadowBlur_ > 0){
-        ctx.shadowColor   = shadowC;
-        ctx.shadowBlur    = shadowBlur_ * 0.8;
-        ctx.shadowOffsetY = Math.max(1, Math.round(shadowBlur_*0.18));
-      }
-
-      // Texto multilinea
-      let rawText = tp.text || '';
-      if(tt==='uppercase') rawText = rawText.toUpperCase();
-      else if(tt==='lowercase') rawText = rawText.toLowerCase();
-
-      const lines = rawText.split('\n');
-
-      // textX según alineación
-      const textX = align==='center' ? x+w/2 : align==='right' ? x+w : x;
-
-      // Outer stroke como múltiples shadows
-      if(strokeW > 0){
-        ctx.shadowColor='transparent';
-        ctx.strokeStyle = strokeC;
-        ctx.lineWidth   = strokeW * 2;
-        ctx.lineJoin    = 'round';
-        let yOff = y + baselineOffset;
-        for(const line of lines){
-          ctx.strokeText(line, textX, yOff);
-          yOff += lineH;
-        }
-      }
-
-      // Fill
-      ctx.fillStyle = color;
-      let yOff = y + baselineOffset;
-      for(const line of lines){
-        ctx.fillText(line, textX, yOff);
-        yOff += lineH;
-      }
-
-      // Underline manual
-      if(tp.underline){
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1, fs*0.06);
-        let yU = y + baselineOffset;
-        for(const line of lines){
-          const tw = ctx.measureText(line).width;
-          const ux = align==='center'?textX-tw/2:align==='right'?textX-tw:textX;
-          ctx.beginPath();
-          ctx.moveTo(ux, yU + fs + 2);
-          ctx.lineTo(ux+tw, yU + fs + 2);
-          ctx.stroke();
-          yU += lineH;
-        }
-        ctx.restore();
-      }
-
-      ctx.restore();
-    }
-
-    ctx.restore(); // globalAlpha
-  }
-
-  // Descargar
   try{
-    const dataUrl = canvas.toDataURL('image/png');
+    const canvasW = parseInt(cvs.style.width)||1080;
+    const canvasH = parseInt(cvs.style.height)||1080;
+    const c = await html2canvas(cvs,{
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: null,
+      logging: false,
+      width: canvasW,
+      height: canvasH,
+      windowWidth: canvasW,
+      windowHeight: canvasH,
+    });
     const a = document.createElement('a');
     a.download = 'diseño.png';
-    a.href = dataUrl;
+    a.href = c.toDataURL('image/png');
     a.click();
     toast('✓ PNG descargado');
   }catch(e){
-    console.warn('Download error:', e);
+    console.error('PNG error:', e);
     toast('✗ Error al exportar');
+  }finally{
+    cvs.style.transform = savedTransform;
+    if(btn){ btn.disabled=false; }
   }
 }
 
