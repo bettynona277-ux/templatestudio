@@ -488,7 +488,16 @@ function loadDesign(tpl){
     buildEl(l);
   });
 
-  fitCanvas();
+  // Esperar a que el layout esté listo antes de calcular zoom
+  requestAnimationFrame(()=>{
+    fitCanvas();
+    // Scroll al centro del canvas
+    const area = document.getElementById('canvas-area');
+    if(area){
+      area.scrollTop = Math.max(0, (area.scrollHeight - area.clientHeight)/2);
+      area.scrollLeft = Math.max(0, (area.scrollWidth - area.clientWidth)/2);
+    }
+  });
   desel();
   history_ = []; // limpiar historial al cargar
   snapshot();    // guardar estado inicial
@@ -790,7 +799,8 @@ function buildEl(l){
     d.id = 'ti-'+l.id;
     d.textContent = l.tp.text || '';
     el.appendChild(d);
-    makeDraggable(el, l, ()=>selectLayer(l.id));
+    if(!l.locked) makeDraggable(el, l, ()=>selectLayer(l.id));
+    else { el.style.pointerEvents='none'; }
 
   } else if(l.type === 'img'){
     const img = document.createElement('img');
@@ -799,7 +809,8 @@ function buildEl(l){
     if(l.flipX||l.flipY) img.style.transform=`scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
     if(l.blur>0) img.style.filter=`blur(${l.blur}px)`;
     el.appendChild(img);
-    makeDraggable(el, l);
+    if(!l.locked) makeDraggable(el, l);
+    else { el.style.pointerEvents='none'; }
 
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
@@ -838,6 +849,7 @@ function buildEl(l){
     {
       let sx,sy,sl,st,moved=false;
       el.addEventListener('touchstart',e=>{
+        if(l.locked) return; // no mover capas bloqueadas
         if(e.touches.length!==1)return;
         e.stopPropagation();
         const t=e.touches[0];
