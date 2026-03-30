@@ -4218,7 +4218,7 @@ async function buildLayerData(){
       id: l.id,
       type: l.type,
       name: l.name||'',
-      src,
+      src: l.isShape ? '' : src,  // formas: src es blob temporal, se regenera al cargar
       x: Math.round(l.x)||0,
       y: Math.round(l.y)||0,
       w: Math.round(l.w)||10,
@@ -4495,6 +4495,13 @@ function loadData(tpl){
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     // If src is empty but layer is an image type, try to keep it (will show as ? in panel)
+    // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
+    if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
+      const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
+      const blob = new Blob([svgFill], {type:'image/svg+xml'});
+      l.src = URL.createObjectURL(blob);
+      l.shapeSvg = svgFill;
+    }
     layers.push(l);
     mkEl(l);
   });
