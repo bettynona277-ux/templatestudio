@@ -387,7 +387,7 @@ body.style-mode-active select{
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
       Guardar
     </button>
-    <button class="tbtn tbtn-blue" id="btn-png" onclick="downloadPNG()" style="gap:5px;">
+    <button class="tbtn tbtn-blue" onclick="downloadPNG()" style="gap:5px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
@@ -4083,132 +4083,35 @@ async function renderDesignToCanvas(scale=2){
 }
 
 async function downloadPNG(){
+  desel(); hideMultiBox();
   const btn = document.getElementById('btn-png');
-  const cvsEl = document.getElementById('cvs');
-  if(!cvsEl){ showToast('✗ No se encontró el lienzo'); return; }
-
-  const previousSelId = selId;
-  const prevMulti = [...multiSel];
-  const prevTransform = cvsEl.style.transform;
-  const hiddenNodes = [];
-
-  function setBtnLabel(text){
-    if(btn) btn.innerHTML = text;
-  }
-
-  async function waitFonts(){
-    if(document.fonts && document.fonts.ready){
-      try{ await document.fonts.ready; }catch(_){ }
-      const customFonts = ['Plus Jakarta Sans','Poppins','Montserrat','Bebas Neue','Akira Expanded','Horizon'];
-      for(const f of customFonts){
-        try{ await document.fonts.load(`700 32px "${f}"`); }catch(_){ }
-      }
-    }
-    await new Promise(r=>setTimeout(r,180));
-  }
-
-  function hideExportUi(){
-    document.querySelectorAll('.rh, .sz-hint, #multi-box, .smart-guide, .smart-gap').forEach(el=>{
-      hiddenNodes.push([el, el.style.display]);
-      el.style.display = 'none';
-    });
-    document.querySelectorAll('.cel.sel').forEach(el=> el.classList.remove('sel'));
-    cvsEl.classList.remove('multi-active');
-  }
-
-  function restoreExportUi(){
-    hiddenNodes.forEach(([el, value]) => { el.style.display = value; });
-    if(previousSelId){
-      selId = previousSelId;
-      const prevLayer = layers.find(x=>x.id===previousSelId);
-      if(prevLayer?.el) prevLayer.el.classList.add('sel');
-    }
-    multiSel = new Set(prevMulti);
-    if(typeof renderMultiBox === 'function') renderMultiBox();
-    cvsEl.style.transform = prevTransform;
-  }
-
-  async function exportViaHtml2Canvas(){
-    const rect = cvsEl.getBoundingClientRect();
-    const realW = Math.max(1, Math.round(rect.width || cvsEl.offsetWidth || parseInt(cvsEl.style.width) || 1080));
-    const realH = Math.max(1, Math.round(rect.height || cvsEl.offsetHeight || parseInt(cvsEl.style.height) || 1080));
-    const scale = Math.min(4, Math.max(2, window.devicePixelRatio || 2));
-
-    return await html2canvas(cvsEl, {
-      backgroundColor: null,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      scale,
-      width: realW,
-      height: realH,
-      x: 0,
-      y: 0,
-      scrollX: 0,
-      scrollY: 0,
-      removeContainer: true,
-      imageTimeout: 0,
-      foreignObjectRendering: false,
-      onclone: function(clonedDoc){
-        const clonedCvs = clonedDoc.getElementById('cvs');
-        if(clonedCvs){
-          clonedCvs.style.transform = 'none';
-          clonedCvs.querySelectorAll('.rh, .sz-hint, #multi-box, .smart-guide, .smart-gap').forEach(el=> el.style.display='none');
-          clonedCvs.querySelectorAll('.cel.sel').forEach(el=> el.classList.remove('sel'));
-          clonedCvs.classList.remove('multi-active');
-        }
-      }
-    });
-  }
-
-  async function downloadCanvas(canvas){
-    const filename = `mi-diseno-${Date.now()}.png`;
-    const a = document.createElement('a');
-    a.download = filename;
-    if(canvas.toBlob){
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-      if(!blob) throw new Error('No se pudo generar el archivo PNG');
-      const url = URL.createObjectURL(blob);
-      a.href = url;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 2000);
-    } else {
-      a.href = canvas.toDataURL('image/png');
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }
-  }
-
-  if(btn) btn.disabled = true;
-  setBtnLabel('⏳ Exportando...');
-
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
   try{
-    syncLayersFromDOM();
-    desel(); hideMultiBox();
-    hideExportUi();
-    cvsEl.style.transform = 'none';
-    await waitFonts();
-
-    let outCanvas;
-    try{
-      outCanvas = await exportViaHtml2Canvas();
-    }catch(err){
-      console.warn('html2canvas falló, usando render interno:', err);
-      outCanvas = await renderDesignToCanvas(3);
+    // Esperar que todas las fuentes estén listas
+    await document.fonts.ready;
+    // Forzar carga de fuentes custom dibujando texto invisible en un canvas temporal
+    const warmupCanvas = document.createElement('canvas');
+    warmupCanvas.width = 10; warmupCanvas.height = 10;
+    const wctx = warmupCanvas.getContext('2d');
+    const customFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+    for(const f of customFonts){
+      wctx.font = `400 12px "${f}"`;
+      wctx.fillText('A', -100, -100);
+      // Esperar a que el navegador registre el uso de la fuente
+      await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
     }
-
-    await downloadCanvas(outCanvas);
+    await new Promise(r=>setTimeout(r,300));
+    const c = await renderDesignToCanvas(2);
+    const a = document.createElement('a');
+    a.download = 'mi-diseno.png';
+    a.href = c.toDataURL('image/png');
+    a.click();
     showToast('✓ PNG descargado');
   }catch(e){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
-    restoreExportUi();
-    if(btn) btn.disabled = false;
-    setBtnLabel('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> PNG');
+    if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
 
