@@ -4083,100 +4083,132 @@ async function renderDesignToCanvas(scale=2){
 }
 
 async function downloadPNG(){
-  desel(); hideMultiBox();
-  const btn = document.getElementById('btn-png') || document.querySelector('.tbtn.tbtn-blue');
-  const prevHtml = btn ? btn.innerHTML : '';
-  if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Generando...'; }
+  const btn = document.getElementById('btn-png');
+  const cvsEl = document.getElementById('cvs');
+  if(!cvsEl){ showToast('✗ No se encontró el lienzo'); return; }
 
-  const restoreUI = () => {
-    document.querySelectorAll('.rh, .sz-hint').forEach(e=> e.style.display='');
-    const multiBox = document.getElementById('multi-box');
-    if(multiBox) multiBox.style.display = '';
-    const marquee = document.getElementById('marquee');
-    if(marquee) marquee.style.display = '';
-    if(btn){ btn.disabled = false; btn.innerHTML = prevHtml || 'PNG'; }
-  };
+  const previousSelId = selId;
+  const prevMulti = [...multiSel];
+  const prevTransform = cvsEl.style.transform;
+  const hiddenNodes = [];
+
+  function setBtnLabel(text){
+    if(btn) btn.innerHTML = text;
+  }
+
+  async function waitFonts(){
+    if(document.fonts && document.fonts.ready){
+      try{ await document.fonts.ready; }catch(_){ }
+      const customFonts = ['Plus Jakarta Sans','Poppins','Montserrat','Bebas Neue','Akira Expanded','Horizon'];
+      for(const f of customFonts){
+        try{ await document.fonts.load(`700 32px "${f}"`); }catch(_){ }
+      }
+    }
+    await new Promise(r=>setTimeout(r,180));
+  }
+
+  function hideExportUi(){
+    document.querySelectorAll('.rh, .sz-hint, #multi-box, .smart-guide, .smart-gap').forEach(el=>{
+      hiddenNodes.push([el, el.style.display]);
+      el.style.display = 'none';
+    });
+    document.querySelectorAll('.cel.sel').forEach(el=> el.classList.remove('sel'));
+    cvsEl.classList.remove('multi-active');
+  }
+
+  function restoreExportUi(){
+    hiddenNodes.forEach(([el, value]) => { el.style.display = value; });
+    if(previousSelId){
+      selId = previousSelId;
+      const prevLayer = layers.find(x=>x.id===previousSelId);
+      if(prevLayer?.el) prevLayer.el.classList.add('sel');
+    }
+    multiSel = new Set(prevMulti);
+    if(typeof renderMultiBox === 'function') renderMultiBox();
+    cvsEl.style.transform = prevTransform;
+  }
+
+  async function exportViaHtml2Canvas(){
+    const rect = cvsEl.getBoundingClientRect();
+    const realW = Math.max(1, Math.round(rect.width || cvsEl.offsetWidth || parseInt(cvsEl.style.width) || 1080));
+    const realH = Math.max(1, Math.round(rect.height || cvsEl.offsetHeight || parseInt(cvsEl.style.height) || 1080));
+    const scale = Math.min(4, Math.max(2, window.devicePixelRatio || 2));
+
+    return await html2canvas(cvsEl, {
+      backgroundColor: null,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      scale,
+      width: realW,
+      height: realH,
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
+      removeContainer: true,
+      imageTimeout: 0,
+      foreignObjectRendering: false,
+      onclone: function(clonedDoc){
+        const clonedCvs = clonedDoc.getElementById('cvs');
+        if(clonedCvs){
+          clonedCvs.style.transform = 'none';
+          clonedCvs.querySelectorAll('.rh, .sz-hint, #multi-box, .smart-guide, .smart-gap').forEach(el=> el.style.display='none');
+          clonedCvs.querySelectorAll('.cel.sel').forEach(el=> el.classList.remove('sel'));
+          clonedCvs.classList.remove('multi-active');
+        }
+      }
+    });
+  }
+
+  async function downloadCanvas(canvas){
+    const filename = `mi-diseno-${Date.now()}.png`;
+    const a = document.createElement('a');
+    a.download = filename;
+    if(canvas.toBlob){
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if(!blob) throw new Error('No se pudo generar el archivo PNG');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    } else {
+      a.href = canvas.toDataURL('image/png');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  }
+
+  if(btn) btn.disabled = true;
+  setBtnLabel('⏳ Exportando...');
 
   try{
-    if(document.fonts?.ready) await document.fonts.ready;
-    const fontsToWarm = ['Plus Jakarta Sans','Poppins','Montserrat','Bebas Neue','Akira Expanded','Horizon'];
-    if(document.fonts?.load){
-      await Promise.allSettled(fontsToWarm.map(f => document.fonts.load(`700 32px "${f}"`)));
-    }
-    await new Promise(r=>setTimeout(r,450));
+    syncLayersFromDOM();
+    desel(); hideMultiBox();
+    hideExportUi();
+    cvsEl.style.transform = 'none';
+    await waitFonts();
 
-    document.querySelectorAll('.rh, .sz-hint').forEach(e=> e.style.display='none');
-    const multiBox = document.getElementById('multi-box');
-    if(multiBox) multiBox.style.display = 'none';
-    const marquee = document.getElementById('marquee');
-    if(marquee) marquee.style.display = 'none';
-
-    const prevTransform = cvs.style.transform;
-    const prevTransition = cvs.style.transition;
-    cvs.style.transform = 'scale(1)';
-    cvs.style.transition = 'none';
-    await new Promise(r=>setTimeout(r,80));
-
-    const canvasW = Math.round(cvs.offsetWidth || parseInt(cvs.style.width) || 1080);
-    const canvasH = Math.round(cvs.offsetHeight || parseInt(cvs.style.height) || 1080);
-    const exportScale = Math.max(2, Math.min(4, window.devicePixelRatio || 2));
-
-    let out;
+    let outCanvas;
     try{
-      out = await html2canvas(cvs, {
-        backgroundColor: null,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        foreignObjectRendering: true,
-        scale: exportScale,
-        width: canvasW,
-        height: canvasH,
-        windowWidth: canvasW,
-        windowHeight: canvasH,
-        imageTimeout: 0,
-        removeContainer: true,
-        onclone: (doc) => {
-          const cloneCvs = doc.getElementById('cvs');
-          if(cloneCvs){
-            cloneCvs.style.transform = 'none';
-            cloneCvs.style.transition = 'none';
-            cloneCvs.querySelectorAll('.rh, .sz-hint, #multi-box, #marquee').forEach(el => el.remove());
-          }
-        }
-      });
-    } catch(primaryErr){
-      console.warn('html2canvas foreignObject falló, usando fallback:', primaryErr);
-      out = await html2canvas(cvs, {
-        backgroundColor: null,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        scale: exportScale,
-        width: canvasW,
-        height: canvasH,
-        windowWidth: canvasW,
-        windowHeight: canvasH,
-        imageTimeout: 0,
-        removeContainer: true
-      });
-    } finally {
-      cvs.style.transform = prevTransform;
-      cvs.style.transition = prevTransition;
+      outCanvas = await exportViaHtml2Canvas();
+    }catch(err){
+      console.warn('html2canvas falló, usando render interno:', err);
+      outCanvas = await renderDesignToCanvas(3);
     }
 
-    const a = document.createElement('a');
-    a.download = `mi-diseno-${Date.now()}.png`;
-    a.href = out.toDataURL('image/png', 1.0);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    await downloadCanvas(outCanvas);
     showToast('✓ PNG descargado');
   }catch(e){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
-    restoreUI();
+    restoreExportUi();
+    if(btn) btn.disabled = false;
+    setBtnLabel('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> PNG');
   }
 }
 
