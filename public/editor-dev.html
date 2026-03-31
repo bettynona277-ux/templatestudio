@@ -387,7 +387,7 @@ body.style-mode-active select{
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
       Guardar
     </button>
-    <button class="tbtn tbtn-blue" onclick="downloadPNG()" style="gap:5px;">
+    <button class="tbtn tbtn-blue" id="btn-png" onclick="downloadPNG()" style="gap:5px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
@@ -3814,6 +3814,67 @@ function roundedRectPath(ctx,x,y,w,h,r){
   ctx.closePath();
 }
 
+
+function cloneExportNodeForLayer(layer){
+  if(!layer?.el) return null;
+  const clone = layer.el.cloneNode(true);
+  clone.classList.remove('sel');
+  clone.style.left = '0px';
+  clone.style.top = '0px';
+  clone.style.margin = '0';
+  clone.style.transform = 'none';
+  clone.style.boxSizing = 'border-box';
+  clone.style.pointerEvents = 'none';
+  clone.querySelectorAll('.rh,.sz-hint,.frame-drop-hint,.shape-inner-ov').forEach(n=>n.remove());
+  clone.querySelectorAll('[contenteditable="true"]').forEach(n=>n.removeAttribute('contenteditable'));
+  return clone;
+}
+
+async function renderLayerDomFallback(layer, exportScale=2){
+  if(!layer?.el) return null;
+  const w = Math.max(1, Math.round(layer.w || layer.el.offsetWidth || 1));
+  const h = Math.max(1, Math.round(layer.h || layer.el.offsetHeight || 1));
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = [
+    'position:fixed',
+    'left:-20000px',
+    'top:-20000px',
+    'width:'+w+'px',
+    'height:'+h+'px',
+    'overflow:visible',
+    'background:transparent',
+    'pointer-events:none',
+    'z-index:-1',
+    'isolation:isolate'
+  ].join(';');
+
+  const clone = cloneExportNodeForLayer(layer);
+  if(!clone) return null;
+  wrap.appendChild(clone);
+  document.body.appendChild(wrap);
+
+  try{
+    const canvas = await html2canvas(wrap, {
+      backgroundColor: null,
+      scale: Math.max(2, exportScale),
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      foreignObjectRendering: true,
+      width: w,
+      height: h,
+      imageTimeout: 0
+    });
+    return canvas;
+  }catch(err){
+    console.warn('DOM fallback export failed for layer', layer?.id, err);
+    return null;
+  }finally{
+    wrap.remove();
+  }
+}
+
 async function renderDesignToCanvas(scale=2){
   const canvasW = parseInt(cvs.style.width) || 1080;
   const canvasH = parseInt(cvs.style.height) || 1080;
@@ -3937,7 +3998,19 @@ async function renderDesignToCanvas(scale=2){
       continue;
     }
 
+
+    // Formas y elementos complejos: exportar desde el DOM para capturar exactamente efectos CSS
+    if(l.isShape){
+      const shapeCanvas = await renderLayerDomFallback(l, Math.max(2, scale));
+      if(shapeCanvas){
+        ctx.drawImage(shapeCanvas, l.x, l.y, l.w, l.h);
+        ctx.restore();
+        continue;
+      }
+    }
+
     // Normal image / logo
+    console.log('RENDER LAYER:', l.type, l.name, 'src:', !!l.src, 'isShape:', !!l.isShape, 'tp:', !!l.tp);
     if(l.type === 'img' && l.src){
       const img = await loadImgForExport(l.src);
       if(img){
@@ -3953,42 +4026,39 @@ async function renderDesignToCanvas(scale=2){
       continue;
     }
 
-    // Text
+    // Text — primero intentamos capturar el DOM exacto para respetar fuentes y efectos.
     if(l.type === 'text' && l.tp){
+      const textCanvas = await renderLayerDomFallback(l, Math.max(2, scale));
+      if(textCanvas){
+        ctx.drawImage(textCanvas, l.x, l.y, l.w, l.h);
+        ctx.restore();
+        continue;
+      }
+
       const tp = l.tp || {};
       const fontSize = Number(tp.fontSize || 16);
       const fontWeight = tp.fontWeight || '400';
       const fontStyle = tp.italic ? 'italic' : 'normal';
-      // Limpiar fontFamily: quitar comillas, fallbacks (ej: "'Bebas Neue', sans-serif" → "Bebas Neue")
       let fontFamily = (tp.fontFamily || "'Poppins'")
         .replace(/'/g,'').replace(/"/g,'')
-        .split(',')[0].trim(); // tomar solo la primera fuente, ignorar fallbacks
-      // Normalizar fontWeight: algunas fuentes solo tienen 400/700
-      // Si el navegador no encuentra el peso exacto usa fallback del sistema
-      // Forzar a 400 o 700 según corresponda
+        .split(',')[0].trim();
       let fontWeightCanvas = fontWeight;
       const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
       if(singleWeightFonts.includes(fontFamily)){
-        // Estas fuentes solo tienen un peso — forzar a 400
         fontWeightCanvas = '400';
       } else {
-        // Para otras fuentes: redondear 500/600 a 700, mantener 300/400/800 como están
         const w = parseInt(fontWeight) || 400;
         if(w >= 500 && w < 700) fontWeightCanvas = '700';
         else if(w < 400) fontWeightCanvas = '300';
         else fontWeightCanvas = String(w);
       }
-      // No mapear fuentes — usar las fuentes originales del diseño
       ctx.filter = 'none';
       ctx.fillStyle = tp.color || '#ffffff';
       ctx.textBaseline = 'top';
       ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
-      // Limpiar fontFamily para ctx.font — Canvas no acepta fallbacks con coma
       const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
       ctx.font = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${canvasFontFamily}`;
 
-
-      // Aplicar textTransform igual que en el DOM
       let rawText = String(tp.text || '');
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
@@ -4011,14 +4081,12 @@ async function renderDesignToCanvas(scale=2){
             ctx.restore();
           }
           if(shadow > 0){
-            // Dibujar sombra primero
             ctx.save();
             ctx.shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
             ctx.shadowBlur = Math.max(3, shadow*0.8);
             ctx.shadowOffsetY = Math.max(1, Math.round(shadow*0.18));
             ctx.fillText(txt, px, py);
             ctx.restore();
-            // Dibujar fill encima sin sombra
             ctx.save();
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
@@ -4047,14 +4115,12 @@ async function renderDesignToCanvas(scale=2){
       };
 
       const anchorX = tp.align === 'center' ? l.x + l.w/2 : tp.align === 'right' ? l.x + l.w : l.x;
-      // CSS line-height agrega half-leading arriba/abajo — compensar igual que en editor móvil
       const halfLeading = (lineHeight - fontSize) / 2;
       const m_ = ctx.measureText('Mg');
       const fAscent = m_.fontBoundingBoxAscent || fontSize * 0.8;
       const textOffsetY = halfLeading + fAscent * 0.85;
       lines.forEach((line, idx)=> drawLine(line, anchorX, l.y + textOffsetY + idx * lineHeight));
 
-      // underline approximation
       if(tp.underline){
         lines.forEach((line, idx)=>{
           const metrics = ctx.measureText(line);
@@ -4099,8 +4165,8 @@ async function downloadPNG(){
       // Esperar a que el navegador registre el uso de la fuente
       await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
     }
-    await new Promise(r=>setTimeout(r,300));
-    const c = await renderDesignToCanvas(2);
+    await new Promise(r=>setTimeout(r,450));
+    const c = await renderDesignToCanvas(3);
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
