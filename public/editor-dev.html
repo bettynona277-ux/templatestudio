@@ -3814,67 +3814,6 @@ function roundedRectPath(ctx,x,y,w,h,r){
   ctx.closePath();
 }
 
-
-function cloneExportNodeForLayer(layer){
-  if(!layer?.el) return null;
-  const clone = layer.el.cloneNode(true);
-  clone.classList.remove('sel');
-  clone.style.left = '0px';
-  clone.style.top = '0px';
-  clone.style.margin = '0';
-  clone.style.transform = 'none';
-  clone.style.boxSizing = 'border-box';
-  clone.style.pointerEvents = 'none';
-  clone.querySelectorAll('.rh,.sz-hint,.frame-drop-hint,.shape-inner-ov').forEach(n=>n.remove());
-  clone.querySelectorAll('[contenteditable="true"]').forEach(n=>n.removeAttribute('contenteditable'));
-  return clone;
-}
-
-async function renderLayerDomFallback(layer, exportScale=2){
-  if(!layer?.el) return null;
-  const w = Math.max(1, Math.round(layer.w || layer.el.offsetWidth || 1));
-  const h = Math.max(1, Math.round(layer.h || layer.el.offsetHeight || 1));
-
-  const wrap = document.createElement('div');
-  wrap.style.cssText = [
-    'position:fixed',
-    'left:-20000px',
-    'top:-20000px',
-    'width:'+w+'px',
-    'height:'+h+'px',
-    'overflow:visible',
-    'background:transparent',
-    'pointer-events:none',
-    'z-index:-1',
-    'isolation:isolate'
-  ].join(';');
-
-  const clone = cloneExportNodeForLayer(layer);
-  if(!clone) return null;
-  wrap.appendChild(clone);
-  document.body.appendChild(wrap);
-
-  try{
-    const canvas = await html2canvas(wrap, {
-      backgroundColor: null,
-      scale: Math.max(2, exportScale),
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      foreignObjectRendering: true,
-      width: w,
-      height: h,
-      imageTimeout: 0
-    });
-    return canvas;
-  }catch(err){
-    console.warn('DOM fallback export failed for layer', layer?.id, err);
-    return null;
-  }finally{
-    wrap.remove();
-  }
-}
-
 async function renderDesignToCanvas(scale=2){
   const canvasW = parseInt(cvs.style.width) || 1080;
   const canvasH = parseInt(cvs.style.height) || 1080;
@@ -3998,17 +3937,6 @@ async function renderDesignToCanvas(scale=2){
       continue;
     }
 
-
-    // Formas y elementos complejos: exportar desde el DOM para capturar exactamente efectos CSS
-    if(l.isShape){
-      const shapeCanvas = await renderLayerDomFallback(l, Math.max(2, scale));
-      if(shapeCanvas){
-        ctx.drawImage(shapeCanvas, l.x, l.y, l.w, l.h);
-        ctx.restore();
-        continue;
-      }
-    }
-
     // Normal image / logo
     console.log('RENDER LAYER:', l.type, l.name, 'src:', !!l.src, 'isShape:', !!l.isShape, 'tp:', !!l.tp);
     if(l.type === 'img' && l.src){
@@ -4026,39 +3954,42 @@ async function renderDesignToCanvas(scale=2){
       continue;
     }
 
-    // Text — primero intentamos capturar el DOM exacto para respetar fuentes y efectos.
+    // Text
     if(l.type === 'text' && l.tp){
-      const textCanvas = await renderLayerDomFallback(l, Math.max(2, scale));
-      if(textCanvas){
-        ctx.drawImage(textCanvas, l.x, l.y, l.w, l.h);
-        ctx.restore();
-        continue;
-      }
-
       const tp = l.tp || {};
       const fontSize = Number(tp.fontSize || 16);
       const fontWeight = tp.fontWeight || '400';
       const fontStyle = tp.italic ? 'italic' : 'normal';
+      // Limpiar fontFamily: quitar comillas, fallbacks (ej: "'Bebas Neue', sans-serif" → "Bebas Neue")
       let fontFamily = (tp.fontFamily || "'Poppins'")
         .replace(/'/g,'').replace(/"/g,'')
-        .split(',')[0].trim();
+        .split(',')[0].trim(); // tomar solo la primera fuente, ignorar fallbacks
+      // Normalizar fontWeight: algunas fuentes solo tienen 400/700
+      // Si el navegador no encuentra el peso exacto usa fallback del sistema
+      // Forzar a 400 o 700 según corresponda
       let fontWeightCanvas = fontWeight;
       const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
       if(singleWeightFonts.includes(fontFamily)){
+        // Estas fuentes solo tienen un peso — forzar a 400
         fontWeightCanvas = '400';
       } else {
+        // Para otras fuentes: redondear 500/600 a 700, mantener 300/400/800 como están
         const w = parseInt(fontWeight) || 400;
         if(w >= 500 && w < 700) fontWeightCanvas = '700';
         else if(w < 400) fontWeightCanvas = '300';
         else fontWeightCanvas = String(w);
       }
+      // No mapear fuentes — usar las fuentes originales del diseño
       ctx.filter = 'none';
       ctx.fillStyle = tp.color || '#ffffff';
       ctx.textBaseline = 'top';
       ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
+      // Limpiar fontFamily para ctx.font — Canvas no acepta fallbacks con coma
       const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
       ctx.font = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${canvasFontFamily}`;
 
+
+      // Aplicar textTransform igual que en el DOM
       let rawText = String(tp.text || '');
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
@@ -4081,12 +4012,14 @@ async function renderDesignToCanvas(scale=2){
             ctx.restore();
           }
           if(shadow > 0){
+            // Dibujar sombra primero
             ctx.save();
             ctx.shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
             ctx.shadowBlur = Math.max(3, shadow*0.8);
             ctx.shadowOffsetY = Math.max(1, Math.round(shadow*0.18));
             ctx.fillText(txt, px, py);
             ctx.restore();
+            // Dibujar fill encima sin sombra
             ctx.save();
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
@@ -4115,12 +4048,14 @@ async function renderDesignToCanvas(scale=2){
       };
 
       const anchorX = tp.align === 'center' ? l.x + l.w/2 : tp.align === 'right' ? l.x + l.w : l.x;
+      // CSS line-height agrega half-leading arriba/abajo — compensar igual que en editor móvil
       const halfLeading = (lineHeight - fontSize) / 2;
       const m_ = ctx.measureText('Mg');
       const fAscent = m_.fontBoundingBoxAscent || fontSize * 0.8;
       const textOffsetY = halfLeading + fAscent * 0.85;
       lines.forEach((line, idx)=> drawLine(line, anchorX, l.y + textOffsetY + idx * lineHeight));
 
+      // underline approximation
       if(tp.underline){
         lines.forEach((line, idx)=>{
           const metrics = ctx.measureText(line);
@@ -4149,34 +4084,99 @@ async function renderDesignToCanvas(scale=2){
 
 async function downloadPNG(){
   desel(); hideMultiBox();
-  const btn = document.getElementById('btn-png');
-  if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
+  const btn = document.getElementById('btn-png') || document.querySelector('.tbtn.tbtn-blue');
+  const prevHtml = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Generando...'; }
+
+  const restoreUI = () => {
+    document.querySelectorAll('.rh, .sz-hint').forEach(e=> e.style.display='');
+    const multiBox = document.getElementById('multi-box');
+    if(multiBox) multiBox.style.display = '';
+    const marquee = document.getElementById('marquee');
+    if(marquee) marquee.style.display = '';
+    if(btn){ btn.disabled = false; btn.innerHTML = prevHtml || 'PNG'; }
+  };
+
   try{
-    // Esperar que todas las fuentes estén listas
-    await document.fonts.ready;
-    // Forzar carga de fuentes custom dibujando texto invisible en un canvas temporal
-    const warmupCanvas = document.createElement('canvas');
-    warmupCanvas.width = 10; warmupCanvas.height = 10;
-    const wctx = warmupCanvas.getContext('2d');
-    const customFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
-    for(const f of customFonts){
-      wctx.font = `400 12px "${f}"`;
-      wctx.fillText('A', -100, -100);
-      // Esperar a que el navegador registre el uso de la fuente
-      await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
+    if(document.fonts?.ready) await document.fonts.ready;
+    const fontsToWarm = ['Plus Jakarta Sans','Poppins','Montserrat','Bebas Neue','Akira Expanded','Horizon'];
+    if(document.fonts?.load){
+      await Promise.allSettled(fontsToWarm.map(f => document.fonts.load(`700 32px "${f}"`)));
     }
     await new Promise(r=>setTimeout(r,450));
-    const c = await renderDesignToCanvas(3);
+
+    document.querySelectorAll('.rh, .sz-hint').forEach(e=> e.style.display='none');
+    const multiBox = document.getElementById('multi-box');
+    if(multiBox) multiBox.style.display = 'none';
+    const marquee = document.getElementById('marquee');
+    if(marquee) marquee.style.display = 'none';
+
+    const prevTransform = cvs.style.transform;
+    const prevTransition = cvs.style.transition;
+    cvs.style.transform = 'scale(1)';
+    cvs.style.transition = 'none';
+    await new Promise(r=>setTimeout(r,80));
+
+    const canvasW = Math.round(cvs.offsetWidth || parseInt(cvs.style.width) || 1080);
+    const canvasH = Math.round(cvs.offsetHeight || parseInt(cvs.style.height) || 1080);
+    const exportScale = Math.max(2, Math.min(4, window.devicePixelRatio || 2));
+
+    let out;
+    try{
+      out = await html2canvas(cvs, {
+        backgroundColor: null,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        foreignObjectRendering: true,
+        scale: exportScale,
+        width: canvasW,
+        height: canvasH,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+        imageTimeout: 0,
+        removeContainer: true,
+        onclone: (doc) => {
+          const cloneCvs = doc.getElementById('cvs');
+          if(cloneCvs){
+            cloneCvs.style.transform = 'none';
+            cloneCvs.style.transition = 'none';
+            cloneCvs.querySelectorAll('.rh, .sz-hint, #multi-box, #marquee').forEach(el => el.remove());
+          }
+        }
+      });
+    } catch(primaryErr){
+      console.warn('html2canvas foreignObject falló, usando fallback:', primaryErr);
+      out = await html2canvas(cvs, {
+        backgroundColor: null,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        scale: exportScale,
+        width: canvasW,
+        height: canvasH,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+        imageTimeout: 0,
+        removeContainer: true
+      });
+    } finally {
+      cvs.style.transform = prevTransform;
+      cvs.style.transition = prevTransition;
+    }
+
     const a = document.createElement('a');
-    a.download = 'mi-diseno.png';
-    a.href = c.toDataURL('image/png');
+    a.download = `mi-diseno-${Date.now()}.png`;
+    a.href = out.toDataURL('image/png', 1.0);
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     showToast('✓ PNG descargado');
   }catch(e){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
-    if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
+    restoreUI();
   }
 }
 
