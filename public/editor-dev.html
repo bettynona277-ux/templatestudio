@@ -3978,17 +3978,7 @@ async function renderDesignToCanvas(scale=2){
         else if(w < 400) fontWeightCanvas = '300';
         else fontWeightCanvas = String(w);
       }
-      // Mapear fuentes custom locales que fallan a equivalentes de Google Fonts
-      const fontMap = {
-        'Horizon': 'Oswald',
-        'Horizon Bold': 'Oswald',
-        'Akira Expanded': 'Bebas Neue',
-        'Podium Sharp': 'Montserrat',
-        'Podium Sharp Light': 'Montserrat',
-        'Podium Sharp Bold': 'Montserrat',
-        'Podium Sharp Black': 'Montserrat',
-      };
-      if(fontMap[fontFamily]) fontFamily = fontMap[fontFamily];
+      // No mapear fuentes — usar las fuentes originales del diseño
       ctx.filter = 'none';
       ctx.fillStyle = tp.color || '#ffffff';
       ctx.textBaseline = 'top';
@@ -4096,9 +4086,20 @@ async function downloadPNG(){
   const btn = document.getElementById('btn-png');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
   try{
-    // Esperar fuentes
+    // Esperar que todas las fuentes estén listas
     await document.fonts.ready;
-    await new Promise(r=>setTimeout(r,100));
+    // Forzar carga de fuentes custom dibujando texto invisible en un canvas temporal
+    const warmupCanvas = document.createElement('canvas');
+    warmupCanvas.width = 10; warmupCanvas.height = 10;
+    const wctx = warmupCanvas.getContext('2d');
+    const customFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+    for(const f of customFonts){
+      wctx.font = `400 12px "${f}"`;
+      wctx.fillText('A', -100, -100);
+      // Esperar a que el navegador registre el uso de la fuente
+      await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
+    }
+    await new Promise(r=>setTimeout(r,300));
     const c = await renderDesignToCanvas(2);
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
