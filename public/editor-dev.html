@@ -4077,24 +4077,30 @@ async function downloadPNG(){
 
   // Ocultar handles y bordes de selección
   document.querySelectorAll('.rh').forEach(e=>e.style.display='none');
-  document.querySelectorAll('.cel').forEach(e=>{
-    e._savedOutline = e.style.outline;
-    e._savedBoxShadow = e.style.boxShadow;
-    e.style.outline = 'none';
-    if(e.classList.contains('sel')) e.style.boxShadow = e.style.boxShadow.replace(/inset[^,]+,?\s*/g,'').replace(/,\s*inset[^,]+/g,'');
-  });
 
-  // Crear wrapper temporal fuera del viewport para captura sin transform
+  // Guardar estado del canvas
+  const savedTransform = cvs.style.transform;
+  const savedPosition = cvs.style.position;
+  const savedLeft = cvs.style.left;
+  const savedTop = cvs.style.top;
+  const savedParent = cvs.parentNode;
+  const savedNextSibling = cvs.nextSibling;
+
+  // Crear contenedor temporal fuera del viewport
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = `position:fixed;left:-${canvasW*2+200}px;top:0;width:${canvasW}px;height:${canvasH}px;overflow:hidden;z-index:-1;`;
-  const clone = cvs.cloneNode(true);
-  clone.style.cssText = `width:${canvasW}px;height:${canvasH}px;position:absolute;left:0;top:0;transform:none;transform-origin:top left;overflow:hidden;`;
-  wrapper.appendChild(clone);
+  wrapper.style.cssText = `position:fixed;left:0;top:-${canvasH*2+500}px;width:${canvasW}px;height:${canvasH}px;overflow:visible;z-index:99999;background:transparent;`;
   document.body.appendChild(wrapper);
 
-  await new Promise(r=>setTimeout(r,120));
+  // Mover el canvas real (sin transform) al wrapper
+  cvs.style.transform = 'none';
+  cvs.style.position = 'absolute';
+  cvs.style.left = '0';
+  cvs.style.top = '0';
+  wrapper.appendChild(cvs);
+
+  await new Promise(r=>setTimeout(r,150));
   try{
-    const c = await html2canvas(clone,{
+    const c = await html2canvas(wrapper,{
       scale: 2,
       useCORS: true,
       allowTaint: true,
@@ -4104,6 +4110,8 @@ async function downloadPNG(){
       height: canvasH,
       scrollX: 0,
       scrollY: 0,
+      x: 0,
+      y: 0,
     });
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
@@ -4114,13 +4122,15 @@ async function downloadPNG(){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
+    // Restaurar canvas a su lugar original
+    cvs.style.transform = savedTransform;
+    cvs.style.position = savedPosition;
+    cvs.style.left = savedLeft;
+    cvs.style.top = savedTop;
+    if(savedNextSibling) savedParent.insertBefore(cvs, savedNextSibling);
+    else savedParent.appendChild(cvs);
     document.body.removeChild(wrapper);
     document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.cel').forEach(e=>{
-      e.style.outline = e._savedOutline||'';
-      e.style.boxShadow = e._savedBoxShadow||'';
-      delete e._savedOutline; delete e._savedBoxShadow;
-    });
     if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
