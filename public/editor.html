@@ -5026,33 +5026,20 @@ async function doSave(status){
     st.textContent='Generando miniatura...';
     desel();
     hideMultiBox();
-    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
-    const sv=cvs.style.transform; cvs.style.transform='scale(1)';
-    await new Promise(r=>setTimeout(r,80));
-
+    // Usar renderDesignToCanvas (renderer manual) en vez de html2canvas
+    // html2canvas falla con colores CSS modernos (oklch, color-mix, etc.)
     const canvasW = parseInt(cvs.style.width) || 1080;
     const canvasH = parseInt(cvs.style.height) || 1080;
-    const targetThumbW = 420; // más clara para la biblioteca admin/cliente sin ser pesada
-    const targetScale = Math.min(1.1, Math.max(0.45, targetThumbW / canvasW));
+    const targetThumbW = 420;
+    const targetScale = Math.min(1, Math.max(0.35, targetThumbW / canvasW));
 
-    const c=await html2canvas(cvs,{
-      scale:targetScale,
-      useCORS:true,
-      allowTaint:true,
-      backgroundColor:'#000',
-      logging:false,
-      width:canvasW,
-      height:canvasH
-    });
-    cvs.style.transform=sv;
-    document.querySelectorAll('.rh').forEach(e=>e.style.display='');
-    document.querySelectorAll('.sz-hint').forEach(e=>e.style.display='');
+    const c = await renderDesignToCanvas(targetScale);
 
     let thumbB64='';
     try{
-      thumbB64=c.toDataURL('image/webp',0.9);
+      thumbB64=c.toDataURL('image/webp',0.88);
     }catch(_){
-      thumbB64=c.toDataURL('image/jpeg',0.9);
+      thumbB64=c.toDataURL('image/jpeg',0.88);
     }
 
     st.textContent='Subiendo miniatura...';
