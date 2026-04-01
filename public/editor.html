@@ -2053,7 +2053,16 @@ async function compressImage(dataUrl, maxW=1200, maxH=1200, quality=0.85){
 // Upload a base64 dataURL to Cloudinary, return secure URL
 async function uploadToStorage(dataUrl, path){
   const fd=new FormData();
-  fd.append('file', dataUrl);
+  // Cloudinary necesita un Blob, no un string base64
+  if(dataUrl.startsWith('data:')){
+    const arr=dataUrl.split(','), mime=arr[0].match(/:(.*?);/)[1];
+    const bStr=atob(arr[1]);
+    const u8=new Uint8Array(bStr.length);
+    for(let i=0;i<bStr.length;i++) u8[i]=bStr.charCodeAt(i);
+    fd.append('file', new Blob([u8],{type:mime}), path.split('/').pop());
+  } else {
+    fd.append('file', dataUrl);
+  }
   fd.append('upload_preset', CLOUDINARY_PRESET);
   fd.append('folder', 'templatestudio');
   const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
