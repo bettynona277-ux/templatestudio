@@ -4347,6 +4347,22 @@ function setAdminUI(){
 }
 
 // Client design save
+
+// Recomprimir imagen base64 a un tamaño menor
+function recompressThumb(dataUrl, w, h, quality){
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = ()=>resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 let clientDesignId=null;
 async function saveClientDesign(){
   if(!fbDb){ showToast('Firebase no conectado'); return; }
@@ -4363,7 +4379,7 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
-    // ── Generar miniatura (base64 en Firestore, sin Cloudinary) ──────
+    // ── Generar miniatura base64 (Firestore directo, sin Cloudinary) ──
     btn.textContent='Generando miniatura...';
     let thumb = '';
     try{
@@ -4371,35 +4387,48 @@ async function saveClientDesign(){
       document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
       const savedTransform = cvs.style.transform;
       cvs.style.transform = 'scale(1)';
-      await new Promise(r=>setTimeout(r,80));
+      await new Promise(r=>setTimeout(r,100));
       const canvasW = parseInt(cvs.style.width) || 1080;
       const canvasH = parseInt(cvs.style.height) || 1080;
-      // Escala pequeña: max 320px → ~30-60KB JPEG
       const targetScale = Math.min(1, Math.max(0.25, 320 / canvasW));
-      const thumbCanvas = await html2canvas(cvs,{
-        scale: targetScale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#000',
-        logging: false,
-        width: canvasW,
-        height: canvasH
-      });
+
+      let thumbB64 = '';
+      try{
+        // Intento 1: html2canvas (captura CSS exacto)
+        const thumbCanvas = await html2canvas(cvs,{
+          scale: targetScale,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#000',
+          logging: false,
+          width: canvasW,
+          height: canvasH
+        });
+        thumbB64 = thumbCanvas.toDataURL('image/jpeg', 0.55);
+      } catch(h2cErr){
+        console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
+        // Intento 2: renderer manual Canvas 2D
+        try{
+          const fallbackCanvas = await renderDesignToCanvas(targetScale);
+          thumbB64 = fallbackCanvas.toDataURL('image/jpeg', 0.55);
+        } catch(rErr){ console.warn('Renderer manual también falló:', rErr.message); }
+      }
+
       cvs.style.transform = savedTransform;
       document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='');
-      // Guardar como base64 JPEG comprimido (~30-60KB) directo en Firestore
-      // Evita depender de Cloudinary para la miniatura del cliente
-      thumb = thumbCanvas.toDataURL('image/jpeg', 0.55);
-      // Si es demasiado grande (>150KB), recomprimir más
-      if(thumb.length > 200000){
-        thumb = thumbCanvas.toDataURL('image/jpeg', 0.3);
+
+      if(thumbB64){
+        // Recomprimir si es demasiado grande para Firestore
+        thumb = thumbB64.length > 200000
+          ? await recompressThumb(thumbB64, canvasW * targetScale, canvasH * targetScale, 0.3)
+          : thumbB64;
+        console.log('Miniatura OK:', Math.round(thumb.length * 0.75 / 1024) + 'KB');
       }
-      console.log('Miniatura generada:', Math.round(thumb.length * 0.75 / 1024) + 'KB');
     } catch(thumbErr){
-      console.warn('Miniatura falló, continuando sin ella:', thumbErr.message);
+      console.warn('Miniatura falló:', thumbErr.message);
       thumb = '';
     }
-    // ───────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
 
     btn.textContent='Guardando...';
     const data={
