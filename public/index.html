@@ -629,6 +629,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
     <div class="mob-tabs">
       <button class="mob-tab active" id="mobtab-designs" onclick="switchMobTab('designs')">🎨 Mis diseños</button>
       <button class="mob-tab" id="mobtab-templates" onclick="switchMobTab('templates')">📦 Plantillas</button>
+      <button class="mob-tab" id="mobtab-favorites" onclick="switchMobTab('favorites')">❤️ Favoritos</button>
     </div>
     <div class="mob-section active" id="mobsec-designs">
     <div class="dash-section">
@@ -665,6 +666,16 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:7px;}
       </div>
       <div class="tpl-grid" id="admin-tpl-grid">
         <div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>
+      </div>
+    </div>
+    </div>
+
+    <!-- SECCIÓN FAVORITOS -->
+    <div class="mob-section" id="mobsec-favorites">
+    <div class="dash-section">
+      <div class="dash-title">❤️ Favoritos <span class="count" id="fav-count"></span></div>
+      <div class="tpl-grid" id="fav-grid">
+        <div class="empty-state" style="grid-column:1/-1;">Aún no tienes favoritos.<br>Toca ❤️ en cualquier plantilla.</div>
       </div>
     </div>
     </div><!-- /mobsec-templates -->
@@ -907,11 +918,12 @@ window.addEventListener('load', async () => {
         if (!devResult.ok) {
           fbAuth.signOut();
           const err = document.getElementById('login-err');
-          if(err) err.textContent = '✗ Límite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador para liberar un dispositivo.';
+          if(err) err.textContent = devResult.revoked ? '✗ Este dispositivo fue desactivado. Contacta al administrador.' : '✗ Límite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
           return;
         }
         currentUser = { uid: user.uid, ...doc.data() };
         localStorage.setItem('ts_session', JSON.stringify(currentUser));
+        startDeviceRevokeListener(user.uid);
         const urlTpl = new URLSearchParams(window.location.search).get('tpl');
         const redirect = new URLSearchParams(window.location.search).get('redirect');
         if(redirect) window.location.href = decodeURIComponent(redirect);
@@ -971,13 +983,15 @@ async function registerDevice(uid) {
   const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   const existing = devices.find(d => d.id === deviceId);
   if (existing) {
+    if (existing.revoked) return { ok: false, revoked: true };
     await devRef.update({ lastSeen: Date.now(), name: getDeviceName() });
     return { ok: true };
   }
-  if (devices.length >= MAX_DEVICES) {
-    return { ok: false, count: devices.length };
+  const activeDevices = devices.filter(d => !d.revoked);
+  if (activeDevices.length >= MAX_DEVICES) {
+    return { ok: false, count: activeDevices.length };
   }
-  await devRef.set({ name: getDeviceName(), registeredAt: Date.now(), lastSeen: Date.now() });
+  await devRef.set({ name: getDeviceName(), registeredAt: Date.now(), lastSeen: Date.now(), revoked: false });
   return { ok: true };
 }
 
@@ -986,6 +1000,23 @@ async function unregisterDevice(uid) {
     const deviceId = getDeviceId();
     await fbDb.collection('users').doc(uid).collection('devices').doc(deviceId).delete();
   } catch(e) {}
+}
+
+let _deviceRevokeUnsub = null;
+function startDeviceRevokeListener(uid) {
+  if(_deviceRevokeUnsub) _deviceRevokeUnsub();
+  const deviceId = getDeviceId();
+  _deviceRevokeUnsub = fbDb.collection('users').doc(uid)
+    .collection('devices').doc(deviceId)
+    .onSnapshot(snap => {
+      if(!snap.exists || snap.data()?.revoked === true) {
+        if(_deviceRevokeUnsub) _deviceRevokeUnsub();
+        fbAuth.signOut();
+        localStorage.removeItem('ts_session');
+        currentUser = null;
+        showScreen('login');
+      }
+    });
 }
 
 async function doLogin() {
@@ -1041,6 +1072,7 @@ async function showDashboard() {
   loadMyDesigns();
   loadAdminTemplates();
   loadSharedLogoLibrary();
+  loadFavorites();
 }
 
 // ================================================================
@@ -1114,6 +1146,7 @@ async function deleteDesign(id, btn) {
 // ADMIN TEMPLATES
 // ================================================================
 let allTemplatesCache = []; // store for search/filter
+let favoriteIds = [];
 
 function filterTemplates(){
   const q=(document.getElementById('tpl-search')?.value||'').toLowerCase();
@@ -1136,10 +1169,81 @@ function renderTemplateCards(docs){
     const thumbHtml=d.thumb?`<img class="tpl-thumb" src="${d.thumb}">`:`<div class="tpl-thumb-empty">📦</div>`;
     const catBadge=d.category?`<div style="font-size:0.65rem;color:var(--muted);margin-bottom:6px;">${d.category}</div>`:'';
     const date=new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
-    card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-name">${d.name}</div>${catBadge}<div class="tpl-date">${date}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${id}')">Usar esta plantilla →</button></div>`;
+    const isFav = favoriteIds.includes(id);
+    card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-name">${d.name}</div>${catBadge}<div class="tpl-date">${date}</div><div style="display:flex;gap:6px;"><button class="tpl-use-btn" style="flex:1;" onclick="openEditorFromTemplate('${id}')">Usar →</button><button data-fav-id="${id}" onclick="toggleFavorite('${id}',this)" title="${isFav?'Quitar de favoritos':'Agregar a favoritos'}" style="padding:6px 8px;border-radius:8px;border:none;background:rgba(255,107,129,0.1);cursor:pointer;font-size:0.9rem;">${isFav?'❤️':'🤍'}</button></div></div>`;
     grid.appendChild(card);
   });
 }
+async // ════════════════════════════════
+// FAVORITOS
+// ════════════════════════════════
+async function loadFavorites(){
+  if(!currentUser){ favoriteIds=[]; renderFavorites(); return; }
+  try{
+    const snap = await fbDb.collection('user_favorites')
+      .where('uid','==',currentUser.uid).get();
+    favoriteIds = snap.docs.map(doc=>doc.data()?.templateId).filter(Boolean);
+  }catch(e){ console.warn('user_favorites',e); favoriteIds=[]; }
+  renderFavorites();
+}
+
+async function toggleFavorite(templateId, btn){
+  if(!currentUser){ return; }
+  const already = favoriteIds.includes(templateId);
+  try{
+    if(already){
+      const snap = await fbDb.collection('user_favorites')
+        .where('uid','==',currentUser.uid)
+        .where('templateId','==',templateId).get();
+      await Promise.all(snap.docs.map(doc=>doc.ref.delete()));
+      favoriteIds = favoriteIds.filter(id=>id!==templateId);
+      if(btn){ btn.textContent='🤍'; btn.title='Agregar a favoritos'; }
+    } else {
+      await fbDb.collection('user_favorites').add({
+        uid: currentUser.uid, templateId, savedAt: Date.now()
+      });
+      favoriteIds.push(templateId);
+      if(btn){ btn.textContent='❤️'; btn.title='Quitar de favoritos'; }
+    }
+    renderFavorites();
+    // Actualizar icono en la grid de plantillas
+    document.querySelectorAll(`[data-fav-id="${templateId}"]`).forEach(b=>{
+      b.textContent = favoriteIds.includes(templateId) ? '❤️' : '🤍';
+    });
+  }catch(e){ console.error('toggleFavorite error:', e); }
+}
+
+function renderFavorites(){
+  const favTemplates = allTemplatesCache.filter(t=>favoriteIds.includes(t.id));
+  const grid = document.getElementById('fav-grid');
+  const count = document.getElementById('fav-count');
+  if(count) count.textContent = favTemplates.length;
+  if(!grid) return;
+  if(!favTemplates.length){
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Aún no tienes favoritos.<br>Toca ❤️ en cualquier plantilla.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  favTemplates.forEach(t=>{
+    const date = t.createdAt ? new Date(t.createdAt).toLocaleDateString('es-PE') : '';
+    const thumb = t.thumb
+      ? `<img class="tpl-thumb" src="${t.thumb}" alt="${t.name||''}" loading="lazy">`
+      : '<div class="tpl-thumb-empty">📦</div>';
+    const card = document.createElement('div');
+    card.className = 'tpl-card';
+    card.innerHTML = `${thumb}
+      <div class="tpl-info">
+        <div class="tpl-name">${t.name||'Plantilla'}</div>
+        <div class="tpl-date">${date}</div>
+        <div style="display:flex;gap:6px;">
+          <button class="tpl-use-btn" style="flex:1;" onclick="openEditorFromTemplate('${t.id}')">Usar →</button>
+          <button data-fav-id="${t.id}" onclick="toggleFavorite('${t.id}',this)" title="Quitar de favoritos" style="padding:6px 8px;border-radius:8px;border:none;background:rgba(255,107,129,0.12);cursor:pointer;font-size:0.9rem;">❤️</button>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
 async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
