@@ -2212,16 +2212,40 @@ window.addEventListener('load',async()=>{
       alert('No se pudo cargar la plantilla compartida.');
     }
   } else {
-    if(tplId&&fbDb){
-      const d=await fbDb.collection('templates').doc(tplId).get();
-      if(d.exists){
-        const dd = d.data();
-        // Recordar nombre y status para el modal de guardar
-        if(dd.name) tplName = dd.name;
-        if(dd.status) tplStatus = dd.status;
-        if(dd.category) tplCategory = dd.category;
-        const adminTpl=extractTemplatePayload(dd);
-        if(adminTpl) loadData(adminTpl);
+    // Verificar que el usuario autenticado sea admin real en Firestore
+    // Evita que un cliente cambie mode=client → mode=admin en la URL
+    let isVerifiedAdmin = false;
+    try{
+      const currentUser = fbAuth?.currentUser;
+      if(currentUser && fbDb){
+        const adminDoc = await fbDb.collection('admins').doc(currentUser.uid).get();
+        isVerifiedAdmin = adminDoc.exists;
+      }
+    }catch(e){ console.warn('Verificación admin falló:', e.message); }
+
+    if(!isVerifiedAdmin){
+      // No es admin → forzar modo cliente
+      console.warn('Acceso admin denegado — redirigiendo a modo cliente');
+      isPrev=true;
+      setClientUI();
+      showToast('✗ No tienes permisos de administrador');
+      // Si tiene tplId, cargar igual en modo cliente
+      if(tplId&&fbDb){
+        const t=await fbDb.collection('templates').doc(tplId).get();
+        if(t.exists){ const baseTpl=extractTemplatePayload(t.data()); if(baseTpl) loadData(baseTpl); }
+      }
+    } else {
+      if(tplId&&fbDb){
+        const d=await fbDb.collection('templates').doc(tplId).get();
+        if(d.exists){
+          const dd = d.data();
+          // Recordar nombre y status para el modal de guardar
+          if(dd.name) tplName = dd.name;
+          if(dd.status) tplStatus = dd.status;
+          if(dd.category) tplCategory = dd.category;
+          const adminTpl=extractTemplatePayload(dd);
+          if(adminTpl) loadData(adminTpl);
+        }
       }
     }
   }
