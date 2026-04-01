@@ -5248,10 +5248,12 @@ function copyLayers(){
     return JSON.parse(JSON.stringify({...l, el:null}));
   }).filter(Boolean);
   if(!copied.length) return;
+  const now = Date.now();
   localStorage.setItem('ds_clipboard', JSON.stringify({
     layers: copied,
-    copiedAt: Date.now()
+    copiedAt: now
   }));
+  window._lastInternalCopyTime = now;
   showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
 }
 
@@ -5329,38 +5331,47 @@ async function pasteLayers(){
     }
   }catch(e){ /* sin permiso — ignorar */ }
 
-  // Si el sistema tiene URL → pegar imagen (prioridad absoluta)
-  if(systemHasUrl){
-    addImageLayerFromUrl(systemUrl);
-    return;
-  }
-
-  // Revisar portapapeles interno
+  // Revisar portapapeles interno PRIMERO — tiene prioridad sobre el sistema
   const rawFresh = localStorage.getItem('ds_clipboard');
-  let hasInternalLayers = false;
+  let internalCopied = null;
+  let internalCopiedAt = 0;
   if(rawFresh){
     try{
       const parsed = JSON.parse(rawFresh);
       const age = Date.now() - (parsed.copiedAt || 0);
-      hasInternalLayers = !!(parsed.layers?.length && age < 30 * 60 * 1000);
+      if(parsed.layers?.length && age < 30 * 60 * 1000){
+        internalCopied = parsed;
+        internalCopiedAt = parsed.copiedAt || 0;
+      }
     }catch(e){}
   }
 
+  // Si el sistema tiene URL copiada DESPUÉS de las capas internas → pegar imagen
+  // Si las capas internas son más recientes → ignorar URL del sistema
+  if(systemHasUrl){
+    if(internalCopied && internalCopiedAt > 0){
+      // Las capas internas son más recientes que cualquier copia del sistema → usar internas
+    } else {
+      addImageLayerFromUrl(systemUrl);
+      return;
+    }
+  }
+
   // Si el sistema tiene imagen binaria y NO hay capas internas → avisar
-  if(systemHasImage && !hasInternalLayers){
+  if(systemHasImage && !internalCopied){
     showToast('⚠ Solo imágenes de internet. Usa clic derecho → Copiar imagen en una web.');
     return;
   }
 
   // Si hay capas internas → pegarlas (ignorar imagen binaria del sistema)
-  if(!hasInternalLayers){
+  if(!internalCopied){
     showToast('No hay nada en el portapapeles');
     return;
   }
 
   // 2. Pegar desde portapapeles INTERNO del editor
   try{
-    const { layers: copied } = JSON.parse(rawFresh);
+    const { layers: copied } = internalCopied;
     if(!copied?.length) return;
     // Ordenar por zIndex original para preservar el orden de apilamiento al pegar
     copied.sort((a,b)=>(a.zIndex??0)-(b.zIndex??0));
