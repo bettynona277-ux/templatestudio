@@ -5346,12 +5346,22 @@ async function pasteLayers(){
     }catch(e){}
   }
 
-  // Si el sistema tiene URL copiada DESPUÉS de las capas internas → pegar imagen
-  // Si las capas internas son más recientes → ignorar URL del sistema
+  // Comparar cuál fue más reciente: copia interna vs copia del sistema (URL)
+  // window._lastInternalCopyTime se actualiza en copyLayers()
+  const lastInternal = window._lastInternalCopyTime || internalCopiedAt || 0;
+
+  // Si el sistema tiene URL → usarla solo si fue copiada DESPUÉS de las capas internas
   if(systemHasUrl){
-    if(internalCopied && internalCopiedAt > 0){
-      // Las capas internas son más recientes que cualquier copia del sistema → usar internas
+    const urlIsNewer = lastInternal === 0 || !internalCopied;
+    // No podemos saber cuándo el usuario copió la URL del sistema,
+    // pero sí sabemos cuándo hizo Ctrl+C en el editor.
+    // Si hay capas internas Y el usuario las copió después de la última URL pegada → usar internas
+    // Para esto comparamos con window._lastUrlPastedTime
+    const lastUrlPasted = window._lastUrlPastedTime || 0;
+    if(internalCopied && lastInternal > lastUrlPasted){
+      // La última copia interna es más reciente que la última vez que se pegó una URL → usar internas
     } else {
+      window._lastUrlPastedTime = Date.now();
       addImageLayerFromUrl(systemUrl);
       return;
     }
@@ -5363,7 +5373,7 @@ async function pasteLayers(){
     return;
   }
 
-  // Si hay capas internas → pegarlas (ignorar imagen binaria del sistema)
+  // Si hay capas internas → pegarlas
   if(!internalCopied){
     showToast('No hay nada en el portapapeles');
     return;
