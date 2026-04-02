@@ -4788,22 +4788,33 @@ async function renderDesignToCanvas(scale=2){
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
 
-      // Word-wrap: replicar el comportamiento del DOM (word-break: break-word)
-      // Para cada línea manual (\n), calcular si las palabras caben en el ancho de la capa
+      // Word-wrap: replicar CSS word-break:break-word en Canvas
+      // El DOM tiene padding:2px en .txt-inner → restar 4px del ancho total
       const wrapTextToWidth = (text, maxWidth, spacing) => {
-        if(maxWidth <= 0) return [text];
+        const available = maxWidth - 4; // compensar padding:2px de .txt-inner
+        if(available <= 0) return [text];
         const hardLines = text.split('\n');
         const result = [];
         for(const hard of hardLines){
+          if(hard === ''){ result.push(''); continue; }
           const words = hard.split(' ');
           let current = '';
           for(const word of words){
             const test = current ? current + ' ' + word : word;
-            // Medir ancho con letterSpacing aproximado
-            const testW = ctx.measureText(test).width + (test.length - 1) * spacing;
-            if(testW > maxWidth && current){
+            const testW = ctx.measureText(test).width + Math.max(0, test.length - 1) * spacing;
+            if(testW > available && current){
               result.push(current);
-              current = word;
+              // word-break: break-word — si la palabra sola no cabe, cortarla
+              let remaining = word;
+              while(remaining){
+                let chunk = remaining;
+                while(chunk.length > 1 && ctx.measureText(chunk).width > available){
+                  chunk = chunk.slice(0, -1);
+                }
+                result.push(chunk);
+                remaining = remaining.slice(chunk.length);
+              }
+              current = '';
             } else {
               current = test;
             }
