@@ -4675,7 +4675,6 @@ async function renderDesignToCanvas(scale=2){
           roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
           ctx.clip();
           const blur = Number(l.blur || 0);
-          ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
           const sw = img.width || l.w;
           const sh = img.height || l.h;
           const scaleCover = Math.max(l.w / sw, l.h / sh);
@@ -4687,7 +4686,21 @@ async function renderDesignToCanvas(scale=2){
           const cy = l.y + l.h/2;
           ctx.translate(cx, cy);
           ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
+          if(blur > 0){
+            // Canvas temporal para blur sin interferencia del scale global
+            const blurPad = Math.ceil(blur * 3);
+            const tmp = document.createElement('canvas');
+            tmp.width = Math.round(dw + blurPad * 2);
+            tmp.height = Math.round(dh + blurPad * 2);
+            const tctx = tmp.getContext('2d');
+            tctx.filter = `blur(${blur}px)`;
+            tctx.drawImage(img, blurPad, blurPad, dw, dh);
+            tctx.filter = 'none';
+            ctx.drawImage(tmp, dx - cx - blurPad, dy - cy - blurPad, tmp.width, tmp.height);
+          } else {
+            ctx.filter = 'none';
+            ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
+          }
           ctx.restore();
         }
       }
@@ -4737,12 +4750,27 @@ async function renderDesignToCanvas(scale=2){
       const img = await loadImgForExport(l.src);
       if(img){
         const blur = Number(l.blur || 0);
-        ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
         const cx = l.x + l.w/2;
         const cy = l.y + l.h/2;
         ctx.translate(cx, cy);
         ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-        ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        if(blur > 0){
+          // Dibujar en canvas temporal para aplicar blur sin interferencia del scale global
+          // ctx.filter + ctx.scale acumulado causa que el blur se aplique incorrectamente
+          const blurPad = Math.ceil(blur * 3); // padding para que el blur no se corte en los bordes
+          const tmp = document.createElement('canvas');
+          tmp.width = Math.round(l.w + blurPad * 2);
+          tmp.height = Math.round(l.h + blurPad * 2);
+          const tctx = tmp.getContext('2d');
+          tctx.filter = `blur(${blur}px)`;
+          tctx.drawImage(img, blurPad, blurPad, l.w, l.h);
+          tctx.filter = 'none';
+          // Dibujar el canvas temporal centrado (compensar el padding)
+          ctx.drawImage(tmp, -l.w/2 - blurPad, -l.h/2 - blurPad, tmp.width, tmp.height);
+        } else {
+          ctx.filter = 'none';
+          ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        }
       }
       ctx.restore();
       continue;
