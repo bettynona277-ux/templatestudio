@@ -1751,7 +1751,7 @@ function restoreSnapshot(snap){
   });
 
   const data = JSON.parse(snap);
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
   layers = [];
   groups = {};
   gCtr = 0;
@@ -2314,7 +2314,7 @@ async function processPSD(file){
 
 async function loadPSDData(data){
   // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
   layers=[]; lCtr=0;
   // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
   cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
@@ -3270,9 +3270,10 @@ function startMarquee(ev){
     sx:ev.clientX-cr.left,
     sy:ev.clientY-cr.top
   };
-  if(!marqueeEl){
+  if(!marqueeEl || !marqueeEl.isConnected){
     marqueeEl=document.createElement('div');
-    marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;';
+    marqueeEl.id='marquee-el';
+    marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;display:none;';
     cvs.appendChild(marqueeEl);
   }
   marqueeEl.style.display='block';
@@ -4834,7 +4835,6 @@ async function downloadPNG(){
     // Ocultar handles y hints de selección antes de capturar
     document.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.style.display='none');
     const prevTransform = cvs.style.transform;
-    cvs._prevTransform = prevTransform; // guardarlo para el finally
     cvs.style.transform = 'scale(1)';
     await new Promise(r=>setTimeout(r,60));
 
@@ -4895,6 +4895,9 @@ async function downloadPNG(){
       c = await renderDesignToCanvas(exportScale);
     }
 
+    cvs.style.transform = prevTransform;
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='');
+
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
@@ -4904,10 +4907,6 @@ async function downloadPNG(){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
-    // SIEMPRE restaurar transform y handles, incluso si falló el export
-    cvs.style.transform = cvs._prevTransform || `scale(${zoom_})`;
-    delete cvs._prevTransform;
-    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.removeProperty('display'));
     if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
