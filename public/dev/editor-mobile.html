@@ -229,7 +229,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
   </div>
   <div class="topbar-actions">
-    <button class="tbtn tbtn-ghost" onclick="window.location.href='/dev/index-mobile.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
+    <button class="tbtn tbtn-ghost" onclick="window.location.href='index-mobile.html'" title="Mis diseños" style="width:36px;min-width:36px;padding:0;justify-content:center;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     </button>
     <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
@@ -1346,16 +1346,52 @@ async function doSave(){
   let thumb='';
   try{
     desel();
-    const savedT=cvs.style.transform; cvs.style.transform='scale(1)';
-    await new Promise(r=>setTimeout(r,60));
+    await document.fonts.ready;
     const cw=parseInt(cvs.style.width)||800;
+    const ch=parseInt(cvs.style.height)||800;
     const sc=Math.min(1,320/cw);
-    const tc=await html2canvas(cvs,{scale:sc,useCORS:true,allowTaint:true,backgroundColor:'#000',logging:false,width:cw,height:parseInt(cvs.style.height)||800});
-    cvs.style.transform=savedT;
+
+    // iframe aislado para miniatura
+    const iframe2 = document.createElement('iframe');
+    iframe2.style.cssText = `position:fixed;left:-9999px;top:0;width:${cw}px;height:${ch}px;border:none;z-index:-1;`;
+    document.body.appendChild(iframe2);
+    const iDoc2 = iframe2.contentDocument;
+    iDoc2.open();
+    iDoc2.write(`<!DOCTYPE html><html><head><style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{width:${cw}px;height:${ch}px;overflow:hidden;background:#000;}
+      .cel{position:absolute;}
+      .txt-inner{white-space:pre-wrap;word-break:break-word;padding:2px;width:100%;height:100%;display:block;}
+      img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+      .frame-clip{position:absolute;inset:0;overflow:hidden;}
+      .frame-clip img{object-fit:cover;width:100%;height:100%;}
+    </style>
+    ${[...document.querySelectorAll('link[rel="stylesheet"],style')].filter(s=>
+      !s.textContent?.includes('color-mix') && !s.textContent?.includes('oklch')
+    ).map(s=>s.outerHTML).join('')}
+    </head><body></body></html>`);
+    iDoc2.close();
+    const clone2 = cvs.cloneNode(true);
+    clone2.style.cssText = `position:relative;width:${cw}px;height:${ch}px;transform:none;left:0;top:0;`;
+    iDoc2.body.appendChild(clone2);
+    await new Promise(r=>setTimeout(r,100));
+
+    let tc;
+    try{
+      tc = await html2canvas(iDoc2.body,{scale:sc,useCORS:true,allowTaint:true,backgroundColor:'#000000',logging:false,width:cw,height:ch,x:0,y:0,scrollX:0,scrollY:0,windowWidth:cw,windowHeight:ch});
+    } finally {
+      document.body.removeChild(iframe2);
+    }
+
     const b64=tc.toDataURL('image/jpeg',0.8);
     st.textContent='Subiendo...';
+    // Convertir a Blob para Cloudinary (no string base64)
+    const arr=b64.split(','), mime=arr[0].match(/:(.*?);/)[1];
+    const bStr=atob(arr[1]); const u8=new Uint8Array(bStr.length);
+    for(let i=0;i<bStr.length;i++) u8[i]=bStr.charCodeAt(i);
     const fd=new FormData();
-    fd.append('file',b64);fd.append('upload_preset',CLOUDINARY_PRESET);fd.append('folder','templatestudio');
+    fd.append('file',new Blob([u8],{type:mime}),'thumb.jpg');
+    fd.append('upload_preset',CLOUDINARY_PRESET);fd.append('folder','templatestudio');
     const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
     if(res.ok){ const d=await res.json(); thumb=d.secure_url||''; }
   }catch(e){ console.warn('Thumb error:',e.message); }
@@ -1475,26 +1511,61 @@ async function downloadPNG(){
   const btn = document.querySelector('[onclick="downloadPNG()"]');
   if(btn){ btn.disabled=true; }
   toast('⏳ Generando PNG...');
-  await new Promise(r=>setTimeout(r,80));
-  const savedTransform = cvs.style.transform;
-  cvs.style.transform = 'none';
-  await new Promise(r=>setTimeout(r,60));
   try{
+    await document.fonts.ready;
+    await new Promise(r=>setTimeout(r,200));
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
-    const c = await html2canvas(cvs,{
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: null,
-      logging: false,
-      width: canvasW,
-      height: canvasH,
-      windowWidth: canvasW,
-      windowHeight: canvasH,
-    });
+    const exportScale = 2;
+
+    // iframe aislado sin stylesheets con color-mix/oklch
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;border:none;z-index:-1;`;
+    document.body.appendChild(iframe);
+    const iDoc = iframe.contentDocument;
+    iDoc.open();
+    iDoc.write(`<!DOCTYPE html><html><head><style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{width:${canvasW}px;height:${canvasH}px;overflow:hidden;background:#000;}
+      .cel{position:absolute;}
+      .txt-inner{white-space:pre-wrap;word-break:break-word;padding:2px;width:100%;height:100%;display:block;}
+      img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+      .shape-fill-img{object-fit:fill !important;}
+      .frame-clip{position:absolute;inset:0;overflow:hidden;}
+      .frame-clip img{object-fit:cover;width:100%;height:100%;}
+    </style>
+    ${[...document.querySelectorAll('link[rel="stylesheet"],style')].filter(s=>
+      !s.textContent?.includes('color-mix') && !s.textContent?.includes('oklch')
+    ).map(s=>s.outerHTML).join('')}
+    </head><body></body></html>`);
+    iDoc.close();
+
+    const clone = cvs.cloneNode(true);
+    clone.style.cssText = `position:relative;width:${canvasW}px;height:${canvasH}px;transform:none;left:0;top:0;`;
+    clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
+    iDoc.body.appendChild(clone);
+    await new Promise(r=>setTimeout(r,150));
+
+    let c;
+    try{
+      c = await html2canvas(iDoc.body, {
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#000000',
+        logging: false,
+        width: canvasW,
+        height: canvasH,
+        x: 0, y: 0, scrollX: 0, scrollY: 0,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+      });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+
     const a = document.createElement('a');
-    a.download = 'diseño.png';
+    a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
     a.click();
     toast('✓ PNG descargado');
@@ -1502,7 +1573,6 @@ async function downloadPNG(){
     console.error('PNG error:', e);
     toast('✗ Error al exportar');
   }finally{
-    cvs.style.transform = savedTransform;
     if(btn){ btn.disabled=false; }
   }
 }
@@ -1531,7 +1601,7 @@ window.addEventListener('load', async()=>{
     hideLoad();
     document.getElementById('load-text').textContent='';
     toast('✗ Sin sesión. Vuelve al inicio.');
-    setTimeout(()=>window.location.href='/dev/index-mobile.html',2000);
+    setTimeout(()=>window.location.href='index-mobile.html',2000);
     return;
   }
 
