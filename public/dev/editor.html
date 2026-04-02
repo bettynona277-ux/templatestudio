@@ -4839,9 +4839,24 @@ async function downloadPNG(){
 
     let c;
     try{
-      // html2canvas sobre #cvs: captura el DOM exacto (fuentes, estilos, imágenes)
-      // Solo captura el canvas del diseño, no el panel — no toca color-mix ni oklch
-      c = await html2canvas(cvs, {
+      // Clonar #cvs en un iframe aislado para que html2canvas lo capture
+      // sin interferencia del zoom, scroll ni layout del editor
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;overflow:hidden;z-index:-1;`;
+      const clone = cvs.cloneNode(true);
+      clone.style.transform = 'none';
+      clone.style.position = 'relative';
+      clone.style.left = '0';
+      clone.style.top = '0';
+      clone.style.width = canvasW + 'px';
+      clone.style.height = canvasH + 'px';
+      // Quitar handles del clon
+      clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+      await new Promise(r=>setTimeout(r,80));
+
+      c = await html2canvas(clone, {
         scale: exportScale,
         useCORS: true,
         allowTaint: true,
@@ -4855,8 +4870,8 @@ async function downloadPNG(){
         scrollY: 0,
         windowWidth: canvasW,
         windowHeight: canvasH,
-        ignoreElements: el => el.classList.contains('rh') || el.classList.contains('sz-hint')
       });
+      document.body.removeChild(wrapper);
     } catch(h2cErr){
       console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
       c = await renderDesignToCanvas(exportScale);
