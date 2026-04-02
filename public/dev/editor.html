@@ -4824,21 +4824,47 @@ async function downloadPNG(){
   const btn = document.getElementById('btn-png');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
   try{
-    // Esperar que todas las fuentes estén listas
     await document.fonts.ready;
-    // Forzar carga de fuentes custom dibujando texto invisible en un canvas temporal
-    const warmupCanvas = document.createElement('canvas');
-    warmupCanvas.width = 10; warmupCanvas.height = 10;
-    const wctx = warmupCanvas.getContext('2d');
-    const customFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
-    for(const f of customFonts){
-      wctx.font = `400 12px "${f}"`;
-      wctx.fillText('A', -100, -100);
-      // Esperar a que el navegador registre el uso de la fuente
-      await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
+    await new Promise(r=>setTimeout(r,200));
+
+    const canvasW = parseInt(cvs.style.width) || 1080;
+    const canvasH = parseInt(cvs.style.height) || 1080;
+    const exportScale = 2;
+
+    // Ocultar handles y hints de selección antes de capturar
+    document.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.style.display='none');
+    const prevTransform = cvs.style.transform;
+    cvs.style.transform = 'scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+
+    let c;
+    try{
+      // html2canvas sobre #cvs: captura el DOM exacto (fuentes, estilos, imágenes)
+      // Solo captura el canvas del diseño, no el panel — no toca color-mix ni oklch
+      c = await html2canvas(cvs, {
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        logging: false,
+        width: canvasW,
+        height: canvasH,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+        ignoreElements: el => el.classList.contains('rh') || el.classList.contains('sz-hint')
+      });
+    } catch(h2cErr){
+      console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
+      c = await renderDesignToCanvas(exportScale);
     }
-    await new Promise(r=>setTimeout(r,300));
-    const c = await renderDesignToCanvas(2);
+
+    cvs.style.transform = prevTransform;
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='');
+
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
