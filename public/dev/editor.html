@@ -4930,6 +4930,18 @@ async function downloadPNG(){
       const clone = cvs.cloneNode(true);
       clone.style.cssText = `position:relative;width:${canvasW}px;height:${canvasH}px;transform:none;left:0;top:0;`;
       clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
+      // Serializar estilos computados de imágenes (blur, transform, filter)
+      // cloneNode copia inline styles pero el iframe puede resetear computados
+      const origImgs = cvs.querySelectorAll('img');
+      const cloneImgs = clone.querySelectorAll('img');
+      origImgs.forEach((origImg, i) => {
+        if(!cloneImgs[i]) return;
+        const computed = window.getComputedStyle(origImg);
+        // Preservar filter (blur) y transform (flip) explícitamente
+        if(origImg.style.filter) cloneImgs[i].style.filter = origImg.style.filter;
+        if(origImg.style.transform) cloneImgs[i].style.transform = origImg.style.transform;
+        if(origImg.style.transformOrigin) cloneImgs[i].style.transformOrigin = origImg.style.transformOrigin;
+      });
       iDoc.body.appendChild(clone);
       await new Promise(r=>setTimeout(r,150));
 
