@@ -1786,9 +1786,6 @@ function restoreSnapshot(snap){
   });
 
   desel();
-  // Limpiar display inline de handles — puede quedar 'none' si se interrumpió un export
-  document.querySelectorAll('.cel .rh, .sz-hint').forEach(rh => rh.style.removeProperty('display'));
-  cvs.classList.remove('multi-active');
   renderList();
   _suppressHistory = false;
 }
@@ -4837,6 +4834,7 @@ async function downloadPNG(){
     // Ocultar handles y hints de selección antes de capturar
     document.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.style.display='none');
     const prevTransform = cvs.style.transform;
+    cvs._prevTransform = prevTransform; // guardarlo para el finally
     cvs.style.transform = 'scale(1)';
     await new Promise(r=>setTimeout(r,60));
 
@@ -4897,9 +4895,6 @@ async function downloadPNG(){
       c = await renderDesignToCanvas(exportScale);
     }
 
-    cvs.style.transform = prevTransform;
-    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='');
-
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
@@ -4909,6 +4904,10 @@ async function downloadPNG(){
     console.error('PNG export error:', e);
     showToast('✗ Error al exportar PNG');
   }finally{
+    // SIEMPRE restaurar transform y handles, incluso si falló el export
+    cvs.style.transform = cvs._prevTransform || `scale(${zoom_})`;
+    delete cvs._prevTransform;
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.removeProperty('display'));
     if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
   }
 }
