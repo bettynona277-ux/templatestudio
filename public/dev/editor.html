@@ -1373,43 +1373,14 @@ input[type=range]{filter:none !important;}
           </div>
         </div>
 
-        <div style="margin-bottom:10px;">
-          <div class="mini-lbl" style="margin-bottom:6px;">Sombra paralela</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
-            <div>
-              <div class="mini-lbl">Desenfoque</div>
-              <div style="display:flex;align-items:center;gap:4px;">
-                <input type="range" id="pp-text-shadow" min="0" max="40" step="1" style="flex:1;" oninput="updTextShadowAll()">
-                <span id="pp-text-shadow-lbl" style="font-size:0.7rem;color:var(--muted);min-width:24px;">0</span>
-              </div>
-            </div>
-            <div>
-              <div class="mini-lbl">Opacidad</div>
-              <div style="display:flex;align-items:center;gap:4px;">
-                <input type="range" id="pp-text-shadow-op" min="0" max="100" value="45" step="1" style="flex:1;" oninput="updTextShadowAll()">
-                <span id="pp-text-shadow-op-lbl" style="font-size:0.7rem;color:var(--muted);min-width:28px;">45%</span>
-              </div>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
-            <div>
-              <div class="mini-lbl">Horizontal (X)</div>
-              <div style="display:flex;align-items:center;gap:4px;">
-                <input type="range" id="pp-text-shadow-x" min="-40" max="40" value="0" step="1" style="flex:1;" oninput="updTextShadowAll()">
-                <span id="pp-text-shadow-x-lbl" style="font-size:0.7rem;color:var(--muted);min-width:28px;">0</span>
-              </div>
-            </div>
-            <div>
-              <div class="mini-lbl">Vertical (Y)</div>
-              <div style="display:flex;align-items:center;gap:4px;">
-                <input type="range" id="pp-text-shadow-y" min="-40" max="40" value="2" step="1" style="flex:1;" oninput="updTextShadowAll()">
-                <span id="pp-text-shadow-y-lbl" style="font-size:0.7rem;color:var(--muted);min-width:28px;">2</span>
-              </div>
-            </div>
+        <div class="panel-grid2" style="margin-bottom:10px;">
+          <div>
+            <div class="mini-lbl">Sombra</div>
+            <input type="range" id="pp-text-shadow" min="0" max="30" step="1" oninput="updTextShadow(this.value)">
           </div>
           <div>
             <div class="mini-lbl">Color sombra</div>
-            <input type="color" id="pp-text-shadow-c" value="#000000" oninput="updTextShadowAll()" style="width:100%;height:32px;border-radius:6px;">
+            <input type="color" id="pp-text-shadow-c" value="#000000" oninput="updTextShadowColor(this.value)" style="width:100%;height:32px;border-radius:6px;">
           </div>
         </div>
 
@@ -3965,16 +3936,8 @@ function syncP(){
     const lh=document.getElementById('pp-lh'); if(lh)lh.value=l.tp.lineHeight||1.2;
     const sc=document.getElementById('pp-stroke-c'); if(sc)sc.value=l.tp.strokeColor||'#000000';
     const sw=document.getElementById('pp-stroke-w'); if(sw)sw.value=l.tp.strokeWidth||0;
-    const ts=document.getElementById('pp-text-shadow'); if(ts) ts.value=l.tp.shadowBlur||0;
-    const tsOp=document.getElementById('pp-text-shadow-op'); if(tsOp) tsOp.value=l.tp.shadowOpacity??45;
-    const tsX=document.getElementById('pp-text-shadow-x'); if(tsX) tsX.value=l.tp.shadowOffsetX??0;
-    const tsY=document.getElementById('pp-text-shadow-y'); if(tsY) tsY.value=l.tp.shadowOffsetY??2;
-    const tsc=document.getElementById('pp-text-shadow-c'); if(tsc) tsc.value=(l.tp.shadowColor||'#000000').startsWith('#')?l.tp.shadowColor:'#000000';
-    // Actualizar labels
-    const tsLbl=document.getElementById('pp-text-shadow-lbl'); if(tsLbl) tsLbl.textContent=l.tp.shadowBlur||0;
-    const tsOpLbl=document.getElementById('pp-text-shadow-op-lbl'); if(tsOpLbl) tsOpLbl.textContent=(l.tp.shadowOpacity??45)+'%';
-    const tsXLbl=document.getElementById('pp-text-shadow-x-lbl'); if(tsXLbl) tsXLbl.textContent=l.tp.shadowOffsetX??0;
-    const tsYLbl=document.getElementById('pp-text-shadow-y-lbl'); if(tsYLbl) tsYLbl.textContent=l.tp.shadowOffsetY??2;
+    const ts=document.getElementById('pp-text-shadow'); if(ts)ts.value=l.tp.shadowBlur||0;
+    const tsc=document.getElementById('pp-text-shadow-c'); if(tsc)tsc.value=(l.tp.shadowColor||'#000000').startsWith('#')?l.tp.shadowColor:'#000000';
     document.getElementById('fmt-b')?.classList.toggle('active',(l.tp.fontWeight||'400')>='700');
     document.getElementById('fmt-i')?.classList.toggle('active',!!l.tp.italic);
     document.getElementById('fmt-u')?.classList.toggle('active',!!l.tp.underline);
@@ -4142,10 +4105,7 @@ function applyTextStyles(layer){
   const drop = parseInt(tp.shadowBlur||0);
   if(drop > 0){
     const shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
-    const sx = tp.shadowOffsetX ?? 0;
-    const sy = tp.shadowOffsetY ?? Math.max(1,Math.round(drop*0.18));
-    const sblur = Math.max(1, drop*0.8);
-    textShadowParts.push(`${sx}px ${sy}px ${sblur}px ${shadowColor}`);
+    textShadowParts.push(`0 ${Math.max(1,Math.round(drop*0.18))}px ${Math.max(3,drop*0.8)}px ${shadowColor}`);
   }
   d.style.webkitTextStroke = '';
   d.style.textShadow = textShadowParts.join(', ');
@@ -4169,25 +4129,6 @@ function updStroke(){
   l.tp.strokeWidth=parseInt(document.getElementById('pp-stroke-w').value)||0;
   applyTextStyles(l);
   snapshotState();
-}
-function updTextShadowAll(){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  const blur = parseInt(document.getElementById('pp-text-shadow')?.value)||0;
-  const op = parseInt(document.getElementById('pp-text-shadow-op')?.value)??45;
-  const x = parseInt(document.getElementById('pp-text-shadow-x')?.value)||0;
-  const y = parseInt(document.getElementById('pp-text-shadow-y')?.value)||0;
-  const hex = document.getElementById('pp-text-shadow-c')?.value||'#000000';
-  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
-  l.tp.shadowBlur = blur;
-  l.tp.shadowOffsetX = x;
-  l.tp.shadowOffsetY = y;
-  l.tp.shadowOpacity = op;
-  l.tp.shadowColor = `rgba(${r},${g},${b},${(op/100).toFixed(2)})`;
-  const lbl = document.getElementById('pp-text-shadow-lbl'); if(lbl) lbl.textContent = blur;
-  const opLbl = document.getElementById('pp-text-shadow-op-lbl'); if(opLbl) opLbl.textContent = op+'%';
-  const xLbl = document.getElementById('pp-text-shadow-x-lbl'); if(xLbl) xLbl.textContent = x;
-  const yLbl = document.getElementById('pp-text-shadow-y-lbl'); if(yLbl) yLbl.textContent = y;
-  applyTextStyles(l); snapshotState();
 }
 function updTextShadow(v){
   const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
@@ -4398,7 +4339,8 @@ function setClientUI(){
   document.getElementById('btn-save').style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
-  document.querySelector('.add-text-btn').style.display='none';
+  // Añadir texto habilitado para clientes
+  // document.querySelector('.add-text-btn').style.display='none';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
   const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='none';
   // Show client rename button
@@ -4675,6 +4617,7 @@ async function renderDesignToCanvas(scale=2){
           roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
           ctx.clip();
           const blur = Number(l.blur || 0);
+          ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
           const sw = img.width || l.w;
           const sh = img.height || l.h;
           const scaleCover = Math.max(l.w / sw, l.h / sh);
@@ -4686,28 +4629,7 @@ async function renderDesignToCanvas(scale=2){
           const cy = l.y + l.h/2;
           ctx.translate(cx, cy);
           ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          if(blur > 0){
-            // Canvas temporal en resolución final para blur correcto
-            const blurScaled = blur * scale;
-            const blurPad = Math.ceil(blurScaled * 3);
-            const dwS = Math.round(dw * scale);
-            const dhS = Math.round(dh * scale);
-            const tmp = document.createElement('canvas');
-            tmp.width = dwS + blurPad * 2;
-            tmp.height = dhS + blurPad * 2;
-            const tctx = tmp.getContext('2d');
-            tctx.filter = `blur(${blurScaled}px)`;
-            tctx.drawImage(img, blurPad, blurPad, dwS, dhS);
-            // Dibujar sin scale acumulado
-            ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.globalAlpha = l.opacity ?? 1;
-            ctx.drawImage(tmp, Math.round(dx * scale) - blurPad, Math.round(dy * scale) - blurPad);
-            ctx.restore();
-          } else {
-            ctx.filter = 'none';
-            ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
-          }
+          ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
           ctx.restore();
         }
       }
@@ -4757,41 +4679,12 @@ async function renderDesignToCanvas(scale=2){
       const img = await loadImgForExport(l.src);
       if(img){
         const blur = Number(l.blur || 0);
-        if(blur > 0){
-          // Canvas temporal en resolución final (scale aplicado) para blur correcto
-          const blurScaled = blur * scale;
-          const blurPad = Math.ceil(blurScaled * 3);
-          const wS = Math.round(l.w * scale);
-          const hS = Math.round(l.h * scale);
-          const tmp = document.createElement('canvas');
-          tmp.width = wS + blurPad * 2;
-          tmp.height = hS + blurPad * 2;
-          const tctx = tmp.getContext('2d');
-          if(l.flipX || l.flipY){
-            tctx.translate(blurPad + (l.flipX ? wS : 0), blurPad + (l.flipY ? hS : 0));
-            tctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-            tctx.filter = `blur(${blurScaled}px)`;
-            tctx.drawImage(img, 0, 0, wS, hS);
-          } else {
-            tctx.filter = `blur(${blurScaled}px)`;
-            tctx.drawImage(img, blurPad, blurPad, wS, hS);
-          }
-          // Dibujar en el canvas principal SIN scale extra (el tmp ya está en resolución final)
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0); // reset transform
-          const dx = Math.round(l.x * scale) - blurPad;
-          const dy = Math.round(l.y * scale) - blurPad;
-          ctx.globalAlpha = l.opacity ?? 1;
-          ctx.drawImage(tmp, dx, dy);
-          ctx.restore();
-        } else {
-          const cx = l.x + l.w/2;
-          const cy = l.y + l.h/2;
-          ctx.translate(cx, cy);
-          ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          ctx.filter = 'none';
-          ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
-        }
+        ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
+        const cx = l.x + l.w/2;
+        const cy = l.y + l.h/2;
+        ctx.translate(cx, cy);
+        ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+        ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
       }
       ctx.restore();
       continue;
@@ -4836,43 +4729,7 @@ async function renderDesignToCanvas(scale=2){
       let rawText = String(tp.text || '');
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
-
-      // Word-wrap: replicar CSS word-break:break-word en Canvas
-      // El DOM tiene padding:2px en .txt-inner → restar 4px del ancho total
-      const wrapTextToWidth = (text, maxWidth, spacing) => {
-        const available = maxWidth - 4; // compensar padding:2px de .txt-inner
-        if(available <= 0) return [text];
-        const hardLines = text.split('\n');
-        const result = [];
-        for(const hard of hardLines){
-          if(hard === ''){ result.push(''); continue; }
-          const words = hard.split(' ');
-          let current = '';
-          for(const word of words){
-            const test = current ? current + ' ' + word : word;
-            const testW = ctx.measureText(test).width + Math.max(0, test.length - 1) * spacing;
-            if(testW > available && current){
-              result.push(current);
-              // word-break: break-word — si la palabra sola no cabe, cortarla
-              let remaining = word;
-              while(remaining){
-                let chunk = remaining;
-                while(chunk.length > 1 && ctx.measureText(chunk).width > available){
-                  chunk = chunk.slice(0, -1);
-                }
-                result.push(chunk);
-                remaining = remaining.slice(chunk.length);
-              }
-              current = '';
-            } else {
-              current = test;
-            }
-          }
-          if(current) result.push(current);
-        }
-        return result;
-      };
-      const lines = wrapTextToWidth(rawText, l.w, Number(tp.letterSpacing || 0));
+      const lines = rawText.split('\n');
 
       const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
       const letterSpacing = Number(tp.letterSpacing || 0);
@@ -4881,8 +4738,6 @@ async function renderDesignToCanvas(scale=2){
         const drawOutlinedFill = (txt, px, py)=>{
           const sw = Number(tp.strokeWidth||0);
           const shadow = Number(tp.shadowBlur||0);
-          const shadowX = tp.shadowOffsetX ?? 0;
-          const shadowY = tp.shadowOffsetY ?? Math.max(1, Math.round(shadow*0.18));
           if(sw > 0){
             ctx.save();
             ctx.lineJoin = 'round';
@@ -4896,9 +4751,8 @@ async function renderDesignToCanvas(scale=2){
             // Dibujar sombra primero
             ctx.save();
             ctx.shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
-            ctx.shadowBlur = Math.max(1, shadow*0.8);
-            ctx.shadowOffsetX = shadowX;
-            ctx.shadowOffsetY = shadowY;
+            ctx.shadowBlur = Math.max(3, shadow*0.8);
+            ctx.shadowOffsetY = Math.max(1, Math.round(shadow*0.18));
             ctx.fillText(txt, px, py);
             ctx.restore();
             // Dibujar fill encima sin sombra
@@ -4984,8 +4838,62 @@ async function downloadPNG(){
     cvs.style.transform = 'scale(1)';
     await new Promise(r=>setTimeout(r,60));
 
-    // Renderer manual: word-wrap correcto + blur + flip + sombras
-    const c = await renderDesignToCanvas(exportScale);
+    let c;
+    try{
+      // Crear iframe aislado — tiene su propio DOM sin los stylesheets del editor
+      // que contienen color-mix/oklch que html2canvas no soporta
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;border:none;z-index:-1;`;
+      document.body.appendChild(iframe);
+      const iDoc = iframe.contentDocument;
+
+      // Inyectar solo los estilos críticos para que el texto se vea igual
+      iDoc.open();
+      iDoc.write(`<!DOCTYPE html><html><head><style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{width:${canvasW}px;height:${canvasH}px;overflow:hidden;background:#000;}
+        .cel{position:absolute;}
+        .txt-inner{white-space:pre-wrap;word-break:break-word;padding:2px;width:100%;height:100%;display:block;}
+        img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+        .shape-fill-img{object-fit:fill !important;}
+        .frame-clip{position:absolute;inset:0;overflow:hidden;}
+        .frame-clip img{object-fit:cover;width:100%;height:100%;}
+      </style>
+      ${[...document.querySelectorAll('link[rel="stylesheet"],style')].filter(s=>
+        !s.textContent?.includes('color-mix') && !s.textContent?.includes('oklch')
+      ).map(s=>s.outerHTML).join('')}
+      </head><body></body></html>`);
+      iDoc.close();
+
+      // Clonar cvs al iframe
+      const clone = cvs.cloneNode(true);
+      clone.style.cssText = `position:relative;width:${canvasW}px;height:${canvasH}px;transform:none;left:0;top:0;`;
+      clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
+      iDoc.body.appendChild(clone);
+      await new Promise(r=>setTimeout(r,150));
+
+      c = await html2canvas(iDoc.body, {
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#000000',
+        logging: false,
+        width: canvasW,
+        height: canvasH,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+      });
+      document.body.removeChild(iframe);
+    } catch(h2cErr){
+      console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
+      // Limpiar iframe si existe
+      document.querySelector('iframe[style*="-9999px"]')?.remove();
+      c = await renderDesignToCanvas(exportScale);
+    }
 
     cvs.style.transform = prevTransform;
     document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='');
