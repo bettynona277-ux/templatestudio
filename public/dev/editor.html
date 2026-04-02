@@ -4839,28 +4839,43 @@ async function downloadPNG(){
 
     let c;
     try{
-      // Clonar #cvs en un iframe aislado para que html2canvas lo capture
-      // sin interferencia del zoom, scroll ni layout del editor
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;overflow:hidden;z-index:-1;`;
-      const clone = cvs.cloneNode(true);
-      clone.style.transform = 'none';
-      clone.style.position = 'relative';
-      clone.style.left = '0';
-      clone.style.top = '0';
-      clone.style.width = canvasW + 'px';
-      clone.style.height = canvasH + 'px';
-      // Quitar handles del clon
-      clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
-      wrapper.appendChild(clone);
-      document.body.appendChild(wrapper);
-      await new Promise(r=>setTimeout(r,80));
+      // Crear iframe aislado — tiene su propio DOM sin los stylesheets del editor
+      // que contienen color-mix/oklch que html2canvas no soporta
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;border:none;z-index:-1;`;
+      document.body.appendChild(iframe);
+      const iDoc = iframe.contentDocument;
 
-      c = await html2canvas(clone, {
+      // Inyectar solo los estilos críticos para que el texto se vea igual
+      iDoc.open();
+      iDoc.write(`<!DOCTYPE html><html><head><style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{width:${canvasW}px;height:${canvasH}px;overflow:hidden;background:#000;}
+        .cel{position:absolute;}
+        .txt-inner{white-space:pre-wrap;word-break:break-word;padding:2px;width:100%;height:100%;display:block;}
+        img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+        .shape-fill-img{object-fit:fill !important;}
+        .frame-clip{position:absolute;inset:0;overflow:hidden;}
+        .frame-clip img{object-fit:cover;width:100%;height:100%;}
+      </style>
+      ${[...document.querySelectorAll('link[rel="stylesheet"],style')].filter(s=>
+        !s.textContent?.includes('color-mix') && !s.textContent?.includes('oklch')
+      ).map(s=>s.outerHTML).join('')}
+      </head><body></body></html>`);
+      iDoc.close();
+
+      // Clonar cvs al iframe
+      const clone = cvs.cloneNode(true);
+      clone.style.cssText = `position:relative;width:${canvasW}px;height:${canvasH}px;transform:none;left:0;top:0;`;
+      clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
+      iDoc.body.appendChild(clone);
+      await new Promise(r=>setTimeout(r,150));
+
+      c = await html2canvas(iDoc.body, {
         scale: exportScale,
         useCORS: true,
         allowTaint: true,
-        backgroundColor: null,
+        backgroundColor: '#000000',
         logging: false,
         width: canvasW,
         height: canvasH,
@@ -4871,9 +4886,11 @@ async function downloadPNG(){
         windowWidth: canvasW,
         windowHeight: canvasH,
       });
-      document.body.removeChild(wrapper);
+      document.body.removeChild(iframe);
     } catch(h2cErr){
       console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
+      // Limpiar iframe si existe
+      document.querySelector('iframe[style*="-9999px"]')?.remove();
       c = await renderDesignToCanvas(exportScale);
     }
 
