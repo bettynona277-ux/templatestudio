@@ -4307,7 +4307,7 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
 // PREVIEW
 function goBack(){
   const p=new URLSearchParams(window.location.search);
-  if(p.get('mode')==='client') window.location.href='/dev/index.html';
+  if(p.get('mode')==='client') window.location.href='index.html';
   else window.history.back();
 }
 function togglePreview(){
@@ -4494,7 +4494,7 @@ async function saveClientDesign(){
   }catch(e){
     if(e.message && e.message.includes('permission')){
       showToast('✗ Sesión expirada. Volviendo al inicio...');
-      setTimeout(()=>{ window.location.href='/dev/index.html'; }, 2000);
+      setTimeout(()=>{ window.location.href='index.html'; }, 2000);
     } else {
       showToast('✗ Error: '+e.message);
     }
@@ -4537,19 +4537,43 @@ async function renderDesignToCanvas(scale=2){
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // Warm-up: dibujar cada fuente usada en el canvas antes de renderizar
-  // Esto fuerza al navegador a activar las fuentes en el contexto 2D
+  // Esperar que TODAS las fuentes estén listas antes de renderizar
+  // Esto evita que el canvas use fuentes del sistema como fallback
+  try{ await document.fonts.ready; }catch(_){}
+
+  // Warm-up: forzar activación de cada fuente en el contexto Canvas 2D
+  // document.fonts.ready garantiza que están cargadas, pero el contexto 2D
+  // necesita dibujarlas al menos una vez para activarlas correctamente
   const fontWarmups = [...new Set(layers.filter(l=>l.tp?.fontFamily).map(l=>{
-    const fw = l.tp.fontWeight||'400';
+    const fw = (l.tp.fontWeight||'400');
     const fi = l.tp.italic?'italic':'normal';
-    const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'');
-    return `${fi} ${fw} 12px ${ff}`;
+    const ff = (l.tp.fontFamily||'Poppins').replace(/'/g,'').split(',')[0].trim();
+    // Fuentes de un solo peso siempre usan 400
+    const singleW = ['Bebas Neue','Akira Expanded','Horizon'];
+    const finalW = singleW.includes(ff) ? '400' : fw;
+    return `${fi} ${finalW} 12px "${ff}"`;
   }))];
-  for(const f of fontWarmups){
-    ctx.font = f;
+
+  // Verificar que cada fuente esté en document.fonts antes de usarla
+  for(const fontStr of fontWarmups){
+    try{
+      // check() retorna true si la fuente está disponible
+      const ready = document.fonts.check(fontStr);
+      if(!ready){
+        // Intentar cargarla explícitamente
+        const match = fontStr.match(/(\d+)px "([^"]+)"/);
+        if(match){
+          await document.fonts.load(fontStr).catch(()=>{});
+        }
+      }
+    }catch(_){}
+    // Dibujar fuera del área visible para activar en el contexto 2D
+    ctx.font = fontStr;
     ctx.fillStyle = 'rgba(0,0,0,0)';
-    ctx.fillText(' ', -100, -100); // fuera del canvas visible
+    ctx.fillText('ABCabc123', -500, -500);
   }
+  // Pausa mínima para que el motor gráfico procese las fuentes
+  await new Promise(r=>setTimeout(r,60));
 
   const visibleLayers = [...layers]
     .filter(l => l && l.visible !== false)
@@ -4759,11 +4783,13 @@ async function renderDesignToCanvas(scale=2){
       };
 
       const anchorX = tp.align === 'center' ? l.x + l.w/2 : tp.align === 'right' ? l.x + l.w : l.x;
-      // CSS line-height agrega half-leading arriba/abajo — compensar igual que en editor móvil
+      // Calcular offset Y igual que CSS: textBaseline='top' + compensar half-leading
+      // El DOM usa line-height con half-leading arriba y abajo del texto
       const halfLeading = (lineHeight - fontSize) / 2;
-      const m_ = ctx.measureText('Mg');
-      const fAscent = m_.fontBoundingBoxAscent || fontSize * 0.8;
-      const textOffsetY = halfLeading + fAscent * 0.85;
+      // Con textBaseline='top', el canvas dibuja desde el tope del em box
+      // CSS dibuja desde el baseline + ascent. Ajustamos para que coincidan.
+      // Usar 0 como offset base — el halfLeading ya compensa el espaciado
+      const textOffsetY = halfLeading;
       lines.forEach((line, idx)=> drawLine(line, anchorX, l.y + textOffsetY + idx * lineHeight));
 
       // underline approximation
