@@ -2082,6 +2082,11 @@ async function uploadToStorage(dataUrl, path){
 }
 function ls(src){return new Promise((r,j)=>{if(document.querySelector(`script[src="${src}"]`))return r();const s=document.createElement('script');s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);});}
 
+function getPcIndexRedirectUrl(){
+  const returnTo = (window.location.pathname.split('/').pop() || 'editor.html') + window.location.search + window.location.hash;
+  return 'index.html?redirect=' + encodeURIComponent(returnTo);
+}
+
 function extractTemplatePayload(data){
   if(!data||typeof data!=='object') return null;
   if(data.template && typeof data.template==='object') return data.template;
@@ -2491,13 +2496,14 @@ window.addEventListener('load',async()=>{
         settled=true;
         try{ unsub(); }catch(_){}
         resolve(fbAuth.currentUser||null);
-      }, 10000);
+      }, 2500);
     });
 
     if(!user){
       const wrap=document.getElementById('logo-library-empty');
       if(wrap) wrap.textContent='Vuelve a iniciar sesión.';
-      showToast('✗ Error: Sesión no disponible');
+      showToast('✗ Sesión no disponible. Redirigiendo al acceso.');
+      setTimeout(()=>{ window.location.href = getPcIndexRedirectUrl(); }, 280);
       return;
     }
 
@@ -3660,7 +3666,10 @@ function startRes(ev,id,c){
 }
 
 function applyImageToFrame(frameLayer, src){
+  // Mantener ambos campos sincronizados; en marcos la fuente real es frameImage,
+  // pero src también ayuda a evitar inconsistencias en duplicado/historial.
   frameLayer.frameImage = src;
+  frameLayer.src = src;
   const el = frameLayer.el;
   if(!el) return;
   const clip = document.getElementById('fc-'+frameLayer.id);
@@ -4866,8 +4875,13 @@ async function saveClientDesign(){
   if(!fbDb){ showToast('Firebase no conectado'); return; }
   const btn=document.getElementById('btn-client-save');
   btn.disabled=true; btn.textContent='Guardando...';
+
+  let chosenName = currentClientDesignName || 'Diseño';
+  let thumb = '';
+  let currentPayload = null;
+
   try{
-    const chosenName = askClientDesignName(false);
+    chosenName = askClientDesignName(false);
     if(chosenName===null){
       btn.textContent='💾 Guardar diseño'; btn.disabled=false;
       return;
@@ -4877,9 +4891,15 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
+    currentPayload = {
+      type:'psd-layers',
+      canvasW:parseInt(cvs.style.width),
+      canvasH:parseInt(cvs.style.height),
+      layers:layerData
+    };
+
     // ── Generar miniatura base64 (Firestore directo, sin Cloudinary) ──
     btn.textContent='Generando miniatura...';
-    let thumb = '';
     try{
       desel(); hideMultiBox();
       document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
@@ -4933,7 +4953,7 @@ async function saveClientDesign(){
       name: chosenName,
       thumb: thumb,
       updatedAt:Date.now(),
-      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
+      design: currentPayload,
       tplId:tplId||null,
       uid:authUser.uid
     };
@@ -4948,14 +4968,35 @@ async function saveClientDesign(){
       u.searchParams.set('did', clientDesignId);
       window.history.replaceState({}, '', u.toString());
     }
+
+    currentClientDesignName = chosenName;
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
     setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
   }catch(e){
-    await reportTemplateHealth(diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb}), 'save_error', {templateId: tplId || null, sourceCollection:'templates', name, status, errorMessage: e.message || ''});
-    if(e.message && e.message.includes('permission')){
-      showToast('✗ Sesión expirada. Volviendo al inicio...');
-      setTimeout(()=>{ window.location.href='index.html'; }, 2000);
+    try{
+      const diagSource = currentPayload ? {design: currentPayload, thumb, name: chosenName} : {thumb, name: chosenName};
+      const diag = diagnoseTemplatePayload(diagSource, {
+        templateId: clientDesignId || tplId || null,
+        sourceCollection:'user_designs',
+        name: chosenName || '',
+        status:'client_save',
+        thumb: thumb || ''
+      });
+      await reportTemplateHealth(diag, 'save_error', {
+        templateId: clientDesignId || tplId || null,
+        sourceCollection:'user_designs',
+        name: chosenName || '',
+        status:'client_save',
+        errorMessage: e?.message || ''
+      });
+    }catch(reportErr){
+      console.warn('No se pudo registrar diagnóstico de guardado:', reportErr?.message || reportErr);
+    }
+
+    if(e.message && e.message.toLowerCase().includes('permission')){
+      showToast('✗ Sesión expirada. Volviendo al acceso...');
+      setTimeout(()=>{ window.location.href = getPcIndexRedirectUrl(); }, 450);
     } else {
       showToast('✗ Error: '+e.message);
     }
@@ -5630,16 +5671,13 @@ function syncLayersFromDOM(){
         const br = parseFloat(clip.style.borderRadius);
         if(!Number.isNaN(br)) l.frameRadius = Math.round(br);
       }
-      // Solo actualizar frameImage desde DOM si es URL real (no proxy ni blob)
-      // Si ya tenemos base64 en l.frameImage, mantenerlo
+      // En marcos, la imagen VISIBLE en el DOM debe ser la fuente de verdad.
+      // Antes se conservaba un frameImage viejo si el DOM usaba data:/proxy,
+      // y eso hacía que marcos duplicados resucitaran el logo original al guardar.
       if(img && img.src){
-        const domSrc = img.src;
-        if(!domSrc.startsWith('data:') && !domSrc.includes('weserv.nl')){
-          l.frameImage = domSrc;
-        } else if(!l.frameImage){
-          l.frameImage = domSrc;
-        }
-        // Si l.frameImage ya tiene base64, dejarlo — es más confiable que el DOM
+        const domSrc = img.currentSrc || img.src;
+        l.frameImage = domSrc;
+        l.src = domSrc;
       }
     }
   });
@@ -5748,16 +5786,24 @@ async function buildLayerData(){
     obj.frameBorderStyle = 'inner';
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
-    if(l.frameImage){
-      try{
-        const normalizedFrame = await normalizePersistableImageSrc(l.frameImage, 'frames');
-        if(normalizedFrame){
-          if(normalizedFrame !== l.frameImage) retryCount++;
-          l.frameImage = normalizedFrame;
-          obj.frameImage = normalizedFrame;
+    if(l.type === 'frame'){
+      let frameSrc = l.frameImage || l.src || '';
+      const domFrameImg = document.getElementById('fi-'+l.id);
+      if(domFrameImg && domFrameImg.src && domFrameImg.complete && domFrameImg.naturalWidth > 0){
+        frameSrc = domFrameImg.currentSrc || domFrameImg.src;
+      }
+      if(frameSrc){
+        try{
+          const normalizedFrame = await normalizePersistableImageSrc(frameSrc, 'frames');
+          if(normalizedFrame){
+            if(normalizedFrame !== frameSrc) retryCount++;
+            l.frameImage = normalizedFrame;
+            l.src = normalizedFrame;
+            obj.frameImage = normalizedFrame;
+          }
+        }catch(e){
+          console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
         }
-      }catch(e){
-        console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
       }
     }
     obj.blur = Number(l.blur||0);
