@@ -458,6 +458,9 @@ function hideLoad(){ document.getElementById('loading').classList.remove('show')
 // ══════════════════════════════════════════
 function extractPayload(data){
   if(!data||typeof data!=='object') return null;
+  // Nuevo formato correcto para user_designs
+  if(data.design&&typeof data.design==='object') return data.design;
+  // Compatibilidad hacia atrás con documentos viejos
   if(data.template&&typeof data.template==='object') return data.template;
   if(data.templateData&&typeof data.templateData==='object') return data.templateData;
   if(data.type==='psd-layers'&&Array.isArray(data.layers)) return data;
@@ -797,6 +800,14 @@ function applyTextStylesMobile(layer){
   d.style.pointerEvents = 'none';
 }
 
+
+function applyLayerTransform(layer){
+  if(!layer?.el) return;
+  const rot = parseFloat(layer.rotation || 0) || 0;
+  layer.el.style.transformOrigin = 'center center';
+  layer.el.style.transform = rot ? `rotate(${rot}deg)` : '';
+}
+
 function buildEl(l){
   const el = document.createElement('div');
   el.className = 'cel';
@@ -904,6 +915,7 @@ function buildEl(l){
 
   cvs.appendChild(el);
   l.el = el;
+  applyLayerTransform(l);
   // Aplicar efectos DESPUÉS de que el elemento está en el DOM
   if(l.type === 'text') applyTextStylesMobile(l);
 }
@@ -1395,6 +1407,7 @@ async function doSave(){
     innerShadow: l.frameInnerShadow || l.innerShadow || 0,
     flipX:l.flipX||false,flipY:l.flipY||false,
     blur:l.blur||0,
+    rotation: parseFloat(l.rotation || 0) || 0,
     radius:l.radius||null,
     groupId:l.groupId||null
   }));
@@ -1402,7 +1415,8 @@ async function doSave(){
   const data={
     name,thumb,
     updatedAt:Date.now(),
-    template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
+    // user_designs debe guardar design, no template, para respetar reglas y evitar permisos denegados
+    design:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
     tplId:tplId||null,
     uid:fbAuth.currentUser.uid
   };
