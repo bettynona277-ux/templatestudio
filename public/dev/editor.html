@@ -3666,7 +3666,10 @@ function startRes(ev,id,c){
 }
 
 function applyImageToFrame(frameLayer, src){
+  // Mantener ambos campos sincronizados; en marcos la fuente real es frameImage,
+  // pero src también ayuda a evitar inconsistencias en duplicado/historial.
   frameLayer.frameImage = src;
+  frameLayer.src = src;
   const el = frameLayer.el;
   if(!el) return;
   const clip = document.getElementById('fc-'+frameLayer.id);
@@ -5668,16 +5671,13 @@ function syncLayersFromDOM(){
         const br = parseFloat(clip.style.borderRadius);
         if(!Number.isNaN(br)) l.frameRadius = Math.round(br);
       }
-      // Solo actualizar frameImage desde DOM si es URL real (no proxy ni blob)
-      // Si ya tenemos base64 en l.frameImage, mantenerlo
+      // En marcos, la imagen VISIBLE en el DOM debe ser la fuente de verdad.
+      // Antes se conservaba un frameImage viejo si el DOM usaba data:/proxy,
+      // y eso hacía que marcos duplicados resucitaran el logo original al guardar.
       if(img && img.src){
-        const domSrc = img.src;
-        if(!domSrc.startsWith('data:') && !domSrc.includes('weserv.nl')){
-          l.frameImage = domSrc;
-        } else if(!l.frameImage){
-          l.frameImage = domSrc;
-        }
-        // Si l.frameImage ya tiene base64, dejarlo — es más confiable que el DOM
+        const domSrc = img.currentSrc || img.src;
+        l.frameImage = domSrc;
+        l.src = domSrc;
       }
     }
   });
@@ -5786,16 +5786,24 @@ async function buildLayerData(){
     obj.frameBorderStyle = 'inner';
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
-    if(l.frameImage){
-      try{
-        const normalizedFrame = await normalizePersistableImageSrc(l.frameImage, 'frames');
-        if(normalizedFrame){
-          if(normalizedFrame !== l.frameImage) retryCount++;
-          l.frameImage = normalizedFrame;
-          obj.frameImage = normalizedFrame;
+    if(l.type === 'frame'){
+      let frameSrc = l.frameImage || l.src || '';
+      const domFrameImg = document.getElementById('fi-'+l.id);
+      if(domFrameImg && domFrameImg.src && domFrameImg.complete && domFrameImg.naturalWidth > 0){
+        frameSrc = domFrameImg.currentSrc || domFrameImg.src;
+      }
+      if(frameSrc){
+        try{
+          const normalizedFrame = await normalizePersistableImageSrc(frameSrc, 'frames');
+          if(normalizedFrame){
+            if(normalizedFrame !== frameSrc) retryCount++;
+            l.frameImage = normalizedFrame;
+            l.src = normalizedFrame;
+            obj.frameImage = normalizedFrame;
+          }
+        }catch(e){
+          console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
         }
-      }catch(e){
-        console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
       }
     }
     obj.blur = Number(l.blur||0);
