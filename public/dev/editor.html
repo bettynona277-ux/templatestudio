@@ -4680,11 +4680,17 @@ async function renderDesignToCanvas(scale=2){
       const img = await loadImgForExport(l.src);
       if(img){
         const blur = Number(l.blur || 0);
+        const radius = Number(l.borderRadius || 0);
         ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
         const cx = l.x + l.w/2;
         const cy = l.y + l.h/2;
         ctx.translate(cx, cy);
         ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+        if(radius > 0){
+          // Aplicar clip con bordes redondeados antes de dibujar la imagen
+          roundedRectPath(ctx, -l.w/2, -l.h/2, l.w, l.h, radius);
+          ctx.clip();
+        }
         ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
       }
       ctx.restore();
@@ -4967,6 +4973,10 @@ function syncLayersFromDOM(){
     if(l.type==='img'){
       const img = l.el.querySelector('img');
       if(img && img.src) l.src = img.src;
+      // Guardar borderRadius del elemento DOM en la capa
+      const br = parseFloat(l.el.style.borderRadius);
+      if(!Number.isNaN(br)) l.borderRadius = br;
+      else if(!l.borderRadius) l.borderRadius = 0;
     }
 
     if(l.type==='frame'){
