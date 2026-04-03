@@ -4872,8 +4872,13 @@ async function saveClientDesign(){
   if(!fbDb){ showToast('Firebase no conectado'); return; }
   const btn=document.getElementById('btn-client-save');
   btn.disabled=true; btn.textContent='Guardando...';
+
+  let chosenName = currentClientDesignName || 'Diseño';
+  let thumb = '';
+  let currentPayload = null;
+
   try{
-    const chosenName = askClientDesignName(false);
+    chosenName = askClientDesignName(false);
     if(chosenName===null){
       btn.textContent='💾 Guardar diseño'; btn.disabled=false;
       return;
@@ -4883,9 +4888,15 @@ async function saveClientDesign(){
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
+    currentPayload = {
+      type:'psd-layers',
+      canvasW:parseInt(cvs.style.width),
+      canvasH:parseInt(cvs.style.height),
+      layers:layerData
+    };
+
     // ── Generar miniatura base64 (Firestore directo, sin Cloudinary) ──
     btn.textContent='Generando miniatura...';
-    let thumb = '';
     try{
       desel(); hideMultiBox();
       document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.display='none');
@@ -4939,7 +4950,7 @@ async function saveClientDesign(){
       name: chosenName,
       thumb: thumb,
       updatedAt:Date.now(),
-      template:{type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData},
+      design: currentPayload,
       tplId:tplId||null,
       uid:authUser.uid
     };
@@ -4954,12 +4965,33 @@ async function saveClientDesign(){
       u.searchParams.set('did', clientDesignId);
       window.history.replaceState({}, '', u.toString());
     }
+
+    currentClientDesignName = chosenName;
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
     setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
   }catch(e){
-    await reportTemplateHealth(diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb}), 'save_error', {templateId: tplId || null, sourceCollection:'templates', name, status, errorMessage: e.message || ''});
-    if(e.message && e.message.includes('permission')){
+    try{
+      const diagSource = currentPayload ? {design: currentPayload, thumb, name: chosenName} : {thumb, name: chosenName};
+      const diag = diagnoseTemplatePayload(diagSource, {
+        templateId: clientDesignId || tplId || null,
+        sourceCollection:'user_designs',
+        name: chosenName || '',
+        status:'client_save',
+        thumb: thumb || ''
+      });
+      await reportTemplateHealth(diag, 'save_error', {
+        templateId: clientDesignId || tplId || null,
+        sourceCollection:'user_designs',
+        name: chosenName || '',
+        status:'client_save',
+        errorMessage: e?.message || ''
+      });
+    }catch(reportErr){
+      console.warn('No se pudo registrar diagnóstico de guardado:', reportErr?.message || reportErr);
+    }
+
+    if(e.message && e.message.toLowerCase().includes('permission')){
       showToast('✗ Sesión expirada. Volviendo al acceso...');
       setTimeout(()=>{ window.location.href = getPcIndexRedirectUrl(); }, 450);
     } else {
