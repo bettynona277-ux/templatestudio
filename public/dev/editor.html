@@ -2978,16 +2978,33 @@ function buildShapeSvgFill(type, fill, w, h, opts){
 }
 // Genera SVG SOLO con stroke (fill transparent) — overlay encima del fill
 function buildShapeSvgStroke(type, stroke, strokeW, w, h, opts){
-  const sw2 = strokeW*2;
-  const s = ` fill="none" stroke="${stroke}" stroke-width="${strokeW}"`;
+  // stroke-alignment: inside — dibujamos con stroke doble y clipPath al borde exacto
+  // así el borde queda completamente DENTRO de la forma, sin salirse
+  const sw2 = strokeW * 2;
+  const s = ` fill="none" stroke="${stroke}" stroke-width="${sw2}"`;
   switch(type){
-    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
-    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="${opts?.rx??20}"${s}/></svg>`;
-    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW/2}" ry="${h/2-strokeW/2}"${s}/></svg>`;
-    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW/2} ${w-strokeW/2},${h-strokeW/2} ${strokeW/2},${h-strokeW/2}"${s}/></svg>`;
-    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}"${s}/></svg>`;}
-    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+    case 'rect':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}"/></clipPath></defs><rect width="${w}" height="${h}"${s} clip-path="url(#cp)"/></svg>`;
+    case 'rect-r': {
+      const rx = opts?.rx??20;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}" rx="${rx}"/></clipPath></defs><rect width="${w}" height="${h}" rx="${rx}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    case 'circle':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"/></clipPath></defs><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"${s} clip-path="url(#cp)"/></svg>`;
+    case 'triangle': {
+      const pts = `${w/2},0 ${w},${h} 0,${h}`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><polygon points="${pts}"/></clipPath></defs><polygon points="${pts}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    case 'line':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
+    case 'star': {
+      const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}
+      const pStr = pts.join(' ');
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><defs><clipPath id="cp"><polygon points="${pStr}"/></clipPath></defs><polygon points="${pStr}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    default: {
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}"/></clipPath></defs><rect width="${w}" height="${h}"${s} clip-path="url(#cp)"/></svg>`;
+    }
   }
 }
 function rebuildShapeSvg(l){
