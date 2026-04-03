@@ -1833,6 +1833,7 @@ function groupSelected(){
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
   renderList();
   snapshotState();
+  reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:layers}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || ''}), 'load_success', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || ''});
 }
 
 function ungroupSelected(){
@@ -2085,6 +2086,312 @@ function extractTemplatePayload(data){
 window.__lastLoadedTemplateMeta = null;
 
 
+window.__isVerifiedAdmin = false;
+window.__templateHealthLast = null;
+
+function escHtml(v){
+  return String(v==null?'':v)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/\"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function diagnoseTemplatePayload(data, meta={}){
+  const srcObj = data && typeof data==='object' ? data : {};
+  const payload = extractTemplatePayload(srcObj) || (srcObj.type==='psd-layers' ? srcObj : null);
+  const issues = [];
+  const addIssue = (code, message, severity='warn')=>issues.push({code,message,severity});
+
+  const diag = {
+    templateId: meta.templateId || srcObj.id || tplId || null,
+    sourceCollection: meta.sourceCollection || (clientDesignId ? 'user_designs' : 'templates'),
+    name: meta.name || srcObj.name || tplName || '',
+    status: meta.status || srcObj.status || tplStatus || '',
+    hasThumb: !!(meta.thumb || srcObj.thumb || window.__lastLoadedTemplateMeta?.thumb),
+    payloadFound: !!payload,
+    canvasW: payload?.canvasW || srcObj.canvasW || 0,
+    canvasH: payload?.canvasH || srcObj.canvasH || 0,
+    layerCount: 0,
+    visibleCount: 0,
+    textCount: 0,
+    imageCount: 0,
+    frameCount: 0,
+    shapeCount: 0,
+    missingImageCount: 0,
+    missingFrameImageCount: 0,
+    blobRefCount: 0,
+    invalidDimCount: 0,
+    recoveredThumbOnly: false,
+    payloadKB: 0,
+    severity: 'ok',
+    issues
+  };
+
+  if(!payload){
+    addIssue('MISSING_TEMPLATE_PAYLOAD','No existe un payload válido en template/templateData/design/layers','error');
+  }
+
+  const layers = Array.isArray(payload?.layers) ? payload.layers : [];
+  diag.layerCount = layers.length;
+  if(!layers.length){
+    addIssue('EMPTY_LAYERS','La plantilla no tiene capas guardadas','error');
+    if(diag.hasThumb) addIssue('THUMB_ONLY','Existe miniatura, pero no capas editables','warn');
+  }
+
+  layers.forEach((l, idx)=>{
+    if(!l || typeof l !== 'object'){
+      addIssue('INVALID_LAYER_ENTRY',`La capa #${idx+1} no es un objeto válido`,'error');
+      return;
+    }
+    if(l.visible !== false) diag.visibleCount++;
+    if(l.type==='text') diag.textCount++;
+    if(l.type==='img') diag.imageCount++;
+    if(l.type==='frame') diag.frameCount++;
+    if(l.isShape) diag.shapeCount++;
+
+    if((l.type==='img' || l.type==='frame') && (!Number.isFinite(Number(l.w)) || !Number.isFinite(Number(l.h)) || Number(l.w)<=0 || Number(l.h)<=0)){
+      diag.invalidDimCount++;
+    }
+
+    if(typeof l.src==='string' && l.src.startsWith('blob:')) diag.blobRefCount++;
+    if(typeof l.frameImage==='string' && l.frameImage.startsWith('blob:')) diag.blobRefCount++;
+
+    if(l.type==='img' && !l.isShape && !l.src){
+      diag.missingImageCount++;
+    }
+    if(l.type==='frame' && l.frameImage===''){
+      diag.missingFrameImageCount++;
+    }
+    if(l.recoveredFromThumb) diag.recoveredThumbOnly = true;
+  });
+
+  if(diag.missingImageCount) addIssue('MISSING_IMAGE_SRC',`${diag.missingImageCount} capa(s) de imagen no tienen src guardado`,'warn');
+  if(diag.blobRefCount) addIssue('BLOB_REFERENCES',`${diag.blobRefCount} referencia(s) blob: no sobreviven entre sesiones`,'error');
+  if(diag.invalidDimCount) addIssue('INVALID_DIMENSIONS',`${diag.invalidDimCount} capa(s) tienen ancho/alto inválido`,'warn');
+  if(diag.recoveredThumbOnly) addIssue('THUMB_RECOVERY','La plantilla cargó usando solo la miniatura de respaldo','warn');
+  if(!diag.hasThumb) addIssue('MISSING_THUMB','La plantilla no tiene miniatura guardada','warn');
+
+  try{
+    diag.payloadKB = payload ? Math.round(JSON.stringify(payload).length/1024) : 0;
+    if(diag.payloadKB > 900) addIssue('PAYLOAD_TOO_LARGE',`El payload pesa ~${diag.payloadKB}KB y está cerca del límite de Firestore`,'error');
+    else if(diag.payloadKB > 700) addIssue('PAYLOAD_HEAVY',`El payload pesa ~${diag.payloadKB}KB, conviene vigilarlo`,'warn');
+  }catch(_){ }
+
+  diag.severity = issues.some(i=>i.severity==='error') ? 'error' : (issues.length ? 'warn' : 'ok');
+  return diag;
+}
+
+async function reportTemplateHealth(diag, context='runtime', extra={}){
+  try{
+    window.__templateHealthLast = {...diag, context, ...extra};
+    updateDiagnosticsBadge(window.__templateHealthLast);
+    if(!fbDb || !window.__isVerifiedAdmin) return;
+    const docId = diag?.templateId || tplId || extra.templateId;
+    if(!docId) return;
+    await fbDb.collection('template_health').doc(docId).set({
+      templateId: docId,
+      context,
+      sourceCollection: diag.sourceCollection || extra.sourceCollection || 'templates',
+      name: diag.name || extra.name || '',
+      status: diag.status || extra.status || '',
+      severity: diag.severity || 'ok',
+      issues: (diag.issues||[]).map(i=>i.code),
+      issueMessages: (diag.issues||[]).map(i=>i.message),
+      hasThumb: !!diag.hasThumb,
+      payloadFound: !!diag.payloadFound,
+      layerCount: Number(diag.layerCount||0),
+      missingImageCount: Number(diag.missingImageCount||0),
+      missingFrameImageCount: Number(diag.missingFrameImageCount||0),
+      blobRefCount: Number(diag.blobRefCount||0),
+      invalidDimCount: Number(diag.invalidDimCount||0),
+      payloadKB: Number(diag.payloadKB||0),
+      canvasW: Number(diag.canvasW||0),
+      canvasH: Number(diag.canvasH||0),
+      checkedAt: Date.now(),
+      updatedAt: Date.now(),
+      clientDesignId: clientDesignId || null,
+      lastUrl: location.href,
+      ...extra
+    }, {merge:true});
+  }catch(err){
+    console.warn('No se pudo registrar diagnóstico:', err.message);
+  }
+}
+
+function updateDiagnosticsBadge(diag){
+  const btn = document.getElementById('btn-diagnostics');
+  if(!btn || !diag) return;
+  const sev = diag.severity || 'ok';
+  btn.dataset.severity = sev;
+  btn.style.borderColor = sev==='error' ? 'rgba(255,107,107,.45)' : sev==='warn' ? 'rgba(245,200,66,.45)' : 'rgba(35,225,178,.35)';
+  btn.style.color = sev==='error' ? '#ff8d9f' : sev==='warn' ? '#F5C842' : 'var(--text)';
+  btn.title = sev==='ok' ? 'Diagnóstico: sin problemas detectados' : `Diagnóstico: ${diag.issues?.length||0} observación(es)`;
+}
+
+function ensureDiagnosticsUI(){
+  if(document.getElementById('btn-diagnostics')) return;
+  const row = document.querySelector('.topbar .btn-row');
+  if(row){
+    const btn = document.createElement('button');
+    btn.className = 'tbtn tbtn-ghost';
+    btn.id = 'btn-diagnostics';
+    btn.type = 'button';
+    btn.textContent = '🩺 Diagnóstico';
+    btn.onclick = openDiagnosticsModal;
+    btn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
+    row.insertBefore(btn, document.getElementById('btn-save') || row.firstChild);
+  }
+
+  if(document.getElementById('diag-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'diag-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:760px;width:min(92vw,760px);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+        <h3 style="margin:0;">Diagnóstico de plantillas</h3>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:90px;margin:0;" onclick="closeDiagnosticsModal()">Cerrar</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <button class="modal-btn modal-btn-green" style="width:auto;min-width:180px;margin:0;" onclick="renderCurrentDiagnostics()">Plantilla actual</button>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:200px;margin:0;" onclick="scanTemplatesHealth()">Escanear plantillas</button>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:160px;margin:0;" onclick="copyDiagnosticsSummary()">Copiar resumen</button>
+      </div>
+      <div id="diag-status" style="font-size:.8rem;color:var(--muted);margin-bottom:8px;">Listo</div>
+      <div id="diag-body" style="max-height:60vh;overflow:auto;padding-right:4px;"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function closeDiagnosticsModal(){
+  document.getElementById('diag-overlay')?.classList.remove('open');
+}
+
+function openDiagnosticsModal(){
+  ensureDiagnosticsUI();
+  const ov = document.getElementById('diag-overlay');
+  if(ov) ov.classList.add('open');
+  renderCurrentDiagnostics();
+}
+
+function renderHealthCard(diag, title='Plantilla actual'){
+  const sevColor = diag.severity==='error' ? '#ff8d9f' : diag.severity==='warn' ? '#F5C842' : 'var(--accent)';
+  const chips = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px;">
+      <span class="panel-chip" style="color:${sevColor};border-color:${sevColor};">${escHtml((diag.severity||'ok').toUpperCase())}</span>
+      <span class="panel-chip">Capas ${diag.layerCount||0}</span>
+      <span class="panel-chip">Payload ${diag.payloadKB||0}KB</span>
+      <span class="panel-chip">Imgs sin src ${diag.missingImageCount||0}</span>
+      <span class="panel-chip">blob: ${diag.blobRefCount||0}</span>
+    </div>`;
+  const issues = (diag.issues||[]).length
+    ? `<div class="panel-card" style="margin:0;"><div class="panel-title">Observaciones</div>${diag.issues.map(i=>`<div style="font-size:.82rem;margin:0 0 8px;color:${i.severity==='error'?'#ff8d9f':'#F5C842'};">• <strong>${escHtml(i.code)}</strong>, ${escHtml(i.message)}</div>`).join('')}</div>`
+    : `<div class="panel-card" style="margin:0;"><div class="panel-title">Observaciones</div><div style="font-size:.84rem;color:var(--accent);">Sin fallas detectadas.</div></div>`;
+  return `
+    <div class="panel-card" style="margin:0 0 12px;">
+      <div class="panel-title">${escHtml(title)}</div>
+      <div style="font-size:.95rem;font-weight:700;">${escHtml(diag.name || '(sin nombre)')}</div>
+      <div style="font-size:.78rem;color:var(--muted);margin-top:4px;">ID: ${escHtml(diag.templateId || '(sin id)')} · Estado: ${escHtml(diag.status || 'sin estado')}</div>
+      ${chips}
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;font-size:.8rem;color:var(--text-soft);">
+        <div>Texto: <strong>${diag.textCount||0}</strong></div>
+        <div>Imágenes: <strong>${diag.imageCount||0}</strong></div>
+        <div>Marcos: <strong>${diag.frameCount||0}</strong></div>
+        <div>Formas: <strong>${diag.shapeCount||0}</strong></div>
+        <div>Tiene miniatura: <strong>${diag.hasThumb ? 'sí' : 'no'}</strong></div>
+        <div>Canvas: <strong>${diag.canvasW||0}×${diag.canvasH||0}</strong></div>
+      </div>
+    </div>
+    ${issues}`;
+}
+
+async function renderCurrentDiagnostics(){
+  ensureDiagnosticsUI();
+  const status = document.getElementById('diag-status');
+  const body = document.getElementById('diag-body');
+  if(status) status.textContent = 'Analizando plantilla actual...';
+  try{
+    syncLayersFromDOM();
+    const layerData = await buildLayerData();
+    const runtimePayload = {
+      name: tplName || currentClientDesignName || window.__lastLoadedTemplateMeta?.name || '',
+      status: tplStatus || '',
+      thumb: window.__lastLoadedTemplateMeta?.thumb || '',
+      template: { type:'psd-layers', canvasW: parseInt(cvs.style.width)||800, canvasH: parseInt(cvs.style.height)||800, layers: layerData }
+    };
+    const diag = diagnoseTemplatePayload(runtimePayload, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'});
+    await reportTemplateHealth(diag, 'manual_current_view');
+    if(body) body.innerHTML = renderHealthCard(diag, 'Plantilla actual');
+    if(status) status.textContent = diag.severity==='ok' ? 'Sin fallas detectadas.' : `Se detectaron ${diag.issues.length} observación(es).`;
+  }catch(err){
+    if(body) body.innerHTML = `<div class="panel-card"><div class="panel-title">Error</div><div class="panel-note">${escHtml(err.message)}</div></div>`;
+    if(status) status.textContent = 'No se pudo analizar la plantilla actual.';
+  }
+}
+
+async function scanTemplatesHealth(){
+  ensureDiagnosticsUI();
+  const status = document.getElementById('diag-status');
+  const body = document.getElementById('diag-body');
+  if(!fbDb){ if(status) status.textContent='Firebase no está conectado.'; return; }
+  if(status) status.textContent = 'Escaneando plantillas...';
+  if(body) body.innerHTML = '<div class="panel-card"><div class="panel-title">Escaneo</div><div class="panel-note">Leyendo documentos...</div></div>';
+  try{
+    const snap = await fbDb.collection('templates').get();
+    const docs = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+    const issues = [];
+    for(const doc of docs){
+      const diag = diagnoseTemplatePayload(doc, {templateId: doc.id, sourceCollection:'templates', name: doc.name||'', status: doc.status||'', thumb: doc.thumb||''});
+      await reportTemplateHealth(diag, 'manual_scan', {templateId: doc.id, sourceCollection:'templates', name: doc.name||'', status: doc.status||''});
+      if(diag.severity !== 'ok') issues.push(diag);
+    }
+    if(!issues.length){
+      if(body) body.innerHTML = '<div class="panel-card"><div class="panel-title">Resultado</div><div class="panel-note" style="color:var(--accent);">No se detectaron plantillas con fallas en el escaneo.</div></div>';
+      if(status) status.textContent = `Escaneo completo. ${docs.length} plantilla(s) revisadas.`;
+      return;
+    }
+    const rows = issues.slice(0,120).map(diag=>`
+      <div class="panel-card" style="margin:0 0 10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div>
+            <div style="font-weight:700;">${escHtml(diag.name || '(sin nombre)')}</div>
+            <div style="font-size:.76rem;color:var(--muted);">${escHtml(diag.templateId || '')} · ${escHtml(diag.status || 'sin estado')}</div>
+          </div>
+          <span class="panel-chip" style="color:${diag.severity==='error'?'#ff8d9f':'#F5C842'};border-color:${diag.severity==='error'?'#ff8d9f':'#F5C842'};">${escHtml(diag.severity.toUpperCase())}</span>
+        </div>
+        <div style="font-size:.8rem;color:var(--text-soft);margin-top:8px;">${escHtml((diag.issues||[]).map(i=>i.code).join(', '))}</div>
+      </div>`).join('');
+    if(body) body.innerHTML = rows;
+    if(status) status.textContent = `Escaneo completo. ${issues.length} plantilla(s) con observaciones de ${docs.length} revisadas.`;
+  }catch(err){
+    if(body) body.innerHTML = `<div class="panel-card"><div class="panel-title">Error</div><div class="panel-note">${escHtml(err.message)}</div></div>`;
+    if(status) status.textContent = 'No se pudo completar el escaneo.';
+  }
+}
+
+async function copyDiagnosticsSummary(){
+  try{
+    const diag = window.__templateHealthLast;
+    if(!diag){ showToast('Primero abre un diagnóstico'); return; }
+    const text = [
+      `Plantilla: ${diag.name || '(sin nombre)'}`,
+      `ID: ${diag.templateId || '(sin id)'}`,
+      `Estado: ${diag.status || 'sin estado'}`,
+      `Severidad: ${diag.severity || 'ok'}`,
+      `Capas: ${diag.layerCount || 0}`,
+      `Payload: ${diag.payloadKB || 0}KB`,
+      `Issues: ${(diag.issues||[]).map(i=>`${i.code}: ${i.message}`).join(' | ') || 'Sin fallas detectadas'}`
+    ].join('\n');
+    await navigator.clipboard.writeText(text);
+    showToast('✓ Resumen copiado');
+  }catch(_){
+    showToast('No se pudo copiar el resumen');
+  }
+}
+
+
 function applyEditorTheme(theme){
   const mode = theme === 'light' ? 'light' : 'dark';
   document.body.classList.toggle('theme-light', mode === 'light');
@@ -2196,7 +2503,10 @@ window.addEventListener('load',async()=>{
         const designData = d.data() || {};
         currentClientDesignName = designData.name || currentClientDesignName || '';
         window.__lastLoadedTemplateMeta = { thumb: designData.thumb || '', name: designData.name || '', source: 'user_designs' };
+        window.__lastLoadedTemplateMeta = { thumb: designData.thumb || '', name: designData.name || '', source: 'user_designs' };
         const designTpl=extractTemplatePayload(designData);
+        const designDiag = diagnoseTemplatePayload(designData, {templateId: designId, sourceCollection:'user_designs', name: designData.name || '', status: designData.status || '', thumb: designData.thumb || ''});
+        reportTemplateHealth(designDiag, 'load_design_attempt', {templateId: designId, sourceCollection:'user_designs', name: designData.name || '', status: designData.status || ''});
         if(designTpl){ loadData(designTpl); loaded=true; }
       }
     }
@@ -2220,11 +2530,13 @@ window.addEventListener('load',async()=>{
     // Verificar que el usuario autenticado sea admin real en Firestore
     // Evita que un cliente cambie mode=client → mode=admin en la URL
     let isVerifiedAdmin = false;
+    window.__isVerifiedAdmin = false;
     try{
       const currentUser = fbAuth?.currentUser;
       if(currentUser && fbDb){
         const adminDoc = await fbDb.collection('admins').doc(currentUser.uid).get();
         isVerifiedAdmin = adminDoc.exists;
+        window.__isVerifiedAdmin = isVerifiedAdmin;
       }
     }catch(e){ console.warn('Verificación admin falló:', e.message); }
 
@@ -2237,7 +2549,7 @@ window.addEventListener('load',async()=>{
       // Si tiene tplId, cargar igual en modo cliente
       if(tplId&&fbDb){
         const t=await fbDb.collection('templates').doc(tplId).get();
-        if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
+        if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
       }
     } else {
       if(tplId&&fbDb){
@@ -2249,6 +2561,9 @@ window.addEventListener('load',async()=>{
           if(dd.status) tplStatus = dd.status;
           if(dd.category) tplCategory = dd.category;
           window.__lastLoadedTemplateMeta = { thumb: dd.thumb || '', name: dd.name || '', source: 'templates' };
+          window.__lastLoadedTemplateMeta = { thumb: dd.thumb || '', name: dd.name || '', source: 'templates' };
+          const adminDiag = diagnoseTemplatePayload(dd, {templateId: tplId, sourceCollection:'templates', name: dd.name || '', status: dd.status || '', thumb: dd.thumb || ''});
+          reportTemplateHealth(adminDiag, 'admin_load_attempt', {templateId: tplId, sourceCollection:'templates', name: dd.name || '', status: dd.status || ''});
           const adminTpl=extractTemplatePayload(dd);
           if(adminTpl) loadData(adminTpl);
         }
@@ -2256,6 +2571,9 @@ window.addEventListener('load',async()=>{
     }
   }
   if(fbDb) loadLogoLibrary();
+  ensureDiagnosticsUI();
+  const dbtn=document.getElementById('btn-diagnostics');
+  if(dbtn) dbtn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
 });
 
 
@@ -4522,6 +4840,7 @@ async function saveClientDesign(){
     btn.textContent='💾 Guardado ✓';
     setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
   }catch(e){
+    await reportTemplateHealth(diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb}), 'save_error', {templateId: tplId || null, sourceCollection:'templates', name, status, errorMessage: e.message || ''});
     if(e.message && e.message.includes('permission')){
       showToast('✗ Sesión expirada. Volviendo al inicio...');
       setTimeout(()=>{ window.location.href='index.html'; }, 2000);
@@ -5267,6 +5586,16 @@ async function doSave(status){
     return;
   }
 
+  const preSaveDiag = diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb});
+  await reportTemplateHealth(preSaveDiag, 'pre_save_validation', {templateId: tplId || null, sourceCollection:'templates', name, status});
+  if(preSaveDiag.severity==='error'){
+    st.textContent='✗ Se detectaron fallas críticas en la plantilla. Revisa Diagnóstico antes de guardar.';
+    st.style.color='var(--accent2)';
+    document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+    showToast('✗ Diagnóstico: corrige la plantilla antes de guardar');
+    return;
+  }
+
   // 4. Save to Firestore
   try{
     // Asegurar que el uid del admin está en la colección admins
@@ -5304,6 +5633,8 @@ async function doSave(status){
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
     showAutoSaveIndicator('✓ Guardado');
+    const persistedDiag = diagnoseTemplatePayload(payload, {templateId: tplId, sourceCollection:'templates', name, status, thumb});
+    await reportTemplateHealth(persistedDiag, 'save_success', {templateId: tplId, sourceCollection:'templates', name, status, thumb});
     // Actualizar variables globales con los valores guardados
     tplName = name;
     tplCategory = document.getElementById('save-category')?.value || tplCategory;
@@ -5350,6 +5681,8 @@ async function autoSaveToFirestore(){
   try{
     const layerData=await buildLayerData();
     if(!Array.isArray(layerData) || !layerData.length){
+      const emptyDiag = diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[]}}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
+      await reportTemplateHealth(emptyDiag, 'autosave_blocked_empty', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
       showAutoSaveIndicator('⚠ Sin capas, no se sobrescribió');
       return;
     }
@@ -5357,6 +5690,12 @@ async function autoSaveToFirestore(){
     if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
     const templatePayload = {type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData};
+    const autoDiag = diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template: templatePayload, thumb: window.__lastLoadedTemplateMeta?.thumb || ''}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || ''});
+    await reportTemplateHealth(autoDiag, 'autosave_validation', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
+    if(autoDiag.severity==='error'){
+      showAutoSaveIndicator('⚠ Diagnóstico bloqueó autoguardado');
+      return;
+    }
     const payloadSize = Math.round(JSON.stringify(templatePayload).length / 1024);
     console.log('Template payload size:', payloadSize+'KB');
     await fbDb.collection('templates').doc(tplId).update({
@@ -5365,8 +5704,10 @@ async function autoSaveToFirestore(){
       template: templatePayload
     });
     showAutoSaveIndicator('✓ Autoguardado');
+    await reportTemplateHealth(autoDiag, 'autosave_success', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
   }catch(e){
     try{localStorage.setItem('ts_autosave',JSON.stringify({tplId,w:cvs.style.width,h:cvs.style.height,t:Date.now()}));}catch(_){}
+    await reportTemplateHealth(diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:layers||[]}}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''}), 'autosave_error', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || '', errorMessage: e.message || ''});
     showAutoSaveIndicator('📶 Sin conexión');
   }
 }
@@ -5376,6 +5717,7 @@ _autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
 // LOAD SAVED
 function loadData(tpl){
   if(!tpl||tpl.type!=='psd-layers'){
+    reportTemplateHealth(diagnoseTemplatePayload(tpl || {}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'}), 'load_invalid_payload', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'});
     showToast('Plantilla inválida o vacía');
     return;
   }
@@ -5414,8 +5756,10 @@ function loadData(tpl){
       };
       layers.push(fallbackLayer);
       mkEl(fallbackLayer);
+      reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || '', thumb, template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[fallbackLayer]}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || '', thumb}), 'load_thumb_recovery', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''});
       showToast('La plantilla perdió sus capas. Se mostró la miniatura como respaldo.');
     }else{
+      reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[]}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''}), 'load_empty_layers', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''});
       showToast('Esta plantilla no tiene capas guardadas');
     }
   }
