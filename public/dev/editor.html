@@ -2554,9 +2554,11 @@ function filterFonts(q){
 }
 
 function applyFont(val, weight){
-  updTS('fontFamily',val);
-  if(weight) updTS('fontWeight', weight);
-  const lbl=FONT_LIST.find(f=>f.value===val);
+  const normalizedWeight = String(weight || '400');
+  updTS('fontFamily', val);
+  updTS('fontWeight', normalizedWeight);
+  const lbl = FONT_LIST.find(f => f.value === val && String(f.weight || '400') === normalizedWeight)
+           || FONT_LIST.find(f => f.value === val);
   const fs=document.getElementById('font-search');
   if(fs) fs.value=lbl?lbl.label:val.replace(/'/g,'');
   document.getElementById('font-dropdown').style.display='none';
@@ -3944,7 +3946,10 @@ function syncP(){
     document.getElementById('fmt-upper')?.classList.toggle('active',l.tp.textTransform==='uppercase');
     document.getElementById('fmt-lower')?.classList.toggle('active',l.tp.textTransform==='lowercase');
     // Update font search display
-    const lbl=FONT_LIST.find(f=>f.value===(l.tp.fontFamily||"'Poppins'"));
+    const currentFontValue = l.tp.fontFamily || "'Poppins'";
+    const currentFontWeight = String(l.tp.fontWeight || '400');
+    const lbl = FONT_LIST.find(f => f.value === currentFontValue && String(f.weight || '400') === currentFontWeight)
+             || FONT_LIST.find(f => f.value === currentFontValue);
     const fs=document.getElementById('font-search'); if(fs) fs.value=lbl?lbl.label:(l.tp.fontFamily||'Poppins').replace(/'/g,'');
   }
   // Frame props
@@ -4719,9 +4724,9 @@ async function renderDesignToCanvas(scale=2){
         .replace(/'/g,'').replace(/"/g,'')
         .split(',')[0].trim();
 
-      // Mantener el peso real del editor; solo corregir fuentes de un solo peso
+      // Mantener el peso real del editor; solo forzar 400 en fuentes realmente monopesadas
       let fontWeightCanvas = fontWeight;
-      const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+      const singleWeightFonts = ['Bebas Neue'];
       if(singleWeightFonts.includes(fontFamily)){
         fontWeightCanvas = '400';
       } else {
