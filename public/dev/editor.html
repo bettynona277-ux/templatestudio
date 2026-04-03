@@ -2912,6 +2912,11 @@ function mkEl(l){
       img.crossOrigin='anonymous';
       img.src='https://images.weserv.nl/?url='+encodeURIComponent(l.src)+'&n=-1';
     }
+    img.onerror=()=>{
+      console.warn('No se pudo cargar capa de imagen:', l.name, l.src);
+      el.style.outline='1px dashed rgba(255,107,129,0.7)';
+      el.style.background='rgba(255,107,129,0.08)';
+    };
     // Formas SVG: object-fit:fill para que se estiren libremente
     if(l.isShape){
       img.className='shape-fill-img';
@@ -2944,6 +2949,17 @@ function mkEl(l){
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
       img.src=l.frameImage;
+      img.onerror=()=>{
+        console.warn('No se pudo cargar imagen del marco:', l.name, l.frameImage);
+        clip.innerHTML='';
+        const hint=document.createElement('div');
+        hint.className='frame-drop-hint';
+        hint.textContent='⚠ Imagen no disponible';
+        hint.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:#ff6f91;pointer-events:none;font-weight:700;z-index:1;';
+        clip.appendChild(hint);
+        el.style.border='1px dashed rgba(255,111,145,0.7)';
+        el.style.background='rgba(255,111,145,0.06)';
+      };
       img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
       clip.appendChild(img);
       setTimeout(()=>{applyImageVisuals(l);applyFrameBorder(l);},0);
@@ -5012,6 +5028,39 @@ function syncLayersFromDOM(){
   });
 }
 
+async function normalizePersistableImageSrc(src, folder='layer-images'){
+  if(!src) return '';
+
+  let workingSrc = src;
+
+  // blob: no sobrevive entre sesiones; convertirlo primero a dataURL
+  if(typeof workingSrc === 'string' && workingSrc.startsWith('blob:')){
+    try{
+      const res = await fetch(workingSrc);
+      const blob = await res.blob();
+      workingSrc = await new Promise((resolve,reject)=>{
+        const fr = new FileReader();
+        fr.onload = ()=>resolve(fr.result);
+        fr.onerror = ()=>reject(new Error('No se pudo leer blob local'));
+        fr.readAsDataURL(blob);
+      });
+    }catch(err){
+      console.warn('No se pudo convertir blob local:', err.message);
+      return '';
+    }
+  }
+
+  // Base64 pequeño se puede guardar directo; grande se sube a Storage
+  if(typeof workingSrc === 'string' && workingSrc.startsWith('data:')){
+    const approxKB = Math.round(workingSrc.length * 0.75 / 1024);
+    if(approxKB <= 100) return workingSrc;
+    const compressed = await compressImage(workingSrc, 1500, 1500, 0.88);
+    return await uploadToStorage(compressed, `${folder}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`);
+  }
+
+  return workingSrc;
+}
+
 async function buildLayerData(){
   const result = [];
   let retryCount = 0;
@@ -5020,32 +5069,26 @@ async function buildLayerData(){
     let src = l.src||'';
     if(!src && l.el){
       const domImg = l.el.querySelector('img');
-      if(domImg && domImg.src && !domImg.src.startsWith('data:') && domImg.complete && domImg.naturalWidth>0){
+      if(domImg && domImg.src && domImg.complete && domImg.naturalWidth>0){
         src = domImg.src;
         l.src = src;
       }
     }
 
-    // Si src es base64: imágenes pegadas por el usuario (comprimidas ~50KB) se guardan directo en Firestore
-    // Imágenes PSD grandes (>100KB) se suben a Cloudinary
-    if(src && src.startsWith('data:')){
-      const approxKB = Math.round(src.length * 0.75 / 1024);
-      if(approxKB > 100){
-        // Grande → subir a Cloudinary
-        try{
-          retryCount++;
-          const compressed = await compressImage(src, 1500, 1500, 0.88);
-          const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
-          src = uploaded;
-          l.src = uploaded;
+    // Normalizar referencias de imagen para que sobrevivan entre sesiones
+    if(src){
+      try{
+        const normalizedSrc = await normalizePersistableImageSrc(src, 'layer-images');
+        if(normalizedSrc){
+          if(normalizedSrc !== src) retryCount++;
+          src = normalizedSrc;
+          l.src = normalizedSrc;
           const domImg = l.el?.querySelector('img');
-          if(domImg) domImg.src = uploaded;
-        }catch(e){
-          console.warn(`No se pudo subir capa "${l.name}":`, e.message);
-          // Mantener base64 aunque sea grande — mejor que perder la imagen
+          if(domImg && !normalizedSrc.startsWith('data:')) domImg.src = normalizedSrc;
         }
+      }catch(e){
+        console.warn(`No se pudo normalizar capa "${l.name}":`, e.message);
       }
-      // ≤100KB → guardar base64 directo en Firestore (imágenes pegadas comprimidas)
     }
 
     const obj = {
@@ -5088,13 +5131,15 @@ async function buildLayerData(){
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
     if(l.frameImage){
-      // Base64 pequeño (<100KB) → guardar directo en Firestore
-      // Base64 grande → era imagen PSD, ya debería estar en Cloudinary; si no, descartar
-      if(l.frameImage.startsWith('data:')){
-        const sizeKB = Math.round(l.frameImage.length * 0.75 / 1024);
-        obj.frameImage = sizeKB <= 100 ? l.frameImage : '';
-      } else {
-        obj.frameImage = l.frameImage;
+      try{
+        const normalizedFrame = await normalizePersistableImageSrc(l.frameImage, 'frames');
+        if(normalizedFrame){
+          if(normalizedFrame !== l.frameImage) retryCount++;
+          l.frameImage = normalizedFrame;
+          obj.frameImage = normalizedFrame;
+        }
+      }catch(e){
+        console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
       }
     }
     obj.blur = Number(l.blur||0);
@@ -5313,7 +5358,10 @@ _autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
 
 // LOAD SAVED
 function loadData(tpl){
-  if(!tpl||tpl.type!=='psd-layers')return;
+  if(!tpl||tpl.type!=='psd-layers'){
+    showToast('Plantilla inválida o vacía');
+    return;
+  }
   document.getElementById('size-overlay').classList.remove('open');
 
   // Remove all .cel elements but keep multi-box and marquee
@@ -5324,11 +5372,16 @@ function loadData(tpl){
 
   cvs.style.width=(tpl.canvasW||800)+'px';
   cvs.style.height=(tpl.canvasH||800)+'px';
+  cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
 
-  (tpl.layers||[]).forEach(ld=>{
+  const incomingLayers = Array.isArray(tpl.layers) ? tpl.layers : [];
+  if(!incomingLayers.length){
+    showToast('Esta plantilla no tiene capas guardadas');
+  }
+
+  incomingLayers.forEach(ld=>{
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
-    // If src is empty but layer is an image type, try to keep it (will show as ? in panel)
     // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
     if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
       const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
@@ -5336,6 +5389,9 @@ function loadData(tpl){
       l.src = URL.createObjectURL(blob);
       l.shapeSvg = svgFill;
     }
+    // blob: en imágenes normales o marcos no sobrevive entre sesiones
+    if(!l.isShape && typeof l.src === 'string' && l.src.startsWith('blob:')) l.src = '';
+    if(typeof l.frameImage === 'string' && l.frameImage.startsWith('blob:')) l.frameImage = '';
     layers.push(l);
     mkEl(l);
   });
