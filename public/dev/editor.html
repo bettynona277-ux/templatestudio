@@ -2078,8 +2078,11 @@ function extractTemplatePayload(data){
   if(data.templateData && typeof data.templateData==='object') return data.templateData;
   if(data.design && typeof data.design==='object') return data.design;
   if(data.type==='psd-layers' && Array.isArray(data.layers)) return data;
+  if(Array.isArray(data.layers) && (data.canvasW || data.canvasH)) return { type:'psd-layers', canvasW:data.canvasW||800, canvasH:data.canvasH||800, layers:data.layers };
   return null;
 }
+
+window.__lastLoadedTemplateMeta = null;
 
 
 function applyEditorTheme(theme){
@@ -2192,6 +2195,7 @@ window.addEventListener('load',async()=>{
       if(d.exists){
         const designData = d.data() || {};
         currentClientDesignName = designData.name || currentClientDesignName || '';
+        window.__lastLoadedTemplateMeta = { thumb: designData.thumb || '', name: designData.name || '', source: 'user_designs' };
         const designTpl=extractTemplatePayload(designData);
         if(designTpl){ loadData(designTpl); loaded=true; }
       }
@@ -2202,6 +2206,7 @@ window.addEventListener('load',async()=>{
       if(t.exists){
         const tplData = t.data() || {};
         if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
+        window.__lastLoadedTemplateMeta = { thumb: tplData.thumb || '', name: tplData.name || '', source: 'templates' };
         const baseTpl=extractTemplatePayload(tplData);
         if(baseTpl){ loadData(baseTpl); loaded=true; }
       }
@@ -2232,7 +2237,7 @@ window.addEventListener('load',async()=>{
       // Si tiene tplId, cargar igual en modo cliente
       if(tplId&&fbDb){
         const t=await fbDb.collection('templates').doc(tplId).get();
-        if(t.exists){ const baseTpl=extractTemplatePayload(t.data()); if(baseTpl) loadData(baseTpl); }
+        if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
       }
     } else {
       if(tplId&&fbDb){
@@ -2243,6 +2248,7 @@ window.addEventListener('load',async()=>{
           if(dd.name) tplName = dd.name;
           if(dd.status) tplStatus = dd.status;
           if(dd.category) tplCategory = dd.category;
+          window.__lastLoadedTemplateMeta = { thumb: dd.thumb || '', name: dd.name || '', source: 'templates' };
           const adminTpl=extractTemplatePayload(dd);
           if(adminTpl) loadData(adminTpl);
         }
@@ -5233,6 +5239,13 @@ async function doSave(status){
   try{
     layerData = await buildLayerData();
     console.log(`✓ Capas: ${layerData.length}`);
+    if(!Array.isArray(layerData) || !layerData.length){
+      st.textContent='✗ Esta plantilla no tiene capas para guardar.';
+      st.style.color='var(--accent2)';
+      showToast('Agrega o recupera capas antes de guardar');
+      document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+      return;
+    }
   }catch(e){
     st.textContent='✗ Error al empaquetar capas: '+e.message; st.style.color='var(--accent2)';
     document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
@@ -5336,6 +5349,10 @@ async function autoSaveToFirestore(){
   if(Date.now()-_lastActivity < 3000) return;
   try{
     const layerData=await buildLayerData();
+    if(!Array.isArray(layerData) || !layerData.length){
+      showAutoSaveIndicator('⚠ Sin capas, no se sobrescribió');
+      return;
+    }
     const snap=JSON.stringify(layerData);
     if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
@@ -5376,7 +5393,31 @@ function loadData(tpl){
 
   const incomingLayers = Array.isArray(tpl.layers) ? tpl.layers : [];
   if(!incomingLayers.length){
-    showToast('Esta plantilla no tiene capas guardadas');
+    const thumb = window.__lastLoadedTemplateMeta?.thumb || '';
+    if(thumb){
+      const fallbackLayer = {
+        id: lCtr++,
+        type: 'img',
+        name: 'Vista previa recuperada',
+        src: thumb,
+        x: 0,
+        y: 0,
+        w: parseInt(cvs.style.width)||800,
+        h: parseInt(cvs.style.height)||800,
+        opacity: 1,
+        visible: true,
+        zIndex: 0,
+        flipX: false,
+        flipY: false,
+        blur: 0,
+        recoveredFromThumb: true
+      };
+      layers.push(fallbackLayer);
+      mkEl(fallbackLayer);
+      showToast('La plantilla perdió sus capas. Se mostró la miniatura como respaldo.');
+    }else{
+      showToast('Esta plantilla no tiene capas guardadas');
+    }
   }
 
   incomingLayers.forEach(ld=>{
