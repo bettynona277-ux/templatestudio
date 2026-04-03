@@ -188,6 +188,13 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 .rh.ml{left:-4px;top:calc(50% - 4px);cursor:ew-resize;}
 .rh.mr{right:-6px;top:calc(50% - 6px);cursor:ew-resize;}
 
+.rot-line,.rot-handle{display:none;position:absolute;pointer-events:none;}
+.cel.sel .rot-line,.cel.sel .rot-handle{display:block;}
+.multi-active .cel.sel .rot-line,.multi-active .cel.sel .rot-handle{display:none !important;}
+.rot-line{left:50%;top:-28px;width:2px;height:16px;transform:translateX(-50%);background:rgba(35,225,178,.9);border-radius:999px;z-index:31;}
+.rot-handle{left:50%;top:-42px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:#ffffff;border:2px solid var(--accent);cursor:grab;pointer-events:auto;z-index:32;box-shadow:0 2px 10px rgba(0,0,0,.22);}
+.rot-handle:active{cursor:grabbing;}
+
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
 
 .zoom-bar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;background:var(--panel);border:1px solid var(--border);padding:6px 16px;border-radius:30px;align-items:center;z-index:50;box-shadow:var(--shadow);}
@@ -1400,7 +1407,7 @@ input[type=range]{filter:none !important;}
         <div class="panel-grid2">
           <div>
             <div class="mini-lbl">Espaciado</div>
-            <input type="number" class="pp-inp" id="pp-ls" value="0" oninput="updTS('letterSpacing',this.value+'px')">
+            <input type="number" class="pp-inp" id="pp-ls" value="0" oninput="updTS('letterSpacing', parseFloat(this.value) || 0)">
           </div>
           <div>
             <div class="mini-lbl">Interlineado</div>
@@ -1517,7 +1524,7 @@ input[type=range]{filter:none !important;}
 <script>
 // --- EL JAVASCRIPT SE MANTIENE EXACTAMENTE IGUAL AL ARCHIVO ORIGINAL ---
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
-let isDrag=false, isRes=false, dOff={x:0,y:0}, rSt={};
+let isDrag=false, isRes=false, isRot=false, dOff={x:0,y:0}, rSt={}, rotSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
 let isPrev=false;
 const cvs=document.getElementById('cvs');
@@ -1528,6 +1535,7 @@ let isMarquee=false;    // rubber-band selection active
 let _justMarqueed=false; // evitar que click post-marquee deseleccione
 let marqueeStart={x:0,y:0};
 let marqueeEl=null;     // the marquee div
+let rotTipEl=null;
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
 let isMultiDrag=false;
 let frameSnapTarget=null; // frame layer that is currently being hovered during drag
@@ -1751,13 +1759,14 @@ function restoreSnapshot(snap){
   });
 
   const data = JSON.parse(snap);
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
   layers = [];
   groups = {};
   gCtr = 0;
 
   data.forEach(ld=>{
     const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
+    if(l.rotation == null) l.rotation = 0;
     layers.push(l);
     mkEl(l);
     if(l.groupId){
@@ -1833,6 +1842,7 @@ function groupSelected(){
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
   renderList();
   snapshotState();
+  reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:layers}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || ''}), 'load_success', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || tplName || '', status: tplStatus || ''});
 }
 
 function ungroupSelected(){
@@ -2078,7 +2088,316 @@ function extractTemplatePayload(data){
   if(data.templateData && typeof data.templateData==='object') return data.templateData;
   if(data.design && typeof data.design==='object') return data.design;
   if(data.type==='psd-layers' && Array.isArray(data.layers)) return data;
+  if(Array.isArray(data.layers) && (data.canvasW || data.canvasH)) return { type:'psd-layers', canvasW:data.canvasW||800, canvasH:data.canvasH||800, layers:data.layers };
   return null;
+}
+
+window.__lastLoadedTemplateMeta = null;
+
+
+window.__isVerifiedAdmin = false;
+window.__templateHealthLast = null;
+
+function escHtml(v){
+  return String(v==null?'':v)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/\"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function diagnoseTemplatePayload(data, meta={}){
+  const srcObj = data && typeof data==='object' ? data : {};
+  const payload = extractTemplatePayload(srcObj) || (srcObj.type==='psd-layers' ? srcObj : null);
+  const issues = [];
+  const addIssue = (code, message, severity='warn')=>issues.push({code,message,severity});
+
+  const diag = {
+    templateId: meta.templateId || srcObj.id || tplId || null,
+    sourceCollection: meta.sourceCollection || (clientDesignId ? 'user_designs' : 'templates'),
+    name: meta.name || srcObj.name || tplName || '',
+    status: meta.status || srcObj.status || tplStatus || '',
+    hasThumb: !!(meta.thumb || srcObj.thumb || window.__lastLoadedTemplateMeta?.thumb),
+    payloadFound: !!payload,
+    canvasW: payload?.canvasW || srcObj.canvasW || 0,
+    canvasH: payload?.canvasH || srcObj.canvasH || 0,
+    layerCount: 0,
+    visibleCount: 0,
+    textCount: 0,
+    imageCount: 0,
+    frameCount: 0,
+    shapeCount: 0,
+    missingImageCount: 0,
+    missingFrameImageCount: 0,
+    blobRefCount: 0,
+    invalidDimCount: 0,
+    recoveredThumbOnly: false,
+    payloadKB: 0,
+    severity: 'ok',
+    issues
+  };
+
+  if(!payload){
+    addIssue('MISSING_TEMPLATE_PAYLOAD','No existe un payload válido en template/templateData/design/layers','error');
+  }
+
+  const layers = Array.isArray(payload?.layers) ? payload.layers : [];
+  diag.layerCount = layers.length;
+  if(!layers.length){
+    addIssue('EMPTY_LAYERS','La plantilla no tiene capas guardadas','error');
+    if(diag.hasThumb) addIssue('THUMB_ONLY','Existe miniatura, pero no capas editables','warn');
+  }
+
+  layers.forEach((l, idx)=>{
+    if(!l || typeof l !== 'object'){
+      addIssue('INVALID_LAYER_ENTRY',`La capa #${idx+1} no es un objeto válido`,'error');
+      return;
+    }
+    if(l.visible !== false) diag.visibleCount++;
+    if(l.type==='text') diag.textCount++;
+    if(l.type==='img') diag.imageCount++;
+    if(l.type==='frame') diag.frameCount++;
+    if(l.isShape) diag.shapeCount++;
+
+    if((l.type==='img' || l.type==='frame') && (!Number.isFinite(Number(l.w)) || !Number.isFinite(Number(l.h)) || Number(l.w)<=0 || Number(l.h)<=0)){
+      diag.invalidDimCount++;
+    }
+
+    if(typeof l.src==='string' && l.src.startsWith('blob:')) diag.blobRefCount++;
+    if(typeof l.frameImage==='string' && l.frameImage.startsWith('blob:')) diag.blobRefCount++;
+
+    if(l.type==='img' && !l.isShape && !l.src){
+      diag.missingImageCount++;
+    }
+    if(l.type==='frame' && l.frameImage===''){
+      diag.missingFrameImageCount++;
+    }
+    if(l.recoveredFromThumb) diag.recoveredThumbOnly = true;
+  });
+
+  if(diag.missingImageCount) addIssue('MISSING_IMAGE_SRC',`${diag.missingImageCount} capa(s) de imagen no tienen src guardado`,'warn');
+  if(diag.blobRefCount) addIssue('BLOB_REFERENCES',`${diag.blobRefCount} referencia(s) blob: no sobreviven entre sesiones`,'error');
+  if(diag.invalidDimCount) addIssue('INVALID_DIMENSIONS',`${diag.invalidDimCount} capa(s) tienen ancho/alto inválido`,'warn');
+  if(diag.recoveredThumbOnly) addIssue('THUMB_RECOVERY','La plantilla cargó usando solo la miniatura de respaldo','warn');
+  if(!diag.hasThumb) addIssue('MISSING_THUMB','La plantilla no tiene miniatura guardada','warn');
+
+  try{
+    diag.payloadKB = payload ? Math.round(JSON.stringify(payload).length/1024) : 0;
+    if(diag.payloadKB > 900) addIssue('PAYLOAD_TOO_LARGE',`El payload pesa ~${diag.payloadKB}KB y está cerca del límite de Firestore`,'error');
+    else if(diag.payloadKB > 700) addIssue('PAYLOAD_HEAVY',`El payload pesa ~${diag.payloadKB}KB, conviene vigilarlo`,'warn');
+  }catch(_){ }
+
+  diag.severity = issues.some(i=>i.severity==='error') ? 'error' : (issues.length ? 'warn' : 'ok');
+  return diag;
+}
+
+async function reportTemplateHealth(diag, context='runtime', extra={}){
+  try{
+    window.__templateHealthLast = {...diag, context, ...extra};
+    updateDiagnosticsBadge(window.__templateHealthLast);
+    if(!fbDb || !window.__isVerifiedAdmin) return;
+    const docId = diag?.templateId || tplId || extra.templateId;
+    if(!docId) return;
+    await fbDb.collection('template_health').doc(docId).set({
+      templateId: docId,
+      context,
+      sourceCollection: diag.sourceCollection || extra.sourceCollection || 'templates',
+      name: diag.name || extra.name || '',
+      status: diag.status || extra.status || '',
+      severity: diag.severity || 'ok',
+      issues: (diag.issues||[]).map(i=>i.code),
+      issueMessages: (diag.issues||[]).map(i=>i.message),
+      hasThumb: !!diag.hasThumb,
+      payloadFound: !!diag.payloadFound,
+      layerCount: Number(diag.layerCount||0),
+      missingImageCount: Number(diag.missingImageCount||0),
+      missingFrameImageCount: Number(diag.missingFrameImageCount||0),
+      blobRefCount: Number(diag.blobRefCount||0),
+      invalidDimCount: Number(diag.invalidDimCount||0),
+      payloadKB: Number(diag.payloadKB||0),
+      canvasW: Number(diag.canvasW||0),
+      canvasH: Number(diag.canvasH||0),
+      checkedAt: Date.now(),
+      updatedAt: Date.now(),
+      clientDesignId: clientDesignId || null,
+      lastUrl: location.href,
+      ...extra
+    }, {merge:true});
+  }catch(err){
+    console.warn('No se pudo registrar diagnóstico:', err.message);
+  }
+}
+
+function updateDiagnosticsBadge(diag){
+  const btn = document.getElementById('btn-diagnostics');
+  if(!btn || !diag) return;
+  const sev = diag.severity || 'ok';
+  btn.dataset.severity = sev;
+  btn.style.borderColor = sev==='error' ? 'rgba(255,107,107,.45)' : sev==='warn' ? 'rgba(245,200,66,.45)' : 'rgba(35,225,178,.35)';
+  btn.style.color = sev==='error' ? '#ff8d9f' : sev==='warn' ? '#F5C842' : 'var(--text)';
+  btn.title = sev==='ok' ? 'Diagnóstico: sin problemas detectados' : `Diagnóstico: ${diag.issues?.length||0} observación(es)`;
+}
+
+function ensureDiagnosticsUI(){
+  if(document.getElementById('btn-diagnostics')) return;
+  const row = document.querySelector('.topbar .btn-row');
+  if(row){
+    const btn = document.createElement('button');
+    btn.className = 'tbtn tbtn-ghost';
+    btn.id = 'btn-diagnostics';
+    btn.type = 'button';
+    btn.textContent = '🩺 Diagnóstico';
+    btn.onclick = openDiagnosticsModal;
+    btn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
+    row.insertBefore(btn, document.getElementById('btn-save') || row.firstChild);
+  }
+
+  if(document.getElementById('diag-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'diag-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:760px;width:min(92vw,760px);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+        <h3 style="margin:0;">Diagnóstico de plantillas</h3>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:90px;margin:0;" onclick="closeDiagnosticsModal()">Cerrar</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <button class="modal-btn modal-btn-green" style="width:auto;min-width:180px;margin:0;" onclick="renderCurrentDiagnostics()">Plantilla actual</button>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:200px;margin:0;" onclick="scanTemplatesHealth()">Escanear plantillas</button>
+        <button class="modal-btn modal-btn-ghost" style="width:auto;min-width:160px;margin:0;" onclick="copyDiagnosticsSummary()">Copiar resumen</button>
+      </div>
+      <div id="diag-status" style="font-size:.8rem;color:var(--muted);margin-bottom:8px;">Listo</div>
+      <div id="diag-body" style="max-height:60vh;overflow:auto;padding-right:4px;"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function closeDiagnosticsModal(){
+  document.getElementById('diag-overlay')?.classList.remove('open');
+}
+
+function openDiagnosticsModal(){
+  ensureDiagnosticsUI();
+  const ov = document.getElementById('diag-overlay');
+  if(ov) ov.classList.add('open');
+  renderCurrentDiagnostics();
+}
+
+function renderHealthCard(diag, title='Plantilla actual'){
+  const sevColor = diag.severity==='error' ? '#ff8d9f' : diag.severity==='warn' ? '#F5C842' : 'var(--accent)';
+  const chips = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px;">
+      <span class="panel-chip" style="color:${sevColor};border-color:${sevColor};">${escHtml((diag.severity||'ok').toUpperCase())}</span>
+      <span class="panel-chip">Capas ${diag.layerCount||0}</span>
+      <span class="panel-chip">Payload ${diag.payloadKB||0}KB</span>
+      <span class="panel-chip">Imgs sin src ${diag.missingImageCount||0}</span>
+      <span class="panel-chip">blob: ${diag.blobRefCount||0}</span>
+    </div>`;
+  const issues = (diag.issues||[]).length
+    ? `<div class="panel-card" style="margin:0;"><div class="panel-title">Observaciones</div>${diag.issues.map(i=>`<div style="font-size:.82rem;margin:0 0 8px;color:${i.severity==='error'?'#ff8d9f':'#F5C842'};">• <strong>${escHtml(i.code)}</strong>, ${escHtml(i.message)}</div>`).join('')}</div>`
+    : `<div class="panel-card" style="margin:0;"><div class="panel-title">Observaciones</div><div style="font-size:.84rem;color:var(--accent);">Sin fallas detectadas.</div></div>`;
+  return `
+    <div class="panel-card" style="margin:0 0 12px;">
+      <div class="panel-title">${escHtml(title)}</div>
+      <div style="font-size:.95rem;font-weight:700;">${escHtml(diag.name || '(sin nombre)')}</div>
+      <div style="font-size:.78rem;color:var(--muted);margin-top:4px;">ID: ${escHtml(diag.templateId || '(sin id)')} · Estado: ${escHtml(diag.status || 'sin estado')}</div>
+      ${chips}
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;font-size:.8rem;color:var(--text-soft);">
+        <div>Texto: <strong>${diag.textCount||0}</strong></div>
+        <div>Imágenes: <strong>${diag.imageCount||0}</strong></div>
+        <div>Marcos: <strong>${diag.frameCount||0}</strong></div>
+        <div>Formas: <strong>${diag.shapeCount||0}</strong></div>
+        <div>Tiene miniatura: <strong>${diag.hasThumb ? 'sí' : 'no'}</strong></div>
+        <div>Canvas: <strong>${diag.canvasW||0}×${diag.canvasH||0}</strong></div>
+      </div>
+    </div>
+    ${issues}`;
+}
+
+async function renderCurrentDiagnostics(){
+  ensureDiagnosticsUI();
+  const status = document.getElementById('diag-status');
+  const body = document.getElementById('diag-body');
+  if(status) status.textContent = 'Analizando plantilla actual...';
+  try{
+    syncLayersFromDOM();
+    const layerData = await buildLayerData();
+    const runtimePayload = {
+      name: tplName || currentClientDesignName || window.__lastLoadedTemplateMeta?.name || '',
+      status: tplStatus || '',
+      thumb: window.__lastLoadedTemplateMeta?.thumb || '',
+      template: { type:'psd-layers', canvasW: parseInt(cvs.style.width)||800, canvasH: parseInt(cvs.style.height)||800, layers: layerData }
+    };
+    const diag = diagnoseTemplatePayload(runtimePayload, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'});
+    await reportTemplateHealth(diag, 'manual_current_view');
+    if(body) body.innerHTML = renderHealthCard(diag, 'Plantilla actual');
+    if(status) status.textContent = diag.severity==='ok' ? 'Sin fallas detectadas.' : `Se detectaron ${diag.issues.length} observación(es).`;
+  }catch(err){
+    if(body) body.innerHTML = `<div class="panel-card"><div class="panel-title">Error</div><div class="panel-note">${escHtml(err.message)}</div></div>`;
+    if(status) status.textContent = 'No se pudo analizar la plantilla actual.';
+  }
+}
+
+async function scanTemplatesHealth(){
+  ensureDiagnosticsUI();
+  const status = document.getElementById('diag-status');
+  const body = document.getElementById('diag-body');
+  if(!fbDb){ if(status) status.textContent='Firebase no está conectado.'; return; }
+  if(status) status.textContent = 'Escaneando plantillas...';
+  if(body) body.innerHTML = '<div class="panel-card"><div class="panel-title">Escaneo</div><div class="panel-note">Leyendo documentos...</div></div>';
+  try{
+    const snap = await fbDb.collection('templates').get();
+    const docs = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+    const issues = [];
+    for(const doc of docs){
+      const diag = diagnoseTemplatePayload(doc, {templateId: doc.id, sourceCollection:'templates', name: doc.name||'', status: doc.status||'', thumb: doc.thumb||''});
+      await reportTemplateHealth(diag, 'manual_scan', {templateId: doc.id, sourceCollection:'templates', name: doc.name||'', status: doc.status||''});
+      if(diag.severity !== 'ok') issues.push(diag);
+    }
+    if(!issues.length){
+      if(body) body.innerHTML = '<div class="panel-card"><div class="panel-title">Resultado</div><div class="panel-note" style="color:var(--accent);">No se detectaron plantillas con fallas en el escaneo.</div></div>';
+      if(status) status.textContent = `Escaneo completo. ${docs.length} plantilla(s) revisadas.`;
+      return;
+    }
+    const rows = issues.slice(0,120).map(diag=>`
+      <div class="panel-card" style="margin:0 0 10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div>
+            <div style="font-weight:700;">${escHtml(diag.name || '(sin nombre)')}</div>
+            <div style="font-size:.76rem;color:var(--muted);">${escHtml(diag.templateId || '')} · ${escHtml(diag.status || 'sin estado')}</div>
+          </div>
+          <span class="panel-chip" style="color:${diag.severity==='error'?'#ff8d9f':'#F5C842'};border-color:${diag.severity==='error'?'#ff8d9f':'#F5C842'};">${escHtml(diag.severity.toUpperCase())}</span>
+        </div>
+        <div style="font-size:.8rem;color:var(--text-soft);margin-top:8px;">${escHtml((diag.issues||[]).map(i=>i.code).join(', '))}</div>
+      </div>`).join('');
+    if(body) body.innerHTML = rows;
+    if(status) status.textContent = `Escaneo completo. ${issues.length} plantilla(s) con observaciones de ${docs.length} revisadas.`;
+  }catch(err){
+    if(body) body.innerHTML = `<div class="panel-card"><div class="panel-title">Error</div><div class="panel-note">${escHtml(err.message)}</div></div>`;
+    if(status) status.textContent = 'No se pudo completar el escaneo.';
+  }
+}
+
+async function copyDiagnosticsSummary(){
+  try{
+    const diag = window.__templateHealthLast;
+    if(!diag){ showToast('Primero abre un diagnóstico'); return; }
+    const text = [
+      `Plantilla: ${diag.name || '(sin nombre)'}`,
+      `ID: ${diag.templateId || '(sin id)'}`,
+      `Estado: ${diag.status || 'sin estado'}`,
+      `Severidad: ${diag.severity || 'ok'}`,
+      `Capas: ${diag.layerCount || 0}`,
+      `Payload: ${diag.payloadKB || 0}KB`,
+      `Issues: ${(diag.issues||[]).map(i=>`${i.code}: ${i.message}`).join(' | ') || 'Sin fallas detectadas'}`
+    ].join('\n');
+    await navigator.clipboard.writeText(text);
+    showToast('✓ Resumen copiado');
+  }catch(_){
+    showToast('No se pudo copiar el resumen');
+  }
 }
 
 
@@ -2192,7 +2511,11 @@ window.addEventListener('load',async()=>{
       if(d.exists){
         const designData = d.data() || {};
         currentClientDesignName = designData.name || currentClientDesignName || '';
+        window.__lastLoadedTemplateMeta = { thumb: designData.thumb || '', name: designData.name || '', source: 'user_designs' };
+        window.__lastLoadedTemplateMeta = { thumb: designData.thumb || '', name: designData.name || '', source: 'user_designs' };
         const designTpl=extractTemplatePayload(designData);
+        const designDiag = diagnoseTemplatePayload(designData, {templateId: designId, sourceCollection:'user_designs', name: designData.name || '', status: designData.status || '', thumb: designData.thumb || ''});
+        reportTemplateHealth(designDiag, 'load_design_attempt', {templateId: designId, sourceCollection:'user_designs', name: designData.name || '', status: designData.status || ''});
         if(designTpl){ loadData(designTpl); loaded=true; }
       }
     }
@@ -2202,6 +2525,7 @@ window.addEventListener('load',async()=>{
       if(t.exists){
         const tplData = t.data() || {};
         if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
+        window.__lastLoadedTemplateMeta = { thumb: tplData.thumb || '', name: tplData.name || '', source: 'templates' };
         const baseTpl=extractTemplatePayload(tplData);
         if(baseTpl){ loadData(baseTpl); loaded=true; }
       }
@@ -2215,11 +2539,13 @@ window.addEventListener('load',async()=>{
     // Verificar que el usuario autenticado sea admin real en Firestore
     // Evita que un cliente cambie mode=client → mode=admin en la URL
     let isVerifiedAdmin = false;
+    window.__isVerifiedAdmin = false;
     try{
       const currentUser = fbAuth?.currentUser;
       if(currentUser && fbDb){
         const adminDoc = await fbDb.collection('admins').doc(currentUser.uid).get();
         isVerifiedAdmin = adminDoc.exists;
+        window.__isVerifiedAdmin = isVerifiedAdmin;
       }
     }catch(e){ console.warn('Verificación admin falló:', e.message); }
 
@@ -2232,7 +2558,7 @@ window.addEventListener('load',async()=>{
       // Si tiene tplId, cargar igual en modo cliente
       if(tplId&&fbDb){
         const t=await fbDb.collection('templates').doc(tplId).get();
-        if(t.exists){ const baseTpl=extractTemplatePayload(t.data()); if(baseTpl) loadData(baseTpl); }
+        if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
       }
     } else {
       if(tplId&&fbDb){
@@ -2243,6 +2569,10 @@ window.addEventListener('load',async()=>{
           if(dd.name) tplName = dd.name;
           if(dd.status) tplStatus = dd.status;
           if(dd.category) tplCategory = dd.category;
+          window.__lastLoadedTemplateMeta = { thumb: dd.thumb || '', name: dd.name || '', source: 'templates' };
+          window.__lastLoadedTemplateMeta = { thumb: dd.thumb || '', name: dd.name || '', source: 'templates' };
+          const adminDiag = diagnoseTemplatePayload(dd, {templateId: tplId, sourceCollection:'templates', name: dd.name || '', status: dd.status || '', thumb: dd.thumb || ''});
+          reportTemplateHealth(adminDiag, 'admin_load_attempt', {templateId: tplId, sourceCollection:'templates', name: dd.name || '', status: dd.status || ''});
           const adminTpl=extractTemplatePayload(dd);
           if(adminTpl) loadData(adminTpl);
         }
@@ -2250,6 +2580,9 @@ window.addEventListener('load',async()=>{
     }
   }
   if(fbDb) loadLogoLibrary();
+  ensureDiagnosticsUI();
+  const dbtn=document.getElementById('btn-diagnostics');
+  if(dbtn) dbtn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
 });
 
 
@@ -2286,7 +2619,7 @@ function addImgLayer(src,name){
 
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
-      opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,origW:img.width,origH:img.height};
+      opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height};
     layers.push(l);mkEl(l);renderList();sel(l.id);
   };img.src=src;
 }
@@ -2314,7 +2647,7 @@ async function processPSD(file){
 
 async function loadPSDData(data){
   // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
   layers=[]; lCtr=0;
   // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
   cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
@@ -2507,7 +2840,7 @@ function addLogoToCanvas(src, name){
     if(w>maxW){ const s=maxW/w; w=Math.round(w*s); h=Math.round(h*s); }
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
       x:Math.round((cw-w)/2), y:Math.round((ch-h)/2), w, h,
-      opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,origW:img.width,origH:img.height};
+      opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height};
     layers.push(l); mkEl(l); renderList(); sel(l.id);
     snapshotState();
     showToast('✓ Logo agregado al canvas');
@@ -2554,9 +2887,11 @@ function filterFonts(q){
 }
 
 function applyFont(val, weight){
-  updTS('fontFamily',val);
-  if(weight) updTS('fontWeight', weight);
-  const lbl=FONT_LIST.find(f=>f.value===val);
+  const normalizedWeight = String(weight || '400');
+  updTS('fontFamily', val);
+  updTS('fontWeight', normalizedWeight);
+  const lbl = FONT_LIST.find(f => f.value === val && String(f.weight || '400') === normalizedWeight)
+           || FONT_LIST.find(f => f.value === val);
   const fs=document.getElementById('font-search');
   if(fs) fs.value=lbl?lbl.label:val.replace(/'/g,'');
   document.getElementById('font-dropdown').style.display='none';
@@ -2633,7 +2968,7 @@ function addShape(type){
   const url=URL.createObjectURL(blob);
   const l={id:lCtr++,type:'img',name:'Forma',src:url,
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
-    opacity,visible:true,zIndex:layers.length,tp:null,el:null,origW:w,origH:h,isShape:true,shapeType:type,shapeFill:fill,shapeStrokeColor:stroke,shapeStrokeWidth:strokeW,shapeSvg:svg};
+    opacity,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:w,origH:h,isShape:true,shapeType:type,shapeFill:fill,shapeStrokeColor:stroke,shapeStrokeWidth:strokeW,shapeSvg:svg};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
 }
 
@@ -2652,16 +2987,33 @@ function buildShapeSvgFill(type, fill, w, h, opts){
 }
 // Genera SVG SOLO con stroke (fill transparent) — overlay encima del fill
 function buildShapeSvgStroke(type, stroke, strokeW, w, h, opts){
-  const sw2 = strokeW*2;
-  const s = ` fill="none" stroke="${stroke}" stroke-width="${strokeW}"`;
+  // stroke-alignment: inside — dibujamos con stroke doble y clipPath al borde exacto
+  // así el borde queda completamente DENTRO de la forma, sin salirse
+  const sw2 = strokeW * 2;
+  const s = ` fill="none" stroke="${stroke}" stroke-width="${sw2}"`;
   switch(type){
-    case 'rect':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
-    case 'rect-r':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}" rx="${opts?.rx??20}"${s}/></svg>`;
-    case 'circle':   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-strokeW/2}" ry="${h/2-strokeW/2}"${s}/></svg>`;
-    case 'triangle': return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polygon points="${w/2},${strokeW/2} ${w-strokeW/2},${h-strokeW/2} ${strokeW/2},${h-strokeW/2}"${s}/></svg>`;
-    case 'line':     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
-    case 'star': {const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><polygon points="${pts.join(' ')}"${s}/></svg>`;}
-    default:         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${strokeW/2}" y="${strokeW/2}" width="${w-strokeW}" height="${h-strokeW}"${s}/></svg>`;
+    case 'rect':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}"/></clipPath></defs><rect width="${w}" height="${h}"${s} clip-path="url(#cp)"/></svg>`;
+    case 'rect-r': {
+      const rx = opts?.rx??20;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}" rx="${rx}"/></clipPath></defs><rect width="${w}" height="${h}" rx="${rx}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    case 'circle':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"/></clipPath></defs><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2}" ry="${h/2}"${s} clip-path="url(#cp)"/></svg>`;
+    case 'triangle': {
+      const pts = `${w/2},0 ${w},${h} 0,${h}`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><polygon points="${pts}"/></clipPath></defs><polygon points="${pts}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    case 'line':
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="${w}" y2="5" stroke="${stroke}" stroke-width="${Math.max(2,strokeW)}" stroke-linecap="round"/></svg>`;
+    case 'star': {
+      const pts=[];for(let i=0;i<10;i++){const a=(i*Math.PI/5)-Math.PI/2;const r=i%2===0?68:28;pts.push(`${80+r*Math.cos(a)},${80+r*Math.sin(a)}`);}
+      const pStr = pts.join(' ');
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" preserveAspectRatio="none"><defs><clipPath id="cp"><polygon points="${pStr}"/></clipPath></defs><polygon points="${pStr}"${s} clip-path="url(#cp)"/></svg>`;
+    }
+    default: {
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><clipPath id="cp"><rect width="${w}" height="${h}"/></clipPath></defs><rect width="${w}" height="${h}"${s} clip-path="url(#cp)"/></svg>`;
+    }
   }
 }
 function rebuildShapeSvg(l){
@@ -2852,7 +3204,7 @@ function addFrame(type){
   const radius=type==='circle'?Math.min(w,h)/2:parseInt(document.getElementById('frame-radius')?.value)||0;
   const l={id:lCtr++,type:'frame',name:'Marco',src:'',
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
-    opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,
+    opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,
     frameRadius:radius,frameType:type,frameImage:''};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
 }
@@ -2874,10 +3226,59 @@ function updFrameRadius(v){
 
 function addText(){
   const cw=parseInt(cvs.style.width)||800;
-  const l={id:lCtr++,type:'text',name:'Texto',src:'',x:Math.round(cw/2-200),y:60,w:400,h:50,opacity:1,visible:true,zIndex:layers.length,
+  const l={id:lCtr++,type:'text',name:'Texto',src:'',x:Math.round(cw/2-200),y:60,w:400,h:50,opacity:1,visible:true,zIndex:layers.length,rotation:0,
     tp:{text:'Texto aquí',fontSize:36,fontFamily:"'Plus Jakarta Sans'",fontWeight:'700',color:'#ffffff',align:'center',strokeColor:'#000000',strokeWidth:0,shadowBlur:0,shadowColor:'rgba(0,0,0,0.45)'},el:null};
   layers.push(l);mkEl(l);renderList();sel(l.id);
   snapshotState();
+}
+
+function normalizeRotation(deg){
+  let r = Number(deg||0);
+  if(!Number.isFinite(r)) r = 0;
+  while(r > 180) r -= 360;
+  while(r <= -180) r += 360;
+  return Math.round(r * 10) / 10;
+}
+function getLayerRotation(layer){
+  return normalizeRotation(layer?.rotation || 0);
+}
+function applyLayerTransform(layer){
+  if(!layer?.el) return;
+  const r = getLayerRotation(layer);
+  layer.rotation = r;
+  layer.el.style.transformOrigin = 'center center';
+  layer.el.style.transform = `rotate(${r}deg)`;
+}
+function ensureRotationTooltip(){
+  if(rotTipEl && rotTipEl.isConnected) return rotTipEl;
+  rotTipEl = document.createElement('div');
+  rotTipEl.id = 'rotation-tip';
+  rotTipEl.style.cssText = 'position:fixed;left:-9999px;top:-9999px;background:rgba(8,12,22,0.92);color:#fff;padding:4px 8px;border-radius:10px;font-size:12px;font-weight:700;z-index:14000;pointer-events:none;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 18px rgba(0,0,0,0.22);font-family:Plus Jakarta Sans,sans-serif;';
+  document.body.appendChild(rotTipEl);
+  return rotTipEl;
+}
+function updateRotationTooltip(x, y, deg){
+  const tip = ensureRotationTooltip();
+  tip.textContent = `${deg > 0 ? '+' : ''}${deg}°`;
+  tip.style.left = `${x + 14}px`;
+  tip.style.top = `${y + 14}px`;
+}
+function hideRotationTooltip(){
+  if(rotTipEl) rotTipEl.style.left = '-9999px';
+}
+function startRotate(ev, id){
+  const l = layers.find(x=>x.id===id);
+  if(!l?.el || l.locked) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  sel(id);
+  const cr = cvs.getBoundingClientRect();
+  const cx = (l.x + l.w/2) * zoom_ + cr.left;
+  const cy = (l.y + l.h/2) * zoom_ + cr.top;
+  const startMouseAngle = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+  isRot = true;
+  rotSt = { id, cx, cy, startMouseAngle, startRotation: getLayerRotation(l) };
+  updateRotationTooltip(ev.clientX, ev.clientY, getLayerRotation(l));
 }
 
 // CREATE DOM EL
@@ -2910,6 +3311,11 @@ function mkEl(l){
       img.crossOrigin='anonymous';
       img.src='https://images.weserv.nl/?url='+encodeURIComponent(l.src)+'&n=-1';
     }
+    img.onerror=()=>{
+      console.warn('No se pudo cargar capa de imagen:', l.name, l.src);
+      el.style.outline='1px dashed rgba(255,107,129,0.7)';
+      el.style.background='rgba(255,107,129,0.08)';
+    };
     // Formas SVG: object-fit:fill para que se estiren libremente
     if(l.isShape){
       img.className='shape-fill-img';
@@ -2942,6 +3348,17 @@ function mkEl(l){
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
       img.src=l.frameImage;
+      img.onerror=()=>{
+        console.warn('No se pudo cargar imagen del marco:', l.name, l.frameImage);
+        clip.innerHTML='';
+        const hint=document.createElement('div');
+        hint.className='frame-drop-hint';
+        hint.textContent='⚠ Imagen no disponible';
+        hint.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:#ff6f91;pointer-events:none;font-weight:700;z-index:1;';
+        clip.appendChild(hint);
+        el.style.border='1px dashed rgba(255,111,145,0.7)';
+        el.style.background='rgba(255,111,145,0.06)';
+      };
       img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
       clip.appendChild(img);
       setTimeout(()=>{applyImageVisuals(l);applyFrameBorder(l);},0);
@@ -3088,6 +3505,14 @@ function mkEl(l){
     rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,c);};
     el.appendChild(rh);
   });
+  const rotLine=document.createElement('div');
+  rotLine.className='rot-line';
+  el.appendChild(rotLine);
+  const rotHandle=document.createElement('div');
+  rotHandle.className='rot-handle';
+  rotHandle.title='Rotar';
+  rotHandle.onmousedown=ev=>startRotate(ev,l.id);
+  el.appendChild(rotHandle);
   el.onmousedown=ev=>{
     // Allow clicks on resize handles through
     if(ev.target.classList.contains('rh')) return;
@@ -3129,6 +3554,8 @@ function mkEl(l){
     }
   };
   l.el=el;cvs.appendChild(el);
+  if(l.rotation == null) l.rotation = 0;
+  applyLayerTransform(l);
   // Aplicar estilos de texto después del render sin afectar layout
   if(l.type==='text') setTimeout(()=>applyTextStyles(l), 0);
 }
@@ -3270,9 +3697,10 @@ function startMarquee(ev){
     sx:ev.clientX-cr.left,
     sy:ev.clientY-cr.top
   };
-  if(!marqueeEl){
+  if(!marqueeEl || !marqueeEl.isConnected){
     marqueeEl=document.createElement('div');
-    marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;';
+    marqueeEl.id='marquee-el';
+    marqueeEl.style.cssText='position:absolute;border:1.5px dashed rgba(21,214,164,0.8);background:rgba(21,214,164,0.06);pointer-events:none;z-index:9999;border-radius:3px;display:none;';
     cvs.appendChild(marqueeEl);
   }
   marqueeEl.style.display='block';
@@ -3282,6 +3710,18 @@ function startMarquee(ev){
 }
 
 document.addEventListener('mousemove',ev=>{
+  if(isRot && rotSt.id!==undefined){
+    const l = layers.find(x=>x.id===rotSt.id);
+    if(!l?.el) return;
+    const angle = Math.atan2(ev.clientY - rotSt.cy, ev.clientX - rotSt.cx) * 180 / Math.PI;
+    let next = normalizeRotation(rotSt.startRotation + (angle - rotSt.startMouseAngle));
+    if(ev.shiftKey) next = Math.round(next / 15) * 15;
+    l.rotation = next;
+    applyLayerTransform(l);
+    syncP();
+    updateRotationTooltip(ev.clientX, ev.clientY, next);
+    return;
+  }
   if(isMarquee){
     const cr=cvs.getBoundingClientRect();
     // Coordenadas en espacio canvas (sin zoom) para intersección con capas
@@ -3438,9 +3878,17 @@ window.addEventListener('blur', ()=>{
     if(marqueeEl) marqueeEl.style.display='none';
   }
   if(isDrag){ isDrag=false; }
+  if(isRot){ isRot=false; rotSt={}; hideRotationTooltip(); }
 });
 
 document.addEventListener('mouseup',ev=>{
+  if(isRot){
+    isRot = false;
+    hideRotationTooltip();
+    snapshotState();
+    rotSt = {};
+    return;
+  }
   if(isMarquee){
     isMarquee=false;
     if(marqueeEl){
@@ -3542,7 +3990,7 @@ function toggleStyleMode(){
 function copyStyleFromLayer(layer){
   if(!layer) return false;
   if(layer.type==='text' && layer.tp){
-    copiedStyle = { type:'text', data: JSON.parse(JSON.stringify(layer.tp)) };
+    copiedStyle = { type:'text', data: { tp: JSON.parse(JSON.stringify(layer.tp)), rotation: getLayerRotation(layer) } };
   } else if(layer.type==='frame'){
     copiedStyle = {
       type:'frame',
@@ -3555,7 +4003,8 @@ function copyStyleFromLayer(layer){
         opacity: layer.opacity ?? 1,
         blur: layer.blur||0,
         flipX: !!layer.flipX,
-        flipY: !!layer.flipY
+        flipY: !!layer.flipY,
+        rotation: getLayerRotation(layer)
       }
     };
   } else if(layer.type==='img'){
@@ -3565,7 +4014,8 @@ function copyStyleFromLayer(layer){
         opacity: layer.opacity ?? 1,
         blur: layer.blur||0,
         flipX: !!layer.flipX,
-        flipY: !!layer.flipY
+        flipY: !!layer.flipY,
+        rotation: getLayerRotation(layer)
       }
     };
   } else {
@@ -3584,8 +4034,9 @@ function applyCopiedStyleToLayer(layer){
 
   if(copiedStyle.type==='text' && layer.type==='text' && layer.tp){
     const keepText = layer.tp.text;
-    Object.assign(layer.tp, JSON.parse(JSON.stringify(copiedStyle.data)));
+    Object.assign(layer.tp, JSON.parse(JSON.stringify(copiedStyle.data.tp || copiedStyle.data)));
     layer.tp.text = keepText;
+    if(copiedStyle.data.rotation != null){ layer.rotation = normalizeRotation(copiedStyle.data.rotation); applyLayerTransform(layer); }
     applyTextStyles(layer);
     syncP();
     snapshotState();
@@ -3597,6 +4048,7 @@ function applyCopiedStyleToLayer(layer){
     Object.assign(layer, JSON.parse(JSON.stringify(copiedStyle.data)));
     if(layer.el){
       layer.el.style.opacity = layer.opacity ?? 1;
+      if(copiedStyle.data.rotation != null){ layer.rotation = normalizeRotation(copiedStyle.data.rotation); applyLayerTransform(layer); }
       const clip=document.getElementById('fc-'+layer.id);
       if(clip) clip.style.borderRadius=(layer.frameRadius||0)+'px';
       const img=document.getElementById('fi-'+layer.id);
@@ -3614,6 +4066,7 @@ function applyCopiedStyleToLayer(layer){
     Object.assign(layer, JSON.parse(JSON.stringify(copiedStyle.data)));
     if(layer.el){
       layer.el.style.opacity = layer.opacity ?? 1;
+      if(copiedStyle.data.rotation != null){ layer.rotation = normalizeRotation(copiedStyle.data.rotation); applyLayerTransform(layer); }
       applyImageVisuals(layer);
     }
     syncP();
@@ -3723,6 +4176,7 @@ function desel(){
   cvs.classList.remove('multi-active');
   document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
   selId=null; selIds=[];
+  hideRotationTooltip();
   updatePropertyPanelState(null);
   hideMultiBox();
 }
@@ -3944,7 +4398,10 @@ function syncP(){
     document.getElementById('fmt-upper')?.classList.toggle('active',l.tp.textTransform==='uppercase');
     document.getElementById('fmt-lower')?.classList.toggle('active',l.tp.textTransform==='lowercase');
     // Update font search display
-    const lbl=FONT_LIST.find(f=>f.value===(l.tp.fontFamily||"'Poppins'"));
+    const currentFontValue = l.tp.fontFamily || "'Poppins'";
+    const currentFontWeight = String(l.tp.fontWeight || '400');
+    const lbl = FONT_LIST.find(f => f.value === currentFontValue && String(f.weight || '400') === currentFontWeight)
+             || FONT_LIST.find(f => f.value === currentFontValue);
     const fs=document.getElementById('font-search'); if(fs) fs.value=lbl?lbl.label:(l.tp.fontFamily||'Poppins').replace(/'/g,'');
   }
   // Frame props
@@ -4048,8 +4505,8 @@ function updTS(p,v){
   else if(p==='fontFamily') l.tp.fontFamily=v;
   else if(p==='fontWeight') l.tp.fontWeight=v;
   else if(p==='textAlign') l.tp.align=v;
-  else if(p==='letterSpacing') l.tp.letterSpacing=v;
-  else if(p==='lineHeight') l.tp.lineHeight=v;
+  else if(p==='letterSpacing') l.tp.letterSpacing=parseFloat(v)||0;
+  else if(p==='lineHeight') l.tp.lineHeight=parseFloat(v)||1.2;
   applyTextStyles(l);
   if(p==='color'){
     const hex=document.getElementById('pp-fc-hex');
@@ -4115,11 +4572,13 @@ function applyTextStyles(layer){
   d.style.color = tp.color || '#fff';
   d.style.textAlign = tp.align || 'left';
   d.style.width = '100%';
-  d.style.minHeight = ((tp.fontSize||16)+6) + 'px';
+  d.style.boxSizing = 'border-box';
+  d.style.padding = '2px';
+  d.style.minHeight = '0';
   d.style.fontStyle = tp.italic?'italic':'normal';
   d.style.textDecoration = tp.underline?'underline':'none';
   d.style.letterSpacing = (parseFloat(tp.letterSpacing)||0) + 'px';
-  d.style.lineHeight = tp.lineHeight || 1.2;
+  d.style.lineHeight = String(parseFloat(tp.lineHeight)||1.2);
   d.style.textTransform = tp.textTransform || 'none';
 }
 
@@ -4339,7 +4798,8 @@ function setClientUI(){
   document.getElementById('btn-save').style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
-  document.querySelector('.add-text-btn').style.display='none';
+  // Añadir texto habilitado para clientes
+  // document.querySelector('.add-text-btn').style.display='none';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
   const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='none';
   // Show client rename button
@@ -4492,6 +4952,7 @@ async function saveClientDesign(){
     btn.textContent='💾 Guardado ✓';
     setTimeout(()=>{ btn.textContent='💾 Guardar diseño'; btn.disabled=false; },2000);
   }catch(e){
+    await reportTemplateHealth(diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb}), 'save_error', {templateId: tplId || null, sourceCollection:'templates', name, status, errorMessage: e.message || ''});
     if(e.message && e.message.includes('permission')){
       showToast('✗ Sesión expirada. Volviendo al inicio...');
       setTimeout(()=>{ window.location.href='index.html'; }, 2000);
@@ -4505,12 +4966,35 @@ async function saveClientDesign(){
 
 // DOWNLOAD
 function loadImgForExport(src){
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve)=>{
     if(!src) return resolve(null);
+    // Intento 1: con crossOrigin anonymous (necesario para drawImage en canvas)
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=>resolve(img);
-    img.onerror = ()=>resolve(null);
+    img.onerror = ()=>{
+      // Intento 2: Si es URL de proxy weserv, probar directamente con la URL original
+      // Intento 3: sin crossOrigin como último recurso (puede fallar drawImage por taint)
+      const img2 = new Image();
+      img2.onload = ()=>resolve(img2);
+      img2.onerror = ()=>resolve(null);
+      // Si es URL de weserv, extraer la URL original
+      if(src.includes('weserv.nl')){
+        try{
+          const u = new URL(src);
+          const orig = u.searchParams.get('url');
+          if(orig){
+            const img3 = new Image();
+            img3.crossOrigin = 'anonymous';
+            img3.onload = ()=>resolve(img3);
+            img3.onerror = ()=>{ img2.src = orig; };
+            img3.src = 'https://images.weserv.nl/?url='+encodeURIComponent(orig)+'&n=-1&we';
+            return;
+          }
+        }catch(e){}
+      }
+      img2.src = src;
+    };
     img.src = src;
   });
 }
@@ -4524,6 +5008,51 @@ function roundedRectPath(ctx,x,y,w,h,r){
   ctx.arcTo(x,y+h,x,y,rr);
   ctx.arcTo(x,y,x+w,y,rr);
   ctx.closePath();
+}
+
+function canvasShapePath(ctx, layer, x, y, w, h){
+  const type = layer?.shapeType || 'rect';
+  const radius = Math.max(0, Math.min(Number(layer?.shapeRadius ?? 20) || 0, Math.min(w,h)/2));
+  ctx.beginPath();
+  switch(type){
+    case 'rect':
+      ctx.rect(x, y, w, h);
+      break;
+    case 'rect-r':
+      roundedRectPath(ctx, x, y, w, h, radius);
+      return;
+    case 'circle':
+      ctx.ellipse(x + w/2, y + h/2, w/2, h/2, 0, 0, Math.PI * 2);
+      break;
+    case 'triangle':
+      ctx.moveTo(x + w/2, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.closePath();
+      break;
+    case 'line':
+      ctx.moveTo(x, y + h/2);
+      ctx.lineTo(x + w, y + h/2);
+      break;
+    case 'star': {
+      const cx = x + w/2;
+      const cy = y + h/2;
+      const outer = Math.min(w,h) / 2;
+      const inner = outer * 0.43;
+      for(let i=0;i<10;i++){
+        const angle = (i * Math.PI / 5) - Math.PI/2;
+        const r = i % 2 === 0 ? outer : inner;
+        const px = cx + r * Math.cos(angle);
+        const py = cy + r * Math.sin(angle);
+        if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      break;
+    }
+    default:
+      ctx.rect(x, y, w, h);
+      break;
+  }
 }
 
 async function renderDesignToCanvas(scale=2){
@@ -4558,6 +5087,130 @@ async function renderDesignToCanvas(scale=2){
   for(const l of visibleLayers){
     ctx.save();
     ctx.globalAlpha = (l.opacity ?? 1);
+    const rotationDeg = normalizeRotation(l.rotation || 0);
+    const hasRotation = Math.abs(rotationDeg) > 0.01;
+    const rotationRad = rotationDeg * Math.PI / 180;
+    const layerCx = l.x + l.w/2;
+    const layerCy = l.y + l.h/2;
+
+    // Formas SVG con borde/sombras/exportación manual
+    if(l.isShape){
+      const sx = hasRotation ? -l.w/2 : l.x;
+      const sy = hasRotation ? -l.h/2 : l.y;
+      if(hasRotation){
+        ctx.translate(layerCx, layerCy);
+        ctx.rotate(rotationRad);
+      }
+
+      let fillImg = await loadImgForExport(l.src);
+      if(!fillImg){
+        const domFill = l.el?.querySelector('img.shape-fill-img');
+        if(domFill && domFill.complete && domFill.naturalWidth > 0) fillImg = domFill;
+      }
+
+      const drop = Number(l.shapeShadow || 0);
+      const inner = Number(l.shapeInnerShadow || 0);
+      const bw = Number(l.shapeStrokeWidth || 0);
+      const bc = l.shapeStrokeColor || '#ffffff';
+      const shadowHex = l.shapeShadowColor || '#000000';
+      const innerHex = l.shapeInnerShadowColor || '#000000';
+      const dropOp = (Number(l.shapeShadowOp ?? 60)) / 100;
+      const innerOp = (Number(l.shapeInnerShadowOp ?? 50)) / 100;
+      const sr = parseInt(shadowHex.slice(1,3),16)||0, sg = parseInt(shadowHex.slice(3,5),16)||0, sb = parseInt(shadowHex.slice(5,7),16)||0;
+      const ir = parseInt(innerHex.slice(1,3),16)||0, ig = parseInt(innerHex.slice(3,5),16)||0, ib = parseInt(innerHex.slice(5,7),16)||0;
+
+      // Sombra exterior: se dibuja con la silueta real
+      if(drop > 0){
+        ctx.save();
+        ctx.filter = 'none';
+        ctx.shadowColor = `rgba(${sr},${sg},${sb},${dropOp})`;
+        ctx.shadowBlur = Math.max(1, drop * 1.8);
+        ctx.shadowOffsetX = Math.round(drop * 0.25);
+        ctx.shadowOffsetY = Math.round(drop * 0.25);
+        if(fillImg){
+          ctx.drawImage(fillImg, sx, sy, l.w, l.h);
+        }else{
+          canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+          ctx.fillStyle = l.shapeFill || '#4F8EF7';
+          if((l.shapeType || 'rect') === 'line'){
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = l.shapeFill || '#4F8EF7';
+            ctx.stroke();
+          }else{
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Fill principal
+      ctx.save();
+      ctx.filter = 'none';
+      if(fillImg){
+        ctx.drawImage(fillImg, sx, sy, l.w, l.h);
+      }else{
+        canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+        ctx.fillStyle = l.shapeFill || '#4F8EF7';
+        if((l.shapeType || 'rect') === 'line'){
+          ctx.lineWidth = 4;
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = l.shapeFill || '#4F8EF7';
+          ctx.stroke();
+        }else{
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+
+      // Sombra interna, recortada a la forma actual
+      if(inner > 0 && (l.shapeType || 'rect') !== 'line'){
+        ctx.save();
+        canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+        ctx.clip();
+        const d = Math.min(Math.max(6, inner * 2), Math.min(l.w, l.h) * 0.45);
+        const sides = [
+          [sx, sy, sx, sy + d],
+          [sx, sy + l.h, sx, sy + l.h - d],
+          [sx, sy, sx + d, sy],
+          [sx + l.w, sy, sx + l.w - d, sy]
+        ];
+        for(const [x0,y0,x1,y1] of sides){
+          const gr = ctx.createLinearGradient(x0,y0,x1,y1);
+          gr.addColorStop(0, `rgba(${ir},${ig},${ib},${innerOp})`);
+          gr.addColorStop(1, `rgba(${ir},${ig},${ib},0)`);
+          ctx.fillStyle = gr;
+          ctx.fillRect(sx, sy, l.w, l.h);
+        }
+        ctx.restore();
+      }
+
+      // Borde, respetando la rotación y manteniéndolo dentro de la forma
+      if(bw > 0){
+        ctx.save();
+        ctx.filter = 'none';
+        if((l.shapeType || 'rect') === 'line'){
+          canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+          ctx.lineWidth = Math.max(2, bw);
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = bc;
+          ctx.stroke();
+        }else{
+          canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+          ctx.clip();
+          canvasShapePath(ctx, l, sx, sy, l.w, l.h);
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.lineWidth = bw * 2;
+          ctx.strokeStyle = bc;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      ctx.restore();
+      continue;
+    }
 
     // Frame with image
     if(l.type === 'frame'){
@@ -4566,6 +5219,12 @@ async function renderDesignToCanvas(scale=2){
       const drop = Number(l.frameShadow || 0);
       const inner = Number(l.frameInnerShadow || 0);
       const radius = l.frameRadius || 0;
+      if(hasRotation){
+        ctx.translate(layerCx, layerCy);
+        ctx.rotate(rotationRad);
+      }
+      const fx = hasRotation ? -l.w/2 : l.x;
+      const fy = hasRotation ? -l.h/2 : l.y;
 
       // 1. Sombra exterior PRIMERO (antes del clip, sin imagen encima)
       if(drop > 0){
@@ -4578,7 +5237,7 @@ async function renderDesignToCanvas(scale=2){
         ctx.shadowBlur = drop * 2.5;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = Math.max(2, Math.round(drop*0.3));
-        roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
+        roundedRectPath(ctx, fx, fy, l.w, l.h, radius);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.restore();
@@ -4586,51 +5245,58 @@ async function renderDesignToCanvas(scale=2){
 
       // 2. Imagen con clip
       if(l.frameImage){
-        const img = await loadImgForExport(l.frameImage);
+        // Intentar cargar la imagen — si falla, buscarla en el DOM
+        let img = await loadImgForExport(l.frameImage);
+        if(!img){
+          // Fallback: usar la imagen ya renderizada en el DOM
+          const domImg = document.getElementById('fi-'+l.id);
+          if(domImg && domImg.complete && domImg.naturalWidth > 0){
+            img = domImg;
+          }
+        }
         if(img){
           ctx.save();
-          roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
+          roundedRectPath(ctx, fx, fy, l.w, l.h, radius);
           ctx.clip();
           const blur = Number(l.blur || 0);
           ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
-          const sw = img.width || l.w;
-          const sh = img.height || l.h;
+          const sw = img.naturalWidth || img.width || l.w;
+          const sh = img.naturalHeight || img.height || l.h;
           const scaleCover = Math.max(l.w / sw, l.h / sh);
           const dw = sw * scaleCover;
           const dh = sh * scaleCover;
-          const dx = l.x + (l.w - dw)/2;
-          const dy = l.y + (l.h - dh)/2;
-          const cx = l.x + l.w/2;
-          const cy = l.y + l.h/2;
-          ctx.translate(cx, cy);
+          const dx = fx + (l.w - dw)/2;
+          const dy = fy + (l.h - dh)/2;
+          const localCx = hasRotation ? 0 : layerCx;
+          const localCy = hasRotation ? 0 : layerCy;
+          ctx.translate(localCx, localCy);
           ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          ctx.drawImage(img, dx - cx, dy - cy, dw, dh);
+          ctx.drawImage(img, dx - localCx, dy - localCy, dw, dh);
           ctx.restore();
         }
       }
-      ctx.restore(); // globalAlpha
 
       // Sombra interna (simulada con gradiente)
       if(inner > 0){
         ctx.save();
-        roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
+        roundedRectPath(ctx, fx, fy, l.w, l.h, radius);
         ctx.clip();
         const innerColor = l.frameInnerShadowColor || '#000000';
         const innerOp = (l.frameInnerShadowOp ?? 100) / 100 * 0.5;
         const ri=parseInt(innerColor.slice(1,3),16), gi=parseInt(innerColor.slice(3,5),16), bi=parseInt(innerColor.slice(5,7),16);
         const d = Math.min(inner*1.5, Math.min(l.w,l.h)*0.4);
         const sides = [
-          [l.x, l.y, l.x, l.y+d],
-          [l.x, l.y+l.h, l.x, l.y+l.h-d],
-          [l.x, l.y, l.x+d, l.y],
-          [l.x+l.w, l.y, l.x+l.w-d, l.y]
+          [fx, fy, fx, fy+d],
+          [fx, fy+l.h, fx, fy+l.h-d],
+          [fx, fy, fx+d, fy],
+          [fx+l.w, fy, fx+l.w-d, fy]
         ];
         for(const [x0,y0,x1,y1] of sides){
           const gr = ctx.createLinearGradient(x0,y0,x1,y1);
           gr.addColorStop(0, `rgba(${ri},${gi},${bi},${innerOp})`);
           gr.addColorStop(1, `rgba(${ri},${gi},${bi},0)`);
           ctx.fillStyle = gr;
-          ctx.fillRect(l.x, l.y, l.w, l.h);
+          ctx.fillRect(fx, fy, l.w, l.h);
         }
         ctx.restore();
       }
@@ -4640,12 +5306,13 @@ async function renderDesignToCanvas(scale=2){
         ctx.save();
         ctx.filter = 'none';
         const inset = Math.max(0.5, bw/2);
-        roundedRectPath(ctx, l.x+inset, l.y+inset, l.w-(inset*2), l.h-(inset*2), Math.max(0, radius-inset));
+        roundedRectPath(ctx, fx+inset, fy+inset, l.w-(inset*2), l.h-(inset*2), Math.max(0, radius-inset));
         ctx.lineWidth = bw;
         ctx.strokeStyle = bc;
         ctx.stroke();
         ctx.restore();
       }
+      ctx.restore();
       continue;
     }
 
@@ -4654,11 +5321,15 @@ async function renderDesignToCanvas(scale=2){
       const img = await loadImgForExport(l.src);
       if(img){
         const blur = Number(l.blur || 0);
+        const radius = Number(l.borderRadius || 0);
         ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
-        const cx = l.x + l.w/2;
-        const cy = l.y + l.h/2;
-        ctx.translate(cx, cy);
+        ctx.translate(layerCx, layerCy);
+        if(hasRotation) ctx.rotate(rotationRad);
         ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+        if(radius > 0){
+          roundedRectPath(ctx, -l.w/2, -l.h/2, l.w, l.h, radius);
+          ctx.clip();
+        }
         ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
       }
       ctx.restore();
@@ -4669,45 +5340,103 @@ async function renderDesignToCanvas(scale=2){
     if(l.type === 'text' && l.tp){
       const tp = l.tp || {};
       const fontSize = Number(tp.fontSize || 16);
-      const fontWeight = tp.fontWeight || '400';
+      const fontWeight = String(tp.fontWeight || '400');
       const fontStyle = tp.italic ? 'italic' : 'normal';
-      // Limpiar fontFamily: quitar comillas, fallbacks (ej: "'Bebas Neue', sans-serif" → "Bebas Neue")
+      const padX = 2;
+      const padY = 2;
+      const textBaseX = hasRotation ? -l.w/2 : l.x;
+      const textBaseY = hasRotation ? -l.h/2 : l.y;
+      if(hasRotation){
+        ctx.translate(layerCx, layerCy);
+        ctx.rotate(rotationRad);
+      }
+
+      // Limpiar fontFamily: quitar comillas y fallbacks
       let fontFamily = (tp.fontFamily || "'Poppins'")
         .replace(/'/g,'').replace(/"/g,'')
-        .split(',')[0].trim(); // tomar solo la primera fuente, ignorar fallbacks
-      // Normalizar fontWeight: algunas fuentes solo tienen 400/700
-      // Si el navegador no encuentra el peso exacto usa fallback del sistema
-      // Forzar a 400 o 700 según corresponda
+        .split(',')[0].trim();
+
+      // Mantener el peso real del editor; solo forzar 400 en fuentes realmente monopesadas
       let fontWeightCanvas = fontWeight;
-      const singleWeightFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
+      const singleWeightFonts = ['Bebas Neue'];
       if(singleWeightFonts.includes(fontFamily)){
-        // Estas fuentes solo tienen un peso — forzar a 400
         fontWeightCanvas = '400';
       } else {
-        // Para otras fuentes: redondear 500/600 a 700, mantener 300/400/800 como están
-        const w = parseInt(fontWeight) || 400;
-        if(w >= 500 && w < 700) fontWeightCanvas = '700';
-        else if(w < 400) fontWeightCanvas = '300';
-        else fontWeightCanvas = String(w);
+        fontWeightCanvas = String(parseInt(fontWeight, 10) || 400);
       }
-      // No mapear fuentes — usar las fuentes originales del diseño
+
       ctx.filter = 'none';
       ctx.fillStyle = tp.color || '#ffffff';
       ctx.textBaseline = 'top';
       ctx.textAlign = (tp.align === 'center' || tp.align === 'right') ? tp.align : 'left';
-      // Limpiar fontFamily para ctx.font — Canvas no acepta fallbacks con coma
-      const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
-      ctx.font = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${canvasFontFamily}`;
 
+      const canvasFontFamily = fontFamily.includes(',') ? fontFamily.split(',')[0].trim() : fontFamily;
+      const quotedCanvasFamily = `"${canvasFontFamily.replace(/"/g, '\\"')}"`;
+      const fontSpec = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${quotedCanvasFamily}`;
+      try{ await document.fonts.load(fontSpec); }catch(_){}
+      ctx.font = fontSpec;
 
       // Aplicar textTransform igual que en el DOM
       let rawText = String(tp.text || '');
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
-      const lines = rawText.split('\n');
 
-      const lineHeight = fontSize * Number(tp.lineHeight || 1.2);
-      const letterSpacing = Number(tp.letterSpacing || 0);
+      const lineHeight = fontSize * (parseFloat(tp.lineHeight) || 1.2);
+      const letterSpacing = parseFloat(tp.letterSpacing) || 0;
+      const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2));
+
+      const measureLineVisualWidth = (line)=>{
+        const chars = [...String(line || '')];
+        if(!chars.length) return 0;
+        return chars.reduce((acc, ch, idx)=> acc + ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0), 0);
+      };
+
+      const wrapParagraph = (paragraph)=>{
+        const text = String(paragraph ?? '');
+        if(text === '') return [''];
+        if(maxTextWidth <= 0) return [text];
+
+        const outLines = [];
+        let current = '';
+        let lastBreakIndex = -1;
+
+        const recomputeLastBreak = ()=>{
+          lastBreakIndex = -1;
+          for(let i=current.length-1;i>=0;i--){
+            if(/\s/.test(current[i])){
+              lastBreakIndex = i;
+              break;
+            }
+          }
+        };
+
+        for(const ch of [...text]){
+          const trial = current + ch;
+          if(current === '' || measureLineVisualWidth(trial) <= maxTextWidth){
+            current = trial;
+            if(/\s/.test(ch)) lastBreakIndex = current.length - 1;
+            continue;
+          }
+
+          if(lastBreakIndex >= 0){
+            const line = current.slice(0, lastBreakIndex).replace(/\s+$/,'');
+            outLines.push(line || current.trimEnd() || current);
+            current = current.slice(lastBreakIndex + 1).replace(/^\s+/, '') + ch;
+            recomputeLastBreak();
+          }else{
+            outLines.push(current);
+            current = ch;
+            lastBreakIndex = /\s/.test(ch) ? 0 : -1;
+          }
+        }
+
+        outLines.push(current);
+        return outLines;
+      };
+
+      const lines = rawText
+        .split('\n')
+        .flatMap(paragraph => wrapParagraph(paragraph));
 
       const drawLine = (line, x, y)=>{
         const drawOutlinedFill = (txt, px, py)=>{
@@ -4723,14 +5452,13 @@ async function renderDesignToCanvas(scale=2){
             ctx.restore();
           }
           if(shadow > 0){
-            // Dibujar sombra primero
             ctx.save();
             ctx.shadowColor = tp.shadowColor || 'rgba(0,0,0,0.45)';
             ctx.shadowBlur = Math.max(3, shadow*0.8);
             ctx.shadowOffsetY = Math.max(1, Math.round(shadow*0.18));
             ctx.fillText(txt, px, py);
             ctx.restore();
-            // Dibujar fill encima sin sombra
+
             ctx.save();
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
@@ -4740,41 +5468,43 @@ async function renderDesignToCanvas(scale=2){
             ctx.fillText(txt, px, py);
           }
         };
+
         if(letterSpacing === 0){
           drawOutlinedFill(line, x, y);
           return;
         }
+
+        const total = measureLineVisualWidth(line);
         let cursorX = x;
-        if(ctx.textAlign === 'center'){
-          const total = [...line].reduce((acc,ch)=>acc + ctx.measureText(ch).width + letterSpacing, 0) - letterSpacing;
-          cursorX = x - total/2;
-        }else if(ctx.textAlign === 'right'){
-          const total = [...line].reduce((acc,ch)=>acc + ctx.measureText(ch).width + letterSpacing, 0) - letterSpacing;
-          cursorX = x - total;
-        }
-        for(const ch of [...line]){
+        if(ctx.textAlign === 'center') cursorX = x - total/2;
+        else if(ctx.textAlign === 'right') cursorX = x - total;
+
+        const chars = [...line];
+        chars.forEach((ch, idx)=>{
           drawOutlinedFill(ch, cursorX, y);
-          cursorX += ctx.measureText(ch).width + letterSpacing;
-        }
+          cursorX += ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0);
+        });
       };
 
-      const anchorX = tp.align === 'center' ? l.x + l.w/2 : tp.align === 'right' ? l.x + l.w : l.x;
-      // CSS line-height agrega half-leading arriba/abajo — compensar igual que en editor móvil
-      const halfLeading = (lineHeight - fontSize) / 2;
-      const m_ = ctx.measureText('Mg');
-      const fAscent = m_.fontBoundingBoxAscent || fontSize * 0.8;
-      const textOffsetY = halfLeading + fAscent * 0.85;
-      lines.forEach((line, idx)=> drawLine(line, anchorX, l.y + textOffsetY + idx * lineHeight));
+      const anchorX =
+        tp.align === 'center' ? textBaseX + l.w/2 :
+        tp.align === 'right' ? textBaseX + l.w - padX :
+        textBaseX + padX;
 
-      // underline approximation
+      // El editor DOM usa padding de 2px y line-height CSS.
+      // Con textBaseline='top' no debemos volver a sumar el ascent de la fuente.
+      const halfLeading = Math.max(0, (lineHeight - fontSize) / 2);
+      const textOffsetY = padY + halfLeading;
+
+      lines.forEach((line, idx)=> drawLine(line, anchorX, textBaseY + textOffsetY + idx * lineHeight));
+
       if(tp.underline){
         lines.forEach((line, idx)=>{
-          const metrics = ctx.measureText(line);
-          const width = metrics.width + Math.max(0, (line.length-1) * letterSpacing);
-          let startX = l.x;
-          if(tp.align === 'center') startX = l.x + l.w/2 - width/2;
-          if(tp.align === 'right') startX = l.x + l.w - width;
-          const y = l.y + idx*lineHeight + fontSize + 2;
+          const width = measureLineVisualWidth(line);
+          let startX = textBaseX + padX;
+          if(tp.align === 'center') startX = textBaseX + l.w/2 - width/2;
+          if(tp.align === 'right') startX = textBaseX + l.w - padX - width;
+          const y = textBaseY + textOffsetY + idx*lineHeight + fontSize + 1;
           ctx.strokeStyle = tp.color || '#ffffff';
           ctx.lineWidth = Math.max(1, fontSize/15);
           ctx.beginPath();
@@ -4798,21 +5528,26 @@ async function downloadPNG(){
   const btn = document.getElementById('btn-png');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Generando...'; }
   try{
-    // Esperar que todas las fuentes estén listas
     await document.fonts.ready;
-    // Forzar carga de fuentes custom dibujando texto invisible en un canvas temporal
-    const warmupCanvas = document.createElement('canvas');
-    warmupCanvas.width = 10; warmupCanvas.height = 10;
-    const wctx = warmupCanvas.getContext('2d');
-    const customFonts = ['Bebas Neue', 'Akira Expanded', 'Horizon'];
-    for(const f of customFonts){
-      wctx.font = `400 12px "${f}"`;
-      wctx.fillText('A', -100, -100);
-      // Esperar a que el navegador registre el uso de la fuente
-      await document.fonts.load(`400 12px "${f}"`).catch(()=>{});
-    }
-    await new Promise(r=>setTimeout(r,300));
-    const c = await renderDesignToCanvas(2);
+    await new Promise(r=>setTimeout(r,200));
+
+    const canvasW = parseInt(cvs.style.width) || 1080;
+    const canvasH = parseInt(cvs.style.height) || 1080;
+    const exportScale = 2;
+
+    // Ocultar handles y hints de selección antes de capturar
+    document.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.style.display='none');
+    const prevTransform = cvs.style.transform;
+    cvs.style.transform = 'scale(1)';
+    await new Promise(r=>setTimeout(r,60));
+
+    // Usar SIEMPRE el renderer manual — html2canvas no respeta border-radius
+    // en los frame clips, lo que causa que los logos salgan con bordes cuadrados
+    const c = await renderDesignToCanvas(exportScale);
+
+    cvs.style.transform = prevTransform;
+    document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.removeProperty('display'));
+
     const a = document.createElement('a');
     a.download = 'mi-diseno.png';
     a.href = c.toDataURL('image/png');
@@ -4868,6 +5603,7 @@ function syncLayersFromDOM(){
     if(!Number.isNaN(z)) l.zIndex = z;
     if(!Number.isNaN(opacity)) l.opacity = opacity;
     l.visible = l.el.style.display !== 'none';
+    if(l.rotation == null) l.rotation = 0;
 
     // text content / text box styles
     if(l.type==='text' && l.tp){
@@ -4881,6 +5617,10 @@ function syncLayersFromDOM(){
     if(l.type==='img'){
       const img = l.el.querySelector('img');
       if(img && img.src) l.src = img.src;
+      // Guardar borderRadius del elemento DOM en la capa
+      const br = parseFloat(l.el.style.borderRadius);
+      if(!Number.isNaN(br)) l.borderRadius = br;
+      else if(!l.borderRadius) l.borderRadius = 0;
     }
 
     if(l.type==='frame'){
@@ -4905,6 +5645,39 @@ function syncLayersFromDOM(){
   });
 }
 
+async function normalizePersistableImageSrc(src, folder='layer-images'){
+  if(!src) return '';
+
+  let workingSrc = src;
+
+  // blob: no sobrevive entre sesiones; convertirlo primero a dataURL
+  if(typeof workingSrc === 'string' && workingSrc.startsWith('blob:')){
+    try{
+      const res = await fetch(workingSrc);
+      const blob = await res.blob();
+      workingSrc = await new Promise((resolve,reject)=>{
+        const fr = new FileReader();
+        fr.onload = ()=>resolve(fr.result);
+        fr.onerror = ()=>reject(new Error('No se pudo leer blob local'));
+        fr.readAsDataURL(blob);
+      });
+    }catch(err){
+      console.warn('No se pudo convertir blob local:', err.message);
+      return '';
+    }
+  }
+
+  // Base64 pequeño se puede guardar directo; grande se sube a Storage
+  if(typeof workingSrc === 'string' && workingSrc.startsWith('data:')){
+    const approxKB = Math.round(workingSrc.length * 0.75 / 1024);
+    if(approxKB <= 100) return workingSrc;
+    const compressed = await compressImage(workingSrc, 1500, 1500, 0.88);
+    return await uploadToStorage(compressed, `${folder}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`);
+  }
+
+  return workingSrc;
+}
+
 async function buildLayerData(){
   const result = [];
   let retryCount = 0;
@@ -4913,32 +5686,26 @@ async function buildLayerData(){
     let src = l.src||'';
     if(!src && l.el){
       const domImg = l.el.querySelector('img');
-      if(domImg && domImg.src && !domImg.src.startsWith('data:') && domImg.complete && domImg.naturalWidth>0){
+      if(domImg && domImg.src && domImg.complete && domImg.naturalWidth>0){
         src = domImg.src;
         l.src = src;
       }
     }
 
-    // Si src es base64: imágenes pegadas por el usuario (comprimidas ~50KB) se guardan directo en Firestore
-    // Imágenes PSD grandes (>100KB) se suben a Cloudinary
-    if(src && src.startsWith('data:')){
-      const approxKB = Math.round(src.length * 0.75 / 1024);
-      if(approxKB > 100){
-        // Grande → subir a Cloudinary
-        try{
-          retryCount++;
-          const compressed = await compressImage(src, 1500, 1500, 0.88);
-          const uploaded = await uploadToStorage(compressed, `layer-images/retry_${Date.now()}_${retryCount}.jpg`);
-          src = uploaded;
-          l.src = uploaded;
+    // Normalizar referencias de imagen para que sobrevivan entre sesiones
+    if(src){
+      try{
+        const normalizedSrc = await normalizePersistableImageSrc(src, 'layer-images');
+        if(normalizedSrc){
+          if(normalizedSrc !== src) retryCount++;
+          src = normalizedSrc;
+          l.src = normalizedSrc;
           const domImg = l.el?.querySelector('img');
-          if(domImg) domImg.src = uploaded;
-        }catch(e){
-          console.warn(`No se pudo subir capa "${l.name}":`, e.message);
-          // Mantener base64 aunque sea grande — mejor que perder la imagen
+          if(domImg && !normalizedSrc.startsWith('data:')) domImg.src = normalizedSrc;
         }
+      }catch(e){
+        console.warn(`No se pudo normalizar capa "${l.name}":`, e.message);
       }
-      // ≤100KB → guardar base64 directo en Firestore (imágenes pegadas comprimidas)
     }
 
     const obj = {
@@ -4954,6 +5721,7 @@ async function buildLayerData(){
       visible: l.visible!==false,
       zIndex: l.zIndex||0,
       locked: l.locked===true,
+      rotation: normalizeRotation(l.rotation||0),
     };
     if(l.groupId) obj.groupId = l.groupId;
     if(l.origW) obj.origW = l.origW;
@@ -4981,13 +5749,15 @@ async function buildLayerData(){
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
     if(l.frameImage){
-      // Base64 pequeño (<100KB) → guardar directo en Firestore
-      // Base64 grande → era imagen PSD, ya debería estar en Cloudinary; si no, descartar
-      if(l.frameImage.startsWith('data:')){
-        const sizeKB = Math.round(l.frameImage.length * 0.75 / 1024);
-        obj.frameImage = sizeKB <= 100 ? l.frameImage : '';
-      } else {
-        obj.frameImage = l.frameImage;
+      try{
+        const normalizedFrame = await normalizePersistableImageSrc(l.frameImage, 'frames');
+        if(normalizedFrame){
+          if(normalizedFrame !== l.frameImage) retryCount++;
+          l.frameImage = normalizedFrame;
+          obj.frameImage = normalizedFrame;
+        }
+      }catch(e){
+        console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
       }
     }
     obj.blur = Number(l.blur||0);
@@ -5081,6 +5851,13 @@ async function doSave(status){
   try{
     layerData = await buildLayerData();
     console.log(`✓ Capas: ${layerData.length}`);
+    if(!Array.isArray(layerData) || !layerData.length){
+      st.textContent='✗ Esta plantilla no tiene capas para guardar.';
+      st.style.color='var(--accent2)';
+      showToast('Agrega o recupera capas antes de guardar');
+      document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+      return;
+    }
   }catch(e){
     st.textContent='✗ Error al empaquetar capas: '+e.message; st.style.color='var(--accent2)';
     document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
@@ -5091,6 +5868,7 @@ async function doSave(status){
   const payload = {name, thumb, status,
     category: document.getElementById('save-category')?.value||'',
     updatedAt:Date.now(),
+    updatedBy: fbAuth.currentUser?.uid || '',
     template:{type:'psd-layers', canvasW:parseInt(cvs.style.width), canvasH:parseInt(cvs.style.height), layers:layerData}};
   const payloadStr = JSON.stringify(payload);
   const sizeKB = Math.round(payloadStr.length/1024);
@@ -5099,6 +5877,16 @@ async function doSave(status){
     st.textContent=`✗ Documento muy grande (${sizeKB}KB). Firestore acepta máx ~1MB. Reduce capas o verifica que las imágenes estén en Cloudinary.`;
     st.style.color='var(--accent2)';
     document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+    return;
+  }
+
+  const preSaveDiag = diagnoseTemplatePayload(payload, {templateId: tplId || null, sourceCollection:'templates', name, status, thumb});
+  await reportTemplateHealth(preSaveDiag, 'pre_save_validation', {templateId: tplId || null, sourceCollection:'templates', name, status});
+  if(preSaveDiag.severity==='error'){
+    st.textContent='✗ Se detectaron fallas críticas en la plantilla. Revisa Diagnóstico antes de guardar.';
+    st.style.color='var(--accent2)';
+    document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
+    showToast('✗ Diagnóstico: corrige la plantilla antes de guardar');
     return;
   }
 
@@ -5122,6 +5910,7 @@ async function doSave(status){
       console.log('✓ Actualizado doc:', tplId);
     } else {
       payload.createdAt=Date.now();
+      payload.createdBy=fbAuth.currentUser?.uid || '';
       const ref=await fbDb.collection('templates').add(payload);
       tplId=ref.id;
       window.history.replaceState(null,'',`${window.location.pathname}?tpl=${tplId}`);
@@ -5139,6 +5928,8 @@ async function doSave(status){
       if(linkEl){ linkEl.value=link; document.getElementById('save-link-row').style.display='block'; }
     }
     showAutoSaveIndicator('✓ Guardado');
+    const persistedDiag = diagnoseTemplatePayload(payload, {templateId: tplId, sourceCollection:'templates', name, status, thumb});
+    await reportTemplateHealth(persistedDiag, 'save_success', {templateId: tplId, sourceCollection:'templates', name, status, thumb});
     // Actualizar variables globales con los valores guardados
     tplName = name;
     tplCategory = document.getElementById('save-category')?.value || tplCategory;
@@ -5184,20 +5975,35 @@ async function autoSaveToFirestore(){
   if(Date.now()-_lastActivity < 3000) return;
   try{
     const layerData=await buildLayerData();
+    if(!Array.isArray(layerData) || !layerData.length){
+      const emptyDiag = diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[]}}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
+      await reportTemplateHealth(emptyDiag, 'autosave_blocked_empty', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
+      showAutoSaveIndicator('⚠ Sin capas, no se sobrescribió');
+      return;
+    }
     const snap=JSON.stringify(layerData);
     if(snap===_lastAutoSave) return;
     _lastAutoSave=snap;
     const templatePayload = {type:'psd-layers',canvasW:parseInt(cvs.style.width),canvasH:parseInt(cvs.style.height),layers:layerData};
+    const autoDiag = diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template: templatePayload, thumb: window.__lastLoadedTemplateMeta?.thumb || ''}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || '', thumb: window.__lastLoadedTemplateMeta?.thumb || ''});
+    await reportTemplateHealth(autoDiag, 'autosave_validation', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
+    if(autoDiag.severity==='error'){
+      showAutoSaveIndicator('⚠ Diagnóstico bloqueó autoguardado');
+      return;
+    }
     const payloadSize = Math.round(JSON.stringify(templatePayload).length / 1024);
     console.log('Template payload size:', payloadSize+'KB');
     await fbDb.collection('templates').doc(tplId).update({
       updatedAt:Date.now(),
+      updatedBy: fbAuth.currentUser?.uid || '',
       status: tplStatus,
       template: templatePayload
     });
     showAutoSaveIndicator('✓ Autoguardado');
+    await reportTemplateHealth(autoDiag, 'autosave_success', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''});
   }catch(e){
     try{localStorage.setItem('ts_autosave',JSON.stringify({tplId,w:cvs.style.width,h:cvs.style.height,t:Date.now()}));}catch(_){}
+    await reportTemplateHealth(diagnoseTemplatePayload({name: tplName || '', status: tplStatus || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:layers||[]}}, {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || ''}), 'autosave_error', {templateId: tplId, sourceCollection:'templates', name: tplName || '', status: tplStatus || '', errorMessage: e.message || ''});
     showAutoSaveIndicator('📶 Sin conexión');
   }
 }
@@ -5206,22 +6012,58 @@ _autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
 
 // LOAD SAVED
 function loadData(tpl){
-  if(!tpl||tpl.type!=='psd-layers')return;
+  if(!tpl||tpl.type!=='psd-layers'){
+    reportTemplateHealth(diagnoseTemplatePayload(tpl || {}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'}), 'load_invalid_payload', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'});
+    showToast('Plantilla inválida o vacía');
+    return;
+  }
   document.getElementById('size-overlay').classList.remove('open');
 
   // Remove all .cel elements but keep multi-box and marquee
   Array.from(cvs.children).forEach(el=>{
-    if(el.id!=='multi-box') el.remove();
+    if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove();
   });
   layers=[]; lCtr=0;
 
   cvs.style.width=(tpl.canvasW||800)+'px';
   cvs.style.height=(tpl.canvasH||800)+'px';
+  cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
 
-  (tpl.layers||[]).forEach(ld=>{
+  const incomingLayers = Array.isArray(tpl.layers) ? tpl.layers : [];
+  if(!incomingLayers.length){
+    const thumb = window.__lastLoadedTemplateMeta?.thumb || '';
+    if(thumb){
+      const fallbackLayer = {
+        id: lCtr++,
+        type: 'img',
+        name: 'Vista previa recuperada',
+        src: thumb,
+        x: 0,
+        y: 0,
+        w: parseInt(cvs.style.width)||800,
+        h: parseInt(cvs.style.height)||800,
+        opacity: 1,
+        visible: true,
+        zIndex: 0,
+        flipX: false,
+        flipY: false,
+        blur: 0,
+        recoveredFromThumb: true
+      };
+      layers.push(fallbackLayer);
+      mkEl(fallbackLayer);
+      reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || '', thumb, template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[fallbackLayer]}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || '', thumb}), 'load_thumb_recovery', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''});
+      showToast('La plantilla perdió sus capas. Se mostró la miniatura como respaldo.');
+    }else{
+      reportTemplateHealth(diagnoseTemplatePayload({name: window.__lastLoadedTemplateMeta?.name || '', template:{type:'psd-layers', canvasW:parseInt(cvs.style.width)||800, canvasH:parseInt(cvs.style.height)||800, layers:[]}}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''}), 'load_empty_layers', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates', name: window.__lastLoadedTemplateMeta?.name || ''});
+      showToast('Esta plantilla no tiene capas guardadas');
+    }
+  }
+
+  incomingLayers.forEach(ld=>{
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
-    // If src is empty but layer is an image type, try to keep it (will show as ? in panel)
+    if(l.rotation == null) l.rotation = 0;
     // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
     if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
       const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
@@ -5229,6 +6071,9 @@ function loadData(tpl){
       l.src = URL.createObjectURL(blob);
       l.shapeSvg = svgFill;
     }
+    // blob: en imágenes normales o marcos no sobrevive entre sesiones
+    if(!l.isShape && typeof l.src === 'string' && l.src.startsWith('blob:')) l.src = '';
+    if(typeof l.frameImage === 'string' && l.frameImage.startsWith('blob:')) l.frameImage = '';
     layers.push(l);
     mkEl(l);
   });
@@ -5334,7 +6179,7 @@ function addImageLayerFromUrl(url){
         x: Math.round((cw-w)/2), y: Math.round((ch-h)/2),
         w, h,
         opacity:1, visible:true, zIndex:layers.length,
-        flipX:false, flipY:false, blur:0
+        flipX:false, flipY:false, blur:0, rotation:0
       };
       layers.push(l); mkEl(l); renderList(); sel(l.id); snapshotState();
       showToast('🖼 Imagen pegada');
