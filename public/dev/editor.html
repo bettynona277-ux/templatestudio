@@ -4506,12 +4506,35 @@ async function saveClientDesign(){
 
 // DOWNLOAD
 function loadImgForExport(src){
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve)=>{
     if(!src) return resolve(null);
+    // Intento 1: con crossOrigin anonymous (necesario para drawImage en canvas)
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=>resolve(img);
-    img.onerror = ()=>resolve(null);
+    img.onerror = ()=>{
+      // Intento 2: Si es URL de proxy weserv, probar directamente con la URL original
+      // Intento 3: sin crossOrigin como último recurso (puede fallar drawImage por taint)
+      const img2 = new Image();
+      img2.onload = ()=>resolve(img2);
+      img2.onerror = ()=>resolve(null);
+      // Si es URL de weserv, extraer la URL original
+      if(src.includes('weserv.nl')){
+        try{
+          const u = new URL(src);
+          const orig = u.searchParams.get('url');
+          if(orig){
+            const img3 = new Image();
+            img3.crossOrigin = 'anonymous';
+            img3.onload = ()=>resolve(img3);
+            img3.onerror = ()=>{ img2.src = orig; };
+            img3.src = 'https://images.weserv.nl/?url='+encodeURIComponent(orig)+'&n=-1&we';
+            return;
+          }
+        }catch(e){}
+      }
+      img2.src = src;
+    };
     img.src = src;
   });
 }
@@ -4587,15 +4610,23 @@ async function renderDesignToCanvas(scale=2){
 
       // 2. Imagen con clip
       if(l.frameImage){
-        const img = await loadImgForExport(l.frameImage);
+        // Intentar cargar la imagen — si falla, buscarla en el DOM
+        let img = await loadImgForExport(l.frameImage);
+        if(!img){
+          // Fallback: usar la imagen ya renderizada en el DOM
+          const domImg = document.getElementById('fi-'+l.id);
+          if(domImg && domImg.complete && domImg.naturalWidth > 0){
+            img = domImg;
+          }
+        }
         if(img){
           ctx.save();
           roundedRectPath(ctx, l.x, l.y, l.w, l.h, radius);
           ctx.clip();
           const blur = Number(l.blur || 0);
           ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
-          const sw = img.width || l.w;
-          const sh = img.height || l.h;
+          const sw = img.naturalWidth || img.width || l.w;
+          const sh = img.naturalHeight || img.height || l.h;
           const scaleCover = Math.max(l.w / sw, l.h / sh);
           const dw = sw * scaleCover;
           const dh = sh * scaleCover;
@@ -4818,62 +4849,9 @@ async function downloadPNG(){
     cvs.style.transform = 'scale(1)';
     await new Promise(r=>setTimeout(r,60));
 
-    let c;
-    try{
-      // Crear iframe aislado — tiene su propio DOM sin los stylesheets del editor
-      // que contienen color-mix/oklch que html2canvas no soporta
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${canvasW}px;height:${canvasH}px;border:none;z-index:-1;`;
-      document.body.appendChild(iframe);
-      const iDoc = iframe.contentDocument;
-
-      // Inyectar solo los estilos críticos para que el texto se vea igual
-      iDoc.open();
-      iDoc.write(`<!DOCTYPE html><html><head><style>
-        *{margin:0;padding:0;box-sizing:border-box;}
-        body{width:${canvasW}px;height:${canvasH}px;overflow:hidden;background:#000;}
-        .cel{position:absolute;}
-        .txt-inner{white-space:pre-wrap;word-break:break-word;padding:2px;width:100%;height:100%;display:block;}
-        img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
-        .shape-fill-img{object-fit:fill !important;}
-        .frame-clip{position:absolute;inset:0;overflow:hidden;}
-        .frame-clip img{object-fit:cover;width:100%;height:100%;}
-      </style>
-      ${[...document.querySelectorAll('link[rel="stylesheet"],style')].filter(s=>
-        !s.textContent?.includes('color-mix') && !s.textContent?.includes('oklch')
-      ).map(s=>s.outerHTML).join('')}
-      </head><body></body></html>`);
-      iDoc.close();
-
-      // Clonar cvs al iframe
-      const clone = cvs.cloneNode(true);
-      clone.style.cssText = `position:relative;width:${canvasW}px;height:${canvasH}px;transform:none;left:0;top:0;`;
-      clone.querySelectorAll('.rh,.sz-hint,.multi-box').forEach(e=>e.remove());
-      iDoc.body.appendChild(clone);
-      await new Promise(r=>setTimeout(r,150));
-
-      c = await html2canvas(iDoc.body, {
-        scale: exportScale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#000000',
-        logging: false,
-        width: canvasW,
-        height: canvasH,
-        x: 0,
-        y: 0,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: canvasW,
-        windowHeight: canvasH,
-      });
-      document.body.removeChild(iframe);
-    } catch(h2cErr){
-      console.warn('html2canvas falló, usando renderer manual:', h2cErr.message);
-      // Limpiar iframe si existe
-      document.querySelector('iframe[style*="-9999px"]')?.remove();
-      c = await renderDesignToCanvas(exportScale);
-    }
+    // Usar SIEMPRE el renderer manual — html2canvas no respeta border-radius
+    // en los frame clips, lo que causa que los logos salgan con bordes cuadrados
+    const c = await renderDesignToCanvas(exportScale);
 
     cvs.style.transform = prevTransform;
     document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.removeProperty('display'));
