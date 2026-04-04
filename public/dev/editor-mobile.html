@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Oswald:wght@400;700&family=Raleway:wght@400;700&family=Nunito:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -407,6 +408,12 @@ let currentTab = 'text';
 
 const cvs = document.getElementById('cvs');
 
+function getPreferredAuthAppNames(){
+  const saved = localStorage.getItem('ts_last_auth_app') || 'ts-client';
+  const names = [saved, 'ts-client', 'ts-client-mobile'];
+  return [...new Set(names.filter(Boolean))];
+}
+
 // ══════════════════════════════════════════
 // FIREBASE
 // ══════════════════════════════════════════
@@ -423,17 +430,30 @@ async function initFB(){
   const savedCfg = localStorage.getItem('ts_firebase_config');
   const config = savedCfg ? JSON.parse(savedCfg) : FIREBASE_CONFIG;
   try{
-    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
-    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
-    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
+    await Promise.all([
+      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js'),
+      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js'),
+      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js')
+    ]);
 
-    try { fbApp = firebase.app('ts-client'); }
-    catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
-
-    fbDb = firebase.firestore(fbApp);
-    fbAuth = firebase.auth(fbApp);
-
-    try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+    const candidates = getPreferredAuthAppNames();
+    let lastErr = null;
+    for(const appName of candidates){
+      try{
+        try { fbApp = firebase.app(appName); }
+        catch(e) { fbApp = firebase.initializeApp(config, appName); }
+        fbDb = firebase.firestore(fbApp);
+        fbAuth = firebase.auth(fbApp);
+        try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+        try{ localStorage.setItem('ts_last_auth_app', fbApp.name); }catch(_){}
+        try{ localStorage.setItem('ts_firebase_config', JSON.stringify(config)); }catch(_){}
+        lastErr = null;
+        break;
+      }catch(e){
+        lastErr = e;
+      }
+    }
+    if(lastErr) throw lastErr;
   }catch(e){ console.warn('Firebase init error:', e); }
 }
 
@@ -1537,21 +1557,40 @@ async function downloadPNG(){
 // ══════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════
-window.addEventListener('load', async()=>{
-  showLoad('Conectando...');
+document.addEventListener('DOMContentLoaded', async()=>{
+  showLoad(sessionStorage.getItem('ts_editor_fast_open') ? 'Abriendo editor…' : 'Conectando...');
   await initFB();
 
-  // Esperar sesión
+  const sessionHint = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_session') || 'null'); }catch(_){ return null; } })();
+  const openCtx = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_editor_open_ctx') || 'null'); }catch(_){ return null; } })();
+  const hasRecentBridge = !!(openCtx && (Date.now() - (openCtx.ts || 0) < 15000));
+
+  // Esperar sesión real de Firebase Auth
   const user = await new Promise(resolve=>{
     if(!fbAuth){ resolve(null); return; }
+    if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
+
     let settled=false;
     const unsub=fbAuth.onAuthStateChanged(u=>{
       if(settled) return;
-      if(!u&&!fbAuth.currentUser) return;
-      settled=true;try{unsub();}catch(_){}
-      resolve(u||fbAuth.currentUser||null);
+      if(u){
+        settled=true;try{unsub();}catch(_){}
+        resolve(u);
+        return;
+      }
+      if(!hasRecentBridge && !sessionHint){
+        settled=true;try{unsub();}catch(_){}
+        resolve(fbAuth.currentUser||null);
+      }
     });
-    setTimeout(()=>{ if(settled)return; settled=true; try{unsub();}catch(_){} resolve(fbAuth.currentUser||null); },8000);
+
+    const waitMs = hasRecentBridge ? 4500 : (sessionHint ? 7000 : 4000);
+    setTimeout(()=>{
+      if(settled) return;
+      settled=true;
+      try{unsub();}catch(_){}
+      resolve(fbAuth.currentUser||null);
+    }, waitMs);
   });
 
   if(!user){
@@ -1561,6 +1600,10 @@ window.addEventListener('load', async()=>{
     setTimeout(()=>window.location.href='index-mobile.html',2000);
     return;
   }
+
+  try{ localStorage.removeItem('ts_editor_open_ctx'); }catch(_){}
+  try{ sessionStorage.removeItem('ts_editor_fast_open'); }catch(_){}
+
 
   const p=new URLSearchParams(window.location.search);
   tplId=p.get('tpl')||null;
