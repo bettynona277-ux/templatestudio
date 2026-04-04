@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Oswald:wght@400;700&family=Raleway:wght@400;700&family=Nunito:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -410,8 +409,7 @@ const cvs = document.getElementById('cvs');
 
 function getPreferredAuthAppNames(){
   const saved = localStorage.getItem('ts_last_auth_app') || 'ts-client';
-  const names = [saved, 'ts-client', 'ts-client-mobile'];
-  return [...new Set(names.filter(Boolean))];
+  return [...new Set([saved, 'ts-client', 'ts-client-mobile'])];
 }
 
 // ══════════════════════════════════════════
@@ -430,18 +428,16 @@ async function initFB(){
   const savedCfg = localStorage.getItem('ts_firebase_config');
   const config = savedCfg ? JSON.parse(savedCfg) : FIREBASE_CONFIG;
   try{
-    await Promise.all([
-      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js'),
-      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js'),
-      ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js')
-    ]);
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
+    await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
 
-    const candidates = getPreferredAuthAppNames();
     let lastErr = null;
-    for(const appName of candidates){
+    for(const appName of getPreferredAuthAppNames()){
       try{
         try { fbApp = firebase.app(appName); }
         catch(e) { fbApp = firebase.initializeApp(config, appName); }
+
         fbDb = firebase.firestore(fbApp);
         fbAuth = firebase.auth(fbApp);
         try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
@@ -1557,15 +1553,15 @@ async function downloadPNG(){
 // ══════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async()=>{
-  showLoad(sessionStorage.getItem('ts_editor_fast_open') ? 'Abriendo editor…' : 'Conectando...');
+window.addEventListener('load', async()=>{
+  showLoad('Conectando...');
   await initFB();
 
   const sessionHint = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_session') || 'null'); }catch(_){ return null; } })();
   const openCtx = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_editor_open_ctx') || 'null'); }catch(_){ return null; } })();
   const hasRecentBridge = !!(openCtx && (Date.now() - (openCtx.ts || 0) < 15000));
 
-  // Esperar sesión real de Firebase Auth
+  // Esperar sesión real
   const user = await new Promise(resolve=>{
     if(!fbAuth){ resolve(null); return; }
     if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
@@ -1584,9 +1580,9 @@ document.addEventListener('DOMContentLoaded', async()=>{
       }
     });
 
-    const waitMs = hasRecentBridge ? 4500 : (sessionHint ? 7000 : 4000);
+    const waitMs = hasRecentBridge || sessionHint ? 12000 : 4000;
     setTimeout(()=>{
-      if(settled) return;
+      if(settled)return;
       settled=true;
       try{unsub();}catch(_){}
       resolve(fbAuth.currentUser||null);
@@ -1602,7 +1598,6 @@ document.addEventListener('DOMContentLoaded', async()=>{
   }
 
   try{ localStorage.removeItem('ts_editor_open_ctx'); }catch(_){}
-  try{ sessionStorage.removeItem('ts_editor_fast_open'); }catch(_){}
 
 
   const p=new URLSearchParams(window.location.search);
