@@ -635,7 +635,6 @@ function dismissInstall(){
   localStorage.setItem('pwa_dismissed', Date.now().toString());
 }
 
-const MOBILE_AUTH_APP_NAME = 'ts-client';
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
   authDomain: "plantillas-bfaeb.firebaseapp.com",
@@ -687,8 +686,8 @@ async function initFirebase(){
   await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
   await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
   try{
-    try{ fbApp = firebase.app(MOBILE_AUTH_APP_NAME); }
-    catch(e){ fbApp = firebase.initializeApp(FIREBASE_CONFIG, MOBILE_AUTH_APP_NAME); }
+    try{ fbApp = firebase.app('ts-client'); }
+    catch(e){ fbApp = firebase.initializeApp(FIREBASE_CONFIG, 'ts-client'); }
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
     try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
@@ -699,6 +698,18 @@ async function initFirebase(){
     console.error(e);
     return false;
   }
+}
+
+
+function resolvePostLoginRedirect(){
+  const params = new URLSearchParams(window.location.search);
+  const rawRedirect = params.get('redirect');
+  if(!rawRedirect) return '';
+  let target = decodeURIComponent(rawRedirect);
+  if(/(^|\/)(editor\.html)(\?|$)/i.test(target)){
+    target = target.replace(/(^|\/)(editor\.html)(\?|$)/i, '$1editor-mobile.html$3');
+  }
+  return target;
 }
 
 window.addEventListener('load', async()=>{
@@ -726,11 +737,18 @@ window.addEventListener('load', async()=>{
           }
           currentUser = {uid:user.uid, ...doc.data()};
           localStorage.setItem('ts_session', JSON.stringify(currentUser));
-          try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || MOBILE_AUTH_APP_NAME); }catch(_){ }
-          try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){ }
+          try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
+          try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
           const params = new URLSearchParams(window.location.search);
-          if(params.get('tpl')) openEditorFromTemplate(params.get('tpl'));
-          else showDashboard();
+          const redirectTarget = resolvePostLoginRedirect();
+          if(redirectTarget) {
+            try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid:user.uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
+            window.location.href = redirectTarget;
+          } else if(params.get('tpl')) {
+            openEditorFromTemplate(params.get('tpl'));
+          } else {
+            showDashboard();
+          }
         }else{
           fbAuth.signOut();
           document.getElementById('app-loading').style.display = 'none';
@@ -811,8 +829,8 @@ async function doLogin(){
   btn.disabled = true;
   txt.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:#fff;border-color:rgba(255,255,255,0.28);"></div>';
   try{
-    try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || MOBILE_AUTH_APP_NAME); }catch(_){ }
-    try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){ }
+    try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
+    try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
     await fbAuth.signInWithEmailAndPassword(email, pass);
     txt.textContent = 'Entrar ahora';
     btn.disabled = false;
@@ -836,7 +854,6 @@ function doLogout(){
 }
 
 function showDashboard(){
-  warmEditorMobileAssets();
   document.getElementById('app-loading').style.display = 'none';
   const email = currentUser.email || '';
   document.getElementById('user-email-lbl').textContent = email.split('@')[0] || email;
@@ -1037,7 +1054,7 @@ function renderTemplates(list){
 }
 
 function openEditorBlank(){
-  try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid: currentUser?.uid || '', app: fbApp?.name || MOBILE_AUTH_APP_NAME})); sessionStorage.setItem('ts_editor_fast_open', '1'); warmEditorMobileAssets(); }catch(_){ }
+  try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid: currentUser?.uid || '', app: fbApp?.name || 'ts-client'})); }catch(_){}
   window.location.href = 'editor-mobile.html?mode=client';
 }
 
@@ -1047,17 +1064,17 @@ async function openEditorDesign(id){
     const doc = await fbDb.collection('user_designs').doc(id).get();
     const tplRef = doc.data()?.tplId || '';
     const url = `editor-mobile.html?mode=client&did=${id}&uid=${encodeURIComponent(uid)}${tplRef ? '&tpl=' + tplRef : ''}`;
-    try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || MOBILE_AUTH_APP_NAME})); sessionStorage.setItem('ts_editor_fast_open', '1'); warmEditorMobileAssets(); }catch(_){ }
+    try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
     window.location.href = url;
   }catch(e){
-    try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || MOBILE_AUTH_APP_NAME})); sessionStorage.setItem('ts_editor_fast_open', '1'); warmEditorMobileAssets(); }catch(_){ }
+    try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
     window.location.href = `editor-mobile.html?mode=client&did=${id}&uid=${encodeURIComponent(uid)}`;
   }
 }
 
 function openEditorFromTemplate(tplId){
   const uid = currentUser?.uid || '';
-  try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || MOBILE_AUTH_APP_NAME})); sessionStorage.setItem('ts_editor_fast_open', '1'); warmEditorMobileAssets(); }catch(_){ }
+  try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
   window.location.href = `editor-mobile.html?mode=client&tpl=${tplId}&uid=${encodeURIComponent(uid)}`;
 }
 </script>
