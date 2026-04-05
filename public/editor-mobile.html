@@ -853,6 +853,7 @@ function buildEl(l){
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
     el.style.overflow = 'hidden';
+    el.style.boxSizing = 'border-box';
     // Nombres del editor PC: frameBorderWidth, frameShadow, frameInnerShadow
     const fBW  = Number(l.frameBorderWidth  || l.borderWidth  || 0);
     const fBC  = l.frameBorderColor || l.borderColor || '#00ffc3';
@@ -863,7 +864,12 @@ function buildEl(l){
     if(fISh>0) shadowParts.push(`inset 0 0 ${fISh}px rgba(0,0,0,0.7)`);
     if(shadowParts.length) el.style.boxShadow = shadowParts.join(', ');
     if(l.src){
-      if(fBW>0) el.style.outline = `${fBW}px solid ${fBC}`;
+      el.style.boxSizing = 'border-box';
+      if(fBW>0){
+        el.style.border = `${fBW}px solid ${fBC}`;
+      } else {
+        el.style.border = 'none';
+      }
       const img = document.createElement('img');
       img.src = l.src;
       img.className = 'frame-inner';
@@ -1019,9 +1025,13 @@ function applyLogoToFrame(src, name){
   const l = layers.find(x=>x.id===frameSelId);
   if(!l || l.type!=='frame') return false;
   l.src = src;
+  const fBW = Number(l.frameBorderWidth || l.borderWidth || 0);
+  const fBC = l.frameBorderColor || l.borderColor || '#00ffc3';
   // Actualizar el elemento visual
   if(l.el){
-    l.el.style.border = 'none';
+    l.el.style.boxSizing = 'border-box';
+    l.el.style.outline = 'none';
+    l.el.style.border = fBW > 0 ? `${fBW}px solid ${fBC}` : 'none';
     l.el.innerHTML = '';
     const img = document.createElement('img');
     img.src = src;
@@ -1519,7 +1529,7 @@ async function downloadPNG(){
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
   cvs.style.transform = 'none';
-  await new Promise(r=>setTimeout(r,60));
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
