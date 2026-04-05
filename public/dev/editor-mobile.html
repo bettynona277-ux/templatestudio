@@ -507,7 +507,8 @@ function loadDesign(tpl){
       ...ld,
       el: null,
       tp: ld.tp ? {...ld.tp} : null,
-      src: resolvedSrc
+      src: resolvedSrc,
+      fitMode: ld.fitMode || ld.objectFit || (ld.type === 'img' ? 'contain' : undefined)
     };
     layers.push(l);
     buildEl(l);
@@ -843,7 +844,8 @@ function buildEl(l){
   } else if(l.type === 'img'){
     const img = document.createElement('img');
     img.src = l.src||'';
-    img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
+    const fitMode = l.fitMode || l.objectFit || 'contain';
+    img.style.cssText = `width:100%;height:100%;object-fit:${fitMode};display:block;pointer-events:none;`;
     if(l.flipX||l.flipY) img.style.transform=`scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
     if(l.blur>0) img.style.filter=`blur(${l.blur}px)`;
     el.appendChild(img);
@@ -1433,6 +1435,8 @@ async function doSave(){
     innerShadow: l.frameInnerShadow || l.innerShadow || 0,
     flipX:l.flipX||false,flipY:l.flipY||false,
     blur:l.blur||0,
+    fitMode: l.fitMode || l.objectFit || (l.type==='img' ? 'contain' : null),
+    objectFit: l.fitMode || l.objectFit || (l.type==='img' ? 'contain' : null),
     rotation: parseFloat(l.rotation || 0) || 0,
     radius:l.radius||null,
     groupId:l.groupId||null
@@ -1504,6 +1508,18 @@ function parseColor(str){
     return [p[0]||0,p[1]||0,p[2]||0,p[3]!==undefined?p[3]:1];
   }
   return [0,0,0,1];
+}
+
+
+function drawImageContainBox(ctx, imgObj, x, y, w, h){
+  const iw = imgObj.naturalWidth || imgObj.width || 1;
+  const ih = imgObj.naturalHeight || imgObj.height || 1;
+  const scale = Math.min(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+  ctx.drawImage(imgObj, dx, dy, dw, dh);
 }
 
 function roundedRectPath(ctx, x, y, w, h, r){
