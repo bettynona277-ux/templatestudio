@@ -407,6 +407,11 @@ let currentTab = 'text';
 
 const cvs = document.getElementById('cvs');
 
+function getPreferredAuthAppNames(){
+  const saved = localStorage.getItem('ts_last_auth_app') || 'ts-client';
+  return [...new Set([saved, 'ts-client', 'ts-client-mobile'])];
+}
+
 // ══════════════════════════════════════════
 // FIREBASE
 // ══════════════════════════════════════════
@@ -427,13 +432,24 @@ async function initFB(){
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
     await ls('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
 
-    try { fbApp = firebase.app('ts-client'); }
-    catch(e) { fbApp = firebase.initializeApp(config, 'ts-client'); }
+    let lastErr = null;
+    for(const appName of getPreferredAuthAppNames()){
+      try{
+        try { fbApp = firebase.app(appName); }
+        catch(e) { fbApp = firebase.initializeApp(config, appName); }
 
-    fbDb = firebase.firestore(fbApp);
-    fbAuth = firebase.auth(fbApp);
-
-    try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+        fbDb = firebase.firestore(fbApp);
+        fbAuth = firebase.auth(fbApp);
+        try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+        try{ localStorage.setItem('ts_last_auth_app', fbApp.name); }catch(_){}
+        try{ localStorage.setItem('ts_firebase_config', JSON.stringify(config)); }catch(_){}
+        lastErr = null;
+        break;
+      }catch(e){
+        lastErr = e;
+      }
+    }
+    if(lastErr) throw lastErr;
   }catch(e){ console.warn('Firebase init error:', e); }
 }
 
@@ -1541,17 +1557,36 @@ window.addEventListener('load', async()=>{
   showLoad('Conectando...');
   await initFB();
 
-  // Esperar sesión
+  const sessionHint = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_session') || 'null'); }catch(_){ return null; } })();
+  const openCtx = (()=>{ try{ return JSON.parse(localStorage.getItem('ts_editor_open_ctx') || 'null'); }catch(_){ return null; } })();
+  const hasRecentBridge = !!(openCtx && (Date.now() - (openCtx.ts || 0) < 15000));
+
+  // Esperar sesión real
   const user = await new Promise(resolve=>{
     if(!fbAuth){ resolve(null); return; }
+    if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
+
     let settled=false;
     const unsub=fbAuth.onAuthStateChanged(u=>{
       if(settled) return;
-      if(!u&&!fbAuth.currentUser) return;
-      settled=true;try{unsub();}catch(_){}
-      resolve(u||fbAuth.currentUser||null);
+      if(u){
+        settled=true;try{unsub();}catch(_){}
+        resolve(u);
+        return;
+      }
+      if(!hasRecentBridge && !sessionHint){
+        settled=true;try{unsub();}catch(_){}
+        resolve(fbAuth.currentUser||null);
+      }
     });
-    setTimeout(()=>{ if(settled)return; settled=true; try{unsub();}catch(_){} resolve(fbAuth.currentUser||null); },8000);
+
+    const waitMs = hasRecentBridge || sessionHint ? 12000 : 4000;
+    setTimeout(()=>{
+      if(settled)return;
+      settled=true;
+      try{unsub();}catch(_){}
+      resolve(fbAuth.currentUser||null);
+    }, waitMs);
   });
 
   if(!user){
@@ -1561,6 +1596,9 @@ window.addEventListener('load', async()=>{
     setTimeout(()=>window.location.href='index-mobile.html',2000);
     return;
   }
+
+  try{ localStorage.removeItem('ts_editor_open_ctx'); }catch(_){}
+
 
   const p=new URLSearchParams(window.location.search);
   tplId=p.get('tpl')||null;
