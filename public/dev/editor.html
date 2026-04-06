@@ -4901,7 +4901,7 @@ function shortify(txt, maxLen=110){
 
 function shouldIgnoreCopyText(clean){
   if(!clean) return true;
-  const t = clean.toLowerCase();
+  const t = clean.toLowerCase().trim();
   const ignoreExact = [
     'arrastra imagen','adquiere ahora','adquiere ahora tu suscripción',
     'copiar','cerrar','copiar todo','regenerar','generar ahora'
@@ -4923,14 +4923,16 @@ function shouldIgnoreCopyText(clean){
     /^solo$/i,
     /^gratis$/i
   ];
-  return patterns.some(rx => rx.test(clean));
+  return patterns.some(rx => rx.test(t));
 }
+
 function cleanCopyCandidate(txt){
   return normalizeCopyText(txt)
     .replace(/\s+/g,' ')
     .replace(/[|]+/g,' ')
     .trim();
 }
+
 function getDesignTextContext(){
   const canvasH = parseFloat(cvs?.style?.height || cvs?.offsetHeight || 0) || 800;
 
@@ -5002,6 +5004,7 @@ function getDesignTextContext(){
     offerLabel: offerBits.join(' • ')
   };
 }
+
 function detectPhoneFromTexts(texts){
   const matches = [];
   for(const t of texts || []){
@@ -5025,6 +5028,7 @@ function detectPhoneFromTexts(texts){
   });
   return scored[0];
 }
+
 function detectPricesFromTexts(texts){
   const prices = [];
   for(const t of texts || []){
@@ -5036,6 +5040,7 @@ function detectPricesFromTexts(texts){
   }
   return prices.slice(0, 3);
 }
+
 function detectPlanFromTexts(texts){
   const hay = (texts || []).join(' | ').toLowerCase();
   const planPatterns = [
@@ -5051,11 +5056,13 @@ function detectPlanFromTexts(texts){
   }
   return '';
 }
+
 function detectDurationFromTexts(texts){
   const hay = (texts || []).join(' | ').toLowerCase();
   const m = hay.match(/(\d+\s*mes(?:es)?)/i);
   return m ? m[1].replace(/\s+/g,' ').trim() : '';
 }
+
 function inferServiceFromTexts(texts){
   const haystack = [tplCategory, tplName, currentClientDesignName, ...(texts || [])].join(' ').toLowerCase();
   const catalog = [
@@ -5072,11 +5079,13 @@ function inferServiceFromTexts(texts){
   };
   return prettyMap[hit] || hit;
 }
+
 function seededPick(list, offset=0){
   if(!list || !list.length) return '';
   const idx = (copyGenSeed + offset) % list.length;
   return list[idx];
 }
+
 function buildHashtags(service, platform){
   if(platform !== 'instagram') return '';
   const tags = ['#Streaming', '#Promo', '#Suscripción'];
@@ -5086,9 +5095,11 @@ function buildHashtags(service, platform){
   }
   return ' ' + tags.slice(0, 4).join(' ');
 }
+
 function joinOfferPieces(ctx){
   return [ctx.service, ctx.plan, ctx.duration].filter(Boolean).join(' ');
 }
+
 function generateCopyVariants(ctx, opts={}){
   const tone = opts.tone || 'vendedor';
   const platform = opts.platform || 'general';
@@ -5121,7 +5132,7 @@ function generateCopyVariants(ctx, opts={}){
 
   return [copy1, copy2, copy3].map(t => normalizeCopyText(t));
 }
-function generateCopySuggestions(regenerate=false){
+
 function generateCopySuggestions(regenerate=false){
   const st = document.getElementById('copy-st');
   const results = document.getElementById('copy-results');
@@ -5158,6 +5169,48 @@ function generateCopySuggestions(regenerate=false){
     const chips = [];
     if(ctx.service) chips.push(`Servicio detectado: ${ctx.service}`);
     if(ctx.plan) chips.push(`Plan detectado: ${ctx.plan}`);
+    if(ctx.phone) chips.push(`Número detectado: ${ctx.phone}`);
+    if(ctx.prices?.length) chips.push(`Precio detectado: ${ctx.prices[0]}`);
+    chips.push(`Base tomada de ${ctx.texts.length} texto(s) visible(s)`);
+    meta.textContent = chips.join(' • ');
+    meta.style.display = 'block';
+  }
+}
+function generateCopySuggestions(regenerate=false){
+  const st = document.getElementById('copy-st');
+  const results = document.getElementById('copy-results');
+  const meta = document.getElementById('copy-meta');
+  const platform = document.getElementById('copy-platform')?.value || 'general';
+  const tone = document.getElementById('copy-tone')?.value || 'vendedor';
+
+  if(regenerate) copyGenSeed += 1;
+  else copyGenSeed = 0;
+
+  const ctx = getDesignTextContext();
+  if(!ctx.texts.length){
+    if(st) st.textContent = 'No encontré capas de texto visibles para generar el copy.';
+    if(results) results.style.display = 'none';
+    if(meta) meta.style.display = 'none';
+    return;
+  }
+
+  const copies = generateCopyVariants(ctx, {platform, tone});
+  lastGeneratedCopies = copies;
+
+  copies.forEach((txt, idx) => {
+    const el = document.getElementById('copy-text-' + idx);
+    if(el) el.value = txt;
+  });
+
+  if(results) results.style.display = 'grid';
+  if(st){
+    st.textContent = ctx.phone
+      ? 'Copy generado usando los textos visibles del diseño.'
+      : 'Copy generado. No detecté un número de contacto en capas de texto visibles.';
+  }
+  if(meta){
+    const chips = [];
+    if(ctx.service) chips.push(`Servicio detectado: ${ctx.service}`);
     if(ctx.phone) chips.push(`Número detectado: ${ctx.phone}`);
     if(ctx.prices?.length) chips.push(`Precio detectado: ${ctx.prices[0]}`);
     chips.push(`Base tomada de ${ctx.texts.length} texto(s) visible(s)`);
