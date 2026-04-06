@@ -1714,6 +1714,7 @@ initMultiBoxHandles();
 
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
+setTimeout(refreshHandleScale, 0);
 
 // ── UNDO / REDO (MODIFIED: preserve text styles) ─────────────────────────
 const HISTORY_MAX = 50;
@@ -3558,6 +3559,7 @@ function mkEl(l){
       sel(l.id);
       startDrag(ev, l.id);
     }
+    refreshHandleScale();
   };
   l.el=el;cvs.appendChild(el);
   if(l.rotation == null) l.rotation = 0;
@@ -3571,36 +3573,14 @@ function startDrag(ev, id){
   if(ev.altKey){
     const srcL = layers.find(x=>x.id===id);
     if(srcL?.locked) return;
-    duplicateSelected(id);
+    const newIds = duplicateSelected(id) || [];
+    if(newIds.length){
+      const primaryId = newIds[0];
+      beginPointerDrag(ev, primaryId, newIds);
+    }
     return;
   }
-  const draggedL = layers.find(x=>x.id===id);
-  // When dragging an image, disable pointer-events on all frames so they don't intercept
-  if(draggedL?.type==='img'){
-    frameSnapTarget=null;
-    layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents='none'; });
-  }
-  if(selIds.length>1 && selIds.includes(id)){
-    isMultiDrag=true;
-    multiDragStart = selIds.map(sid=>{
-      const l=layers.find(x=>x.id===sid);
-      if(!l) return null;
-      return {id:sid, x:l.x, y:l.y};
-    }).filter(Boolean);
-    const cr=cvs.getBoundingClientRect();
-    dOff.x=(ev.clientX-cr.left)/zoom_;
-    dOff.y=(ev.clientY-cr.top)/zoom_;
-    isDrag=true;
-  } else {
-    const l=layers.find(x=>x.id===id);
-    if(!l){ console.warn('startDrag: layer not found', id); return; }
-    if(l.locked) return; // no arrastrar capas bloqueadas
-    isDrag=true;
-    const cr=cvs.getBoundingClientRect();
-    dOff.x=(ev.clientX-cr.left)/zoom_-l.x;
-    dOff.y=(ev.clientY-cr.top)/zoom_-l.y;
-  }
-  ev.preventDefault();
+  beginPointerDrag(ev, id);
 }
 
 // ── DUPLICATE SELECTED ────────────────────────────────────────
@@ -3654,6 +3634,7 @@ function duplicateSelected(sourceId){
   renderList();
   selMulti(newIds);
   snapshotState();
+  return newIds;
 }
 
 function startRes(ev,id,c){
@@ -4136,24 +4117,58 @@ function sel(id, additive=false){
   // Normal click: select just this group/layer
   selMulti(clickedIds);
   renderList();
+  refreshHandleScale();
+}
+
+function beginPointerDrag(ev, id, forcedIds=null){
+  const activeIds = Array.isArray(forcedIds) && forcedIds.length ? [...forcedIds] : [...selIds];
+  const draggedL = layers.find(x=>x.id===id);
+  if(!draggedL){ console.warn('beginPointerDrag: layer not found', id); return; }
+  if(draggedL.locked) return;
+
+  // When dragging an image, disable pointer-events on all frames so they don't intercept
+  if(draggedL.type==='img'){
+    frameSnapTarget = null;
+    layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents='none'; });
+  }
+
+  if(activeIds.length > 1 && activeIds.includes(id)){
+    isMultiDrag = true;
+    multiDragStart = activeIds.map(sid=>{
+      const l = layers.find(x=>x.id===sid);
+      if(!l) return null;
+      return {id:sid, x:l.x, y:l.y};
+    }).filter(Boolean);
+    const cr = cvs.getBoundingClientRect();
+    dOff.x = (ev.clientX-cr.left)/zoom_;
+    dOff.y = (ev.clientY-cr.top)/zoom_;
+    isDrag = true;
+  } else {
+    const cr = cvs.getBoundingClientRect();
+    dOff.x = (ev.clientX-cr.left)/zoom_ - draggedL.x;
+    dOff.y = (ev.clientY-cr.top)/zoom_ - draggedL.y;
+    isDrag = true;
+  }
+  ev.preventDefault();
 }
 function canvasClick(ev){
   if(_justMarqueed){ _justMarqueed=false; return; } // ignorar click post-marquee
+  if(_suppressNextCanvasClick){ _suppressNextCanvasClick = false; return; }
   if(ev.target===cvs||ev.target.id==='canvas-area') desel();
 }
 
 // Marquee: start rubber-band on empty canvas OR when dragging with no layer hit
 let _marqueeMouseStart = null;
+let _blankCanvasDown = null;
+let _suppressNextCanvasClick = false;
+
 cvs.addEventListener('mousedown',ev=>{
   if(ev.button!==0) return;
-  // Siempre guardar el punto de inicio por si se convierte en marquee
+  if(ev.target!==cvs) return;
+  // En canvas vacío: no deseleccionar todavía.
+  // Primero esperamos a ver si es un clic real o un arrastre-marquee.
+  _blankCanvasDown = {x:ev.clientX, y:ev.clientY, target:'cvs'};
   _marqueeMouseStart = {x:ev.clientX, y:ev.clientY, ev};
-  // Solo iniciar marquee inmediatamente si el click es en el canvas vacío
-  if(ev.target===cvs){
-    desel();
-    startMarquee(ev);
-    _marqueeMouseStart = null;
-  }
 });
 
 // Si el mouse se mueve más de 8px desde el inicio y no hay drag de capa activo → marquee
@@ -4165,18 +4180,31 @@ document.addEventListener('mousemove', ev=>{
       desel();
       startMarquee(_marqueeMouseStart.ev);
       _marqueeMouseStart = null;
+      _blankCanvasDown = null;
+      _suppressNextCanvasClick = true;
     }
   }
 }, {capture: true});
 
-document.addEventListener('mouseup', ()=>{ _marqueeMouseStart = null; }, {capture:true});
+document.addEventListener('mouseup', ev=>{
+  if(_blankCanvasDown && !isDrag && !isRes && !isRot && !isMarquee && !isMultiRes){
+    const dx = Math.abs(ev.clientX - _blankCanvasDown.x);
+    const dy = Math.abs(ev.clientY - _blankCanvasDown.y);
+    if(dx <= 6 && dy <= 6){
+      desel();
+      _suppressNextCanvasClick = true;
+    }
+  }
+  _marqueeMouseStart = null;
+  _blankCanvasDown = null;
+}, {capture:true});
 
 // Also allow marquee from canvas-area (outside the scaled cvs)
 document.getElementById('canvas-area')?.addEventListener('mousedown',ev=>{
   if(ev.target !== document.getElementById('canvas-area')) return;
   if(ev.button!==0) return;
-  desel();
-  startMarquee(ev);
+  _blankCanvasDown = {x:ev.clientX, y:ev.clientY, target:'canvas-area'};
+  _marqueeMouseStart = {x:ev.clientX, y:ev.clientY, ev};
 });
 function desel(){
   hideSmartGuides();
@@ -4188,6 +4216,7 @@ function desel(){
   hideRotationTooltip();
   updatePropertyPanelState(null);
   hideMultiBox();
+  refreshHandleScale();
 }
 
 function updatePropertyPanelState(targetLayer=null){
@@ -4716,7 +4745,59 @@ function applyCanvasSize(){
 }
 
 // ZOOM
-function doZoom(d){zoom_=Math.min(3,Math.max(0.05,zoom_+d));cvs.style.transform=`scale(${zoom_})`;document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';}
+function refreshHandleScale(){
+  const inv = Math.max(0.55, Math.min(1.45, 1 / Math.max(zoom_, 0.08)));
+  const rhSize = Math.max(6, Math.min(12, Math.round(8 * inv)));
+  const rhHalf = rhSize / 2;
+  const mrhSize = Math.max(8, Math.min(16, Math.round(12 * inv)));
+  const mrhHalf = mrhSize / 2;
+  const rotSize = Math.max(10, Math.min(16, Math.round(16 * inv)));
+  const rotHalf = rotSize / 2;
+  const rotTop = Math.round(-42 * inv);
+  const rotLineTop = Math.round(-28 * inv);
+  const rotLineH = Math.max(10, Math.round(16 * inv));
+  document.querySelectorAll('.rh').forEach(h=>{
+    h.style.setProperty('width', rhSize + 'px', 'important');
+    h.style.setProperty('height', rhSize + 'px', 'important');
+    if(h.classList.contains('tl')){ h.style.setProperty('top', -rhHalf + 'px', 'important'); h.style.setProperty('left', -rhHalf + 'px', 'important'); }
+    if(h.classList.contains('tr')){ h.style.setProperty('top', -rhHalf + 'px', 'important'); h.style.setProperty('right', -rhHalf + 'px', 'important'); }
+    if(h.classList.contains('bl')){ h.style.setProperty('bottom', -rhHalf + 'px', 'important'); h.style.setProperty('left', -rhHalf + 'px', 'important'); }
+    if(h.classList.contains('br')){ h.style.setProperty('bottom', -rhHalf + 'px', 'important'); h.style.setProperty('right', -rhHalf + 'px', 'important'); }
+    if(h.classList.contains('tm')){ h.style.setProperty('top', -rhHalf + 'px', 'important'); h.style.setProperty('left', `calc(50% - ${rhHalf}px)`, 'important'); }
+    if(h.classList.contains('bm')){ h.style.setProperty('bottom', -rhHalf + 'px', 'important'); h.style.setProperty('left', `calc(50% - ${rhHalf}px)`, 'important'); }
+    if(h.classList.contains('ml')){ h.style.setProperty('left', -rhHalf + 'px', 'important'); h.style.setProperty('top', `calc(50% - ${rhHalf}px)`, 'important'); }
+    if(h.classList.contains('mr')){ h.style.setProperty('right', -rhHalf + 'px', 'important'); h.style.setProperty('top', `calc(50% - ${rhHalf}px)`, 'important'); }
+  });
+  document.querySelectorAll('.rot-handle').forEach(h=>{
+    h.style.setProperty('width', rotSize + 'px', 'important');
+    h.style.setProperty('height', rotSize + 'px', 'important');
+    h.style.setProperty('top', rotTop + 'px', 'important');
+    h.style.setProperty('margin-left', -rotHalf + 'px', 'important');
+  });
+  document.querySelectorAll('.rot-line').forEach(h=>{
+    h.style.setProperty('top', rotLineTop + 'px', 'important');
+    h.style.setProperty('height', rotLineH + 'px', 'important');
+  });
+  document.querySelectorAll('#multi-box .mrh').forEach(h=>{
+    h.style.setProperty('width', mrhSize + 'px', 'important');
+    h.style.setProperty('height', mrhSize + 'px', 'important');
+    if(h.classList.contains('tl')){ h.style.setProperty('top', -mrhHalf + 'px', 'important'); h.style.setProperty('left', -mrhHalf + 'px', 'important'); }
+    if(h.classList.contains('tr')){ h.style.setProperty('top', -mrhHalf + 'px', 'important'); h.style.setProperty('right', -mrhHalf + 'px', 'important'); }
+    if(h.classList.contains('bl')){ h.style.setProperty('bottom', -mrhHalf + 'px', 'important'); h.style.setProperty('left', -mrhHalf + 'px', 'important'); }
+    if(h.classList.contains('br')){ h.style.setProperty('bottom', -mrhHalf + 'px', 'important'); h.style.setProperty('right', -mrhHalf + 'px', 'important'); }
+    if(h.classList.contains('tm')){ h.style.setProperty('top', -mrhHalf + 'px', 'important'); h.style.setProperty('left', `calc(50% - ${mrhHalf}px)`, 'important'); }
+    if(h.classList.contains('bm')){ h.style.setProperty('bottom', -mrhHalf + 'px', 'important'); h.style.setProperty('left', `calc(50% - ${mrhHalf}px)`, 'important'); }
+    if(h.classList.contains('ml')){ h.style.setProperty('left', -mrhHalf + 'px', 'important'); h.style.setProperty('top', `calc(50% - ${mrhHalf}px)`, 'important'); }
+    if(h.classList.contains('mr')){ h.style.setProperty('right', -mrhHalf + 'px', 'important'); h.style.setProperty('top', `calc(50% - ${mrhHalf}px)`, 'important'); }
+  });
+}
+function doZoom(d){
+  zoom_=Math.min(3,Math.max(0.05,zoom_+d));
+  cvs.style.transform=`scale(${zoom_})`;
+  document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  refreshHandleScale();
+  if(selIds.length>1) updateMultiBox();
+}
 
 // ── PAN (middle mouse or Space+drag) ─────────────────────────
 let isPan=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
