@@ -1024,6 +1024,10 @@ input[type=range]{filter:none !important;}
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       Admin
     </button>
+    <button class="tbtn tbtn-ghost" id="btn-canvas-size" onclick="openCanvasSizeDialog()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10"/><path d="M7 13h6"/></svg>
+      Mesa
+    </button>
     <button class="tbtn tbtn-ghost" id="btn-prev" onclick="togglePreview()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
       Vista cliente
@@ -1058,6 +1062,19 @@ input[type=range]{filter:none !important;}
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           Añadir texto
         </button>
+        <div id="admin-canvas-tools" class="panel-card" style="margin:4px 0 0;padding:12px 12px 10px;">
+          <div class="panel-title" style="margin-bottom:10px;">Mesa de trabajo <span class="panel-chip" id="canvas-size-chip">800 × 800</span></div>
+          <div class="pp-row" style="margin-bottom:8px;">
+            <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="quickCanvasPreset(1080,1080)">1080×1080</button>
+            <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="quickCanvasPreset(1080,1920)">Story</button>
+          </div>
+          <div class="pp-row" style="margin-bottom:8px;">
+            <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="quickCanvasPreset(1200,628)">Banner</button>
+            <button class="pp-btn pp-btn-blue" style="margin:0;flex:1;" onclick="quickCanvasPreset(1500,1500)">1500×1500</button>
+          </div>
+          <button class="pp-btn pp-btn-blue" style="margin:0;width:100%;" onclick="openCanvasSizeDialog()">⚙ Elegir tamaño</button>
+          <div class="panel-note" style="margin-top:8px;font-size:0.7rem;">Disponible para cliente y admin. La subida de PSD sigue siendo solo para admin.</div>
+        </div>
       </div>
       <div class="lp-body" id="layer-list">
         <div id="empty-lp" style="text-align:center;padding:28px 10px;color:var(--muted);font-size:0.78rem;line-height:1.9;">
@@ -1261,6 +1278,33 @@ input[type=range]{filter:none !important;}
         </div>
 
         <button class="pp-btn pp-btn-red" style="font-size:0.72rem; margin-top:8px;" onclick="clearFrameImage()">✕ Quitar imagen del marco</button>
+
+        <div id="pp-frame-crop-wrap" style="display:none;margin-top:12px;">
+          <hr class="divider" style="margin:12px 0;">
+          <div class="mini-lbl">Imagen dentro del marco</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <input type="range" id="pp-frame-img-scale" min="100" max="500" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
+            <span id="pp-frame-img-scale-lbl" style="font-size:0.72rem;color:var(--muted);min-width:44px;">100%</span>
+          </div>
+          <div class="panel-grid2" style="margin-bottom:8px;">
+            <div>
+              <div class="mini-lbl">Mover X</div>
+              <input type="number" class="pp-inp" id="pp-frame-img-x" value="0" oninput="updFrameImageOffset('x',this.value)">
+            </div>
+            <div>
+              <div class="mini-lbl">Mover Y</div>
+              <input type="number" class="pp-inp" id="pp-frame-img-y" value="0" oninput="updFrameImageOffset('y',this.value)">
+            </div>
+          </div>
+          <div class="align-row" style="margin-bottom:8px;">
+            <button type="button" onclick="nudgeFrameImage(0,-10)">↑</button>
+            <button type="button" onclick="nudgeFrameImage(-10,0)">←</button>
+            <button type="button" onclick="resetFrameImageCrop()">Centrar</button>
+            <button type="button" onclick="nudgeFrameImage(10,0)">→</button>
+            <button type="button" onclick="nudgeFrameImage(0,10)">↓</button>
+          </div>
+          <div class="panel-note" style="font-size:0.72rem;">Usa el zoom y el desplazamiento para acomodar la imagen dentro del marco.</div>
+        </div>
       </div>
 
       <div class="panel-card panel-hidden" id="pp-img">
@@ -1464,7 +1508,7 @@ input[type=range]{filter:none !important;}
 <div class="overlay" id="size-overlay">
   <div class="modal">
     <h3>📐 Tamaño del lienzo</h3>
-    <p>Define las medidas de tu diseño antes de subir las imágenes.</p>
+    <p>Cambia el tamaño de la mesa de trabajo cuando quieras. El contenido actual se mantiene dentro del lienzo.</p>
     <div style="display:flex;gap:10px;margin-bottom:10px;">
       <div style="flex:1">
         <div style="font-size:0.75rem;color:var(--muted);margin-bottom:5px;">Ancho (px)</div>
@@ -1481,7 +1525,7 @@ input[type=range]{filter:none !important;}
       <div onclick="document.getElementById('size-w').value=1080;document.getElementById('size-h').value=1920" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">Story</div>
       <div onclick="document.getElementById('size-w').value=1200;document.getElementById('size-h').value=628" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">Banner</div>
     </div>
-    <button class="modal-btn modal-btn-green" onclick="applyCanvasSize()">✓ Crear lienzo</button>
+    <button class="modal-btn modal-btn-green" onclick="applyCanvasSize()">✓ Aplicar tamaño</button>
   </div>
 </div>
 <div class="overlay" id="save-overlay">
@@ -1714,6 +1758,7 @@ initMultiBoxHandles();
 
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
+updateCanvasSizeChip();
 setTimeout(refreshHandleScale, 0);
 
 // ── UNDO / REDO (MODIFIED: preserve text styles) ─────────────────────────
@@ -1768,6 +1813,11 @@ function restoreSnapshot(snap){
   data.forEach(ld=>{
     const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
     if(l.rotation == null) l.rotation = 0;
+    if(l.type==='frame'){
+      if(l.frameImageScale == null) l.frameImageScale = 1;
+      if(l.frameImageOffsetX == null) l.frameImageOffsetX = 0;
+      if(l.frameImageOffsetY == null) l.frameImageOffsetY = 0;
+    }
     layers.push(l);
     mkEl(l);
     if(l.groupId){
@@ -3212,7 +3262,7 @@ function addFrame(type){
   const l={id:lCtr++,type:'frame',name:'Marco',src:'',
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
     opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,
-    frameRadius:radius,frameType:type,frameImage:''};
+    frameRadius:radius,frameType:type,frameImage:'',frameImageScale:1,frameImageOffsetX:0,frameImageOffsetY:0};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
 }
 function updFrameRadius(v){
@@ -3366,9 +3416,9 @@ function mkEl(l){
         el.style.border='1px dashed rgba(255,111,145,0.7)';
         el.style.background='rgba(255,111,145,0.06)';
       };
-      img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
+      img.style.cssText='position:absolute;pointer-events:none;';
       clip.appendChild(img);
-      setTimeout(()=>{applyImageVisuals(l);applyFrameBorder(l);},0);
+      setTimeout(()=>{applyImageVisuals(l);applyFrameImageTransform(l);applyFrameBorder(l);},0);
       el.style.border='none';
       el.style.background='transparent';
     } else {
@@ -3646,11 +3696,112 @@ function startRes(ev,id,c){
   ev.preventDefault();
 }
 
+
+function clamp(v,minv,maxv){ return Math.max(minv, Math.min(maxv, v)); }
+
+function getFrameImageCropState(layer){
+  if(!layer) return {scale:1, x:0, y:0};
+  const scale = Math.max(1, Number(layer.frameImageScale || 1));
+  const x = Number(layer.frameImageOffsetX || 0);
+  const y = Number(layer.frameImageOffsetY || 0);
+  return {scale, x, y};
+}
+
+function applyFrameImageTransform(layer){
+  if(!layer || layer.type!=='frame' || !layer.frameImage) return;
+  const img = document.getElementById('fi-'+layer.id);
+  if(!img) return;
+
+  const render = ()=>{
+    const iw = img.naturalWidth || img.width || 1;
+    const ih = img.naturalHeight || img.height || 1;
+    const fw = Math.max(1, Number(layer.w || 1));
+    const fh = Math.max(1, Number(layer.h || 1));
+    const state = getFrameImageCropState(layer);
+
+    const cover = Math.max(fw / iw, fh / ih);
+    const dw = iw * cover * state.scale;
+    const dh = ih * cover * state.scale;
+
+    const maxX = Math.max(0, (dw - fw) / 2);
+    const maxY = Math.max(0, (dh - fh) / 2);
+
+    layer.frameImageOffsetX = clamp(state.x, -maxX, maxX);
+    layer.frameImageOffsetY = clamp(state.y, -maxY, maxY);
+
+    const dx = (fw - dw) / 2 + layer.frameImageOffsetX;
+    const dy = (fh - dh) / 2 + layer.frameImageOffsetY;
+
+    img.style.position = 'absolute';
+    img.style.left = dx + 'px';
+    img.style.top = dy + 'px';
+    img.style.width = dw + 'px';
+    img.style.height = dh + 'px';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.objectFit = 'fill';
+    img.style.pointerEvents = 'none';
+    img.style.transform = `scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`;
+    img.style.transformOrigin = 'center center';
+    img.style.filter = `blur(${Number(layer.blur || 0)}px)`;
+  };
+
+  if(img.complete && (img.naturalWidth || img.width)){
+    render();
+  }else{
+    img.addEventListener('load', render, {once:true});
+  }
+}
+
+function updFrameImageScale(v){
+  const l = layers.find(x=>x.id===selId);
+  if(!l || l.type!=='frame' || !l.frameImage) return;
+  l.frameImageScale = Math.max(1, (parseFloat(v)||100)/100);
+  const lbl=document.getElementById('pp-frame-img-scale-lbl');
+  if(lbl) lbl.textContent = Math.round(l.frameImageScale*100)+'%';
+  applyFrameImageTransform(l);
+  snapshotState();
+}
+
+function updFrameImageOffset(axis, v){
+  const l = layers.find(x=>x.id===selId);
+  if(!l || l.type!=='frame' || !l.frameImage) return;
+  if(axis==='x') l.frameImageOffsetX = parseFloat(v)||0;
+  else l.frameImageOffsetY = parseFloat(v)||0;
+  applyFrameImageTransform(l);
+  syncP();
+  snapshotState();
+}
+
+function nudgeFrameImage(dx, dy){
+  const l = layers.find(x=>x.id===selId);
+  if(!l || l.type!=='frame' || !l.frameImage) return;
+  l.frameImageOffsetX = Number(l.frameImageOffsetX||0) + dx;
+  l.frameImageOffsetY = Number(l.frameImageOffsetY||0) + dy;
+  applyFrameImageTransform(l);
+  syncP();
+  snapshotState();
+}
+
+function resetFrameImageCrop(){
+  const l = layers.find(x=>x.id===selId);
+  if(!l || l.type!=='frame' || !l.frameImage) return;
+  l.frameImageScale = 1;
+  l.frameImageOffsetX = 0;
+  l.frameImageOffsetY = 0;
+  applyFrameImageTransform(l);
+  syncP();
+  snapshotState();
+}
+
 function applyImageToFrame(frameLayer, src){
   // Mantener ambos campos sincronizados; en marcos la fuente real es frameImage,
   // pero src también ayuda a evitar inconsistencias en duplicado/historial.
   frameLayer.frameImage = src;
   frameLayer.src = src;
+  frameLayer.frameImageScale = 1;
+  frameLayer.frameImageOffsetX = 0;
+  frameLayer.frameImageOffsetY = 0;
   const el = frameLayer.el;
   if(!el) return;
   const clip = document.getElementById('fc-'+frameLayer.id);
@@ -3661,9 +3812,9 @@ function applyImageToFrame(frameLayer, src){
   const img=document.createElement('img');
   img.id='fi-'+frameLayer.id;
   img.src=src;
-  img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;';
+  img.style.cssText='position:absolute;pointer-events:none;';
   clip.appendChild(img);
-  setTimeout(()=>{applyImageVisuals(frameLayer);applyFrameBorder(frameLayer);},0);
+  setTimeout(()=>{applyImageVisuals(frameLayer);applyFrameImageTransform(frameLayer);applyFrameBorder(frameLayer);},0);
   // Update frame el border
   el.style.border='none';
   el.style.background='transparent';
@@ -3844,6 +3995,7 @@ document.addEventListener('mousemove',ev=>{
     l.x=Math.round(nx);l.y=Math.round(ny);l.w=Math.round(nw);l.h=Math.round(nh);
     l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
     l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
+    if(l.type==='frame' && l.frameImage) applyFrameImageTransform(l);
     if(isCorner&&l.type==='text'&&l.tp&&origFs&&origW){
       const newFs=Math.max(6,Math.round(origFs*(nw/origW)));
       const d=document.getElementById('ti-'+l.id);
@@ -4359,6 +4511,10 @@ function getImageTargetElement(layer){
   return null;
 }
 function applyImageVisuals(layer){
+  if(layer?.type==='frame' && layer.frameImage){
+    applyFrameImageTransform(layer);
+    return;
+  }
   const img = getImageTargetElement(layer);
   if(!img) return;
   const flipX = !!layer.flipX;
@@ -4457,6 +4613,17 @@ function syncP(){
     const fishdC=document.getElementById('pp-frame-inner-shadow-c'); if(fishdC) fishdC.value=l.frameInnerShadowColor||'#000000';
     const fishdOp=document.getElementById('pp-frame-inner-shadow-op'); if(fishdOp) fishdOp.value=l.frameInnerShadowOp??28;
     const fishdOpL=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(fishdOpL) fishdOpL.textContent=(l.frameInnerShadowOp??28)+'%';
+
+    const cropWrap=document.getElementById('pp-frame-crop-wrap');
+    if(cropWrap) cropWrap.style.display = l.frameImage ? 'block' : 'none';
+    const cropScale=document.getElementById('pp-frame-img-scale');
+    const cropScaleLbl=document.getElementById('pp-frame-img-scale-lbl');
+    if(cropScale) cropScale.value = Math.round((Number(l.frameImageScale||1))*100);
+    if(cropScaleLbl) cropScaleLbl.textContent = Math.round((Number(l.frameImageScale||1))*100)+'%';
+    const cropX=document.getElementById('pp-frame-img-x');
+    const cropY=document.getElementById('pp-frame-img-y');
+    if(cropX) cropX.value = Math.round(Number(l.frameImageOffsetX||0));
+    if(cropY) cropY.value = Math.round(Number(l.frameImageOffsetY||0));
   }
 }
 
@@ -4480,6 +4647,9 @@ function clearFrameImage(){
   const l=layers.find(x=>x.id===selId);
   if(!l||l.type!=='frame') return;
   l.frameImage='';
+  l.frameImageScale = 1;
+  l.frameImageOffsetX = 0;
+  l.frameImageOffsetY = 0;
   const clip=document.getElementById('fc-'+l.id);
   if(clip){
     clip.innerHTML='';
@@ -4507,6 +4677,7 @@ function updPos(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='x'){l.x=parseInt(v)||0;l.el.style.left=l.x+'px';}
   else{l.y=parseInt(v)||0;l.el.style.top=l.y+'px';}
+  if(l.type==='frame' && l.frameImage) applyFrameImageTransform(l);
   snapshotState();
 }
 function updSz(a,v){
@@ -4730,18 +4901,55 @@ function reorder(fid,tid){
   layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;});renderList();
 }
 
-function applyCanvasSize(){
-  const w=parseInt(document.getElementById('size-w').value)||1500;
-  const h=parseInt(document.getElementById('size-h').value)||1500;
-  cvs.style.width=w+'px';cvs.style.height=h+'px';
-  // Auto zoom to fit
+function updateCanvasSizeChip(){
+  const w=parseInt(cvs.style.width)||800;
+  const h=parseInt(cvs.style.height)||800;
+  const chip=document.getElementById('canvas-size-chip');
+  if(chip) chip.textContent=`${w} × ${h}`;
+}
+
+function fitCanvasToView(maxZoom=0.95){
   const area=document.getElementById('canvas-area');
-  const aw=area.clientWidth-40, ah=area.clientHeight-40;
-  zoom_=Math.min(0.95,Math.min(aw/w,ah/h));
-  zoom_=Math.round(zoom_*100)/100;
+  if(!area) return;
+  const w=parseInt(cvs.style.width)||800;
+  const h=parseInt(cvs.style.height)||800;
+  const aw=Math.max(120, area.clientWidth-40);
+  const ah=Math.max(120, area.clientHeight-40);
+  zoom_=Math.min(maxZoom, Math.min(aw/w, ah/h));
+  zoom_=Math.max(0.05, Math.round(zoom_*100)/100);
   cvs.style.transform=`scale(${zoom_})`;
   document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  refreshHandleScale();
+  if(selIds.length>1) updateMultiBox();
+}
+
+function openCanvasSizeDialog(){
+  const w=parseInt(cvs.style.width)||800;
+  const h=parseInt(cvs.style.height)||800;
+  const iw=document.getElementById('size-w');
+  const ih=document.getElementById('size-h');
+  if(iw) iw.value = w;
+  if(ih) ih.value = h;
+  document.getElementById('size-overlay').classList.add('open');
+}
+
+function quickCanvasPreset(w,h){
+  const iw=document.getElementById('size-w');
+  const ih=document.getElementById('size-h');
+  if(iw) iw.value = w;
+  if(ih) ih.value = h;
+  applyCanvasSize();
+}
+
+function applyCanvasSize(){
+  const w=Math.max(100, parseInt(document.getElementById('size-w').value)||1500);
+  const h=Math.max(100, parseInt(document.getElementById('size-h').value)||1500);
+  cvs.style.width=w+'px';cvs.style.height=h+'px';
+  updateCanvasSizeChip();
+  fitCanvasToView();
   document.getElementById('size-overlay').classList.remove('open');
+  snapshotState();
+  showToast(`✓ Mesa de trabajo: ${w} × ${h}`);
 }
 
 // ZOOM
@@ -4888,6 +5096,8 @@ function setClientUI(){
   document.getElementById('btn-save').style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
+  const canvasBtn=document.getElementById('btn-canvas-size'); if(canvasBtn) canvasBtn.style.display='';
+  const canvasTools=document.getElementById('admin-canvas-tools'); if(canvasTools) canvasTools.style.display='';
   // Añadir texto habilitado para clientes
   // document.querySelector('.add-text-btn').style.display='none';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='none';
@@ -4926,6 +5136,8 @@ function setAdminUI(){
   document.getElementById('btn-prev').textContent='👁 Vista cliente';
   document.getElementById('btn-save').style.display='';
   document.getElementById('upload-zone').style.display='';
+  const canvasBtn=document.getElementById('btn-canvas-size'); if(canvasBtn) canvasBtn.style.display='';
+  const canvasTools=document.getElementById('admin-canvas-tools'); if(canvasTools) canvasTools.style.display='';
   document.querySelector('.add-text-btn').style.display='';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='';
   const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='';
@@ -5384,11 +5596,19 @@ async function renderDesignToCanvas(scale=2){
           ctx.filter = blur > 0 ? `blur(${blur}px)` : 'none';
           const sw = img.naturalWidth || img.width || l.w;
           const sh = img.naturalHeight || img.height || l.h;
-          const scaleCover = Math.max(l.w / sw, l.h / sh);
-          const dw = sw * scaleCover;
-          const dh = sh * scaleCover;
-          const dx = fx + (l.w - dw)/2;
-          const dy = fy + (l.h - dh)/2;
+          const baseCover = Math.max(l.w / sw, l.h / sh);
+          const cropScale = Math.max(1, Number(l.frameImageScale || 1));
+          const dw = sw * baseCover * cropScale;
+          const dh = sh * baseCover * cropScale;
+
+          const maxX = Math.max(0, (dw - l.w) / 2);
+          const maxY = Math.max(0, (dh - l.h) / 2);
+          const cropX = Math.max(-maxX, Math.min(maxX, Number(l.frameImageOffsetX || 0)));
+          const cropY = Math.max(-maxY, Math.min(maxY, Number(l.frameImageOffsetY || 0)));
+
+          const dx = fx + (l.w - dw)/2 + cropX;
+          const dy = fy + (l.h - dh)/2 + cropY;
+
           const localCx = hasRotation ? 0 : layerCx;
           const localCy = hasRotation ? 0 : layerCy;
           ctx.translate(localCx, localCy);
@@ -5759,6 +5979,7 @@ function syncLayersFromDOM(){
         const domSrc = img.currentSrc || img.src;
         l.frameImage = domSrc;
         l.src = domSrc;
+        applyFrameImageTransform(l);
       }
     }
   });
@@ -5868,6 +6089,9 @@ async function buildLayerData(){
     obj.frameShadow = Number(l.frameShadow||0);
     obj.frameInnerShadow = Number(l.frameInnerShadow||0);
     if(l.type === 'frame'){
+      obj.frameImageScale = Number(l.frameImageScale || 1);
+      obj.frameImageOffsetX = Number(l.frameImageOffsetX || 0);
+      obj.frameImageOffsetY = Number(l.frameImageOffsetY || 0);
       let frameSrc = l.frameImage || l.src || '';
       const domFrameImg = document.getElementById('fi-'+l.id);
       if(domFrameImg && domFrameImg.src && domFrameImg.complete && domFrameImg.naturalWidth > 0){
