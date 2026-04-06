@@ -827,19 +827,150 @@ function applyLayerTransform(layer){
 function getImageTargetElement(layer){
   if(!layer) return null;
   if(layer.type==='img') return layer.el ? layer.el.querySelector('img') : null;
-  if(layer.type==='frame' && (layer.src || layer.frameImage)) return document.getElementById('fi-'+layer.id) || (layer.el ? layer.el.querySelector('img') : null);
+  if(layer.type==='frame') return document.getElementById('fi-'+layer.id) || (layer.el ? layer.el.querySelector('img') : null);
   return null;
 }
 
 function applyImageVisuals(layer){
   const img = getImageTargetElement(layer);
   if(!img) return;
-  const flipX = !!layer.flipX;
-  const flipY = !!layer.flipY;
-  const blur = Number(layer.blur || 0);
-  img.style.transform = `scale(${flipX ? -1 : 1},${flipY ? -1 : 1})`;
-  img.style.transformOrigin = 'center center';
-  img.style.filter = blur > 0 ? `blur(${blur}px)` : '';
+
+  const apply = ()=>{
+    const flipX = !!layer.flipX;
+    const flipY = !!layer.flipY;
+    const blur = Number(layer.blur || 0);
+    img.style.transform = `scale(${flipX ? -1 : 1},${flipY ? -1 : 1})`;
+    img.style.transformOrigin = 'center center';
+    img.style.filter = blur > 0 ? `blur(${blur}px)` : '';
+  };
+
+  if(img.complete){
+    apply();
+  }else{
+    img.addEventListener('load', apply, {once:true});
+  }
+}
+
+function getRenderedImageBox(layer, img){
+  const boxW = Math.max(1, Number(layer.w || img.width || 1));
+  const boxH = Math.max(1, Number(layer.h || img.height || 1));
+  const iw = img.naturalWidth || img.width || boxW;
+  const ih = img.naturalHeight || img.height || boxH;
+
+  const fit = layer.type === 'frame' ? 'cover' : 'contain';
+  const scale = fit === 'cover'
+    ? Math.max(boxW / iw, boxH / ih)
+    : Math.min(boxW / iw, boxH / ih);
+
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const dx = (boxW - dw) / 2;
+  const dy = (boxH - dh) / 2;
+  return {dx, dy, dw, dh};
+}
+
+async function waitImgLoaded(img){
+  if(!img) return;
+  if(img.complete) return;
+  await new Promise(r=>{
+    const done = ()=>r();
+    img.addEventListener('load', done, {once:true});
+    img.addEventListener('error', done, {once:true});
+  });
+}
+
+async function rasterizeBlurForLayer(layer){
+  const img = getImageTargetElement(layer);
+  const blurPx = Number(layer?.blur || 0);
+  if(!img || !(blurPx > 0)) return null;
+  await waitImgLoaded(img);
+
+  const src = img.currentSrc || img.src || '';
+  const safeImg = (src.startsWith('data:') || src.startsWith('blob:')) ? img : await loadImgCors(src);
+  if(!safeImg) return null;
+  await waitImgLoaded(safeImg);
+
+  const {dx, dy, dw, dh} = getRenderedImageBox(layer, img);
+  const pad = Math.max(2, Math.ceil(blurPx * 4));
+  const outW = Math.max(1, Math.round(dw + pad * 2));
+  const outH = Math.max(1, Math.round(dh + pad * 2));
+
+  const c = document.createElement('canvas');
+  c.width = outW;
+  c.height = outH;
+  const ctx = c.getContext('2d');
+  if(!ctx) return null;
+
+  ctx.clearRect(0, 0, outW, outH);
+  if('filter' in ctx) ctx.filter = `blur(${blurPx}px)`;
+  ctx.drawImage(safeImg, pad, pad, Math.round(dw), Math.round(dh));
+
+  return {
+    dataUrl: c.toDataURL('image/png'),
+    left: dx - pad,
+    top: dy - pad,
+    width: outW,
+    height: outH
+  };
+}
+
+async function prepareBlurForExport(){
+  const patches = [];
+  for(const layer of layers){
+    if(!(Number(layer.blur || 0) > 0)) continue;
+    const img = getImageTargetElement(layer);
+    if(!img || !img.src) continue;
+
+    try{
+      const ras = await rasterizeBlurForLayer(layer);
+      if(!ras) continue;
+      patches.push({
+        img,
+        src: img.src,
+        filter: img.style.filter || '',
+        position: img.style.position || '',
+        left: img.style.left || '',
+        top: img.style.top || '',
+        width: img.style.width || '',
+        height: img.style.height || '',
+        maxWidth: img.style.maxWidth || '',
+        maxHeight: img.style.maxHeight || '',
+        objectFit: img.style.objectFit || '',
+      });
+
+      img.style.filter = '';
+      img.style.position = 'absolute';
+      img.style.left = `${ras.left}px`;
+      img.style.top = `${ras.top}px`;
+      img.style.width = `${ras.width}px`;
+      img.style.height = `${ras.height}px`;
+      img.style.maxWidth = 'none';
+      img.style.maxHeight = 'none';
+      img.style.objectFit = 'fill';
+      img.src = ras.dataUrl;
+      await waitImgLoaded(img);
+    }catch(e){
+      console.warn('prepareBlurForExport', e);
+    }
+  }
+  return patches;
+}
+
+function restoreBlurAfterExport(patches){
+  (patches || []).forEach(p=>{
+    try{
+      p.img.src = p.src;
+      p.img.style.filter = p.filter;
+      p.img.style.position = p.position;
+      p.img.style.left = p.left;
+      p.img.style.top = p.top;
+      p.img.style.width = p.width;
+      p.img.style.height = p.height;
+      p.img.style.maxWidth = p.maxWidth;
+      p.img.style.maxHeight = p.maxHeight;
+      p.img.style.objectFit = p.objectFit;
+    }catch(_){}
+  });
 }
 
 function buildEl(l){
@@ -860,12 +991,13 @@ function buildEl(l){
 
   } else if(l.type === 'img'){
     const img = document.createElement('img');
+    try{ img.crossOrigin = 'anonymous'; }catch(_){}
     img.src = l.src||'';
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
     el.appendChild(img);
     if(!l.locked) makeDraggable(el, l);
     else { el.style.pointerEvents='none'; }
-    setTimeout(()=>applyImageVisuals(l),0);
+    applyImageVisuals(l);
 
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
@@ -888,12 +1020,13 @@ function buildEl(l){
         el.style.border = 'none';
       }
       const img = document.createElement('img');
+      try{ img.crossOrigin = 'anonymous'; }catch(_){}
       img.src = l.src;
       img.className = 'frame-inner';
       img.id = 'fi-'+l.id;
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
       el.appendChild(img);
-      setTimeout(()=>applyImageVisuals(l),0);
+      applyImageVisuals(l);
     } else {
       // Marco vacío — borde de efectos o dashed
       if(fBW>0){
@@ -1052,12 +1185,13 @@ function applyLogoToFrame(src, name){
     l.el.style.border = fBW > 0 ? `${fBW}px solid ${fBC}` : 'none';
     l.el.innerHTML = '';
     const img = document.createElement('img');
+    try{ img.crossOrigin = 'anonymous'; }catch(_){}
     img.src = src;
     img.className = 'frame-inner';
     img.id = 'fi-'+l.id;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
     l.el.appendChild(img);
-    setTimeout(()=>applyImageVisuals(l),0);
+    applyImageVisuals(l);
     {
       let sx,sy,sl,st,moved=false;
       l.el.addEventListener('touchstart',e=>{
@@ -1492,15 +1626,9 @@ function loadImgCors(src){
   return new Promise((res,rej)=>{
     if(!src){ res(null); return; }
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    try{ img.crossOrigin = 'anonymous'; }catch(_){}
     img.onload  = ()=>res(img);
-    img.onerror = ()=>{
-      // retry sin crossOrigin por si el servidor no lo soporta
-      const img2 = new Image();
-      img2.onload  = ()=>res(img2);
-      img2.onerror = ()=>res(null);
-      img2.src = src;
-    };
+    img.onerror = ()=>res(null);
     img.src = src;
   });
 }
@@ -1538,70 +1666,6 @@ function roundedRectPath(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
-
-async function waitImgLoaded(img){
-  if(!img) return;
-  if(img.complete) return;
-  await new Promise(r=>{
-    const done = ()=>r();
-    img.addEventListener('load', done, {once:true});
-    img.addEventListener('error', done, {once:true});
-  });
-}
-
-async function renderBlurredDataUrlFromImg(img, blurPx){
-  const b = Number(blurPx || 0);
-  if(!img || !(b > 0)) return null;
-  const sw = img.naturalWidth || img.width || 0;
-  const sh = img.naturalHeight || img.height || 0;
-  if(!sw || !sh) return null;
-
-  const c = document.createElement('canvas');
-  c.width = sw;
-  c.height = sh;
-  const ctx = c.getContext('2d');
-  if(!ctx) return null;
-
-  ctx.clearRect(0,0,sw,sh);
-  if('filter' in ctx) ctx.filter = `blur(${b}px)`;
-  ctx.drawImage(img, 0, 0, sw, sh);
-  return c.toDataURL('image/png');
-}
-
-async function prepareBlurForExport(){
-  const patches = [];
-  for(const l of layers){
-    if(!(Number(l.blur || 0) > 0)) continue;
-    const img = getImageTargetElement(l);
-    if(!img || !img.src) continue;
-
-    try{
-      const blurred = await renderBlurredDataUrlFromImg(img, l.blur);
-      if(!blurred) continue;
-      patches.push({
-        img,
-        src: img.src,
-        filter: img.style.filter || ''
-      });
-      img.style.filter = '';
-      img.src = blurred;
-      await waitImgLoaded(img);
-    }catch(e){
-      console.warn('prepareBlurForExport', e);
-    }
-  }
-  return patches;
-}
-
-function restoreBlurAfterExport(patches){
-  (patches || []).forEach(p=>{
-    try{
-      p.img.src = p.src;
-      p.img.style.filter = p.filter;
-    }catch(_){}
-  });
-}
-
 async function downloadPNG(){
   desel();
   const btn = document.querySelector('[onclick="downloadPNG()"]');
@@ -1620,6 +1684,7 @@ async function downloadPNG(){
       scale: 2,
       useCORS: true,
       allowTaint: true,
+      foreignObjectRendering: true,
       backgroundColor: null,
       logging: false,
       width: canvasW,
