@@ -885,33 +885,64 @@ async function rasterizeBlurForLayer(layer){
   if(!img || !(blurPx > 0)) return null;
   await waitImgLoaded(img);
 
-  const src = img.currentSrc || img.src || '';
-  const safeImg = (src.startsWith('data:') || src.startsWith('blob:')) ? img : await loadImgCors(src);
-  if(!safeImg) return null;
-  await waitImgLoaded(safeImg);
-
+  // Intentamos dibujar el img del DOM directamente (ya está cargado en memoria)
+  // Usamos un canvas intermedio para "capturar" la imagen sin necesitar CORS
   const {dx, dy, dw, dh} = getRenderedImageBox(layer, img);
   const pad = Math.max(2, Math.ceil(blurPx * 4));
   const outW = Math.max(1, Math.round(dw + pad * 2));
   const outH = Math.max(1, Math.round(dh + pad * 2));
 
-  const c = document.createElement('canvas');
-  c.width = outW;
-  c.height = outH;
-  const ctx = c.getContext('2d');
-  if(!ctx) return null;
-
-  ctx.clearRect(0, 0, outW, outH);
-  if('filter' in ctx) ctx.filter = `blur(${blurPx}px)`;
-  ctx.drawImage(safeImg, pad, pad, Math.round(dw), Math.round(dh));
-
-  return {
-    dataUrl: c.toDataURL('image/png'),
-    left: dx - pad,
-    top: dy - pad,
-    width: outW,
-    height: outH
+  // Primero intentamos dibujar directo (funciona si es data: o blob:)
+  const tryDraw = (srcImg) => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = outW;
+      c.height = outH;
+      const ctx = c.getContext('2d');
+      if(!ctx) return null;
+      ctx.clearRect(0, 0, outW, outH);
+      if('filter' in ctx) ctx.filter = `blur(${blurPx}px)`;
+      ctx.drawImage(srcImg, pad, pad, Math.round(dw), Math.round(dh));
+      // Verificar que no sea canvas vacío (tainted lanza en toDataURL)
+      const dataUrl = c.toDataURL('image/png');
+      return { dataUrl, left: dx - pad, top: dy - pad, width: outW, height: outH };
+    } catch(e) {
+      return null;
+    }
   };
+
+  // Intento 1: img del DOM directo
+  let result = tryDraw(img);
+  if(result) return result;
+
+  // Intento 2: recargar como data URL via fetch (evita tainted canvas)
+  try {
+    const src = img.currentSrc || img.src || '';
+    if(src && !src.startsWith('data:')) {
+      const resp = await fetch(src, { mode: 'cors' }).catch(() => fetch(src, { mode: 'no-cors' }));
+      const blob = await resp.blob();
+      const dataUrl = await new Promise(res => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.readAsDataURL(blob);
+      });
+      const freshImg = new Image();
+      await new Promise((res, rej) => {
+        freshImg.onload = res;
+        freshImg.onerror = rej;
+        freshImg.src = dataUrl;
+      });
+      result = tryDraw(freshImg);
+      if(result) return result;
+    }
+  } catch(e) {
+    console.warn('rasterizeBlur fetch fallback failed:', e);
+  }
+
+  // Intento 3: aplicar blur directo con CSS y dejar que html2canvas lo capture
+  // Marcamos la capa para que downloadPNG sepa que debe usar allowTaint
+  layer._blurFallback = true;
+  return null;
 }
 
 async function prepareBlurForExport(){
@@ -1677,13 +1708,21 @@ async function downloadPNG(){
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
+    // Limpiar flags de fallback previos
+    layers.forEach(l => { delete l._blurFallback; });
+
     blurPatches = await prepareBlurForExport();
+
+    // Verificar si hay capas con blur que no se pudieron rasterizar
+    const hasFallback = layers.some(l => l._blurFallback);
+
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
+
     const c = await html2canvas(cvs,{
       scale: 2,
       useCORS: true,
-      allowTaint: true,
+      allowTaint: hasFallback, // solo true si hay fallbacks con CORS externo
       foreignObjectRendering: true,
       backgroundColor: null,
       logging: false,
@@ -1691,6 +1730,16 @@ async function downloadPNG(){
       height: canvasH,
       windowWidth: canvasW,
       windowHeight: canvasH,
+      imageTimeout: 15000,
+      onclone: (doc, el) => {
+        // Asegurar que el blur CSS se preserve en el clon de html2canvas
+        layers.forEach(layer => {
+          const blurPx = Number(layer.blur || 0);
+          if(!(blurPx > 0) || !layer._blurFallback) return;
+          const img = el.querySelector && el.querySelector('#' + (layer.id ? 'fi-'+layer.id : ''));
+          if(img) img.style.filter = `blur(${blurPx}px)`;
+        });
+      }
     });
     const a = document.createElement('a');
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
@@ -1704,6 +1753,7 @@ async function downloadPNG(){
     toast('✗ Error al exportar');
   }finally{
     restoreBlurAfterExport(blurPatches);
+    layers.forEach(l => { delete l._blurFallback; });
     cvs.style.transform = savedTransform;
     if(btn){ btn.disabled=false; }
   }
