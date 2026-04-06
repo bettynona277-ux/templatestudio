@@ -1549,65 +1549,23 @@ async function waitImgLoaded(img){
   });
 }
 
-async function imgToDataUrl(img){
-  // Si ya es data: o blob:, úsala directo
-  const src = img.currentSrc || img.src || '';
-  if(src.startsWith('data:') || src.startsWith('blob:')) return src;
-
-  // Intentar fetch para evitar canvas tainted con imágenes cross-origin
-  try {
-    const resp = await fetch(src, { mode: 'cors', cache: 'force-cache' });
-    const blob = await resp.blob();
-    return await new Promise((res, rej) => {
-      const fr = new FileReader();
-      fr.onload  = () => res(fr.result);
-      fr.onerror = () => rej(new Error('FileReader error'));
-      fr.readAsDataURL(blob);
-    });
-  } catch(_) {
-    // Si CORS falla, intentar sin CORS (no-cors devuelve opaque, usamos crossOrigin en un Image nuevo)
-    return await new Promise((res) => {
-      const tmp = new Image();
-      tmp.crossOrigin = 'anonymous';
-      tmp.onload = () => {
-        try {
-          const c2 = document.createElement('canvas');
-          c2.width  = tmp.naturalWidth  || tmp.width  || 1;
-          c2.height = tmp.naturalHeight || tmp.height || 1;
-          c2.getContext('2d').drawImage(tmp, 0, 0);
-          res(c2.toDataURL('image/png'));
-        } catch(e) { res(null); }
-      };
-      tmp.onerror = () => res(null);
-      // Añadir parámetro para romper caché y forzar headers CORS
-      tmp.src = src + (src.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-    });
-  }
-}
-
 async function renderBlurredDataUrlFromImg(img, blurPx){
   const b = Number(blurPx || 0);
   if(!img || !(b > 0)) return null;
-
-  // Convertir a data: primero para evitar SecurityError en toDataURL
-  const dataUrl = await imgToDataUrl(img);
-  if(!dataUrl) return null;
-
-  // Cargar en Image limpio (garantizado sin taint)
-  const safeImg = await new Promise((res) => {
-    const i = new Image();
-    i.onload  = () => res(i);
-    i.onerror = () => res(null);
-    i.src = dataUrl;
-  });
-  if(!safeImg) return null;
-
-  const sw = safeImg.naturalWidth  || safeImg.width  || 0;
-  const sh = safeImg.naturalHeight || safeImg.height || 0;
+  const sw = img.naturalWidth  || img.width  || 0;
+  const sh = img.naturalHeight || img.height || 0;
   if(!sw || !sh) return null;
 
+  // Escalar el blur: la imagen en pantalla se ve pequeña pero en canvas es de tamaño natural.
+  // Sin escalar, blur(10px) sobre 1080px se ve casi nada comparado con blur(10px) sobre 200px en pantalla.
+  const rect = img.getBoundingClientRect();
+  const displayW = rect.width  || img.offsetWidth  || sw;
+  const displayH = rect.height || img.offsetHeight || sh;
+  const ratio     = Math.max(sw / Math.max(displayW,1), sh / Math.max(displayH,1));
+  const scaledBlur = Math.round(b * ratio * 10) / 10;
+
   // Padding para que el blur no se corte en los bordes
-  const pad = Math.ceil(b * 3);
+  const pad = Math.ceil(scaledBlur * 2.5);
   const c = document.createElement('canvas');
   c.width  = sw + pad * 2;
   c.height = sh + pad * 2;
@@ -1615,17 +1573,22 @@ async function renderBlurredDataUrlFromImg(img, blurPx){
   if(!ctx) return null;
 
   ctx.clearRect(0, 0, c.width, c.height);
-  if('filter' in ctx) ctx.filter = `blur(${b}px)`;
-  ctx.drawImage(safeImg, pad, pad, sw, sh);
+  if('filter' in ctx) ctx.filter = `blur(${scaledBlur}px)`;
+  ctx.drawImage(img, pad, pad, sw, sh);
   ctx.filter = 'none';
 
-  // Recortar al tamaño original (quitar el padding)
-  const final = document.createElement('canvas');
-  final.width  = sw;
-  final.height = sh;
-  final.getContext('2d').drawImage(c, pad, pad, sw, sh, 0, 0, sw, sh);
+  // Recortar al tamaño original
+  const out = document.createElement('canvas');
+  out.width  = sw;
+  out.height = sh;
+  out.getContext('2d').drawImage(c, pad, pad, sw, sh, 0, 0, sw, sh);
 
-  return final.toDataURL('image/png');
+  try {
+    return out.toDataURL('image/png');
+  } catch(e) {
+    console.warn('renderBlurredDataUrlFromImg: tainted canvas ->', e.message);
+    return null;
+  }
 }
 
 async function prepareBlurForExport(){
@@ -1674,8 +1637,6 @@ async function downloadPNG(){
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
     blurPatches = await prepareBlurForExport();
-    // Esperar 2 frames para que el navegador pinte las imágenes borrosas antes de capturar
-    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
     const c = await html2canvas(cvs,{
