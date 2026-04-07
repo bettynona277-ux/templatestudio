@@ -1549,22 +1549,21 @@ async function waitImgLoaded(img){
   });
 }
 
-async function renderBlurredDataUrlFromImg(img, blurPx){
+async function renderBlurredDataUrlFromImg(img, blurPx, displayW, displayH){
   const b = Number(blurPx || 0);
   if(!img || !(b > 0)) return null;
   const sw = img.naturalWidth  || img.width  || 0;
   const sh = img.naturalHeight || img.height || 0;
   if(!sw || !sh) return null;
 
-  // Escalar el blur: la imagen en pantalla se ve pequeña pero en canvas es de tamaño natural.
-  // Sin escalar, blur(10px) sobre 1080px se ve casi nada comparado con blur(10px) sobre 200px en pantalla.
-  const rect = img.getBoundingClientRect();
-  const displayW = rect.width  || img.offsetWidth  || sw;
-  const displayH = rect.height || img.offsetHeight || sh;
-  const ratio     = Math.max(sw / Math.max(displayW,1), sh / Math.max(displayH,1));
-  const scaledBlur = Math.round(b * ratio * 10) / 10;
+  // Escalar el blur para que coincida con lo que el usuario ve en pantalla.
+  // displayW/H son las dimensiones reales medidas ANTES de quitar el transform del canvas.
+  const dw = displayW || img.offsetWidth  || sw;
+  const dh = displayH || img.offsetHeight || sh;
+  const ratio = Math.max(sw / Math.max(dw, 1), sh / Math.max(dh, 1));
+  const scaledBlur = b * ratio;
 
-  // Padding para que el blur no se corte en los bordes
+  // Canvas con padding para que el blur no se corte en los bordes
   const pad = Math.ceil(scaledBlur * 2.5);
   const c = document.createElement('canvas');
   c.width  = sw + pad * 2;
@@ -1586,12 +1585,12 @@ async function renderBlurredDataUrlFromImg(img, blurPx){
   try {
     return out.toDataURL('image/png');
   } catch(e) {
-    console.warn('renderBlurredDataUrlFromImg: tainted canvas ->', e.message);
+    console.warn('renderBlurredDataUrlFromImg: tainted ->', e.message);
     return null;
   }
 }
 
-async function prepareBlurForExport(){
+async function prepareBlurForExport(rectMap){
   const patches = [];
   for(const l of layers){
     if(!(Number(l.blur || 0) > 0)) continue;
@@ -1599,7 +1598,9 @@ async function prepareBlurForExport(){
     if(!img || !img.src) continue;
 
     try{
-      const blurred = await renderBlurredDataUrlFromImg(img, l.blur);
+      // Usar las dimensiones medidas antes de quitar el transform del canvas
+      const r = (rectMap && rectMap[l.id]) || img.getBoundingClientRect();
+      const blurred = await renderBlurredDataUrlFromImg(img, l.blur, r.width, r.height);
       if(!blurred) continue;
       patches.push({
         img,
@@ -1633,10 +1634,23 @@ async function downloadPNG(){
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
   let blurPatches = [];
+
+  // Medir los rects de las imágenes con blur ANTES de quitar el transform
+  // para tener las dimensiones reales de display y calcular el blur correctamente
+  const rectMap = {};
+  for(const l of layers){
+    if(!(Number(l.blur || 0) > 0)) continue;
+    const img = getImageTargetElement(l);
+    if(img){
+      const r = img.getBoundingClientRect();
+      rectMap[l.id] = { width: r.width, height: r.height };
+    }
+  }
+
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
-    blurPatches = await prepareBlurForExport();
+    blurPatches = await prepareBlurForExport(rectMap);
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
     const c = await html2canvas(cvs,{
