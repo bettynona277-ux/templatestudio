@@ -824,6 +824,24 @@ function applyLayerTransform(layer){
   layer.el.style.transform = rot ? `rotate(${rot}deg)` : '';
 }
 
+function getImageTargetElement(layer){
+  if(!layer) return null;
+  if(layer.type==='img') return layer.el ? layer.el.querySelector('img') : null;
+  if(layer.type==='frame' && (layer.src || layer.frameImage)) return document.getElementById('fi-'+layer.id) || (layer.el ? layer.el.querySelector('img') : null);
+  return null;
+}
+
+function applyImageVisuals(layer){
+  const img = getImageTargetElement(layer);
+  if(!img) return;
+  const flipX = !!layer.flipX;
+  const flipY = !!layer.flipY;
+  const blur = Number(layer.blur || 0);
+  img.style.transform = `scale(${flipX ? -1 : 1},${flipY ? -1 : 1})`;
+  img.style.transformOrigin = 'center center';
+  img.style.filter = blur > 0 ? `blur(${blur}px)` : '';
+}
+
 function buildEl(l){
   const el = document.createElement('div');
   el.className = 'cel';
@@ -844,11 +862,10 @@ function buildEl(l){
     const img = document.createElement('img');
     img.src = l.src||'';
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
-    if(l.flipX||l.flipY) img.style.transform=`scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
-    if(l.blur>0) img.style.filter=`blur(${l.blur}px)`;
     el.appendChild(img);
     if(!l.locked) makeDraggable(el, l);
     else { el.style.pointerEvents='none'; }
+    setTimeout(()=>applyImageVisuals(l),0);
 
   } else if(l.type === 'frame'){
     el.style.borderRadius = (l.frameRadius||0)+'px';
@@ -876,6 +893,7 @@ function buildEl(l){
       img.id = 'fi-'+l.id;
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
       el.appendChild(img);
+      setTimeout(()=>applyImageVisuals(l),0);
     } else {
       // Marco vacío — borde de efectos o dashed
       if(fBW>0){
@@ -1039,6 +1057,7 @@ function applyLogoToFrame(src, name){
     img.id = 'fi-'+l.id;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
     l.el.appendChild(img);
+    setTimeout(()=>applyImageVisuals(l),0);
     {
       let sx,sy,sl,st,moved=false;
       l.el.addEventListener('touchstart',e=>{
@@ -1272,8 +1291,7 @@ function toggleFlip(axis){
   if(!l) return;
   if(axis==='x') l.flipX = !l.flipX;
   else l.flipY = !l.flipY;
-  const img = l.el?.querySelector('img');
-  if(img) img.style.transform = `scale(${l.flipX?-1:1},${l.flipY?-1:1})`;
+  applyImageVisuals(l);
   document.getElementById('btn-flipx')?.classList.toggle('active-flip', !!l.flipX);
   document.getElementById('btn-flipy')?.classList.toggle('active-flip', !!l.flipY);
   snapshot();
@@ -1283,8 +1301,7 @@ function updateBlur(val){
   const l = layers.find(x=>x.id===selId);
   if(!l) return;
   l.blur = parseFloat(val);
-  const img = l.el?.querySelector('img');
-  if(img) img.style.filter = val>0 ? `blur(${val}px)` : '';
+  applyImageVisuals(l);
   document.getElementById('blur-lbl').textContent = val+'px';
 }
 
@@ -1521,6 +1538,117 @@ function roundedRectPath(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
+
+async function waitImgLoaded(img){
+  if(!img) return;
+  if(img.complete) return;
+  await new Promise(r=>{
+    const done = ()=>r();
+    img.addEventListener('load', done, {once:true});
+    img.addEventListener('error', done, {once:true});
+  });
+}
+
+async function imgSrcToDataUrl(src){
+  // Convierte cualquier URL a data: via fetch para evitar canvas tainted
+  if(!src || src.startsWith('data:') || src.startsWith('blob:')) return src;
+  try {
+    const resp = await fetch(src);
+    const blob = await resp.blob();
+    return await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload  = () => res(fr.result);
+      fr.onerror = () => rej();
+      fr.readAsDataURL(blob);
+    });
+  } catch(e) {
+    return null;
+  }
+}
+
+async function renderBlurredDataUrlFromImg(img, blurPx, displayW, displayH){
+  const b = Number(blurPx || 0);
+  if(!img || !(b > 0)) return null;
+
+  // Convertir src a data: para evitar SecurityError (tainted canvas) con Cloudinary
+  const dataUrl = await imgSrcToDataUrl(img.currentSrc || img.src || '');
+  if(!dataUrl) return null;
+
+  const safeImg = await new Promise(res => {
+    const i = new Image();
+    i.onload  = () => res(i);
+    i.onerror = () => res(null);
+    i.src = dataUrl;
+  });
+  if(!safeImg) return null;
+
+  const sw = safeImg.naturalWidth  || safeImg.width  || 0;
+  const sh = safeImg.naturalHeight || safeImg.height || 0;
+  if(!sw || !sh) return null;
+
+  // Escalar el blur: en pantalla la imagen se muestra pequeña pero en canvas es de tamaño natural.
+  // Sin escalar, blur(10px) sobre 1080px se ve casi nada vs blur(10px) sobre 180px en pantalla.
+  const dw = displayW || img.getBoundingClientRect().width  || img.offsetWidth  || sw;
+  const dh = displayH || img.getBoundingClientRect().height || img.offsetHeight || sh;
+  const ratio      = Math.max(sw / Math.max(dw, 1), sh / Math.max(dh, 1));
+  const scaledBlur = b * ratio;
+
+  // Canvas con padding para que el blur no se corte en bordes
+  const pad = Math.ceil(scaledBlur * 2.5);
+  const c   = document.createElement('canvas');
+  c.width   = sw + pad * 2;
+  c.height  = sh + pad * 2;
+  const ctx = c.getContext('2d');
+  if(!ctx) return null;
+
+  ctx.clearRect(0, 0, c.width, c.height);
+  if('filter' in ctx) ctx.filter = `blur(${scaledBlur}px)`;
+  ctx.drawImage(safeImg, pad, pad, sw, sh);
+  ctx.filter = 'none';
+
+  // Recortar al tamaño original quitando el padding
+  const out = document.createElement('canvas');
+  out.width  = sw;
+  out.height = sh;
+  out.getContext('2d').drawImage(c, pad, pad, sw, sh, 0, 0, sw, sh);
+  return out.toDataURL('image/png');
+}
+
+async function prepareBlurForExport(rectMap){
+  const patches = [];
+  for(const l of layers){
+    if(!(Number(l.blur || 0) > 0)) continue;
+    const img = getImageTargetElement(l);
+    if(!img || !img.src) continue;
+
+    try{
+      const r = (rectMap && rectMap[l.id]) || { width: 0, height: 0 };
+      const blurred = await renderBlurredDataUrlFromImg(img, l.blur, r.width, r.height);
+      if(!blurred) continue;
+      patches.push({
+        img,
+        src: img.src,
+        filter: img.style.filter || ''
+      });
+      img.style.filter = '';
+      img.src = blurred;
+      await waitImgLoaded(img);
+    }catch(e){
+      console.warn('prepareBlurForExport', e);
+    }
+  }
+  return patches;
+}
+
+function restoreBlurAfterExport(patches){
+  (patches || []).forEach(p=>{
+    try{
+      p.img.src = p.src;
+      p.img.style.filter = p.filter;
+    }catch(_){}
+  });
+}
+
 async function downloadPNG(){
   desel();
   const btn = document.querySelector('[onclick="downloadPNG()"]');
@@ -1528,9 +1656,20 @@ async function downloadPNG(){
   toast('⏳ Generando PNG...');
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
+  let blurPatches = [];
+
+  // Medir rects ANTES de quitar el transform para tener dimensiones reales de pantalla
+  const rectMap = {};
+  for(const l of layers){
+    if(!(Number(l.blur || 0) > 0)) continue;
+    const img = getImageTargetElement(l);
+    if(img){ const r = img.getBoundingClientRect(); rectMap[l.id] = {width: r.width, height: r.height}; }
+  }
+
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
+    blurPatches = await prepareBlurForExport(rectMap);
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
     const c = await html2canvas(cvs,{
@@ -1555,6 +1694,7 @@ async function downloadPNG(){
     console.error('PNG error:', e);
     toast('✗ Error al exportar');
   }finally{
+    restoreBlurAfterExport(blurPatches);
     cvs.style.transform = savedTransform;
     if(btn){ btn.disabled=false; }
   }
