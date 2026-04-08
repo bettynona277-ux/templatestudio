@@ -1222,10 +1222,17 @@ async function loadLogos(){
   if(!fbDb){ empty.textContent='Firebase no conectado.'; return; }
   if(!fbAuth?.currentUser){ empty.textContent='Inicia sesión para ver logos.'; return; }
   empty.textContent='Cargando logos...';
+  const uid = fbAuth.currentUser.uid;
   try{
-    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    const [globalSnap, userSnap] = await Promise.all([
+      fbDb.collection('logos').orderBy('createdAt','desc').get(),
+      fbDb.collection('user_logos').doc(uid).collection('items')
+          .orderBy('createdAt','desc').get().catch(()=>null)
+    ]);
     logoCache = [];
-    snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    if(userSnap && !userSnap.empty)
+      userSnap.forEach(doc=>logoCache.push({id:doc.id,...doc.data(),exclusive:true}));
+    globalSnap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
     renderLogos();
   }catch(e){
     empty.textContent='Error al cargar logos.';
@@ -1239,14 +1246,31 @@ function renderLogos(){
   if(logoCache.length===0){ empty.textContent='No hay logos en la biblioteca.'; grid.innerHTML=''; return; }
   empty.style.display='none';
   grid.innerHTML='';
+  const hasExclusive = logoCache.some(l=>l.exclusive);
+  if(hasExclusive){
+    const sep=document.createElement('div');
+    sep.style.cssText='grid-column:1/-1;font-size:0.62rem;font-weight:800;color:var(--accent);letter-spacing:1px;text-transform:uppercase;padding:2px 2px 6px;';
+    sep.textContent='⭐ Mis logos';
+    grid.appendChild(sep);
+  }
+  let globalSep=false;
   logoCache.forEach(logo=>{
+    if(!logo.exclusive && hasExclusive && !globalSep){
+      globalSep=true;
+      const sep=document.createElement('div');
+      sep.style.cssText='grid-column:1/-1;font-size:0.62rem;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:10px 2px 6px;border-top:1px solid var(--border);margin-top:2px;';
+      sep.textContent='Biblioteca general';
+      grid.appendChild(sep);
+    }
     const src = (logo.url||logo.src||'').replace(/'/g,"%27");
     const name = (logo.name||'Logo').replace(/'/g,"%27");
     const card = document.createElement('div');
     card.className='logo-card';
+    if(logo.exclusive) card.style.cssText='outline:2px solid rgba(21,214,164,0.5);outline-offset:1px;border-radius:12px;position:relative;';
     card.innerHTML=`
       <img src="${logo.url||logo.src||''}" alt="${logo.name||'Logo'}">
       <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
+      ${logo.exclusive?'<div style="position:absolute;top:2px;left:2px;font-size:0.5rem;background:rgba(21,214,164,0.92);color:#000;font-weight:800;border-radius:3px;padding:1px 3px;pointer-events:none;line-height:1.4;">TÚ</div>':''}
     `;
     grid.appendChild(card);
   });
