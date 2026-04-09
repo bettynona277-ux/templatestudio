@@ -1351,15 +1351,18 @@ async function loadOwnLogos(){
   const grid = document.getElementById('own-logos-grid');
   const empty = document.getElementById('own-logos-empty');
   const uid = fbAuth?.currentUser?.uid;
-  if(!fbDb||!uid){ empty.textContent='Inicia sesión para ver tus logos.'; empty.style.display='block'; return; }
+  if(!fbDb||!uid){ if(empty){ empty.textContent='Inicia sesión para ver tus logos.'; empty.style.display='block'; } return; }
   try{
-    const snap = await fbDb.collection('user_logos').where('uid','==',uid).orderBy('createdAt','desc').get();
+    // Sin orderBy para evitar requerir índice compuesto en Firestore
+    const snap = await fbDb.collection('user_logos').where('uid','==',uid).get();
     ownLogoCache = [];
     snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
+    // Ordenar localmente por createdAt desc
+    ownLogoCache.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     renderOwnLogos();
   }catch(e){
-    console.warn('Own logos error:', e);
-    empty.textContent='Error al cargar tus logos.'; empty.style.display='block';
+    console.error('Own logos error:', e.code, e.message);
+    if(empty){ empty.textContent='Error: '+e.message; empty.style.display='block'; }
   }
 }
 
@@ -1421,20 +1424,23 @@ async function uploadOwnLogos(ev){
       const publicId = `user_logos/${uid}/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`;
       const url = await uploadToCloudinary(compressed, publicId);
       // Guardar en Firestore colección user_logos con uid
-      await fbDb.collection('user_logos').add({
+      const logoData = {
         uid,
         url,
         name: file.name.replace(/\.[^.]+$/, ''),
         createdAt: Date.now()
-      });
+      };
+      const docRef = await fbDb.collection('user_logos').add(logoData);
+      // Agregar al cache local directamente (sin re-query)
+      ownLogoCache.unshift({id: docRef.id, ...logoData});
       ok++;
-    }catch(e){ console.warn('Upload own logo error:', e); }
+    }catch(e){ console.error('Upload own logo error:', e.code, e.message); }
   }
   if(ok > 0){
     toast('✓ '+(ok===1?'Logo subido':'Logos subidos'));
-    await loadOwnLogos();
+    renderOwnLogos(); // render directo desde cache — no re-query
   } else {
-    toast('Error al subir logos');
+    toast('Error al subir. Revisa la consola.');
   }
 }
 
