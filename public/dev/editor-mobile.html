@@ -302,9 +302,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
     </button>
-    <button class="tbtn tbtn-ghost" onclick="downloadPNG()">
+    <button class="tbtn tbtn-ghost" onclick="downloadPNG()" title="Descargar / Guardar en galería">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      PNG
+      Descargar
     </button>
     <button class="tbtn tbtn-green" onclick="openSave()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
@@ -1426,6 +1426,13 @@ function renderLogos(){
   });
 }
 
+function closeSaveModal(){
+  const modal = document.getElementById('save-img-modal');
+  const preview = document.getElementById('save-img-preview');
+  if(modal) modal.style.display = 'none';
+  if(preview) preview.src = '';
+}
+
 function toggleAccordion(accEl){
   accEl.classList.toggle('open');
 }
@@ -1964,12 +1971,12 @@ async function downloadPNG(){
   desel();
   const btn = document.querySelector('[onclick="downloadPNG()"]');
   if(btn){ btn.disabled=true; }
-  toast('⏳ Generando PNG...');
+  toast('⏳ Generando imagen...');
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
   let blurPatches = [];
 
-  // Medir rects ANTES de quitar el transform para tener dimensiones reales de pantalla
+  // Medir rects ANTES de quitar el transform
   const rectMap = {};
   for(const l of layers){
     if(!(Number(l.blur || 0) > 0)) continue;
@@ -1983,7 +1990,7 @@ async function downloadPNG(){
     blurPatches = await prepareBlurForExport(rectMap);
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
-    const c = await html2canvas(cvs,{
+    const rendered = await html2canvas(cvs,{
       scale: 2,
       useCORS: true,
       allowTaint: true,
@@ -1994,16 +2001,68 @@ async function downloadPNG(){
       windowWidth: canvasW,
       windowHeight: canvasH,
     });
-    const a = document.createElement('a');
+
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
-    a.download = safeName + '.png';
-    a.href = c.toDataURL('image/png');
-    a.click();
-    toast('✓ PNG descargado');
+    const fileName = safeName + '.png';
+
+    // Convertir canvas a Blob
+    const blob = await new Promise(res => rendered.toBlob(res, 'image/png'));
+
+    // ── Intento 1: Web Share API (iOS Safari, Android Chrome) ──
+    // Abre el menú nativo del teléfono → el usuario elige "Guardar en Fotos" o compartir
+    const shareFile = new File([blob], fileName, { type: 'image/png' });
+    if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
+      try{
+        await navigator.share({
+          files: [shareFile],
+          title: safeName,
+        });
+        toast('✓ Imagen lista para guardar');
+        return;
+      }catch(shareErr){
+        // Usuario canceló el share o falló → continuar con fallback
+        if(shareErr.name === 'AbortError'){ toast('Cancelado'); return; }
+        console.warn('Share falló, usando fallback:', shareErr);
+      }
+    }
+
+    // ── Intento 2: URL de objeto + link (Android Chrome, navegadores modernos) ──
+    const url = URL.createObjectURL(blob);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+    if(!isIOS){
+      // Android y otros: link de descarga directo
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url), 5000);
+      toast('✓ Imagen descargada — revisa tu galería');
+    } else {
+      // ── iOS Safari: no soporta a.download → mostrar imagen en modal para guardar manualmente ──
+      const modal = document.getElementById('save-img-modal');
+      const preview = document.getElementById('save-img-preview');
+      if(modal && preview){
+        preview.src = url;
+        modal.style.display = 'flex';
+        // Liberar URL cuando se cierre el modal
+        preview.addEventListener('load', ()=>{
+          setTimeout(()=>URL.revokeObjectURL(url), 30000);
+        }, {once: true});
+      } else {
+        // Fallback: abrir en nueva pestaña
+        window.open(url, '_blank');
+        setTimeout(()=>URL.revokeObjectURL(url), 10000);
+        toast('💡 Mantén presionada la imagen para guardarla');
+      }
+    }
+
   }catch(e){
     console.error('PNG error:', e);
-    toast('✗ Error al exportar');
+    toast('✗ Error al generar. Intenta de nuevo.');
   }finally{
     restoreBlurAfterExport(blurPatches);
     cvs.style.transform = savedTransform;
@@ -2137,5 +2196,20 @@ window.addEventListener('load', async()=>{
   window.addEventListener('touchend', ()=>{ dragging = false; }, {passive: true});
 })();
 </script>
+
+<!-- MODAL GUARDAR IMAGEN — fallback iOS sin Web Share API -->
+<div id="save-img-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.95);flex-direction:column;align-items:center;justify-content:center;padding:20px;">
+  <div style="color:#fff;font-size:0.9rem;font-weight:700;margin-bottom:6px;text-align:center;">
+    Tu diseño está listo
+  </div>
+  <div style="color:rgba(255,255,255,0.7);font-size:0.78rem;margin-bottom:16px;text-align:center;line-height:1.5;">
+    Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar imagen"</span> o <span style="color:#15d6a4;font-weight:700;">"Guardar en Fotos"</span>
+  </div>
+  <img id="save-img-preview" src="" style="max-width:88vw;max-height:62vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.6);" alt="Tu diseño">
+  <button onclick="closeSaveModal()" style="margin-top:20px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:12px;padding:11px 32px;font-size:0.85rem;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+    ✕ Cerrar
+  </button>
+</div>
+
 </body>
 </html>
