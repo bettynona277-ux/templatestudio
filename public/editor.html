@@ -313,6 +313,21 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .logo-lib-item:hover{border-color:var(--accent);transform:scale(1.05);}
 .logo-lib-item img{width:100%;height:100%;object-fit:contain;padding:6px;pointer-events:none;}
 .logo-lib-item .logo-del{position:absolute;top:4px;right:4px;background:rgba(255,107,107,0.9);color:#fff;border:none;border-radius:4px;width:20px;height:20px;font-size:0.7rem;cursor:pointer;display:none;align-items:center;justify-content:center;}
+/* ── Acordeón logos PC ── */
+.logo-acc-wrap{margin:0 12px 6px;}
+.logo-acc-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 10px;background:var(--panel2);
+  border:1px solid var(--border);border-radius:8px;
+  cursor:pointer;user-select:none;transition:background 0.15s;
+}
+.logo-acc-header:hover{background:var(--panel3,var(--panel));}
+.logo-acc-htitle{font-size:0.72rem;font-weight:700;color:var(--text);}
+.logo-acc-arrow{font-size:0.6rem;color:var(--muted);transition:transform 0.2s;}
+.logo-acc-open .logo-acc-arrow{transform:rotate(180deg);}
+.logo-acc-body{display:none;padding:8px 0 4px;}
+.logo-acc-open .logo-acc-body{display:block;}
+.logo-acc-count{font-size:0.62rem;font-weight:600;background:rgba(21,214,164,0.12);color:var(--accent);border-radius:8px;padding:1px 6px;margin-left:5px;}
 
 /* MODAL */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;}
@@ -1133,17 +1148,41 @@ input[type=range]{filter:none !important;}
     </div>
 
     <div id="ltab-logos-body" class="lp-tab-body" style="display:none;overflow-y:auto;">
-      <div style="padding:12px 12px 6px;">
-        <div class="lp-title" style="margin-bottom:6px;">Biblioteca de logos</div>
-        <p style="font-size:0.7rem;color:var(--muted);margin-bottom:10px;line-height:1.5;">Los logos que subas aquí también los verán tus clientes.</p>
-        <label id="logo-upload-btn" class="upload-psd" style="margin-bottom:8px;font-size:0.78rem;padding:9px 12px;">
-          ＋ Subir logo
+
+      <!-- ═══ LOGOS PROPIOS DEL CLIENTE ═══ -->
+      <div style="padding:12px 12px 4px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div class="lp-title" style="font-size:0.8rem;">👤 Logos propios</div>
+          <span id="own-logo-count-pc" style="font-size:0.68rem;font-weight:700;background:rgba(21,214,164,0.15);color:var(--accent);border-radius:10px;padding:1px 8px;">0/5</span>
+        </div>
+        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">Solo tú los ves. Máx 5 logos.</p>
+        <div id="own-limit-warn-pc" style="display:none;font-size:0.68rem;color:#ff8c42;background:rgba(255,140,66,0.1);border-radius:6px;padding:5px 8px;margin-bottom:6px;">
+          Límite alcanzado. Elimina uno para subir otro.
+        </div>
+        <label id="own-upload-btn-pc" class="upload-psd" style="margin-bottom:8px;font-size:0.75rem;padding:7px 12px;background:rgba(21,214,164,0.07);border-color:rgba(21,214,164,0.3);">
+          ＋ Subir mi logo
+          <input type="file" id="own-logo-input-pc" accept="image/png,image/svg+xml,image/webp,image/jpeg" multiple style="display:none" onchange="uploadOwnLogos(event)">
+        </label>
+      </div>
+      <div id="own-logo-grid-pc" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 8px;">
+        <div style="grid-column:1/-1;text-align:center;padding:14px;color:var(--muted);font-size:0.7rem;" id="own-logos-empty-pc">Aún no tienes logos propios.</div>
+      </div>
+
+      <!-- ═══ LOGOS DE PLATAFORMAS ═══ -->
+      <div style="padding:4px 12px 4px;border-top:1px solid var(--border);margin-top:4px;">
+        <div class="lp-title" style="font-size:0.8rem;margin:8px 0 4px;">🎬 Logos de plataformas</div>
+        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:6px;line-height:1.4;">Visibles para todos los clientes.</p>
+        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:8px;font-size:0.75rem;padding:7px 12px;">
+          ＋ Subir logo de plataforma
           <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
         </label>
       </div>
-      <div id="logo-library-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 12px;">
+      <!-- Acordeones de categorías -->
+      <div id="logo-library-accordions" style="padding:0 0 12px;">
         <div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;" id="logo-library-empty">Cargando logos...</div>
       </div>
+      <!-- Grid legacy (oculto, solo para compatibilidad) -->
+      <div id="logo-library-grid" style="display:none;"></div>
     </div>
   </div>
   <div class="canvas-area" id="canvas-area" onclick="canvasClick(event)">
@@ -1626,8 +1665,14 @@ function selMulti(ids){
   } else {
     cvs.classList.remove('multi-active');
   }
-  // Limpiar SIEMPRE los estilos inline de display en .rh para que el CSS tome control
+  // Limpiar estilos inline de .rh para que CSS tome control
   document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+  // Re-ocultar handles de borde para imágenes (se pierden con removeProperty)
+  layers.forEach(l=>{
+    if(l.type==='img' && !l.isShape && l.el){
+      l.el.querySelectorAll('.rh.tm,.rh.bm,.rh.ml,.rh.mr').forEach(rh=>rh.style.display='none');
+    }
+  });
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     updatePropertyPanelState(l);
@@ -2754,19 +2799,43 @@ function switchLTab(tab){
 }
 
 // ── LOGO LIBRARY ─────────────────────────────────────────────
-let logoLibCache = [];
+// ══════════════════════════════════════════
+// LOGOS — Plataformas + Logos propios del cliente
+// ══════════════════════════════════════════
+const MAX_OWN_LOGOS = 5;
+let logoLibCache = [];    // logos de plataformas (global, todos ven)
+let ownLogoCache = [];    // logos propios del cliente (privados por uid)
 
+// ── Comprimir imagen si supera maxKB ──
+async function compressImage(dataUrl, maxKB=400){
+  return new Promise(resolve=>{
+    if(dataUrl.startsWith('data:image/svg')) return resolve(dataUrl);
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      const maxDim=800;
+      if(w>maxDim||h>maxDim){ const r=Math.min(maxDim/w,maxDim/h); w=Math.round(w*r); h=Math.round(h*r); }
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      let result=c.toDataURL('image/png');
+      const sizeKB=result.length*0.75/1024;
+      if(sizeKB>maxKB){
+        const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
+        result=c.toDataURL('image/jpeg',q);
+      }
+      resolve(result);
+    };
+    img.onerror=()=>resolve(dataUrl);
+    img.src=dataUrl;
+  });
+}
+
+// ── Cargar logos de plataformas ──
 async function loadLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
   const emptyEl=document.getElementById('logo-library-empty');
-  if(!fbDb){
-    if(emptyEl) emptyEl.textContent='Conecta Firebase para usar la biblioteca.';
-    return;
-  }
-  if(!fbAuth || !fbAuth.currentUser){
-    if(emptyEl) emptyEl.textContent='Inicia sesión para ver logos.';
-    return;
-  }
+  if(!fbDb){ if(emptyEl) emptyEl.textContent='Conecta Firebase.'; return; }
+  if(!fbAuth||!fbAuth.currentUser){ if(emptyEl) emptyEl.textContent='Inicia sesión.'; return; }
   if(emptyEl) emptyEl.textContent='Cargando...';
   try{
     const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
@@ -2774,33 +2843,147 @@ async function loadLogoLibrary(){
     snap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
     renderLogoLibrary();
   }catch(e){
-    console.warn('Logo library error:', e.message);
-    if(emptyEl) emptyEl.textContent='No se pudieron cargar los logos.';
+    console.warn('Logo library error:',e.message);
+    if(emptyEl) emptyEl.textContent='Error al cargar logos.';
   }
+  // Siempre cargar también los logos propios
+  loadOwnLogosPC();
 }
 
 function renderLogoLibrary(){
-  const grid=document.getElementById('logo-library-grid');
-  grid.innerHTML='';
+  const container = document.getElementById('logo-library-accordions');
+  const emptyEl = document.getElementById('logo-library-empty');
+  if(!container) return;
+
+  const isAdmin = document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+
+  // Mostrar botón subir solo a admin
+  const uploadBtn = document.getElementById('logo-upload-btn');
+  if(uploadBtn) uploadBtn.style.display = isAdmin ? 'flex' : 'none';
+
   if(!logoLibCache.length){
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;">Sin logos aún.<br>Sube el primero ↑</div>';
+    if(emptyEl){ emptyEl.textContent='Sin logos de plataformas aún.'; emptyEl.style.display='block'; }
     return;
   }
-  const isAdmin=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+  if(emptyEl) emptyEl.style.display='none';
+
+  // Agrupar por campo 'categoria' (default: 'Logos oficiales')
+  const groups = {};
   logoLibCache.forEach(logo=>{
+    const cat = logo.categoria || 'Logos oficiales';
+    if(!groups[cat]) groups[cat] = [];
+    groups[cat].push(logo);
+  });
+
+  // Orden: Logos oficiales primero, luego alfabético
+  const orderedCats = Object.keys(groups).sort((a,b)=>{
+    if(a==='Logos oficiales') return -1;
+    if(b==='Logos oficiales') return 1;
+    return a.localeCompare(b);
+  });
+
+  // Limpiar acordeones previos
+  Array.from(container.children).forEach(ch=>{
+    if(ch.id !== 'logo-library-empty') ch.remove();
+  });
+
+  const catIcon = name => {
+    const n = (name||'').toLowerCase();
+    if(n.includes('oficial')) return '🏆';
+    if(n.includes('distorsion') || n.includes('distort')) return '🎨';
+    if(n.includes('streaming') || n.includes('plataforma')) return '📺';
+    if(n.includes('musica') || n.includes('música')) return '🎵';
+    if(n.includes('deporte') || n.includes('sport')) return '⚽';
+    return '📁';
+  };
+
+  orderedCats.forEach((cat, idx)=>{
+    const logos = groups[cat];
+    const wrap = document.createElement('div');
+    wrap.className = 'logo-acc-wrap'; // Todos cerrados por defecto — usuario elige cuál abrir
+    wrap.innerHTML = `
+      <div class="logo-acc-header" onclick="this.parentElement.classList.toggle('logo-acc-open')">
+        <span class="logo-acc-htitle">${catIcon(cat)} ${cat} <span class="logo-acc-count">${logos.length}</span></span>
+        <span class="logo-acc-arrow">▼</span>
+      </div>
+      <div class="logo-acc-body">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 12px 0;"></div>
+      </div>
+    `;
+    const grid = wrap.querySelector('.logo-acc-body div');
+    logos.forEach(logo=>{
+      const item=document.createElement('div');
+      item.className='logo-lib-item';
+      item.title='Clic para agregar al canvas';
+      item.innerHTML=`<img src="${logo.url}" alt="${logo.name||''}">
+        ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
+      item.draggable=true;
+      item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name||''));
+      item.addEventListener('dragstart',(ev)=>{
+        try{
+          ev.dataTransfer.effectAllowed='copy';
+          ev.dataTransfer.setData('application/x-logo-src', logo.url);
+          ev.dataTransfer.setData('text/plain', logo.url);
+          ev.dataTransfer.setData('text/uri-list', logo.url);
+        }catch(_){}
+      });
+      item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
+      item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
+      grid.appendChild(item);
+    });
+    container.appendChild(wrap);
+  });
+}
+
+// ── Cargar logos propios (PC) ──
+async function loadOwnLogosPC(){
+  const grid=document.getElementById('own-logo-grid-pc');
+  const emptyEl=document.getElementById('own-logos-empty-pc');
+  const uid=fbAuth?.currentUser?.uid;
+  if(!fbDb||!uid) return;
+  try{
+    // Sin orderBy para evitar requerir índice compuesto en Firestore
+    const snap=await fbDb.collection('user_logos').where('uid','==',uid).get();
+    ownLogoCache=[];
+    snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
+    // Ordenar localmente por createdAt desc
+    ownLogoCache.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    renderOwnLogosPC();
+  }catch(e){ console.error('Own logos error:',e.code,e.message); }
+}
+
+function renderOwnLogosPC(){
+  const grid=document.getElementById('own-logo-grid-pc');
+  const emptyEl=document.getElementById('own-logos-empty-pc');
+  const countEl=document.getElementById('own-logo-count-pc');
+  const warn=document.getElementById('own-limit-warn-pc');
+  const uploadBtn=document.getElementById('own-upload-btn-pc');
+  const count=ownLogoCache.length;
+  if(countEl) countEl.textContent=count+'/'+MAX_OWN_LOGOS;
+  const atLimit=count>=MAX_OWN_LOGOS;
+  if(warn) warn.style.display=atLimit?'block':'none';
+  if(uploadBtn) uploadBtn.style.display=atLimit?'none':'flex';
+  if(!grid) return;
+  grid.innerHTML='';
+  if(count===0){
+    if(emptyEl) emptyEl.style.display='block';
+    return;
+  }
+  if(emptyEl) emptyEl.style.display='none';
+  ownLogoCache.forEach(logo=>{
     const item=document.createElement('div');
     item.className='logo-lib-item';
+    item.style.cssText='border:1px solid rgba(100,160,255,0.35);';
     item.title='Clic para agregar al canvas';
     item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
-      ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
-    item.draggable = true;
-    item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name));
+      <button class="logo-del" onclick="deleteOwnLogoPC('${logo.id}',event)" title="Eliminar" style="display:none;">✕</button>`;
+    item.draggable=true;
+    item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
     item.addEventListener('dragstart',(ev)=>{
       try{
         ev.dataTransfer.effectAllowed='copy';
-        ev.dataTransfer.setData('application/x-logo-src', logo.url);
-        ev.dataTransfer.setData('text/plain', logo.url);
-        ev.dataTransfer.setData('text/uri-list', logo.url);
+        ev.dataTransfer.setData('application/x-logo-src',logo.url);
+        ev.dataTransfer.setData('text/plain',logo.url);
       }catch(_){}
     });
     item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
@@ -2809,21 +2992,110 @@ function renderLogoLibrary(){
   });
 }
 
+// ── Subir logos propios (PC) ──
+async function uploadOwnLogos(ev){
+  const files=Array.from(ev.target.files); ev.target.value='';
+  if(!files.length) return;
+  const uid=fbAuth?.currentUser?.uid;
+  if(!uid){ showToast('Inicia sesión primero'); return; }
+  const remaining=MAX_OWN_LOGOS-ownLogoCache.length;
+  if(remaining<=0){ showToast('Límite de 5 logos alcanzado'); return; }
+  const toUpload=files.slice(0,remaining);
+  showToast('Subiendo logos...');
+  let ok=0;
+  for(const file of toUpload){
+    try{
+      const reader=new FileReader();
+      const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
+      const compressed=await compressImage(dataUrl,400);
+      const url=await uploadToStorage(compressed,`user_logos/${uid}/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
+      const logoData={uid,url,name:file.name.replace(/\.[^.]+$/,''),createdAt:Date.now()};
+      const docRef=await fbDb.collection('user_logos').add(logoData);
+      // Agregar al cache local directamente (sin re-query)
+      ownLogoCache.unshift({id:docRef.id,...logoData});
+      ok++;
+    }catch(e){ console.error('Own logo upload error:',e.code,e.message); }
+  }
+  if(ok>0){ showToast('✓ '+(ok===1?'Logo subido':'Logos subidos')); renderOwnLogosPC(); }
+  else showToast('Error al subir. Revisa la consola.');
+}
+
+// ── Eliminar logo propio (PC) ──
+async function deleteOwnLogoPC(id,ev){
+  ev.stopPropagation();
+  if(!confirm('¿Eliminar este logo propio?')) return;
+  try{
+    await fbDb.collection('user_logos').doc(id).delete();
+    ownLogoCache=ownLogoCache.filter(l=>l.id!==id);
+    renderOwnLogosPC();
+    showToast('Logo eliminado');
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+// ── Subir logo de plataforma (solo admin) ──
 async function uploadLibraryLogos(ev){
   const files=Array.from(ev.target.files); ev.target.value='';
   if(!files.length) return;
   if(!fbDb){ alert('Conecta Firebase primero'); return; }
+  // Pedir categoría al admin antes de subir
+  const categoria = await promptLogoCategory();
+  if(categoria === null) return; // Canceló
   showToast('Subiendo logos...');
   for(const file of files){
     try{
       const reader=new FileReader();
       const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
       const url=await uploadToStorage(dataUrl,`logos/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
-      await fbDb.collection('logos').add({url,name:file.name,createdAt:Date.now()});
+      await fbDb.collection('logos').add({url,name:file.name,categoria,createdAt:Date.now()});
     }catch(e){ console.warn('Logo upload failed:',e.message); }
   }
   showToast('✓ Logos subidos');
   loadLogoLibrary();
+}
+
+// Diálogo para elegir categoría al subir logos de plataforma
+function promptLogoCategory(){
+  return new Promise(resolve=>{
+    // Recopilar categorías existentes del cache
+    const existingCats = [...new Set(logoLibCache.map(l=>l.categoria||'Logos oficiales'))].sort();
+    const defaultCats = ['Logos oficiales','Logos distorsionados'];
+    const allCats = [...new Set([...defaultCats,...existingCats])];
+
+    // Crear modal simple
+    const overlay = document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText='background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:20px;min-width:260px;max-width:320px;';
+    box.innerHTML=`
+      <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:12px;">📂 Categoría de logos</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-bottom:10px;">¿A qué categoría pertenecen estos logos?</div>
+      <select id="_cat-sel" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:0.8rem;margin-bottom:8px;">
+        ${allCats.map(cat=>`<option value="${cat}">${cat}</option>`).join('')}
+        <option value="__new__">＋ Crear categoría nueva...</option>
+      </select>
+      <input id="_cat-new" type="text" placeholder="Nombre de la nueva categoría" style="display:none;width:100%;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:0.8rem;margin-bottom:8px;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button id="_cat-cancel" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;font-size:0.78rem;">Cancelar</button>
+        <button id="_cat-ok" style="flex:1;padding:8px;background:var(--accent);border:none;border-radius:8px;color:#002b22;font-weight:700;cursor:pointer;font-size:0.78rem;">Confirmar</button>
+      </div>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    const sel = box.querySelector('#_cat-sel');
+    const inp = box.querySelector('#_cat-new');
+    sel.addEventListener('change',()=>{
+      inp.style.display = sel.value==='__new__' ? 'block' : 'none';
+      if(sel.value==='__new__') inp.focus();
+    });
+    box.querySelector('#_cat-cancel').onclick=()=>{ overlay.remove(); resolve(null); };
+    box.querySelector('#_cat-ok').onclick=()=>{
+      let cat = sel.value==='__new__' ? inp.value.trim() : sel.value;
+      if(!cat){ inp.focus(); return; }
+      overlay.remove();
+      resolve(cat);
+    };
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ box.querySelector('#_cat-ok').click(); } });
+  });
 }
 
 async function deleteLibraryLogo(id,ev){
@@ -2842,10 +3114,10 @@ function addLogoToCanvas(src, name){
   img.onload=()=>{
     const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
     let w=img.width, h=img.height;
-    const maxW=Math.min(300, cw*0.4);
+    const maxW=Math.min(300,cw*0.4);
     if(w>maxW){ const s=maxW/w; w=Math.round(w*s); h=Math.round(h*s); }
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
-      x:Math.round((cw-w)/2), y:Math.round((ch-h)/2), w, h,
+      x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height};
     layers.push(l); mkEl(l); renderList(); sel(l.id);
     snapshotState();
@@ -3505,10 +3777,17 @@ function mkEl(l){
   // Size hint display none via CSS
   const sh=document.createElement('div');sh.className='sz-hint';sh.id='sh-'+l.id;sh.textContent=`${l.w}×${l.h}`;el.appendChild(sh);
   
-  // 8 handles: 4 corners (scale font for text) + 4 edges (box only)
-  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(c=>{
-    const rh=document.createElement('div');rh.className='rh '+c;
-    rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,c);};
+  // 8 handles: 4 corners + 4 edges
+  // Para imágenes normales los bordes también escalan proporcional (ya manejado en startRes)
+  const isImgLayer = l.type==='img' && !l.isShape;
+  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(corner=>{
+    const rh=document.createElement('div');
+    rh.className='rh '+corner;
+    // Ocultar handles de borde para imágenes (evita confusión — escalan igual que esquinas)
+    if(isImgLayer && ['tm','bm','ml','mr'].includes(corner)){
+      rh.style.display='none';
+    }
+    rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,corner);};
     el.appendChild(rh);
   });
   const rotLine=document.createElement('div');
@@ -3661,7 +3940,21 @@ function startRes(ev,id,c){
   if(ll?.locked){ev.preventDefault();return;}
   isRes=true;const l=layers.find(x=>x.id===id);
   const origFs=l.tp?l.tp.fontSize:0;
-  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
+  // Para imágenes: ratio real desde origW/origH o desde el elemento img del DOM
+  let trueRatio = l.w / (l.h || 1);
+  if(l.type==='img' && !l.isShape){
+    if(l.origW && l.origH){
+      trueRatio = l.origW / l.origH;
+    } else if(l.el){
+      const domImg = l.el.querySelector('img');
+      if(domImg && domImg.naturalWidth && domImg.naturalHeight){
+        l.origW = domImg.naturalWidth;
+        l.origH = domImg.naturalHeight;
+        trueRatio = l.origW / l.origH;
+      }
+    }
+  }
+  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:trueRatio,origFs,origW:l.w};
   ev.preventDefault();
 }
 
@@ -3841,18 +4134,29 @@ document.addEventListener('mousemove',ev=>{
     let{x:ox,y:oy,w:ow,h:oh,ratio,c,origFs,origW}=rSt;
     let nx=ox,ny=oy,nw=ow,nh=oh;
     const isCorner=['tl','tr','bl','br'].includes(c);
-    // Para textos: esquinas siempre proporcionales (no deformar)
-    const forceProportional = isCorner && l.type==='text';
+    // Imágenes normales (no shapes, no frames): SIEMPRE proporcionales en todos los handles
+    const isImg = l.type==='img' && !l.isShape;
+    // Textos: esquinas siempre proporcionales
+    const forceProportional = (isCorner && l.type==='text') || isImg;
     const propLock = lock || forceProportional;
-    if(c==='br'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='tr'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
-    else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
-    if(propLock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
-    else if(c==='mr'){nw=Math.max(10,ow+dx);}
-    else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
-    else if(c==='bm'){nh=Math.max(10,oh+dy);}
-    else if(c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;}
+
+    if(isImg && !isCorner){
+      // Handles de borde en imágenes: escalar proporcionalmente desde el borde arrastrado
+      if(c==='mr'){nw=Math.max(10,ow+dx);nh=Math.round(nw/ratio);}
+      else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=Math.round(nw/ratio);ny=oy+(oh-nh)/2;}
+      else if(c==='bm'){nh=Math.max(10,oh+dy);nw=Math.round(nh*ratio);nx=ox+(ow-nw)/2;}
+      else if(c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;nw=Math.round(nh*ratio);nx=ox+(ow-nw)/2;}
+    } else {
+      if(c==='br'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+      else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+      else if(c==='tr'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+      else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+      if(propLock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
+      else if(!isImg&&c==='mr'){nw=Math.max(10,ow+dx);}
+      else if(!isImg&&c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
+      else if(!isImg&&c==='bm'){nh=Math.max(10,oh+dy);}
+      else if(!isImg&&c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;}
+    }
 
     // Alt + Shift: escalar desde el centro manteniendo proporción
     if(centerMode){
@@ -4184,6 +4488,12 @@ function desel(){
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   cvs.classList.remove('multi-active');
   document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+  // Re-ocultar handles de borde para imágenes
+  layers.forEach(l=>{
+    if(l.type==='img' && !l.isShape && l.el){
+      l.el.querySelectorAll('.rh.tm,.rh.bm,.rh.ml,.rh.mr').forEach(rh=>rh.style.display='none');
+    }
+  });
   selId=null; selIds=[];
   hideRotationTooltip();
   updatePropertyPanelState(null);
@@ -5371,7 +5681,20 @@ async function renderDesignToCanvas(scale=2){
           roundedRectPath(ctx, -l.w/2, -l.h/2, l.w, l.h, radius);
           ctx.clip();
         }
-        ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        // object-fit: contain — respetar proporciones de la imagen (NO estirar)
+        if(!l.isShape){
+          const nw = img.naturalWidth  || img.width  || l.w;
+          const nh = img.naturalHeight || img.height || l.h;
+          const scale = Math.min(l.w / nw, l.h / nh);
+          const dw = Math.round(nw * scale);
+          const dh = Math.round(nh * scale);
+          const dx = Math.round(-dw / 2);
+          const dy = Math.round(-dh / 2);
+          ctx.drawImage(img, dx, dy, dw, dh);
+        } else {
+          // Shapes sí se estiran (SVG diseñado para eso)
+          ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        }
       }
       ctx.restore();
       continue;
@@ -6122,6 +6445,17 @@ function loadData(tpl){
     if(typeof l.frameImage === 'string' && l.frameImage.startsWith('blob:')) l.frameImage = '';
     layers.push(l);
     mkEl(l);
+    // Si es imagen sin origW/origH, cargarla para obtener proporciones reales
+    if(l.type==='img' && !l.isShape && l.src && (!l.origW || !l.origH)){
+      (src=>{
+        const probe = new Image();
+        probe.onload = () => {
+          if(!l.origW) l.origW = probe.naturalWidth;
+          if(!l.origH) l.origH = probe.naturalHeight;
+        };
+        probe.src = src;
+      })(l.src);
+    }
   });
 
   // Auto zoom to fit
