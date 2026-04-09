@@ -1133,11 +1133,32 @@ input[type=range]{filter:none !important;}
     </div>
 
     <div id="ltab-logos-body" class="lp-tab-body" style="display:none;overflow-y:auto;">
-      <div style="padding:12px 12px 6px;">
-        <div class="lp-title" style="margin-bottom:6px;">Biblioteca de logos</div>
-        <p style="font-size:0.7rem;color:var(--muted);margin-bottom:10px;line-height:1.5;">Los logos que subas aquí también los verán tus clientes.</p>
-        <label id="logo-upload-btn" class="upload-psd" style="margin-bottom:8px;font-size:0.78rem;padding:9px 12px;">
-          ＋ Subir logo
+
+      <!-- ═══ LOGOS PROPIOS DEL CLIENTE ═══ -->
+      <div style="padding:12px 12px 4px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div class="lp-title" style="font-size:0.8rem;">👤 Logos propios</div>
+          <span id="own-logo-count-pc" style="font-size:0.68rem;font-weight:700;background:rgba(21,214,164,0.15);color:var(--accent);border-radius:10px;padding:1px 8px;">0/5</span>
+        </div>
+        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">Solo tú los ves. Máx 5 logos.</p>
+        <div id="own-limit-warn-pc" style="display:none;font-size:0.68rem;color:#ff8c42;background:rgba(255,140,66,0.1);border-radius:6px;padding:5px 8px;margin-bottom:6px;">
+          Límite alcanzado. Elimina uno para subir otro.
+        </div>
+        <label id="own-upload-btn-pc" class="upload-psd" style="margin-bottom:8px;font-size:0.75rem;padding:7px 12px;background:rgba(21,214,164,0.07);border-color:rgba(21,214,164,0.3);">
+          ＋ Subir mi logo
+          <input type="file" id="own-logo-input-pc" accept="image/png,image/svg+xml,image/webp,image/jpeg" multiple style="display:none" onchange="uploadOwnLogos(event)">
+        </label>
+      </div>
+      <div id="own-logo-grid-pc" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 8px;">
+        <div style="grid-column:1/-1;text-align:center;padding:14px;color:var(--muted);font-size:0.7rem;" id="own-logos-empty-pc">Aún no tienes logos propios.</div>
+      </div>
+
+      <!-- ═══ LOGOS DE PLATAFORMAS ═══ -->
+      <div style="padding:4px 12px 4px;border-top:1px solid var(--border);margin-top:4px;">
+        <div class="lp-title" style="font-size:0.8rem;margin:8px 0 4px;">🎬 Logos de plataformas</div>
+        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">Logos visibles para todos los clientes.</p>
+        <label id="logo-upload-btn" class="upload-psd" style="margin-bottom:8px;font-size:0.75rem;padding:7px 12px;display:none;" id="platform-upload-btn-pc">
+          ＋ Subir logo de plataforma
           <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
         </label>
       </div>
@@ -2754,78 +2775,139 @@ function switchLTab(tab){
 }
 
 // ── LOGO LIBRARY ─────────────────────────────────────────────
-let logoLibCache = [];
+// ══════════════════════════════════════════
+// LOGOS — Plataformas + Logos propios del cliente
+// ══════════════════════════════════════════
+const MAX_OWN_LOGOS = 5;
+let logoLibCache = [];    // logos de plataformas (global, todos ven)
+let ownLogoCache = [];    // logos propios del cliente (privados por uid)
 
+// ── Comprimir imagen si supera maxKB ──
+async function compressImage(dataUrl, maxKB=400){
+  return new Promise(resolve=>{
+    if(dataUrl.startsWith('data:image/svg')) return resolve(dataUrl);
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      const maxDim=800;
+      if(w>maxDim||h>maxDim){ const r=Math.min(maxDim/w,maxDim/h); w=Math.round(w*r); h=Math.round(h*r); }
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      let result=c.toDataURL('image/png');
+      const sizeKB=result.length*0.75/1024;
+      if(sizeKB>maxKB){
+        const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
+        result=c.toDataURL('image/jpeg',q);
+      }
+      resolve(result);
+    };
+    img.onerror=()=>resolve(dataUrl);
+    img.src=dataUrl;
+  });
+}
+
+// ── Cargar logos de plataformas ──
 async function loadLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
   const emptyEl=document.getElementById('logo-library-empty');
-  if(!fbDb){
-    if(emptyEl) emptyEl.textContent='Conecta Firebase para usar la biblioteca.';
-    return;
-  }
-  if(!fbAuth || !fbAuth.currentUser){
-    if(emptyEl) emptyEl.textContent='Inicia sesión para ver logos.';
-    return;
-  }
+  if(!fbDb){ if(emptyEl) emptyEl.textContent='Conecta Firebase.'; return; }
+  if(!fbAuth||!fbAuth.currentUser){ if(emptyEl) emptyEl.textContent='Inicia sesión.'; return; }
   if(emptyEl) emptyEl.textContent='Cargando...';
   try{
-    const uid = fbAuth?.currentUser?.uid || '';
-    const [globalSnap, userSnap] = await Promise.all([
-      fbDb.collection('logos').orderBy('createdAt','desc').get(),
-      uid ? fbDb.collection('user_logos').doc(uid).collection('items')
-                .orderBy('createdAt','desc').get().catch(()=>null)
-          : Promise.resolve(null)
-    ]);
+    const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoLibCache=[];
-    if(userSnap && !userSnap.empty)
-      userSnap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data(),exclusive:true}));
-    globalSnap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
+    snap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
     renderLogoLibrary();
   }catch(e){
-    console.warn('Logo library error:', e.message);
-    if(emptyEl) emptyEl.textContent='No se pudieron cargar los logos.';
+    console.warn('Logo library error:',e.message);
+    if(emptyEl) emptyEl.textContent='Error al cargar logos.';
   }
+  // Siempre cargar también los logos propios
+  loadOwnLogosPC();
 }
 
 function renderLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
   grid.innerHTML='';
   if(!logoLibCache.length){
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;">Sin logos aún.<br>Sube el primero ↑</div>';
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;">Sin logos de plataformas aún.</div>';
     return;
   }
   const isAdmin=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
-  const hasExclusive = logoLibCache.some(l=>l.exclusive);
-  if(hasExclusive){
-    const sep=document.createElement('div');
-    sep.style.cssText='grid-column:1/-1;font-size:0.65rem;font-weight:800;color:var(--accent);letter-spacing:1px;text-transform:uppercase;padding:4px 2px 8px;';
-    sep.textContent='⭐ Mis logos';
-    grid.appendChild(sep);
-  }
-  let globalSep=false;
   logoLibCache.forEach(logo=>{
-    if(!logo.exclusive && hasExclusive && !globalSep){
-      globalSep=true;
-      const sep=document.createElement('div');
-      sep.style.cssText='grid-column:1/-1;font-size:0.65rem;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:10px 2px 6px;border-top:1px solid rgba(255,255,255,0.08);margin-top:4px;';
-      sep.textContent='Biblioteca general';
-      grid.appendChild(sep);
-    }
     const item=document.createElement('div');
     item.className='logo-lib-item';
     item.title='Clic para agregar al canvas';
-    if(logo.exclusive) item.style.cssText='outline:2px solid rgba(21,214,164,0.5);outline-offset:2px;border-radius:8px;position:relative;';
-    item.innerHTML=`<img src="${logo.url}" alt="${logo.name||''}">
-      ${logo.exclusive?'<div style="position:absolute;top:2px;left:2px;font-size:0.5rem;background:rgba(21,214,164,0.92);color:#000;font-weight:800;border-radius:3px;padding:1px 4px;pointer-events:none;line-height:1.4;">TÚ</div>':''}
+    item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
       ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
-    item.draggable = true;
-    item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name));
+    item.draggable=true;
+    item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
     item.addEventListener('dragstart',(ev)=>{
       try{
         ev.dataTransfer.effectAllowed='copy';
-        ev.dataTransfer.setData('application/x-logo-src', logo.url);
-        ev.dataTransfer.setData('text/plain', logo.url);
-        ev.dataTransfer.setData('text/uri-list', logo.url);
+        ev.dataTransfer.setData('application/x-logo-src',logo.url);
+        ev.dataTransfer.setData('text/plain',logo.url);
+        ev.dataTransfer.setData('text/uri-list',logo.url);
+      }catch(_){}
+    });
+    item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
+    item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
+    grid.appendChild(item);
+  });
+  // Mostrar botón subir solo a admin
+  const uploadBtn=document.getElementById('logo-upload-btn');
+  if(uploadBtn){
+    const isAdminUser=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+    uploadBtn.style.display=isAdminUser?'flex':'none';
+  }
+}
+
+// ── Cargar logos propios (PC) ──
+async function loadOwnLogosPC(){
+  const grid=document.getElementById('own-logo-grid-pc');
+  const emptyEl=document.getElementById('own-logos-empty-pc');
+  const uid=fbAuth?.currentUser?.uid;
+  if(!fbDb||!uid) return;
+  try{
+    const snap=await fbDb.collection('user_logos').where('uid','==',uid).orderBy('createdAt','desc').get();
+    ownLogoCache=[];
+    snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
+    renderOwnLogosPC();
+  }catch(e){ console.warn('Own logos error:',e); }
+}
+
+function renderOwnLogosPC(){
+  const grid=document.getElementById('own-logo-grid-pc');
+  const emptyEl=document.getElementById('own-logos-empty-pc');
+  const countEl=document.getElementById('own-logo-count-pc');
+  const warn=document.getElementById('own-limit-warn-pc');
+  const uploadBtn=document.getElementById('own-upload-btn-pc');
+  const count=ownLogoCache.length;
+  if(countEl) countEl.textContent=count+'/'+MAX_OWN_LOGOS;
+  const atLimit=count>=MAX_OWN_LOGOS;
+  if(warn) warn.style.display=atLimit?'block':'none';
+  if(uploadBtn) uploadBtn.style.display=atLimit?'none':'flex';
+  if(!grid) return;
+  grid.innerHTML='';
+  if(count===0){
+    if(emptyEl) emptyEl.style.display='block';
+    return;
+  }
+  if(emptyEl) emptyEl.style.display='none';
+  ownLogoCache.forEach(logo=>{
+    const item=document.createElement('div');
+    item.className='logo-lib-item';
+    item.style.cssText='border:1px solid rgba(100,160,255,0.35);';
+    item.title='Clic para agregar al canvas';
+    item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
+      <button class="logo-del" onclick="deleteOwnLogoPC('${logo.id}',event)" title="Eliminar" style="display:none;">✕</button>`;
+    item.draggable=true;
+    item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
+    item.addEventListener('dragstart',(ev)=>{
+      try{
+        ev.dataTransfer.effectAllowed='copy';
+        ev.dataTransfer.setData('application/x-logo-src',logo.url);
+        ev.dataTransfer.setData('text/plain',logo.url);
       }catch(_){}
     });
     item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
@@ -2834,6 +2916,44 @@ function renderLogoLibrary(){
   });
 }
 
+// ── Subir logos propios (PC) ──
+async function uploadOwnLogos(ev){
+  const files=Array.from(ev.target.files); ev.target.value='';
+  if(!files.length) return;
+  const uid=fbAuth?.currentUser?.uid;
+  if(!uid){ showToast('Inicia sesión primero'); return; }
+  const remaining=MAX_OWN_LOGOS-ownLogoCache.length;
+  if(remaining<=0){ showToast('Límite de 5 logos alcanzado'); return; }
+  const toUpload=files.slice(0,remaining);
+  showToast('Subiendo logos...');
+  let ok=0;
+  for(const file of toUpload){
+    try{
+      const reader=new FileReader();
+      const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
+      const compressed=await compressImage(dataUrl,400);
+      const url=await uploadToStorage(compressed,`user_logos/${uid}/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
+      await fbDb.collection('user_logos').add({uid,url,name:file.name.replace(/\.[^.]+$/,''),createdAt:Date.now()});
+      ok++;
+    }catch(e){ console.warn('Own logo upload error:',e); }
+  }
+  if(ok>0){ showToast('✓ '+(ok===1?'Logo subido':'Logos subidos')); loadOwnLogosPC(); }
+  else showToast('Error al subir');
+}
+
+// ── Eliminar logo propio (PC) ──
+async function deleteOwnLogoPC(id,ev){
+  ev.stopPropagation();
+  if(!confirm('¿Eliminar este logo propio?')) return;
+  try{
+    await fbDb.collection('user_logos').doc(id).delete();
+    ownLogoCache=ownLogoCache.filter(l=>l.id!==id);
+    renderOwnLogosPC();
+    showToast('Logo eliminado');
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+// ── Subir logo de plataforma (solo admin) ──
 async function uploadLibraryLogos(ev){
   const files=Array.from(ev.target.files); ev.target.value='';
   if(!files.length) return;
@@ -2867,10 +2987,10 @@ function addLogoToCanvas(src, name){
   img.onload=()=>{
     const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
     let w=img.width, h=img.height;
-    const maxW=Math.min(300, cw*0.4);
+    const maxW=Math.min(300,cw*0.4);
     if(w>maxW){ const s=maxW/w; w=Math.round(w*s); h=Math.round(h*s); }
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
-      x:Math.round((cw-w)/2), y:Math.round((ch-h)/2), w, h,
+      x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height};
     layers.push(l); mkEl(l); renderList(); sel(l.id);
     snapshotState();
