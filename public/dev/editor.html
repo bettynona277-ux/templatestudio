@@ -1647,8 +1647,14 @@ function selMulti(ids){
   } else {
     cvs.classList.remove('multi-active');
   }
-  // Limpiar SIEMPRE los estilos inline de display en .rh para que el CSS tome control
+  // Limpiar estilos inline de .rh para que CSS tome control
   document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+  // Re-ocultar handles de borde para imágenes (se pierden con removeProperty)
+  layers.forEach(l=>{
+    if(l.type==='img' && !l.isShape && l.el){
+      l.el.querySelectorAll('.rh.tm,.rh.bm,.rh.ml,.rh.mr').forEach(rh=>rh.style.display='none');
+    }
+  });
   if(ids.length===1){
     const l=layers.find(x=>x.id===ids[0]);
     updatePropertyPanelState(l);
@@ -3656,10 +3662,17 @@ function mkEl(l){
   // Size hint display none via CSS
   const sh=document.createElement('div');sh.className='sz-hint';sh.id='sh-'+l.id;sh.textContent=`${l.w}×${l.h}`;el.appendChild(sh);
   
-  // 8 handles: 4 corners (scale font for text) + 4 edges (box only)
-  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(c=>{
-    const rh=document.createElement('div');rh.className='rh '+c;
-    rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,c);};
+  // 8 handles: 4 corners + 4 edges
+  // Para imágenes normales los bordes también escalan proporcional (ya manejado en startRes)
+  const isImgLayer = l.type==='img' && !l.isShape;
+  ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(corner=>{
+    const rh=document.createElement('div');
+    rh.className='rh '+corner;
+    // Ocultar handles de borde para imágenes (evita confusión — escalan igual que esquinas)
+    if(isImgLayer && ['tm','bm','ml','mr'].includes(corner)){
+      rh.style.display='none';
+    }
+    rh.onmousedown=ev=>{ev.stopPropagation();startRes(ev,l.id,corner);};
     el.appendChild(rh);
   });
   const rotLine=document.createElement('div');
@@ -3812,7 +3825,21 @@ function startRes(ev,id,c){
   if(ll?.locked){ev.preventDefault();return;}
   isRes=true;const l=layers.find(x=>x.id===id);
   const origFs=l.tp?l.tp.fontSize:0;
-  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:l.w/(l.h||1),origFs,origW:l.w};
+  // Para imágenes: ratio real desde origW/origH o desde el elemento img del DOM
+  let trueRatio = l.w / (l.h || 1);
+  if(l.type==='img' && !l.isShape){
+    if(l.origW && l.origH){
+      trueRatio = l.origW / l.origH;
+    } else if(l.el){
+      const domImg = l.el.querySelector('img');
+      if(domImg && domImg.naturalWidth && domImg.naturalHeight){
+        l.origW = domImg.naturalWidth;
+        l.origH = domImg.naturalHeight;
+        trueRatio = l.origW / l.origH;
+      }
+    }
+  }
+  rSt={id,c,mx:ev.clientX,my:ev.clientY,x:l.x,y:l.y,w:l.w,h:l.h,ratio:trueRatio,origFs,origW:l.w};
   ev.preventDefault();
 }
 
@@ -3992,18 +4019,29 @@ document.addEventListener('mousemove',ev=>{
     let{x:ox,y:oy,w:ow,h:oh,ratio,c,origFs,origW}=rSt;
     let nx=ox,ny=oy,nw=ow,nh=oh;
     const isCorner=['tl','tr','bl','br'].includes(c);
-    // Para textos: esquinas siempre proporcionales (no deformar)
-    const forceProportional = isCorner && l.type==='text';
+    // Imágenes normales (no shapes, no frames): SIEMPRE proporcionales en todos los handles
+    const isImg = l.type==='img' && !l.isShape;
+    // Textos: esquinas siempre proporcionales
+    const forceProportional = (isCorner && l.type==='text') || isImg;
     const propLock = lock || forceProportional;
-    if(c==='br'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
-    else if(c==='tr'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
-    else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
-    if(propLock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
-    else if(c==='mr'){nw=Math.max(10,ow+dx);}
-    else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
-    else if(c==='bm'){nh=Math.max(10,oh+dy);}
-    else if(c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;}
+
+    if(isImg && !isCorner){
+      // Handles de borde en imágenes: escalar proporcionalmente desde el borde arrastrado
+      if(c==='mr'){nw=Math.max(10,ow+dx);nh=Math.round(nw/ratio);}
+      else if(c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=Math.round(nw/ratio);ny=oy+(oh-nh)/2;}
+      else if(c==='bm'){nh=Math.max(10,oh+dy);nw=Math.round(nh*ratio);nx=ox+(ow-nw)/2;}
+      else if(c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;nw=Math.round(nh*ratio);nx=ox+(ow-nw)/2;}
+    } else {
+      if(c==='br'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+      else if(c==='bl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh+dy);}
+      else if(c==='tr'){nw=Math.max(10,ow+dx);nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+      else if(c==='tl'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;nh=propLock?Math.round(nw/ratio):Math.max(10,oh-dy);if(!propLock)ny=oy+oh-nh;}
+      if(propLock&&(c==='tr'||c==='tl'))ny=oy+oh-nh;
+      else if(!isImg&&c==='mr'){nw=Math.max(10,ow+dx);}
+      else if(!isImg&&c==='ml'){nw=Math.max(10,ow-dx);nx=ox+ow-nw;}
+      else if(!isImg&&c==='bm'){nh=Math.max(10,oh+dy);}
+      else if(!isImg&&c==='tm'){nh=Math.max(10,oh-dy);ny=oy+oh-nh;}
+    }
 
     // Alt + Shift: escalar desde el centro manteniendo proporción
     if(centerMode){
@@ -4335,6 +4373,12 @@ function desel(){
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
   cvs.classList.remove('multi-active');
   document.querySelectorAll('.cel .rh').forEach(rh=>rh.style.removeProperty('display'));
+  // Re-ocultar handles de borde para imágenes
+  layers.forEach(l=>{
+    if(l.type==='img' && !l.isShape && l.el){
+      l.el.querySelectorAll('.rh.tm,.rh.bm,.rh.ml,.rh.mr').forEach(rh=>rh.style.display='none');
+    }
+  });
   selId=null; selIds=[];
   hideRotationTooltip();
   updatePropertyPanelState(null);
@@ -5522,7 +5566,20 @@ async function renderDesignToCanvas(scale=2){
           roundedRectPath(ctx, -l.w/2, -l.h/2, l.w, l.h, radius);
           ctx.clip();
         }
-        ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        // object-fit: contain — respetar proporciones de la imagen (NO estirar)
+        if(!l.isShape){
+          const nw = img.naturalWidth  || img.width  || l.w;
+          const nh = img.naturalHeight || img.height || l.h;
+          const scale = Math.min(l.w / nw, l.h / nh);
+          const dw = Math.round(nw * scale);
+          const dh = Math.round(nh * scale);
+          const dx = Math.round(-dw / 2);
+          const dy = Math.round(-dh / 2);
+          ctx.drawImage(img, dx, dy, dw, dh);
+        } else {
+          // Shapes sí se estiran (SVG diseñado para eso)
+          ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+        }
       }
       ctx.restore();
       continue;
@@ -6273,6 +6330,17 @@ function loadData(tpl){
     if(typeof l.frameImage === 'string' && l.frameImage.startsWith('blob:')) l.frameImage = '';
     layers.push(l);
     mkEl(l);
+    // Si es imagen sin origW/origH, cargarla para obtener proporciones reales
+    if(l.type==='img' && !l.isShape && l.src && (!l.origW || !l.origH)){
+      (src=>{
+        const probe = new Image();
+        probe.onload = () => {
+          if(!l.origW) l.origW = probe.naturalWidth;
+          if(!l.origH) l.origH = probe.naturalHeight;
+        };
+        probe.src = src;
+      })(l.src);
+    }
   });
 
   // Auto zoom to fit
