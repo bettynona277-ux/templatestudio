@@ -2869,11 +2869,14 @@ async function loadOwnLogosPC(){
   const uid=fbAuth?.currentUser?.uid;
   if(!fbDb||!uid) return;
   try{
-    const snap=await fbDb.collection('user_logos').where('uid','==',uid).orderBy('createdAt','desc').get();
+    // Sin orderBy para evitar requerir índice compuesto en Firestore
+    const snap=await fbDb.collection('user_logos').where('uid','==',uid).get();
     ownLogoCache=[];
     snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
+    // Ordenar localmente por createdAt desc
+    ownLogoCache.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     renderOwnLogosPC();
-  }catch(e){ console.warn('Own logos error:',e); }
+  }catch(e){ console.error('Own logos error:',e.code,e.message); }
 }
 
 function renderOwnLogosPC(){
@@ -2933,12 +2936,15 @@ async function uploadOwnLogos(ev){
       const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
       const compressed=await compressImage(dataUrl,400);
       const url=await uploadToStorage(compressed,`user_logos/${uid}/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
-      await fbDb.collection('user_logos').add({uid,url,name:file.name.replace(/\.[^.]+$/,''),createdAt:Date.now()});
+      const logoData={uid,url,name:file.name.replace(/\.[^.]+$/,''),createdAt:Date.now()};
+      const docRef=await fbDb.collection('user_logos').add(logoData);
+      // Agregar al cache local directamente (sin re-query)
+      ownLogoCache.unshift({id:docRef.id,...logoData});
       ok++;
-    }catch(e){ console.warn('Own logo upload error:',e); }
+    }catch(e){ console.error('Own logo upload error:',e.code,e.message); }
   }
-  if(ok>0){ showToast('✓ '+(ok===1?'Logo subido':'Logos subidos')); loadOwnLogosPC(); }
-  else showToast('Error al subir');
+  if(ok>0){ showToast('✓ '+(ok===1?'Logo subido':'Logos subidos')); renderOwnLogosPC(); }
+  else showToast('Error al subir. Revisa la consola.');
 }
 
 // ── Eliminar logo propio (PC) ──
