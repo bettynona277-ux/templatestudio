@@ -186,6 +186,36 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   padding:6px;background:rgba(255,140,66,0.1);border-radius:8px;
   margin-bottom:8px;display:none;
 }
+/* ── Acordeón de logos de plataformas ── */
+.logo-accordion{margin-bottom:8px;border-radius:12px;overflow:hidden;border:1px solid var(--border);}
+.logo-accordion-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;
+  background:rgba(255,255,255,0.04);
+  cursor:pointer;
+  user-select:none;
+  transition:background 0.15s;
+  gap:8px;
+}
+.logo-accordion-header:active{background:rgba(255,255,255,0.1);}
+.logo-accordion.open .logo-accordion-header{background:rgba(21,214,164,0.07);border-bottom:1px solid var(--border);}
+.logo-accordion-title{font-size:0.78rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;flex:1;}
+.logo-accordion-arrow{
+  font-size:0.65rem;color:var(--muted);
+  transition:transform 0.25s;
+  flex-shrink:0;
+}
+.logo-accordion.open .logo-accordion-arrow{transform:rotate(180deg);color:var(--accent);}
+.logo-accordion-body{
+  display:none;padding:10px 6px 6px;
+  background:rgba(0,0,0,0.1);
+}
+.logo-accordion.open .logo-accordion-body{display:block;}
+.logo-acc-count{
+  font-size:0.62rem;font-weight:700;
+  background:rgba(21,214,164,0.15);color:var(--accent);
+  border-radius:8px;padding:1px 7px;
+}
 
 /* ── LOADING ── */
 .loading{position:fixed;inset:0;background:rgba(245,245,247,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;opacity:0;pointer-events:none;transition:opacity 0.25s;}
@@ -359,9 +389,12 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
         <input type="file" id="own-logo-input" accept="image/png,image/svg+xml,image/webp,image/jpeg" multiple style="display:none" onchange="uploadOwnLogos(event)">
         <div class="logos-empty" id="own-logos-empty">Aún no tienes logos propios.</div>
         <div class="logos-grid" id="own-logos-grid"></div>
+        <!-- LOGOS DE PLATAFORMAS (acordeones colapsables) -->
         <div class="logos-section-title" style="margin-top:18px;">🎬 Logos de plataformas</div>
-        <div class="logos-empty" id="logos-empty">Cargando...</div>
-        <div class="logos-grid" id="logos-grid"></div>
+        <div id="logos-accordions">
+          <!-- Se genera dinámicamente por JS -->
+          <div class="logos-empty" id="logos-empty">Cargando...</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1305,45 +1338,96 @@ async function uploadToCloudinary(dataUrl, publicId){
   return data.secure_url;
 }
 
-// ── Cargar logos de plataformas (colección global) ──
+// ── Cargar logos de plataformas (colección global, con categorías) ──
 async function loadLogos(){
-  const grid = document.getElementById('logos-grid');
   const empty = document.getElementById('logos-empty');
-  if(!fbDb){ empty.textContent='Firebase no conectado.'; return; }
-  if(!fbAuth?.currentUser){ empty.textContent='Inicia sesión para ver logos.'; return; }
-  empty.textContent='Cargando...';
+  if(!fbDb){ if(empty) empty.textContent='Firebase no conectado.'; return; }
+  if(!fbAuth?.currentUser){ if(empty) empty.textContent='Inicia sesión para ver logos.'; return; }
+  if(empty){ empty.textContent='Cargando...'; empty.style.display='block'; }
   try{
     const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoCache = [];
     snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
     renderLogos();
   }catch(e){
-    empty.textContent='Error al cargar logos.';
+    if(empty){ empty.textContent='Error al cargar logos.'; empty.style.display='block'; }
     console.warn(e);
   }
 }
 
 function renderLogos(){
-  const grid = document.getElementById('logos-grid');
+  const container = document.getElementById('logos-accordions');
   const empty = document.getElementById('logos-empty');
+  if(!container) return;
+
   if(logoCache.length===0){
-    empty.textContent='No hay logos de plataformas aún.';
-    empty.style.display='block';
-    grid.innerHTML=''; return;
+    if(empty){ empty.textContent='No hay logos de plataformas aún.'; empty.style.display='block'; }
+    return;
   }
-  empty.style.display='none';
-  grid.innerHTML='';
+  if(empty) empty.style.display='none';
+
+  // Agrupar por campo 'categoria' (default: 'Logos oficiales')
+  const groups = {};
   logoCache.forEach(logo=>{
-    const src = (logo.url||logo.src||'').replace(/'/g,"%27");
-    const name = (logo.name||'Logo').replace(/'/g,"%27");
-    const card = document.createElement('div');
-    card.className='logo-card';
-    card.innerHTML=`
-      <img src="${logo.url||logo.src||''}" alt="${logo.name||'Logo'}">
-      <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
-    `;
-    grid.appendChild(card);
+    const cat = logo.categoria || 'Logos oficiales';
+    if(!groups[cat]) groups[cat] = [];
+    groups[cat].push(logo);
   });
+
+  // Orden preferido: Logos oficiales primero, luego el resto alfabético
+  const orderedCats = Object.keys(groups).sort((a,b)=>{
+    if(a==='Logos oficiales') return -1;
+    if(b==='Logos oficiales') return 1;
+    return a.localeCompare(b);
+  });
+
+  // Limpiar acordeones previos (dejar solo el empty)
+  Array.from(container.children).forEach(ch=>{
+    if(ch.id !== 'logos-empty') ch.remove();
+  });
+
+  // Íconos por nombre de categoría
+  const catIcon = name => {
+    const n = name.toLowerCase();
+    if(n.includes('oficial')) return '🏆';
+    if(n.includes('distorsion') || n.includes('distort')) return '🎨';
+    if(n.includes('streaming') || n.includes('plataforma')) return '📺';
+    if(n.includes('musica') || n.includes('música')) return '🎵';
+    if(n.includes('deporte') || n.includes('sport')) return '⚽';
+    return '📁';
+  };
+
+  orderedCats.forEach((cat, idx)=>{
+    const logos = groups[cat];
+    const acc = document.createElement('div');
+    acc.className = 'logo-accordion'; // Todos cerrados — usuario elige cuál abrir
+    acc.innerHTML = `
+      <div class="logo-accordion-header" onclick="toggleAccordion(this.parentElement)">
+        <span class="logo-accordion-title">${catIcon(cat)} ${cat} <span class="logo-acc-count">${logos.length}</span></span>
+        <span class="logo-accordion-arrow">▼</span>
+      </div>
+      <div class="logo-accordion-body">
+        <div class="logos-grid acc-grid-${cat.replace(/\s+/g,'_')}"></div>
+      </div>
+    `;
+    const grid = acc.querySelector('.logos-grid');
+    logos.forEach(logo=>{
+      const src = (logo.url||logo.src||'').replace(/'/g,"%27");
+      const name = (logo.name||'Logo').replace(/'/g,"%27");
+      const card = document.createElement('div');
+      card.className='logo-card';
+      card.innerHTML=`
+        <img src="${logo.url||logo.src||''}" alt="${logo.name||'Logo'}">
+        <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
+      `;
+      grid.appendChild(card);
+    });
+    container.appendChild(acc);
+  });
+}
+
+function toggleAccordion(accEl){
+  accEl.classList.toggle('open');
 }
 
 // ── Cargar logos propios del cliente ──
