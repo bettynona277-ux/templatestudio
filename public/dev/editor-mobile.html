@@ -1467,23 +1467,44 @@ function handleLogoTap(src, name){
 function addLogoToCanvas(src, name){
   const cw = parseInt(cvs.style.width)||800;
   const ch = parseInt(cvs.style.height)||800;
-  const size = Math.round(Math.min(cw,ch)*0.25);
-  const l = {
-    id: Date.now(),
-    type:'img',
-    name: name||'Logo',
-    src,
-    x: Math.round((cw-size)/2),
-    y: Math.round((ch-size)/2),
-    w: size, h: size,
-    zIndex: layers.length,
-    opacity: 1,
-    visible: true
+  // Cargar imagen primero para respetar proporciones reales
+  const probe = new Image();
+  probe.onload = () => {
+    const maxSize = Math.round(Math.min(cw, ch) * 0.30);
+    let w = probe.width || maxSize;
+    let h = probe.height || maxSize;
+    // Ajustar para que quepa sin exceder maxSize
+    if(w > h){
+      if(w > maxSize){ h = Math.round(h * maxSize / w); w = maxSize; }
+    } else {
+      if(h > maxSize){ w = Math.round(w * maxSize / h); h = maxSize; }
+    }
+    const l = {
+      id: Date.now(),
+      type:'img',
+      name: name||'Logo',
+      src,
+      x: Math.round((cw - w) / 2),
+      y: Math.round((ch - h) / 2),
+      w, h,
+      zIndex: layers.length,
+      opacity: 1,
+      visible: true
+    };
+    layers.push(l);
+    buildEl(l);
+    snapshot();
+    toast('✓ Logo añadido');
   };
-  layers.push(l);
-  buildEl(l);
-  snapshot();
-  toast('✓ Logo añadido');
+  probe.onerror = () => {
+    // Fallback cuadrado si no carga
+    const size = Math.round(Math.min(cw,ch)*0.25);
+    const l = {id:Date.now(),type:'img',name:name||'Logo',src,
+      x:Math.round((cw-size)/2),y:Math.round((ch-size)/2),w:size,h:size,
+      zIndex:layers.length,opacity:1,visible:true};
+    layers.push(l); buildEl(l); snapshot(); toast('✓ Logo añadido');
+  };
+  probe.src = src;
 }
 
 // ══════════════════════════════════════════
