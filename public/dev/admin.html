@@ -176,11 +176,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="nav-item" onclick="showSection('users',this)">
         <span>👥</span> Gestión Clientes
       </div>
+      <div class="nav-item" onclick="showSection('logos',this)">
+        <span>🎬</span> Biblioteca de Logos
+      </div>
       <div class="nav-item" onclick="showSection('config',this)">
         <span>⚙️</span> Configuración
-      </div>
-      <div class="nav-item" onclick="showSection('userlogos',this)">
-        <span>🏷️</span> Logos por usuario
       </div>
       <div class="sidebar-footer">
         <div style="font-size:0.68rem;color:var(--muted);">Firebase</div>
@@ -243,6 +243,45 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <div id="users-table-wrap">
             <p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando clientes...</p>
           </div>
+        </div>
+      </div>
+
+      <!-- LOGOS -->
+      <div class="section" id="section-logos">
+        <div class="page-title">Biblioteca de Logos</div>
+        <div class="page-sub">Gestiona los logos de plataformas que ven todos los clientes. Puedes crear categorías personalizadas.</div>
+
+        <div class="cards-grid" style="margin-bottom:20px;">
+          <div class="card">
+            <div class="card-title">➕ Subir logos de plataforma</div>
+            <div class="f-row">
+              <label class="f-label">Categoría</label>
+              <select id="logo-cat-select" class="f-input" style="background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+                <option value="Logos oficiales">Logos oficiales</option>
+                <option value="Logos distorsionados">Logos distorsionados</option>
+                <option value="custom">➕ Nueva categoría...</option>
+              </select>
+            </div>
+            <div class="f-row" id="custom-cat-row" style="display:none;">
+              <label class="f-label">Nombre de categoría</label>
+              <input id="logo-cat-custom" class="f-input" type="text" placeholder="Ej: Logos animados">
+            </div>
+            <div class="f-row">
+              <label class="f-label">Logos (PNG, SVG, JPG)</label>
+              <label style="display:flex;align-items:center;gap:8px;background:rgba(21,214,164,0.08);border:1px dashed rgba(21,214,164,0.4);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:0.8rem;color:var(--accent);font-weight:600;">
+                📁 Seleccionar archivos
+                <input type="file" id="admin-logo-files" accept="image/*" multiple style="display:none" onchange="previewAdminLogos(event)">
+              </label>
+            </div>
+            <div id="admin-logo-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;"></div>
+            <button class="btn btn-green" onclick="uploadAdminLogos()" id="btn-upload-logos" style="margin-top:4px;" disabled>Subir logos</button>
+            <div id="upload-logos-status" style="font-size:0.75rem;color:var(--muted);margin-top:6px;"></div>
+          </div>
+        </div>
+
+        <div class="page-sub" style="margin-bottom:12px;font-weight:600;">Logos actuales por categoría</div>
+        <div id="admin-logos-list">
+          <div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>
         </div>
       </div>
 
@@ -612,6 +651,143 @@ function showSection(id, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('section-' + id).classList.add('active');
   if(el) el.classList.add('active');
+  if(id === 'logos') loadAdminLogos();
+}
+
+// ══════════════════════════════════════════
+// GESTIÓN DE LOGOS (admin)
+// ══════════════════════════════════════════
+let adminLogoFiles = [];
+
+// Selector de categoría — mostrar input custom si elige "Nueva..."
+document.addEventListener('DOMContentLoaded', ()=>{
+  const sel = document.getElementById('logo-cat-select');
+  if(sel) sel.addEventListener('change', ()=>{
+    const row = document.getElementById('custom-cat-row');
+    if(row) row.style.display = sel.value==='custom' ? 'flex' : 'none';
+  });
+});
+
+function getSelectedCategory(){
+  const sel = document.getElementById('logo-cat-select');
+  if(!sel) return 'Logos oficiales';
+  if(sel.value === 'custom'){
+    const inp = document.getElementById('logo-cat-custom');
+    return (inp?.value||'').trim() || 'Logos oficiales';
+  }
+  return sel.value;
+}
+
+function previewAdminLogos(ev){
+  adminLogoFiles = Array.from(ev.target.files);
+  const preview = document.getElementById('admin-logo-preview');
+  const btn = document.getElementById('btn-upload-logos');
+  if(!preview) return;
+  preview.innerHTML = '';
+  adminLogoFiles.forEach(f=>{
+    const url = URL.createObjectURL(f);
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'width:52px;height:52px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:4px;';
+    preview.appendChild(img);
+  });
+  if(btn) btn.disabled = adminLogoFiles.length === 0;
+}
+
+async function uploadAdminLogos(){
+  if(!adminLogoFiles.length) return;
+  if(!fbDb){ alert('Firebase no conectado'); return; }
+  const categoria = getSelectedCategory();
+  const status = document.getElementById('upload-logos-status');
+  const btn = document.getElementById('btn-upload-logos');
+  if(btn) btn.disabled = true;
+  if(status) status.textContent = 'Subiendo...';
+
+  const CLOUD = 'dwqtksxrp';
+  const PRESET = 'templatestudio';
+  let ok = 0;
+
+  for(const file of adminLogoFiles){
+    try{
+      // Subir a Cloudinary
+      const fd = new FormData();
+      const reader = new FileReader();
+      const dataUrl = await new Promise(r=>{ reader.onload=e=>r(e.target.result); reader.readAsDataURL(file); });
+      fd.append('file', dataUrl);
+      fd.append('upload_preset', PRESET);
+      fd.append('folder', 'templatestudio/logos');
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`,{method:'POST',body:fd});
+      const data = await res.json();
+      if(!data.secure_url) throw new Error(data.error?.message||'Error Cloudinary');
+
+      // Guardar en Firestore con campo categoria
+      await fbDb.collection('logos').add({
+        url: data.secure_url,
+        name: file.name.replace(/\.[^.]+$/, ''),
+        categoria,
+        createdAt: Date.now()
+      });
+      ok++;
+    }catch(e){ console.error('Logo upload error:', e); }
+  }
+
+  if(status) status.textContent = ok > 0 ? `✓ ${ok} logo(s) subido(s) en "${categoria}"` : '✗ Error al subir';
+  if(btn) btn.disabled = false;
+  adminLogoFiles = [];
+  document.getElementById('admin-logo-preview').innerHTML = '';
+  document.getElementById('admin-logo-files').value = '';
+  if(ok > 0) loadAdminLogos();
+}
+
+async function loadAdminLogos(){
+  const container = document.getElementById('admin-logos-list');
+  if(!container || !fbDb) return;
+  container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
+  try{
+    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    const all = [];
+    snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+
+    if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
+
+    // Agrupar por categoría
+    const groups = {};
+    all.forEach(l=>{ const k=l.categoria||'Logos oficiales'; if(!groups[k])groups[k]=[]; groups[k].push(l); });
+
+    container.innerHTML = '';
+    Object.entries(groups).sort(([a],[b])=>{ if(a==='Logos oficiales')return -1; if(b==='Logos oficiales')return 1; return a.localeCompare(b); })
+    .forEach(([cat, logos])=>{
+      const section = document.createElement('div');
+      section.style.cssText = 'margin-bottom:20px;';
+      section.innerHTML = `<div style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px;">${cat} <span style="font-size:0.65rem;background:rgba(21,214,164,0.12);border-radius:8px;padding:1px 8px;">${logos.length}</span></div>`;
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;';
+      logos.forEach(logo=>{
+        const card = document.createElement('div');
+        card.style.cssText = 'position:relative;background:var(--panel2);border:1px solid var(--border);border-radius:10px;aspect-ratio:1;overflow:hidden;';
+        card.innerHTML = `
+          <img src="${logo.url}" style="width:100%;height:100%;object-fit:contain;padding:6px;">
+          <button onclick="deleteAdminLogo('${logo.id}',this)" style="position:absolute;top:3px;right:3px;background:rgba(255,80,80,0.9);color:#fff;border:none;border-radius:4px;width:18px;height:18px;font-size:0.6rem;cursor:pointer;display:none;align-items:center;justify-content:center;font-weight:900;">✕</button>
+        `;
+        card.addEventListener('mouseover',()=>card.querySelector('button').style.display='flex');
+        card.addEventListener('mouseout',()=>card.querySelector('button').style.display='none');
+        grid.appendChild(card);
+      });
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
+  }catch(e){
+    container.innerHTML = '<div style="color:#f66;font-size:0.8rem;">Error: '+e.message+'</div>';
+  }
+}
+
+async function deleteAdminLogo(id, btn){
+  if(!confirm('¿Eliminar este logo?')) return;
+  try{
+    await fbDb.collection('logos').doc(id).delete();
+    btn.closest('div[style*="aspect-ratio"]').remove();
+    showStatus && showStatus('','','');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 function showStatus(id, msg, type) {
@@ -691,112 +867,5 @@ function closeDevicesModal() {
     <button class="btn" style="width:100%;margin-top:16px;" onclick="closeDevicesModal()">Cerrar</button>
   </div>
 </div>
-
-      <!-- USER LOGOS SECTION -->
-      <div class="section" id="section-userlogos">
-        <div class="page-title">🏷️ Logos exclusivos por usuario</div>
-        <div class="page-sub">Sube logos personalizados que solo verá un cliente específico en su editor.</div>
-
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 16px;">
-          <input type="text" id="ul-uid" placeholder="UID del usuario (Firebase Auth)"
-                 style="flex:1;min-width:240px;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-family:inherit;font-size:0.83rem;">
-          <button class="btn btn-blue" onclick="ulLoad()">Cargar logos</button>
-        </div>
-
-        <div id="ul-list" style="display:flex;flex-wrap:wrap;gap:12px;min-height:48px;margin-bottom:20px;">
-          <span style="color:var(--muted);font-size:0.8rem;">Ingresa el UID y toca "Cargar logos".</span>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <input type="file" id="ul-file" accept="image/*" multiple style="display:none" onchange="ulUpload(this)">
-          <button class="btn btn-green" onclick="document.getElementById('ul-file').click()">＋ Subir logo para este usuario</button>
-          <span id="ul-status" style="font-size:0.8rem;color:var(--muted);"></span>
-        </div>
-      </div>
-
-<script>
-// ── LOGOS EXCLUSIVOS POR USUARIO ──────────────────────
-const UL_CLOUD = 'dwqtksxrp';
-const UL_PRESET = 'templatestudio';
-let ulUid = null;
-let ulItems = [];
-
-async function ulLoad(){
-  const uid = document.getElementById('ul-uid').value.trim();
-  if(!uid){ alert('Ingresa el UID del usuario'); return; }
-  ulUid = uid;
-  const list = document.getElementById('ul-list');
-  list.innerHTML = '<span style="color:var(--muted);font-size:0.8rem;">Cargando...</span>';
-  try{
-    const snap = await fbDb.collection('user_logos').doc(uid).collection('items')
-                           .orderBy('createdAt','desc').get();
-    ulItems = [];
-    snap.forEach(doc=>ulItems.push({id:doc.id,...doc.data()}));
-    ulRender();
-  }catch(e){
-    list.innerHTML = '<span style="color:#f55;font-size:0.8rem;">Error: '+e.message+'</span>';
-  }
-}
-
-function ulRender(){
-  const list = document.getElementById('ul-list');
-  if(!ulItems.length){
-    list.innerHTML='<span style="color:var(--muted);font-size:0.8rem;">Sin logos exclusivos aún para este usuario.</span>';
-    return;
-  }
-  list.innerHTML='';
-  ulItems.forEach(logo=>{
-    const wrap=document.createElement('div');
-    wrap.style.cssText='position:relative;width:80px;height:80px;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--panel2);flex-shrink:0;';
-    wrap.innerHTML=`
-      <img src="${logo.url}" alt="${logo.name||''}" style="width:100%;height:100%;object-fit:contain;padding:6px;">
-      <button onclick="ulDelete('${logo.id}')"
-              style="position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:rgba(255,60,60,0.85);color:#fff;border:none;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0;font-weight:700;">✕</button>
-    `;
-    list.appendChild(wrap);
-  });
-}
-
-async function ulUpload(input){
-  if(!ulUid){ alert('Primero ingresa el UID y carga los logos del usuario'); input.value=''; return; }
-  const files=Array.from(input.files); input.value='';
-  if(!files.length) return;
-  const status=document.getElementById('ul-status');
-  status.textContent='Subiendo...';
-  for(const file of files){
-    try{
-      const reader=new FileReader();
-      const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
-      // Upload to Cloudinary
-      const byteStr=atob(dataUrl.split(',')[1]);
-      const arr=new Uint8Array(byteStr.length);
-      for(let i=0;i<byteStr.length;i++) arr[i]=byteStr.charCodeAt(i);
-      const blob=new Blob([arr],{type:file.type||'image/png'});
-      const fd=new FormData();
-      fd.append('file',blob,file.name);
-      fd.append('upload_preset',UL_PRESET);
-      fd.append('folder','user_logos/'+ulUid);
-      const res=await fetch(`https://api.cloudinary.com/v1_1/${UL_CLOUD}/image/upload`,{method:'POST',body:fd});
-      const data=await res.json();
-      const url=data.secure_url;
-      await fbDb.collection('user_logos').doc(ulUid).collection('items').add({
-        url, name:file.name, createdAt:Date.now()
-      });
-    }catch(e){ console.warn('ulUpload error:',e); }
-  }
-  status.textContent='✓ Subido';
-  setTimeout(()=>status.textContent='',3000);
-  ulLoad();
-}
-
-async function ulDelete(logoId){
-  if(!ulUid||!confirm('¿Eliminar este logo del usuario?')) return;
-  try{
-    await fbDb.collection('user_logos').doc(ulUid).collection('items').doc(logoId).delete();
-    ulItems=ulItems.filter(l=>l.id!==logoId);
-    ulRender();
-  }catch(e){ alert('Error: '+e.message); }
-}
-</script>
 </body>
 </html>
