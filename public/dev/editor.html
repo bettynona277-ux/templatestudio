@@ -313,6 +313,21 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .logo-lib-item:hover{border-color:var(--accent);transform:scale(1.05);}
 .logo-lib-item img{width:100%;height:100%;object-fit:contain;padding:6px;pointer-events:none;}
 .logo-lib-item .logo-del{position:absolute;top:4px;right:4px;background:rgba(255,107,107,0.9);color:#fff;border:none;border-radius:4px;width:20px;height:20px;font-size:0.7rem;cursor:pointer;display:none;align-items:center;justify-content:center;}
+/* ── Acordeón logos PC ── */
+.logo-acc-wrap{margin:0 12px 6px;}
+.logo-acc-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 10px;background:var(--panel2);
+  border:1px solid var(--border);border-radius:8px;
+  cursor:pointer;user-select:none;transition:background 0.15s;
+}
+.logo-acc-header:hover{background:var(--panel3,var(--panel));}
+.logo-acc-htitle{font-size:0.72rem;font-weight:700;color:var(--text);}
+.logo-acc-arrow{font-size:0.6rem;color:var(--muted);transition:transform 0.2s;}
+.logo-acc-open .logo-acc-arrow{transform:rotate(180deg);}
+.logo-acc-body{display:none;padding:8px 0 4px;}
+.logo-acc-open .logo-acc-body{display:block;}
+.logo-acc-count{font-size:0.62rem;font-weight:600;background:rgba(21,214,164,0.12);color:var(--accent);border-radius:8px;padding:1px 6px;margin-left:5px;}
 
 /* MODAL */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;}
@@ -1156,15 +1171,18 @@ input[type=range]{filter:none !important;}
       <!-- ═══ LOGOS DE PLATAFORMAS ═══ -->
       <div style="padding:4px 12px 4px;border-top:1px solid var(--border);margin-top:4px;">
         <div class="lp-title" style="font-size:0.8rem;margin:8px 0 4px;">🎬 Logos de plataformas</div>
-        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">Logos visibles para todos los clientes.</p>
-        <label id="logo-upload-btn" class="upload-psd" style="margin-bottom:8px;font-size:0.75rem;padding:7px 12px;display:none;" id="platform-upload-btn-pc">
+        <p style="font-size:0.68rem;color:var(--muted);margin-bottom:6px;line-height:1.4;">Visibles para todos los clientes.</p>
+        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:8px;font-size:0.75rem;padding:7px 12px;">
           ＋ Subir logo de plataforma
           <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
         </label>
       </div>
-      <div id="logo-library-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 12px;">
+      <!-- Acordeones de categorías -->
+      <div id="logo-library-accordions" style="padding:0 0 12px;">
         <div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;" id="logo-library-empty">Cargando logos...</div>
       </div>
+      <!-- Grid legacy (oculto, solo para compatibilidad) -->
+      <div id="logo-library-grid" style="display:none;"></div>
     </div>
   </div>
   <div class="canvas-area" id="canvas-area" onclick="canvasClick(event)">
@@ -2833,39 +2851,78 @@ async function loadLogoLibrary(){
 }
 
 function renderLogoLibrary(){
-  const grid=document.getElementById('logo-library-grid');
-  grid.innerHTML='';
+  const container = document.getElementById('logo-library-accordions');
+  const emptyEl = document.getElementById('logo-library-empty');
+  if(!container) return;
+
+  const isAdmin = document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+
+  // Mostrar botón subir solo a admin
+  const uploadBtn = document.getElementById('logo-upload-btn');
+  if(uploadBtn) uploadBtn.style.display = isAdmin ? 'flex' : 'none';
+
   if(!logoLibCache.length){
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-size:0.72rem;">Sin logos de plataformas aún.</div>';
+    if(emptyEl){ emptyEl.textContent='Sin logos de plataformas aún.'; emptyEl.style.display='block'; }
     return;
   }
-  const isAdmin=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+  if(emptyEl) emptyEl.style.display='none';
+
+  // Agrupar por campo 'categoria' (default: 'Logos oficiales')
+  const groups = {};
   logoLibCache.forEach(logo=>{
-    const item=document.createElement('div');
-    item.className='logo-lib-item';
-    item.title='Clic para agregar al canvas';
-    item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
-      ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
-    item.draggable=true;
-    item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
-    item.addEventListener('dragstart',(ev)=>{
-      try{
-        ev.dataTransfer.effectAllowed='copy';
-        ev.dataTransfer.setData('application/x-logo-src',logo.url);
-        ev.dataTransfer.setData('text/plain',logo.url);
-        ev.dataTransfer.setData('text/uri-list',logo.url);
-      }catch(_){}
-    });
-    item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
-    item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
-    grid.appendChild(item);
+    const cat = logo.categoria || 'Logos oficiales';
+    if(!groups[cat]) groups[cat] = [];
+    groups[cat].push(logo);
   });
-  // Mostrar botón subir solo a admin
-  const uploadBtn=document.getElementById('logo-upload-btn');
-  if(uploadBtn){
-    const isAdminUser=document.getElementById('mode-pill')?.textContent.includes('ADMIN');
-    uploadBtn.style.display=isAdminUser?'flex':'none';
-  }
+
+  // Orden: Logos oficiales primero, luego alfabético
+  const orderedCats = Object.keys(groups).sort((a,b)=>{
+    if(a==='Logos oficiales') return -1;
+    if(b==='Logos oficiales') return 1;
+    return a.localeCompare(b);
+  });
+
+  // Limpiar acordeones previos
+  Array.from(container.children).forEach(ch=>{
+    if(ch.id !== 'logo-library-empty') ch.remove();
+  });
+
+  orderedCats.forEach((cat, idx)=>{
+    const logos = groups[cat];
+    const wrap = document.createElement('div');
+    wrap.className = 'logo-acc-wrap' + (idx===0?' logo-acc-open':'');
+    wrap.innerHTML = `
+      <div class="logo-acc-header" onclick="this.parentElement.classList.toggle('logo-acc-open')">
+        <span class="logo-acc-htitle">${cat} <span class="logo-acc-count">${logos.length}</span></span>
+        <span class="logo-acc-arrow">▼</span>
+      </div>
+      <div class="logo-acc-body">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 12px 0;"></div>
+      </div>
+    `;
+    const grid = wrap.querySelector('.logo-acc-body div');
+    logos.forEach(logo=>{
+      const item=document.createElement('div');
+      item.className='logo-lib-item';
+      item.title='Clic para agregar al canvas';
+      item.innerHTML=`<img src="${logo.url}" alt="${logo.name||''}">
+        ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
+      item.draggable=true;
+      item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name||''));
+      item.addEventListener('dragstart',(ev)=>{
+        try{
+          ev.dataTransfer.effectAllowed='copy';
+          ev.dataTransfer.setData('application/x-logo-src', logo.url);
+          ev.dataTransfer.setData('text/plain', logo.url);
+          ev.dataTransfer.setData('text/uri-list', logo.url);
+        }catch(_){}
+      });
+      item.addEventListener('mouseover',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='flex'; });
+      item.addEventListener('mouseout',()=>{ const d=item.querySelector('.logo-del'); if(d)d.style.display='none'; });
+      grid.appendChild(item);
+    });
+    container.appendChild(wrap);
+  });
 }
 
 // ── Cargar logos propios (PC) ──
