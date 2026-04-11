@@ -2,6 +2,46 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script>
+(function(){
+  var ua = navigator.userAgent || '';
+  var url = window.location.href;
+
+  // Detectar navegadores embebidos
+  var isTelegram   = /Telegram/i.test(ua);
+  var isFacebook   = /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua);
+  var isInstagram  = /Instagram/i.test(ua);
+  var isWhatsApp   = /WhatsApp/i.test(ua);
+  var isTikTok     = /TikTok/i.test(ua);
+  var isTwitter    = /Twitter/i.test(ua);
+  var isLinkedIn   = /LinkedInApp/i.test(ua);
+  var isGenericWV  = /wv/.test(ua) && /Android/i.test(ua);
+  var isAndroid    = /Android/i.test(ua);
+  var isIOS        = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
+
+  var isWebView = isTelegram || isFacebook || isInstagram || isWhatsApp ||
+                  isTikTok || isTwitter || isLinkedIn || isGenericWV;
+
+  if(!isWebView) return; // Navegador real → no hacer nada
+
+  // ── ANDROID: intent:// para abrir en el navegador por defecto ──
+  // Chrome, Samsung Browser, Firefox respetan este intent
+  if(isAndroid){
+    var encoded = url.replace(/^https?:\/\//, '');
+    var intent = 'intent://' + encoded +
+      '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+      'category=android.intent.category.BROWSABLE;end';
+    window.location.replace(intent);
+    return;
+  }
+
+  // ── iOS: forzar apertura en Safari ──
+  // En iOS no hay intent, pero podemos mostrar un banner prominente
+  // pidiendo que abran en Safari antes de que cargue el editor
+  // (se maneja con el banner que se inyecta abajo)
+})();
+</script>
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -1427,24 +1467,31 @@ function renderLogos(){
 }
 
 // Modal post-descarga Android: imagen guardada + botón compartir
-function showDownloadModal(blob, fileName, displayName){
+function showDownloadModal(blob, fileName, displayName, isWebView){
   const modal = document.getElementById('save-img-modal');
   const preview = document.getElementById('save-img-preview');
   const tip = document.getElementById('save-img-tip');
   const shareBtn = document.getElementById('save-img-share');
+  const webviewTip = document.getElementById('save-img-webview-tip');
   if(!modal || !preview) return;
 
-  // Mostrar preview
   const url = URL.createObjectURL(blob);
   preview.src = url;
   preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
 
-  // Cambiar texto a modo Android
-  if(tip){
-    tip.innerHTML = '¡Imagen guardada en tu galería! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
+  if(isWebView){
+    // Navegador embebido: a.download no funciona, instruir a abrir en navegador o usar Share
+    if(tip) tip.innerHTML = 'Estás en un navegador interno.<br>Para guardar en tu galería:';
+    if(webviewTip) webviewTip.style.display = 'block';
+    toast('📤 Usa el botón compartir para guardar');
+  } else {
+    // Navegador real Android: la imagen ya se guardó en Descargas
+    if(tip) tip.innerHTML = '¡Lista! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
+    if(webviewTip) webviewTip.style.display = 'none';
+    toast('✓ Guardada en Descargas');
   }
 
-  // Botón compartir — abre menú completo de Android
+  // Botón compartir — siempre visible, abre menú completo del SO
   if(shareBtn){
     shareBtn.style.display = 'flex';
     shareBtn.onclick = async () => {
@@ -1452,13 +1499,18 @@ function showDownloadModal(blob, fileName, displayName){
         const shareFile = new File([blob], fileName, { type: 'image/png' });
         if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
           await navigator.share({ files: [shareFile], title: displayName });
+        } else {
+          // Fallback si Share API no disponible: abrir imagen en nueva pestaña
+          const u = URL.createObjectURL(blob);
+          window.open(u, '_blank');
+          setTimeout(()=>URL.revokeObjectURL(u), 15000);
+          toast('💡 Mantén presionada la imagen para guardarla');
         }
       }catch(e){ if(e.name !== 'AbortError') console.warn('Share:', e); }
     };
   }
 
   modal.style.display = 'flex';
-  toast('✓ Guardada en Descargas');
 }
 
 function closeSaveModal(){
@@ -1466,10 +1518,11 @@ function closeSaveModal(){
   const preview = document.getElementById('save-img-preview');
   const shareBtn = document.getElementById('save-img-share');
   const tip = document.getElementById('save-img-tip');
+  const wvTip = document.getElementById('save-img-webview-tip');
   if(modal) modal.style.display = 'none';
   if(preview) preview.src = '';
   if(shareBtn){ shareBtn.style.display = 'none'; shareBtn.onclick = null; }
-  // Restaurar texto iOS por defecto
+  if(wvTip) wvTip.style.display = 'none';
   if(tip) tip.innerHTML = 'Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar imagen"</span>';
 }
 
@@ -2046,10 +2099,29 @@ async function downloadPNG(){
     const fileName = safeName + '.png';
     const blob = await new Promise(res => rendered.toBlob(res, 'image/png'));
 
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
 
-    // ── ANDROID: guardar directo en galería via link de descarga ──
-    // No usamos Share API para Android porque abre el menú de compartir en vez de guardar directo
+    // Detectar navegadores embebidos: Telegram, WhatsApp, Instagram, Facebook, etc.
+    // Estos bloquean a.download y el archivo va a carpeta temporal invisible para el usuario
+    const isWebView =
+      /wv/.test(ua) ||                          // Android WebView genérico
+      /Telegram/.test(ua) ||                        // Telegram InApp Browser
+      /FBAN|FBAV|FB_IAB/.test(ua) ||               // Facebook InApp Browser
+      /Instagram/.test(ua) ||                       // Instagram InApp Browser
+      /WhatsApp/.test(ua) ||                        // WhatsApp InApp Browser
+      /TikTok/.test(ua) ||                          // TikTok InApp Browser
+      /Twitter/.test(ua) ||                         // Twitter InApp Browser
+      (!isIOS && /Android/.test(ua) && !/Chrome\/\d/.test(ua) && !/Firefox\/\d/.test(ua));
+
+    // ── WEBVIEW (Telegram, WhatsApp, Instagram, etc.) ──
+    // a.download no funciona → ir directo al modal con botón compartir
+    if(isWebView){
+      showDownloadModal(blob, fileName, safeName, true);
+      return;
+    }
+
+    // ── ANDROID nativo (Chrome, Firefox, Samsung Browser) ──
     if(!isIOS){
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2059,8 +2131,7 @@ async function downloadPNG(){
       a.click();
       document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url), 8000);
-      // Mostrar modal con botón de compartir para que puedan enviar por WhatsApp etc.
-      showDownloadModal(blob, fileName, safeName);
+      showDownloadModal(blob, fileName, safeName, false);
       return;
     }
 
@@ -2077,7 +2148,7 @@ async function downloadPNG(){
       }
     }
 
-    // ── iOS sin Share API: modal con imagen para guardar manualmente ──
+    // ── iOS sin Share API / fallback: modal con imagen ──
     const url2 = URL.createObjectURL(blob);
     const modal = document.getElementById('save-img-modal');
     const preview = document.getElementById('save-img-preview');
@@ -2101,6 +2172,64 @@ async function downloadPNG(){
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('load', async()=>{
+  // ── Mostrar banner si es WebView en iOS (Android ya fue redirigido por el intent) ──
+  (function(){
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
+    var isTelegram  = /Telegram/i.test(ua);
+    var isFacebook  = /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua);
+    var isInstagram = /Instagram/i.test(ua);
+    var isWhatsApp  = /WhatsApp/i.test(ua);
+    var isTikTok    = /TikTok/i.test(ua);
+    var isTwitter   = /Twitter/i.test(ua);
+    var isAndroidWV = /wv/.test(ua) && /Android/i.test(ua);
+    var isWebView   = isTelegram || isFacebook || isInstagram || isWhatsApp ||
+                      isTikTok || isTwitter || isAndroidWV;
+
+    if(!isWebView) return;
+
+    var banner = document.getElementById('open-browser-banner');
+    var btn    = document.getElementById('open-browser-btn');
+    if(!banner || !btn) return;
+
+    banner.style.display = 'block';
+    // Añadir padding al contenido para que no quede bajo el banner
+    var mainContent = document.querySelector('.editor-wrap, #editor-wrap, body > div:first-of-type');
+    if(mainContent) mainContent.style.paddingTop = '64px';
+
+    var url = window.location.href;
+
+    if(isIOS){
+      // iOS: no hay intent, pero sí podemos abrir en Safari con window.open
+      // y también mostrar las instrucciones del menú (botón compartir de Safari)
+      btn.textContent = 'Abrir en Safari';
+      btn.onclick = function(){
+        // En iOS dentro de WebView, x-safari-https:// fuerza apertura en Safari
+        window.location.href = url.replace(/^https:\/\//, 'x-safari-https://');
+        // Fallback: si no funciona, intentar window.open
+        setTimeout(function(){ window.open(url, '_blank'); }, 800);
+      };
+    } else {
+      // Android: intent:// para abrir en Chrome/navegador por defecto
+      btn.textContent = 'Abrir en Chrome';
+      btn.onclick = function(){
+        var encoded = url.replace(/^https?:\/\//, '');
+        var intent = 'intent://' + encoded +
+          '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+          'category=android.intent.category.BROWSABLE;' +
+          'package=com.android.chrome;end';
+        window.location.href = intent;
+        // Fallback sin forzar Chrome (abre el navegador por defecto)
+        setTimeout(function(){
+          var fallback = 'intent://' + encoded +
+            '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+            'category=android.intent.category.BROWSABLE;end';
+          window.location.href = fallback;
+        }, 1500);
+      };
+    }
+  })();
+
   showLoad('Conectando...');
   await initFB();
 
@@ -2224,19 +2353,38 @@ window.addEventListener('load', async()=>{
 })();
 </script>
 
-<!-- MODAL POST-DESCARGA: preview + compartir -->
+<!-- BANNER WEBVIEW: visible solo en navegadores embebidos (Telegram, IG, etc.) -->
+<div id="open-browser-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#0f0f1a;border-bottom:2px solid #15d6a4;padding:12px 16px;">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div style="flex:1;">
+      <div style="color:#fff;font-size:0.82rem;font-weight:700;margin-bottom:2px;">Abre esto en tu navegador</div>
+      <div style="color:rgba(255,255,255,0.6);font-size:0.71rem;line-height:1.4;">Para descargar imágenes a tu galería necesitas Chrome o Safari.</div>
+    </div>
+    <button id="open-browser-btn" style="background:#15d6a4;border:none;color:#002b22;border-radius:10px;padding:9px 14px;font-size:0.78rem;font-weight:700;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;flex-shrink:0;">
+      Abrir en Chrome
+    </button>
+  </div>
+  <button onclick="document.getElementById('open-browser-banner').style.display='none'" style="position:absolute;top:6px;right:10px;background:none;border:none;color:rgba(255,255,255,0.35);font-size:1.3rem;cursor:pointer;line-height:1;padding:4px;">×</button>
+</div>
+
+<!-- MODAL POST-DESCARGA: preview + compartir + aviso WebView -->
 <div id="save-img-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.96);flex-direction:column;align-items:center;justify-content:center;padding:20px;">
   <div style="color:#fff;font-size:0.95rem;font-weight:700;margin-bottom:6px;text-align:center;">
     ✅ Tu diseño está listo
   </div>
-  <div id="save-img-tip" style="color:rgba(255,255,255,0.7);font-size:0.78rem;margin-bottom:16px;text-align:center;line-height:1.6;">
+  <div id="save-img-tip" style="color:rgba(255,255,255,0.7);font-size:0.78rem;margin-bottom:10px;text-align:center;line-height:1.6;">
     Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar imagen"</span>
   </div>
-  <img id="save-img-preview" src="" style="max-width:88vw;max-height:55vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5);" alt="Tu diseño">
-  <!-- Botón compartir (solo visible en Android tras descarga) -->
-  <button id="save-img-share" style="display:none;align-items:center;gap:8px;margin-top:16px;background:#25D366;border:none;color:#fff;border-radius:12px;padding:12px 28px;font-size:0.85rem;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+  <!-- Aviso solo visible en WebViews (Telegram, IG, etc.) -->
+  <div id="save-img-webview-tip" style="display:none;background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.3);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:0.75rem;color:#ffd166;text-align:center;line-height:1.6;max-width:300px;">
+    Estás en un navegador interno (Telegram / Instagram).<br>
+    Toca <strong>"Compartir imagen"</strong> abajo para guardarla en tu galería o enviarla por WhatsApp.
+  </div>
+  <img id="save-img-preview" src="" style="max-width:88vw;max-height:50vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5);" alt="Tu diseño">
+  <!-- Botón compartir — siempre disponible -->
+  <button id="save-img-share" style="display:none;align-items:center;gap:8px;margin-top:14px;background:#15d6a4;border:none;color:#002b22;border-radius:12px;padding:12px 28px;font-size:0.85rem;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-    Compartir imagen
+    Compartir / Guardar en galería
   </button>
   <button onclick="closeSaveModal()" style="margin-top:10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.8);border-radius:12px;padding:10px 32px;font-size:0.82rem;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;">
     Cerrar
