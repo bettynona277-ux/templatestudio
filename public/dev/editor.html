@@ -1868,19 +1868,12 @@ let _suppressHistory = false;
 function snapshotState(){
   if(_suppressHistory) return;
   syncLayersFromDOM();
-  // For text layers, only preserve the text content, NOT the styling
-  const snap = layers.map(l=>{
-    const base = {
-      ...l,
-      el:null,
-    };
-    if(l.type === 'text' && l.tp) {
-      base.tp = { text: l.tp.text };
-    } else if(l.tp) {
-      base.tp = {...l.tp};
-    }
-    return base;
-  });
+  // Guardar tp completo (texto + estilos) para que undo/redo restaure todo correctamente
+  const snap = layers.map(l=>({
+    ...l,
+    el: null,
+    tp: l.tp ? JSON.parse(JSON.stringify(l.tp)) : null,
+  }));
   const json = JSON.stringify(snap);
   if(historyIdx >= 0 && undoStack[historyIdx] === json) return;
 
@@ -1891,16 +1884,8 @@ function snapshotState(){
   updateUndoUI();
 }
 
-// Before restoring, store current text styles to preserve them
 function restoreSnapshot(snap){
   _suppressHistory = true;
-  // Save current text styles (keyed by id) for text layers
-  const currentTextStyles = new Map();
-  layers.forEach(l => {
-    if(l.type === 'text' && l.tp) {
-      currentTextStyles.set(l.id, JSON.parse(JSON.stringify(l.tp)));
-    }
-  });
 
   const data = JSON.parse(snap);
   Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
@@ -1909,8 +1894,13 @@ function restoreSnapshot(snap){
   gCtr = 0;
 
   data.forEach(ld=>{
-    const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
+    // tp viene completo del snapshot — restaurar tal cual
+    const l = {...ld, el:null, tp: ld.tp ? JSON.parse(JSON.stringify(ld.tp)) : null};
     if(l.rotation == null) l.rotation = 0;
+    // Asegurar tp mínimo para textos que vengan sin estilos (snapshots viejos)
+    if(l.type === 'text' && !l.tp){
+      l.tp = {text:'Texto',fontSize:36,fontFamily:"'Plus Jakarta Sans'",fontWeight:'700',color:'#ffffff',align:'center',strokeColor:'#000000',strokeWidth:0,shadowBlur:0,shadowColor:'rgba(0,0,0,0.45)'};
+    }
     layers.push(l);
     mkEl(l);
     if(l.groupId){
@@ -1919,20 +1909,9 @@ function restoreSnapshot(snap){
     }
   });
 
-  // Restore text styles for existing text layers (preserve their appearance)
+  // Aplicar estilos de texto a todos los textos restaurados
   layers.forEach(l => {
-    if(l.type === 'text' && currentTextStyles.has(l.id)) {
-      const savedStyle = currentTextStyles.get(l.id);
-      // merge: keep the text from snapshot, but all styling from current
-      if(!l.tp) l.tp = { text: '' };
-      const currentText = l.tp.text || '';
-      l.tp = { ...savedStyle, text: currentText };
-      // reapply to DOM
-      const d = document.getElementById('ti-'+l.id);
-      if(d) applyTextStyles(l);
-    } else if(l.type === 'text' && !currentTextStyles.has(l.id)) {
-      // newly created text layer (maybe via addText) - ensure it has a proper tp
-      if(!l.tp) l.tp = { text: 'Texto', fontSize: 36, fontFamily: "'Plus Jakarta Sans'", fontWeight: '700', color: '#ffffff', align: 'center', strokeColor: '#000000', strokeWidth: 0, shadowBlur: 0, shadowColor: 'rgba(0,0,0,0.45)' };
+    if(l.type === 'text' && l.tp){
       const d = document.getElementById('ti-'+l.id);
       if(d) applyTextStyles(l);
     }
