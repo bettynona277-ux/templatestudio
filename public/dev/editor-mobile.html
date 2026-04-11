@@ -322,6 +322,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
     </button>
+    <button class="tbtn tbtn-ghost" onclick="openProfileModalMob()" title="Mis datos" style="width:36px;min-width:36px;padding:0;justify-content:center;">
+      👤
+    </button>
     <button class="tbtn tbtn-ghost" onclick="downloadPNG()" title="Descargar / Guardar en galería">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Descargar
@@ -470,6 +473,74 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 </div>
 
 <script>
+// ══════════════════════════════════════════
+// PERFIL DE USUARIO — reemplazar {{variables}}
+// ══════════════════════════════════════════
+function getUserProfile(){
+  try{ return JSON.parse(localStorage.getItem('ts_user_profile') || 'null'); }
+  catch(_){ return null; }
+}
+
+function applyProfileToLayers(){
+  const profile = getUserProfile();
+  if(!profile) return;
+  const vars = {
+    '{{whatsapp}}':          profile.whatsapp || '',
+    '{{precio_netflix}}': profile.precio_netflix || '',
+    '{{precio_disney_std}}': profile.precio_disney_std || '',
+    '{{precio_disney_prem}}': profile.precio_disney_prem || '',
+    '{{precio_spotify}}': profile.precio_spotify || '',
+    '{{precio_prime}}': profile.precio_prime || '',
+    '{{precio_apple}}': profile.precio_apple || '',
+    '{{precio_paramount}}': profile.precio_paramount || '',
+    '{{precio_crunchyroll}}': profile.precio_crunchyroll || '',
+    '{{precio_hob_max}}': profile.precio_hob_max || '',
+    '{{precio_canva}}': profile.precio_canva || '',
+    '{{precio_youtube}}': profile.precio_youtube || '',
+    '{{precio_vix}}': profile.precio_vix || '',
+    '{{precio_dgo}}': profile.precio_dgo || '',
+    '{{precio_deezer}}': profile.precio_deezer || '',
+    '{{precio_plex}}': profile.precio_plex || '',
+    '{{precio_ibo}}': profile.precio_ibo || '',
+    '{{precio_cable_go}}': profile.precio_cable_go || '',
+    '{{precio_capcut}}': profile.precio_capcut || '',
+    '{{precio_ufc}}': profile.precio_ufc || '',
+    '{{precio_office}}': profile.precio_office || '',
+    '{{precio_st3lla}}': profile.precio_st3lla || '',
+    '{{precio_claro}}': profile.precio_claro || '',
+    '{{precio_flivjo}}': profile.precio_flivjo || '',
+    '{{precio_gemini}}': profile.precio_gemini || '',
+    '{{precio_f4n4tiz}}': profile.precio_f4n4tiz || '',
+    '{{precio_iptv}}': profile.precio_iptv || '',
+    '{{precio_l1g41m4x}}': profile.precio_l1g41m4x || '',
+    '{{precio_movistar}}': profile.precio_movistar || '',
+    '{{precio_kakuten}}': profile.precio_kakuten || '',
+    '{{precio_chatgpt}}': profile.precio_chatgpt || '',
+    '{{precio_wlgtv}}': profile.precio_wlgtv || '',
+    '{{precio_nmas}}': profile.precio_nmas || '',
+    '{{precio_uno}}': profile.precio_uno || '',
+  };
+  layers.forEach(l=>{
+    if(l.type !== 'text' || !l.tp) return;
+    let changed = false;
+    Object.entries(vars).forEach(([key, val])=>{
+      if(!val) return;
+      const inName = l.name && l.name.toLowerCase().includes(key.slice(2,-2));
+      const inText = l.tp.text && l.tp.text.includes(key);
+      if(inName && !inText){ l.tp.text = val; changed = true; }
+      else if(inText){
+        const re = new RegExp(key.replace(/\{/g,'\{').replace(/\}/g,'\}'), 'g');
+        l.tp.text = l.tp.text.replace(re, val);
+        changed = true;
+      }
+    });
+    if(changed){
+      const d = document.getElementById('ti-'+l.id);
+      if(d){ d.textContent = l.tp.text; applyTextStylesMobile(l); }
+    }
+  });
+}
+
 // ══════════════════════════════════════════
 // DETECCIÓN WEBVIEW — lo primero que corre
 // ══════════════════════════════════════════
@@ -699,6 +770,8 @@ function loadDesign(tpl){
   desel();
   history_ = []; // limpiar historial al cargar
   snapshot();    // guardar estado inicial
+  // Aplicar perfil del cliente (WhatsApp, precios) a las capas con {{variables}}
+  setTimeout(applyProfileToLayers, 150);
 }
 
 // ══════════════════════════════════════════
@@ -2382,6 +2455,110 @@ window.addEventListener('load', async()=>{
     Cerrar
   </button>
 </div>
+
+<!-- MODAL PERFIL — editar datos desde el editor móvil -->
+<div id="profile-modal-mob" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);align-items:flex-end;justify-content:center;">
+  <div style="background:var(--panel);border-radius:20px 20px 0 0;padding:20px 16px 36px;width:100%;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:0.88rem;font-weight:700;color:var(--text);">👤 Mis datos personales</div>
+      <button onclick="closeProfileModalMob()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;">×</button>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px;">WhatsApp</div>
+      <input id="pmm-whatsapp" type="tel" placeholder="Ej: 51974834197" style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.85rem;box-sizing:border-box;">
+    </div>
+
+    <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--accent);margin:12px 0 6px;">💰 Precios</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">N*TFLIX</div><input id="pmm-p-netflix" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Disney+ Standar</div><input id="pmm-p-disney_std" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Disney+ Premium</div><input id="pmm-p-disney_prem" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Spotify</div><input id="pmm-p-spotify" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Prime Video</div><input id="pmm-p-prime" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Apple TV</div><input id="pmm-p-apple" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Paramount+</div><input id="pmm-p-paramount" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Crunchyroll</div><input id="pmm-p-crunchyroll" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">HOB MAX</div><input id="pmm-p-hob_max" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Canva</div><input id="pmm-p-canva" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">YouTube Premium</div><input id="pmm-p-youtube" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">VIX Premium</div><input id="pmm-p-vix" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">DGO</div><input id="pmm-p-dgo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">D33Z3R</div><input id="pmm-p-deezer" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Plex</div><input id="pmm-p-plex" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">IBO Player</div><input id="pmm-p-ibo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Cable GO</div><input id="pmm-p-cable_go" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">CapCut</div><input id="pmm-p-capcut" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">UFC</div><input id="pmm-p-ufc" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Office 365</div><input id="pmm-p-office" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">ST3LLA TV</div><input id="pmm-p-st3lla" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Claro V1D30</div><input id="pmm-p-claro" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">FLIVJO</div><input id="pmm-p-flivjo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Gemini</div><input id="pmm-p-gemini" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">F4N4TIZ</div><input id="pmm-p-f4n4tiz" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">1PTV Smart</div><input id="pmm-p-iptv" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">L1G41MAX</div><input id="pmm-p-l1g41m4x" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Movistar TV</div><input id="pmm-p-movistar" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">K4KUT3N VIK1</div><input id="pmm-p-kakuten" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">ChatGPT</div><input id="pmm-p-chatgpt" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">WLGTV Pro</div><input id="pmm-p-wlgtv" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">N+ Premium</div><input id="pmm-p-nmas" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Canal UNO</div><input id="pmm-p-uno" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+    </div>
+
+    <button onclick="saveProfileMob()" style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#002b22;font-weight:700;font-size:0.88rem;cursor:pointer;">
+      💾 Guardar y aplicar al diseño
+    </button>
+  </div>
+</div>
+
+<script>
+const PROFILE_PLATS_MOB = [
+  'netflix', 'disney_std', 'disney_prem', 'spotify', 'prime',
+  'apple', 'paramount', 'crunchyroll', 'hob_max', 'canva',
+  'youtube', 'vix', 'dgo', 'deezer', 'plex',
+  'ibo', 'cable_go', 'capcut', 'ufc', 'office',
+  'st3lla', 'claro', 'flivjo', 'gemini', 'f4n4tiz',
+  'iptv', 'l1g41m4x', 'movistar', 'kakuten', 'chatgpt',
+  'wlgtv', 'nmas', 'uno'
+];
+
+function openProfileModalMob(){
+  const profile = getUserProfile() || {};
+  const wa = document.getElementById('pmm-whatsapp');
+  if(wa) wa.value = profile.whatsapp || '';
+  PROFILE_PLATS_MOB.forEach(p=>{
+    const el = document.getElementById('pmm-p-'+p);
+    if(el) el.value = profile['precio_'+p] || '';
+  });
+  document.getElementById('profile-modal-mob').style.display='flex';
+}
+
+function closeProfileModalMob(){
+  document.getElementById('profile-modal-mob').style.display='none';
+}
+
+async function saveProfileMob(){
+  const wa = document.getElementById('pmm-whatsapp');
+  const profile = { whatsapp: (wa?.value||'').trim() };
+  PROFILE_PLATS_MOB.forEach(p=>{
+    const el = document.getElementById('pmm-p-'+p);
+    profile['precio_'+p] = (el?.value||'').trim();
+  });
+  localStorage.setItem('ts_user_profile', JSON.stringify(profile));
+  if(fbDb && fbAuth?.currentUser){
+    try{ await fbDb.collection('user_profiles').doc(fbAuth.currentUser.uid).set(profile,{merge:true}); }
+    catch(e){ console.warn('Perfil Firestore móvil:', e); }
+  }
+  applyProfileToLayers();
+  closeProfileModalMob();
+  toast('✓ Datos guardados y aplicados');
+}
+
+document.getElementById('profile-modal-mob').addEventListener('click', function(e){
+  if(e.target === this) closeProfileModalMob();
+});
+</script>
 
 </body>
 </html>
