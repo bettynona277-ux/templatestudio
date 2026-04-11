@@ -1445,7 +1445,11 @@ input[type=range]{filter:none !important;}
               <span id="pp-var-sel-label">— sin variable —</span>
               <span style="font-size:0.6rem;color:var(--muted);">▼</span>
             </div>
-            <div id="pp-var-sel-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.4);margin-top:2px;">
+            <div id="pp-var-sel-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.4);margin-top:2px;">
+              <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
+                <input id="pp-var-search" type="text" placeholder="🔍 Buscar plataforma..." oninput="filterVarOpts(this.value)" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:0.72rem;outline:none;box-sizing:border-box;">
+              </div>
+              <div id="pp-var-opts-list" style="max-height:180px;overflow-y:auto;">
 <div class="var-opt" onclick="applyLayerVariable('')">— sin variable —</div>
 <div class="var-opt" onclick="applyLayerVariable('{{whatsapp}}')">{{whatsapp}} — WhatsApp</div>
 <div class="var-opt" onclick="applyLayerVariable('{{precio_netflix}}')">{{precio_netflix}} — N*TFLIX</div>
@@ -1481,6 +1485,7 @@ input[type=range]{filter:none !important;}
 <div class="var-opt" onclick="applyLayerVariable('{{precio_wlgtv}}')">{{precio_wlgtv}} — WLGTV Pro</div>
 <div class="var-opt" onclick="applyLayerVariable('{{precio_nmas}}')">{{precio_nmas}} — N+ Premium</div>
 <div class="var-opt" onclick="applyLayerVariable('{{precio_uno}}')">{{precio_uno}} — Canal UNO</div>
+              </div>
             </div>
           </div>
         </div>
@@ -7175,8 +7180,13 @@ document.addEventListener('keydown',ev=>{
       <input id="pm-whatsapp" type="text" placeholder="Ej: 51974834197" maxlength="20" class="modal-inp" style="width:100%;">
     </div>
 
-    <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin:14px 0 8px;">💰 Precios por plataforma</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;">
+      <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);">💰 Precios por plataforma</div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input id="pm-plat-search" type="text" placeholder="🔍 Buscar plataforma..." oninput="filterPlatformInputs(this.value,'pm-plat-grid')" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:0.78rem;outline:none;box-sizing:border-box;">
+    </div>
+    <div id="pm-plat-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
       <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">N*TFLIX</div><input id="pm-p-netflix" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
       <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Disney+ Standar</div><input id="pm-p-disney_std" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
       <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Disney+ Premium</div><input id="pm-p-disney_prem" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
@@ -7307,7 +7317,23 @@ async function saveProfileFromEditor(){
 function toggleVarDropdown(){
   const dd = document.getElementById('pp-var-sel-dropdown');
   if(!dd) return;
-  dd.style.display = dd.style.display==='none' ? 'block' : 'none';
+  const opening = dd.style.display==='none';
+  dd.style.display = opening ? 'block' : 'none';
+  if(opening){
+    const search = document.getElementById('pp-var-search');
+    if(search){ search.value=''; filterVarOpts(''); search.focus(); }
+  }
+}
+
+// Filtrar opciones del dropdown
+function filterVarOpts(q){
+  const list = document.getElementById('pp-var-opts-list');
+  if(!list) return;
+  const term = q.toLowerCase().trim();
+  list.querySelectorAll('.var-opt').forEach(el=>{
+    const txt = el.textContent.toLowerCase();
+    el.style.display = (!term || txt.includes(term)) ? '' : 'none';
+  });
 }
 // Cerrar dropdown al hacer clic fuera
 document.addEventListener('click', e=>{
@@ -7347,6 +7373,18 @@ function syncVarSelector(){
     // Es variable si empieza con {{ y termina con }}
     lbl.textContent = (name.startsWith('{{') && name.endsWith('}}')) ? name : '— sin variable —';
   }
+}
+
+// Filtrar inputs de plataforma por búsqueda
+function filterPlatformInputs(q, gridId){
+  const grid = document.getElementById(gridId);
+  if(!grid) return;
+  const term = q.toLowerCase().trim();
+  grid.querySelectorAll('div').forEach(el=>{
+    const lbl = el.querySelector('div');
+    if(!lbl) return;
+    el.style.display = (!term || lbl.textContent.toLowerCase().includes(term)) ? '' : 'none';
+  });
 }
 
 // Cerrar modal al hacer clic fuera
