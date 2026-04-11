@@ -2,45 +2,6 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<script>
-(function(){
-  var ua = navigator.userAgent || '';
-  var url = window.location.href;
-
-  // Detectar navegadores embebidos
-  var isTelegram   = /Telegram/i.test(ua);
-  var isFacebook   = /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua);
-  var isInstagram  = /Instagram/i.test(ua);
-  var isWhatsApp   = /WhatsApp/i.test(ua);
-  var isTikTok     = /TikTok/i.test(ua);
-  var isTwitter    = /Twitter/i.test(ua);
-  var isLinkedIn   = /LinkedInApp/i.test(ua);
-  var isGenericWV  = /wv/.test(ua) && /Android/i.test(ua);
-  var isAndroid    = /Android/i.test(ua);
-  var isIOS        = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
-
-  var isWebView = isTelegram || isFacebook || isInstagram || isWhatsApp ||
-                  isTikTok || isTwitter || isLinkedIn || isGenericWV;
-
-  if(!isWebView) return; // Navegador real → no hacer nada
-
-  // ── ANDROID: intent:// para abrir en el navegador por defecto ──
-  // Chrome, Samsung Browser, Firefox respetan este intent
-  if(isAndroid){
-    var encoded = url.replace(/^https?:\/\//, '');
-    var intent = 'intent://' + encoded +
-      '#Intent;scheme=https;action=android.intent.action.VIEW;' +
-      'category=android.intent.category.BROWSABLE;end';
-    window.location.replace(intent);
-    return;
-  }
-
-  // ── iOS: forzar apertura en Safari ──
-  // En iOS no hay intent, pero podemos mostrar un banner prominente
-  // pidiendo que abran en Safari antes de que cargue el editor
-  // (se maneja con el banner que se inyecta abajo)
-})();
-</script>
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
@@ -323,6 +284,25 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 </head>
 <body>
 
+<!-- PANTALLA WEBVIEW: cubre todo si se abre desde Telegram/IG/etc -->
+<div id="wv-block" style="display:none;position:fixed;inset:0;z-index:999999;background:#0a0a1a;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;">
+  <div style="font-size:48px;margin-bottom:16px;">🌐</div>
+  <div style="color:#fff;font-size:1.05rem;font-weight:800;margin-bottom:8px;line-height:1.3;">Abre esto en Chrome</div>
+  <div style="color:rgba(255,255,255,0.6);font-size:0.8rem;line-height:1.6;margin-bottom:28px;max-width:280px;">
+    Estás en el navegador de Telegram. Para descargar tus diseños en la galería necesitas abrirlo en Chrome o Safari.
+  </div>
+  <button id="wv-open-btn" style="background:#15d6a4;border:none;color:#002b22;border-radius:14px;padding:14px 28px;font-size:0.92rem;font-weight:800;cursor:pointer;width:100%;max-width:280px;margin-bottom:12px;-webkit-tap-highlight-color:transparent;">
+    🌐 Abrir en Chrome
+  </button>
+  <button id="wv-copy-btn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:14px;padding:12px 28px;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;max-width:280px;margin-bottom:16px;-webkit-tap-highlight-color:transparent;">
+    📋 Copiar enlace
+  </button>
+  <div id="wv-copy-ok" style="display:none;color:#15d6a4;font-size:0.78rem;margin-bottom:12px;">✓ Enlace copiado — pégalo en Chrome</div>
+  <button onclick="document.getElementById('wv-block').style.display='none'" style="background:none;border:none;color:rgba(255,255,255,0.25);font-size:0.72rem;cursor:pointer;text-decoration:underline;-webkit-tap-highlight-color:transparent;padding:4px;">
+    Continuar aquí de todas formas
+  </button>
+</div>
+
 <!-- LOADING -->
 <div class="loading" id="loading">
   <div class="spin"></div>
@@ -490,6 +470,89 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 </div>
 
 <script>
+// ══════════════════════════════════════════
+// DETECCIÓN WEBVIEW — lo primero que corre
+// ══════════════════════════════════════════
+(function(){
+  var ua = navigator.userAgent || '';
+  var url = window.location.href;
+  var isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
+
+  var isWebView =
+    /Telegram/i.test(ua)         ||
+    /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua) ||
+    /Instagram/i.test(ua)        ||
+    /WhatsApp/i.test(ua)         ||
+    /TikTok/i.test(ua)           ||
+    /Twitter/i.test(ua)          ||
+    /LinkedInApp/i.test(ua)      ||
+    (!isIOS && /Android/i.test(ua) && /wv/.test(ua));
+
+  if(!isWebView) return;
+
+  // Mostrar pantalla de bloqueo
+  var block = document.getElementById('wv-block');
+  if(block) block.style.display = 'flex';
+
+  // Botón "Abrir en Chrome"
+  var openBtn = document.getElementById('wv-open-btn');
+  if(openBtn){
+    if(isIOS){
+      openBtn.textContent = '🌐 Abrir en Safari';
+      openBtn.onclick = function(){
+        // x-safari-https:// funciona en algunas apps iOS
+        try{ window.location.href = url.replace('https://', 'x-safari-https://'); }catch(e){}
+        setTimeout(function(){ window.open(url, '_blank'); }, 600);
+      };
+    } else {
+      openBtn.textContent = '🌐 Abrir en Chrome';
+      openBtn.onclick = function(){
+        // intent:// es la forma estándar de Android para abrir en el navegador por defecto
+        // funciona desde el click del usuario (no desde código auto-ejecutado)
+        var host = url.replace(/^https?:\/\//, '');
+        // Primero intentar Chrome específicamente
+        window.location.href = 'intent://' + host +
+          '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+          'category=android.intent.category.BROWSABLE;' +
+          'package=com.android.chrome;end';
+        // Fallback: cualquier navegador disponible
+        setTimeout(function(){
+          window.location.href = 'intent://' + host +
+            '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+            'category=android.intent.category.BROWSABLE;end';
+        }, 1200);
+      };
+    }
+  }
+
+  // Botón "Copiar enlace"
+  var copyBtn = document.getElementById('wv-copy-btn');
+  var copyOk  = document.getElementById('wv-copy-ok');
+  if(copyBtn){
+    copyBtn.onclick = function(){
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(url).then(function(){
+            if(copyOk){ copyOk.style.display='block'; }
+          });
+        } else {
+          // Fallback para WebViews sin Clipboard API
+          var ta = document.createElement('textarea');
+          ta.value = url;
+          ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          if(copyOk){ copyOk.style.display='block'; }
+        }
+      }catch(e){
+        if(copyOk){ copyOk.textContent = url; copyOk.style.display='block'; }
+      }
+    };
+  }
+})();
+
 // ══════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════
@@ -2172,64 +2235,6 @@ async function downloadPNG(){
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('load', async()=>{
-  // ── Mostrar banner si es WebView en iOS (Android ya fue redirigido por el intent) ──
-  (function(){
-    var ua = navigator.userAgent || '';
-    var isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
-    var isTelegram  = /Telegram/i.test(ua);
-    var isFacebook  = /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua);
-    var isInstagram = /Instagram/i.test(ua);
-    var isWhatsApp  = /WhatsApp/i.test(ua);
-    var isTikTok    = /TikTok/i.test(ua);
-    var isTwitter   = /Twitter/i.test(ua);
-    var isAndroidWV = /wv/.test(ua) && /Android/i.test(ua);
-    var isWebView   = isTelegram || isFacebook || isInstagram || isWhatsApp ||
-                      isTikTok || isTwitter || isAndroidWV;
-
-    if(!isWebView) return;
-
-    var banner = document.getElementById('open-browser-banner');
-    var btn    = document.getElementById('open-browser-btn');
-    if(!banner || !btn) return;
-
-    banner.style.display = 'block';
-    // Añadir padding al contenido para que no quede bajo el banner
-    var mainContent = document.querySelector('.editor-wrap, #editor-wrap, body > div:first-of-type');
-    if(mainContent) mainContent.style.paddingTop = '64px';
-
-    var url = window.location.href;
-
-    if(isIOS){
-      // iOS: no hay intent, pero sí podemos abrir en Safari con window.open
-      // y también mostrar las instrucciones del menú (botón compartir de Safari)
-      btn.textContent = 'Abrir en Safari';
-      btn.onclick = function(){
-        // En iOS dentro de WebView, x-safari-https:// fuerza apertura en Safari
-        window.location.href = url.replace(/^https:\/\//, 'x-safari-https://');
-        // Fallback: si no funciona, intentar window.open
-        setTimeout(function(){ window.open(url, '_blank'); }, 800);
-      };
-    } else {
-      // Android: intent:// para abrir en Chrome/navegador por defecto
-      btn.textContent = 'Abrir en Chrome';
-      btn.onclick = function(){
-        var encoded = url.replace(/^https?:\/\//, '');
-        var intent = 'intent://' + encoded +
-          '#Intent;scheme=https;action=android.intent.action.VIEW;' +
-          'category=android.intent.category.BROWSABLE;' +
-          'package=com.android.chrome;end';
-        window.location.href = intent;
-        // Fallback sin forzar Chrome (abre el navegador por defecto)
-        setTimeout(function(){
-          var fallback = 'intent://' + encoded +
-            '#Intent;scheme=https;action=android.intent.action.VIEW;' +
-            'category=android.intent.category.BROWSABLE;end';
-          window.location.href = fallback;
-        }, 1500);
-      };
-    }
-  })();
-
   showLoad('Conectando...');
   await initFB();
 
@@ -2353,19 +2358,6 @@ window.addEventListener('load', async()=>{
 })();
 </script>
 
-<!-- BANNER WEBVIEW: visible solo en navegadores embebidos (Telegram, IG, etc.) -->
-<div id="open-browser-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#0f0f1a;border-bottom:2px solid #15d6a4;padding:12px 16px;">
-  <div style="display:flex;align-items:center;gap:10px;">
-    <div style="flex:1;">
-      <div style="color:#fff;font-size:0.82rem;font-weight:700;margin-bottom:2px;">Abre esto en tu navegador</div>
-      <div style="color:rgba(255,255,255,0.6);font-size:0.71rem;line-height:1.4;">Para descargar imágenes a tu galería necesitas Chrome o Safari.</div>
-    </div>
-    <button id="open-browser-btn" style="background:#15d6a4;border:none;color:#002b22;border-radius:10px;padding:9px 14px;font-size:0.78rem;font-weight:700;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;flex-shrink:0;">
-      Abrir en Chrome
-    </button>
-  </div>
-  <button onclick="document.getElementById('open-browser-banner').style.display='none'" style="position:absolute;top:6px;right:10px;background:none;border:none;color:rgba(255,255,255,0.35);font-size:1.3rem;cursor:pointer;line-height:1;padding:4px;">×</button>
-</div>
 
 <!-- MODAL POST-DESCARGA: preview + compartir + aviso WebView -->
 <div id="save-img-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.96);flex-direction:column;align-items:center;justify-content:center;padding:20px;">
