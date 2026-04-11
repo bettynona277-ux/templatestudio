@@ -4828,13 +4828,19 @@ function toggleImageFlip(axis){
   snapshotState();
 }
 function updImageBlur(value){
-  const l=layers.find(x=>x.id===selId); if(!l) return;
-  if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
-  l.blur = parseFloat(value) || 0;
-  applyImageVisuals(l);
   const lbl = document.getElementById('pp-blur-lbl');
-  if(lbl) lbl.textContent = `${l.blur}px`;
-  snapshotState();
+  if(lbl) lbl.textContent = `${parseFloat(value)||0}px`;
+  const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
+  if(!ids.length) return;
+  let applied=false;
+  ids.forEach(id=>{
+    const l=layers.find(x=>x.id===id); if(!l) return;
+    if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
+    l.blur = parseFloat(value) || 0;
+    applyImageVisuals(l);
+    applied=true;
+  });
+  if(applied) snapshotState();
 }
 
 function syncP(){
@@ -4912,17 +4918,18 @@ function syncP(){
 
 function updFrameRadiusFromPanel(v){
   document.getElementById('pp-frame-radius-lbl').textContent=v+'px';
-  const l=layers.find(x=>x.id===selId);
-  if(!l||l.type!=='frame') return;
-  l.frameRadius=parseInt(v);
-  if(l.el){
-    l.el.style.borderRadius=v+'px';
-    const clip=document.getElementById('fc-'+l.id);
-    if(clip){ clip.style.borderRadius=v+'px'; }
-    const img=document.getElementById('fi-'+l.id);
-    if(img) img.style.borderRadius=v+'px';
-    applyFrameBorder(l);
-  }
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    l.frameRadius=parseInt(v);
+    if(l.el){
+      l.el.style.borderRadius=v+'px';
+      const clip=document.getElementById('fc-'+l.id);
+      if(clip){ clip.style.borderRadius=v+'px'; }
+      const img=document.getElementById('fi-'+l.id);
+      if(img) img.style.borderRadius=v+'px';
+      applyFrameBorder(l);
+    }
+  });
   snapshotState();
 }
 
@@ -4966,8 +4973,12 @@ function updSz(a,v){
   snapshotState();
 }
 function updOp(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.el)return;
-  l.opacity=v/100;l.el.style.opacity=l.opacity;
+  const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
+  if(!ids.length) return;
+  ids.forEach(id=>{
+    const l=layers.find(x=>x.id===id); if(!l?.el) return;
+    l.opacity=v/100; l.el.style.opacity=l.opacity;
+  });
   snapshotState();
 }
 function updTxt(v){
