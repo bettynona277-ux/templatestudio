@@ -1009,9 +1009,74 @@ input[type=range]{filter:none !important;}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none !important;transition:none !important;}
 }
+
+</style>
+
+<style id="zoom-adaptive-controls">
+#cvs{
+  --ds-handle-size:12px;
+  --ds-handle-offset:-6px;
+  --ds-rotate-size:16px;
+  --ds-rotate-offset:-8px;
+  --ds-rotate-line-top:-28px;
+  --ds-rotate-line-height:16px;
+  --ds-rotate-handle-top:-42px;
+  --ds-multi-handle-size:12px;
+  --ds-multi-handle-offset:-6px;
+}
+.rh{
+  width:var(--ds-handle-size) !important;
+  height:var(--ds-handle-size) !important;
+}
+.rh.tl{top:var(--ds-handle-offset) !important;left:var(--ds-handle-offset) !important;}
+.rh.tr{top:var(--ds-handle-offset) !important;right:var(--ds-handle-offset) !important;}
+.rh.bl{bottom:var(--ds-handle-offset) !important;left:var(--ds-handle-offset) !important;}
+.rh.br{bottom:var(--ds-handle-offset) !important;right:var(--ds-handle-offset) !important;}
+.rh.tm{top:var(--ds-handle-offset) !important;left:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.bm{bottom:var(--ds-handle-offset) !important;left:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.ml{left:var(--ds-handle-offset) !important;top:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.mr{right:var(--ds-handle-offset) !important;top:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rot-line{top:var(--ds-rotate-line-top) !important;height:var(--ds-rotate-line-height) !important;}
+.rot-handle{
+  top:var(--ds-rotate-handle-top) !important;
+  width:var(--ds-rotate-size) !important;
+  height:var(--ds-rotate-size) !important;
+  margin-left:var(--ds-rotate-offset) !important;
+}
+#multi-box .mrh{
+  width:var(--ds-multi-handle-size) !important;
+  height:var(--ds-multi-handle-size) !important;
+}
+#multi-box .mrh.tl{top:var(--ds-multi-handle-offset) !important;left:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.tr{top:var(--ds-multi-handle-offset) !important;right:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.bl{bottom:var(--ds-multi-handle-offset) !important;left:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.br{bottom:var(--ds-multi-handle-offset) !important;right:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.tm{top:var(--ds-multi-handle-offset) !important;left:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.bm{bottom:var(--ds-multi-handle-offset) !important;left:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.ml{left:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.mr{right:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+</style>
+
+
+<style id="editor-safe-ux-guides-and-selection">
+.smart-guide{
+  background:rgba(35,225,178,0.78) !important;
+  opacity:0.92 !important;
+}
+.smart-guide.v{width:1px !important;}
+.smart-guide.h{height:1px !important;}
+.cel.sel{
+  outline:1px solid rgba(21,214,164,0.55) !important;
+  outline-offset:0 !important;
+}
+.cel.sel:not(.frame-el),
+.cel.frame-el.sel{
+  box-shadow:none !important;
+}
 </style>
 
 </head>
+
 <body>
 
 <div class="topbar">
@@ -1576,6 +1641,7 @@ let marqueeStart={x:0,y:0};
 let marqueeEl=null;     // the marquee div
 let rotTipEl=null;
 let multiDragStart=[];  // snapshot [{id,x,y}] when dragging group
+let multiDragStartBounds=null; // original multi-selection bounds at drag start
 let isMultiDrag=false;
 let frameSnapTarget=null; // frame layer that is currently being hovered during drag
 
@@ -1589,10 +1655,18 @@ const GRID_SIZE=10;
 const GRID_SNAP_THRESHOLD=1;
 
 function ensureSmartGuides(){
-  if(guideV&&guideH) return;
-  guideV=document.createElement('div'); guideV.className='smart-guide v';
-  guideH=document.createElement('div'); guideH.className='smart-guide h';
-  cvs.appendChild(guideV); cvs.appendChild(guideH);
+  const needsV = !guideV || !guideV.isConnected;
+  const needsH = !guideH || !guideH.isConnected;
+  if(needsV){
+    guideV=document.createElement('div');
+    guideV.className='smart-guide v';
+    cvs.appendChild(guideV);
+  }
+  if(needsH){
+    guideH=document.createElement('div');
+    guideH.className='smart-guide h';
+    cvs.appendChild(guideH);
+  }
 }
 function hideSmartGuides(){
   ensureSmartGuides();
@@ -1613,16 +1687,19 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   let x=layer.x, y=layer.y;
   const w=layer.w, h=layer.h;
   const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
+  const z = Math.max(zoom_ || 1, 0.35);
+  const snapThreshold = Math.max(3, Math.min(8, 6 / z));
+  const gridThreshold = Math.max(1, Math.min(3, 2 / z));
   let bestX={d:Infinity,val:null,guide:null};
   let bestY={d:Infinity,val:null,guide:null};
 
   const considerX=(guideX,newX)=>{
     const use=Math.abs(newX-x);
-    if(use<=SNAP_THRESHOLD && use<bestX.d) bestX={d:use,val:newX,guide:guideX};
+    if(use<=snapThreshold && use<bestX.d) bestX={d:use,val:newX,guide:guideX};
   };
   const considerY=(guideY,newY)=>{
     const use=Math.abs(newY-y);
-    if(use<=SNAP_THRESHOLD && use<bestY.d) bestY={d:use,val:newY,guide:guideY};
+    if(use<=snapThreshold && use<bestY.d) bestY={d:use,val:newY,guide:guideY};
   };
 
   // canvas edges + center
@@ -1633,13 +1710,14 @@ function applySmartSnapToLayer(layer,movingIds=[]){
     if(!o || o.id===layer.id || movingIds.includes(o.id) || o.visible===false) return;
     const ox=o.x, oy=o.y, ow=o.w, oh=o.h;
 
-    [[ox,ox],[ox+ow/2,ox+ow/2-w/2],[ox+ow,ox+ow-w]].forEach(([gx,nx])=>considerX(gx,nx));
-    [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h]].forEach(([gy,ny])=>considerY(gy,ny));
+    // same-side alignment + near-edge docking
+    [[ox,ox],[ox+ow/2,ox+ow/2-w/2],[ox+ow,ox+ow-w],[ox,ox-w],[ox+ow,ox+ow]].forEach(([gx,nx])=>considerX(gx,nx));
+    [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h],[oy,oy-h],[oy+oh,oy+oh]].forEach(([gy,ny])=>considerY(gy,ny));
   });
 
   const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
-  if(bestX.val===null && gx!==x) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
-  if(bestY.val===null && gy!==y) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
+  if(bestX.val===null && gx!==x && Math.abs(gx-x) <= gridThreshold) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
+  if(bestY.val===null && gy!==y && Math.abs(gy-y) <= gridThreshold) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
 
   if(bestX.val!==null){ x=Math.round(bestX.val); showGuideV(bestX.guide); }
   if(bestY.val!==null){ y=Math.round(bestY.val); showGuideH(bestY.guide); }
@@ -1757,8 +1835,29 @@ initMultiBoxHandles();
   });
 })();
 
+function updateControlScale(){
+  const z = Math.max(0.05, zoom_ || 1);
+  const cvsEl = document.getElementById('cvs');
+  if(!cvsEl) return;
+
+  const handlePx = z >= 1.5 ? 8 : (z >= 1 ? 9 : 10);
+  const rotatePx = z >= 1.5 ? 12 : (z >= 1 ? 13 : 14);
+  const multiPx = z >= 1.5 ? 10 : (z >= 1 ? 11 : 12);
+
+  cvsEl.style.setProperty('--ds-handle-size', `${(handlePx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-handle-offset', `${(-(handlePx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-size', `${(rotatePx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-offset', `${(-(rotatePx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-line-top', `${(-28 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-line-height', `${(16 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-handle-top', `${(-42 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-handle-size', `${(multiPx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-handle-offset', `${(-(multiPx / 2) / z).toFixed(3)}px`);
+}
+
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
+updateControlScale();
 
 // ── UNDO / REDO (MODIFIED: preserve text styles) ─────────────────────────
 const HISTORY_MAX = 50;
@@ -1769,19 +1868,12 @@ let _suppressHistory = false;
 function snapshotState(){
   if(_suppressHistory) return;
   syncLayersFromDOM();
-  // For text layers, only preserve the text content, NOT the styling
-  const snap = layers.map(l=>{
-    const base = {
-      ...l,
-      el:null,
-    };
-    if(l.type === 'text' && l.tp) {
-      base.tp = { text: l.tp.text };
-    } else if(l.tp) {
-      base.tp = {...l.tp};
-    }
-    return base;
-  });
+  // Guardar tp completo (texto + estilos) para que undo/redo restaure todo correctamente
+  const snap = layers.map(l=>({
+    ...l,
+    el: null,
+    tp: l.tp ? JSON.parse(JSON.stringify(l.tp)) : null,
+  }));
   const json = JSON.stringify(snap);
   if(historyIdx >= 0 && undoStack[historyIdx] === json) return;
 
@@ -1792,26 +1884,23 @@ function snapshotState(){
   updateUndoUI();
 }
 
-// Before restoring, store current text styles to preserve them
 function restoreSnapshot(snap){
   _suppressHistory = true;
-  // Save current text styles (keyed by id) for text layers
-  const currentTextStyles = new Map();
-  layers.forEach(l => {
-    if(l.type === 'text' && l.tp) {
-      currentTextStyles.set(l.id, JSON.parse(JSON.stringify(l.tp)));
-    }
-  });
 
   const data = JSON.parse(snap);
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
   layers = [];
   groups = {};
   gCtr = 0;
 
   data.forEach(ld=>{
-    const l = {...ld, el:null, tp: ld.tp ? {...ld.tp} : null};
+    // tp viene completo del snapshot — restaurar tal cual
+    const l = {...ld, el:null, tp: ld.tp ? JSON.parse(JSON.stringify(ld.tp)) : null};
     if(l.rotation == null) l.rotation = 0;
+    // Asegurar tp mínimo para textos que vengan sin estilos (snapshots viejos)
+    if(l.type === 'text' && !l.tp){
+      l.tp = {text:'Texto',fontSize:36,fontFamily:"'Plus Jakarta Sans'",fontWeight:'700',color:'#ffffff',align:'center',strokeColor:'#000000',strokeWidth:0,shadowBlur:0,shadowColor:'rgba(0,0,0,0.45)'};
+    }
     layers.push(l);
     mkEl(l);
     if(l.groupId){
@@ -1820,20 +1909,9 @@ function restoreSnapshot(snap){
     }
   });
 
-  // Restore text styles for existing text layers (preserve their appearance)
+  // Aplicar estilos de texto a todos los textos restaurados
   layers.forEach(l => {
-    if(l.type === 'text' && currentTextStyles.has(l.id)) {
-      const savedStyle = currentTextStyles.get(l.id);
-      // merge: keep the text from snapshot, but all styling from current
-      if(!l.tp) l.tp = { text: '' };
-      const currentText = l.tp.text || '';
-      l.tp = { ...savedStyle, text: currentText };
-      // reapply to DOM
-      const d = document.getElementById('ti-'+l.id);
-      if(d) applyTextStyles(l);
-    } else if(l.type === 'text' && !currentTextStyles.has(l.id)) {
-      // newly created text layer (maybe via addText) - ensure it has a proper tp
-      if(!l.tp) l.tp = { text: 'Texto', fontSize: 36, fontFamily: "'Plus Jakarta Sans'", fontWeight: '700', color: '#ffffff', align: 'center', strokeColor: '#000000', strokeWidth: 0, shadowBlur: 0, shadowColor: 'rgba(0,0,0,0.45)' };
+    if(l.type === 'text' && l.tp){
       const d = document.getElementById('ti-'+l.id);
       if(d) applyTextStyles(l);
     }
@@ -2698,7 +2776,7 @@ async function processPSD(file){
 
 async function loadPSDData(data){
   // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
   layers=[]; lCtr=0;
   // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
   cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
@@ -2716,6 +2794,7 @@ async function loadPSDData(data){
     zoom_=Math.max(0.1, Math.round(zoom_*100)/100);
     cvs.style.transform=`scale(${zoom_})`;
     document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+    updateControlScale();
   }, 100);
 
   const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
@@ -3198,16 +3277,14 @@ document.addEventListener('click',ev=>{
 
 // ── CASE TOGGLE ───────────────────────────────────────────────
 function toggleCase(mode){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  const d=document.getElementById('ti-'+selId);if(!d)return;
-  if(mode==='upper'){
-    l.tp.textTransform = l.tp.textTransform==='uppercase'?'none':'uppercase';
-  } else {
-    l.tp.textTransform = l.tp.textTransform==='lowercase'?'none':'lowercase';
-  }
-  applyTextStyles(l);
-  document.getElementById('fmt-upper').classList.toggle('active',l.tp.textTransform==='uppercase');
-  document.getElementById('fmt-lower').classList.toggle('active',l.tp.textTransform==='lowercase');
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  const first=ls[0];
+  const newTransform = mode==='upper'
+    ? (first.tp.textTransform==='uppercase'?'none':'uppercase')
+    : (first.tp.textTransform==='lowercase'?'none':'lowercase');
+  ls.forEach(l=>{ l.tp.textTransform=newTransform; applyTextStyles(l); });
+  document.getElementById('fmt-upper').classList.toggle('active',newTransform==='uppercase');
+  document.getElementById('fmt-lower').classList.toggle('active',newTransform==='lowercase');
   snapshotState();
 }
 
@@ -3488,17 +3565,18 @@ function addFrame(type){
 }
 function updFrameRadius(v){
   document.getElementById('frame-radius-lbl').textContent=v+'px';
-  const l=layers.find(x=>x.id===selId);
-  if(!l||l.type!=='frame')return;
-  l.frameRadius=parseInt(v);
-  if(l.el){
-    l.el.style.borderRadius=v+'px';
-    const clip=document.getElementById('fc-'+l.id);
-    if(clip) clip.style.borderRadius=v+'px';
-    const img=document.getElementById('fi-'+l.id);
-    if(img) img.style.borderRadius=v+'px';
-    applyFrameBorder(l);
-  }
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    l.frameRadius=parseInt(v);
+    if(l.el){
+      l.el.style.borderRadius=v+'px';
+      const clip=document.getElementById('fc-'+l.id);
+      if(clip) clip.style.borderRadius=v+'px';
+      const img=document.getElementById('fi-'+l.id);
+      if(img) img.style.borderRadius=v+'px';
+      applyFrameBorder(l);
+    }
+  });
   snapshotState();
 }
 
@@ -3850,8 +3928,11 @@ function startDrag(ev, id){
   if(ev.altKey){
     const srcL = layers.find(x=>x.id===id);
     if(srcL?.locked) return;
-    duplicateSelected(id);
-    return;
+    // noOffset=true: la copia aparece exactamente encima del original
+    // y el drag la mueve sin salto inicial
+    const duplicatedIds = duplicateSelected(id, true);
+    if(!duplicatedIds?.length) return;
+    id = duplicatedIds[0];
   }
   const draggedL = layers.find(x=>x.id===id);
   // When dragging an image, disable pointer-events on all frames so they don't intercept
@@ -3867,8 +3948,15 @@ function startDrag(ev, id){
       return {id:sid, x:l.x, y:l.y};
     }).filter(Boolean);
     const cr=cvs.getBoundingClientRect();
-    dOff.x=(ev.clientX-cr.left)/zoom_;
-    dOff.y=(ev.clientY-cr.top)/zoom_;
+    const b=getMultiBounds(selIds);
+    multiDragStartBounds = b ? {...b} : null;
+    const mxStart=(ev.clientX-cr.left)/zoom_;
+    const myStart=(ev.clientY-cr.top)/zoom_;
+    dOff.x=mxStart-(b?.x||0);
+    dOff.y=myStart-(b?.y||0);
+    dOff.startX=b?.x||0; dOff.startY=b?.y||0;
+    dOff.mouseStartX=mxStart; dOff.mouseStartY=myStart;
+    dOff.axisLocked=null;
     isDrag=true;
   } else {
     const l=layers.find(x=>x.id===id);
@@ -3876,14 +3964,24 @@ function startDrag(ev, id){
     if(l.locked) return; // no arrastrar capas bloqueadas
     isDrag=true;
     const cr=cvs.getBoundingClientRect();
-    dOff.x=(ev.clientX-cr.left)/zoom_-l.x;
-    dOff.y=(ev.clientY-cr.top)/zoom_-l.y;
+    const mouseX=(ev.clientX-cr.left)/zoom_;
+    const mouseY=(ev.clientY-cr.top)/zoom_;
+    dOff.x=mouseX-l.x;
+    dOff.y=mouseY-l.y;
+    // startX/Y = posición del mouse al iniciar (no de la capa)
+    // Así Shift-drag bloquea el eje desde donde el mouse está,
+    // no desde el offset de la capa (que puede ser distinto tras duplicar)
+    dOff.startX=mouseX-dOff.x; // = l.x, pero calculado limpiamente
+    dOff.startY=mouseY-dOff.y; // = l.y
+    dOff.mouseStartX=mouseX;   // posición real del mouse para Shift
+    dOff.mouseStartY=mouseY;
+    dOff.axisLocked=null;
   }
   ev.preventDefault();
 }
 
 // ── DUPLICATE SELECTED ────────────────────────────────────────
-function duplicateSelected(sourceId){
+function duplicateSelected(sourceId, noOffset=false){
   let ids = selIds.length>1 ? selIds : (sourceId!==undefined ? [sourceId] : (selId!==null?[selId]:[]));
   if(!ids.length) return;
   // No duplicar si TODAS las capas están bloqueadas
@@ -3914,7 +4012,9 @@ function duplicateSelected(sourceId){
   ids.forEach(id=>{
     const l=layers.find(x=>x.id===id); if(!l) return;
     const nl={...JSON.parse(JSON.stringify(l)), id:lCtr++, el:null, locked:false};
-    nl.x+=18; nl.y+=18;
+    // noOffset=true cuando viene de Alt+drag: la copia queda encima del original
+    // y el drag la mueve desde el primer momento sin salto
+    if(!noOffset){ nl.x+=18; nl.y+=18; }
     nl.zIndex=layers.length;
     if(nl.tp) nl.tp={...nl.tp};
     // Remap groupId: duplicated layers get a NEW group id (independent from original)
@@ -3933,6 +4033,7 @@ function duplicateSelected(sourceId){
   renderList();
   selMulti(newIds);
   snapshotState();
+  return newIds;
 }
 
 function startRes(ev,id,c){
@@ -4070,23 +4171,52 @@ document.addEventListener('mousemove',ev=>{
     const cr=cvs.getBoundingClientRect();
     const mx=(ev.clientX-cr.left)/zoom_, my=(ev.clientY-cr.top)/zoom_;
     if(isMultiDrag){
-      const dx=mx-dOff.x, dy=my-dOff.y;
       const ids=[...selIds];
       if(ids.length){
-        const box=getMultiBounds(ids);
-        const ghost={id:-1,x:box.x+dx,y:box.y+dy,w:box.w,h:box.h};
-        const snapped=applySmartSnapToLayer(ghost, ids);
-        const sdx=snapped.x-box.x, sdy=snapped.y-box.y;
-        multiDragStart.forEach(({id,x,y})=>{
-          const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
-          l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
-          l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
-        });
+        const baseBox = multiDragStartBounds || getMultiBounds(ids);
+        if(baseBox){
+          let nextX = mx - dOff.x;
+          let nextY = my - dOff.y;
+          // Shift: bloquear eje desde donde empezó el mouse
+          if(ev.shiftKey){
+            const ox=dOff.startX, oy=dOff.startY;
+            const dx=Math.abs(nextX-ox), dy=Math.abs(nextY-oy);
+            if(!dOff.axisLocked){
+              if(dx>6||dy>6) dOff.axisLocked = dx>=dy ? 'h' : 'v';
+            }
+            if(dOff.axisLocked==='h') nextY=oy;
+            if(dOff.axisLocked==='v') nextX=ox;
+          } else {
+            dOff.axisLocked=null;
+          }
+          const ghost={id:-1,x:nextX,y:nextY,w:baseBox.w,h:baseBox.h};
+          const snapped=applySmartSnapToLayer(ghost, ids);
+          const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
+          multiDragStart.forEach(({id,x,y})=>{
+            const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
+            l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
+            l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+          });
+        }
       }
       updateMultiBox(); syncP(); return;
     }
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
-    l.x=(mx-dOff.x); l.y=(my-dOff.y);
+    let nx=mx-dOff.x, ny=my-dOff.y;
+    // Shift: bloquear al eje con más desplazamiento desde donde empezó el mouse
+    if(ev.shiftKey){
+      const originX = dOff.mouseStartX!==undefined ? dOff.mouseStartX-dOff.x : dOff.startX;
+      const originY = dOff.mouseStartY!==undefined ? dOff.mouseStartY-dOff.y : dOff.startY;
+      const dx=Math.abs(nx-originX), dy=Math.abs(ny-originY);
+      if(!dOff.axisLocked){
+        if(dx>6||dy>6) dOff.axisLocked = dx>=dy ? 'h' : 'v';
+      }
+      if(dOff.axisLocked==='h') ny=originY;
+      if(dOff.axisLocked==='v') nx=originX;
+    } else {
+      dOff.axisLocked=null;
+    }
+    l.x=nx; l.y=ny;
     const snapped=applySmartSnapToLayer(l, selIds);
     l.x=snapped.x; l.y=snapped.y;
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
@@ -4262,7 +4392,7 @@ document.addEventListener('mouseup',ev=>{
       applyImageToFrame(targetFrame, srcToInsert);
       renderList();
       snapshotState();
-      isDrag=false; isRes=false; isMultiDrag=false; rSt={};
+      isDrag=false; isRes=false; isMultiDrag=false; rSt={}; dOff.axisLocked=null;
       return;
     }
   }
@@ -4270,7 +4400,7 @@ document.addEventListener('mouseup',ev=>{
   hideSmartGuides();
 
   if(isDrag || isRes) snapshotState();
-  isDrag=false; isRes=false; isMultiDrag=false; rSt={};
+  isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff.axisLocked=null;
 });
 
 // SCROLL TO SCALE
@@ -4516,21 +4646,39 @@ function updatePropertyPanelState(targetLayer=null){
   if(el) el.style.display = hasSelection ? 'block' : 'none';
   if(general) general.style.display = 'none';
 
+  // En multi-selección: mostrar panel si TODAS las capas son del mismo tipo
+  let multiAllText=false, multiAllFrame=false, multiAllImage=false;
+  if(isMulti){
+    const multiLayers = selIds.map(id=>layers.find(x=>x.id===id)).filter(Boolean);
+    multiAllText  = multiLayers.every(ml=>ml.type==='text');
+    multiAllFrame = multiLayers.every(ml=>ml.type==='frame');
+    // imagen = tipo img o marco con imagen (para el slider de desenfoque)
+    multiAllImage = multiLayers.every(ml=>
+      ml.type==='img' ||
+      (ml.type==='frame' && !!ml.frameImage)
+    );
+  }
+
   const txt=document.getElementById('pp-txt');
-  if(txt) txt.classList.toggle('panel-hidden', !(isText && !isMulti));
+  if(txt) txt.classList.toggle('panel-hidden', !(isText || multiAllText));
 
   const frame=document.getElementById('pp-frame');
-  if(frame) frame.classList.toggle('panel-hidden', !(isFrame && !isMulti));
+  if(frame) frame.classList.toggle('panel-hidden', !(isFrame || multiAllFrame));
 
+  // Mostrar blur cuando la selección son imágenes/marcos con imagen
   const img=document.getElementById('pp-img');
-  if(img) img.classList.toggle('panel-hidden', !(isImage && !isMulti));
+  if(img) img.classList.toggle('panel-hidden', !(isImage || multiAllImage || multiAllFrame));
 
   const shape=document.getElementById('pp-shape');
   if(shape) shape.classList.toggle('panel-hidden', !(isShape && !isMulti));
 
   const chip=document.getElementById('pp-type-chip');
   if(chip){
-    chip.textContent = isMulti ? `${selIds.length} capas` : (isText ? 'Texto' : isShape ? 'Forma' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento');
+    if(isMulti){
+      chip.textContent = multiAllText ? `${selIds.length} textos` : multiAllFrame ? `${selIds.length} marcos` : `${selIds.length} capas`;
+    } else {
+      chip.textContent = isText ? 'Texto' : isShape ? 'Forma' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento';
+    }
   }
 }
 
@@ -4601,35 +4749,41 @@ function applyFrameBorder(layer){
   layer.el.appendChild(ov);
 }
 function updFrameShadow(v){
-  const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
-  if(v!==undefined){ l.frameShadow=parseInt(v)||0; }
-  l.frameShadowColor = document.getElementById('pp-frame-shadow-c')?.value||'#000000';
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  const sc=document.getElementById('pp-frame-shadow-c')?.value||'#000000';
   const opEl=document.getElementById('pp-frame-shadow-op');
-  if(opEl){ l.frameShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-shadow-op-lbl'); if(lop) lop.textContent=l.frameShadowOp+'%'; }
-  const lbl=document.getElementById('pp-frame-shadow-lbl'); if(lbl) lbl.textContent=(l.frameShadow||0)+'px';
-  applyFrameBorder(l); // snapshot al soltar slider — ver change listeners
+  const opVal=opEl?parseInt(opEl.value):22;
+  if(opEl){ const lop=document.getElementById('pp-frame-shadow-op-lbl'); if(lop) lop.textContent=opVal+'%'; }
+  const lbl=document.getElementById('pp-frame-shadow-lbl'); if(lbl) lbl.textContent=(parseInt(v)||0)+'px';
+  ls.forEach(l=>{
+    if(v!==undefined) l.frameShadow=parseInt(v)||0;
+    l.frameShadowColor=sc; l.frameShadowOp=opVal;
+    applyFrameBorder(l);
+  });
 }
 function updFrameInnerShadow(v){
-  const l=layers.find(x=>x.id===selId); if(!l||l.type!=='frame') return;
-  if(v!==undefined){ l.frameInnerShadow=parseInt(v)||0; }
-  l.frameInnerShadowColor = document.getElementById('pp-frame-inner-shadow-c')?.value||'#000000';
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  const ic=document.getElementById('pp-frame-inner-shadow-c')?.value||'#000000';
   const opEl=document.getElementById('pp-frame-inner-shadow-op');
-  if(opEl){ l.frameInnerShadowOp=parseInt(opEl.value); const lop=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(lop) lop.textContent=l.frameInnerShadowOp+'%'; }
-  const lbl=document.getElementById('pp-frame-inner-shadow-lbl'); if(lbl) lbl.textContent=(l.frameInnerShadow||0)+'px';
-  applyFrameBorder(l); // snapshot al soltar slider
+  const opVal=opEl?parseInt(opEl.value):28;
+  if(opEl){ const lop=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(lop) lop.textContent=opVal+'%'; }
+  const lbl=document.getElementById('pp-frame-inner-shadow-lbl'); if(lbl) lbl.textContent=(parseInt(v)||0)+'px';
+  ls.forEach(l=>{
+    if(v!==undefined) l.frameInnerShadow=parseInt(v)||0;
+    l.frameInnerShadowColor=ic; l.frameInnerShadowOp=opVal;
+    applyFrameBorder(l);
+  });
 }
 
 function updFrameBorderWidth(v){
-  const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
-  l.frameBorderWidth = parseInt(v||0);
-  applyFrameBorder(l); syncP();
-  snapshotState();
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  ls.forEach(l=>{ l.frameBorderWidth=parseInt(v||0); applyFrameBorder(l); });
+  syncP(); snapshotState();
 }
 function updFrameBorderColor(v){
-  const l = layers.find(x=>x.id===selId); if(!l || l.type!=='frame') return;
-  l.frameBorderColor = v || '#00ffc3';
-  applyFrameBorder(l); syncP();
-  snapshotState();
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  ls.forEach(l=>{ l.frameBorderColor=v||'#00ffc3'; applyFrameBorder(l); });
+  syncP(); snapshotState();
 }
 
 
@@ -4659,13 +4813,19 @@ function toggleImageFlip(axis){
   snapshotState();
 }
 function updImageBlur(value){
-  const l=layers.find(x=>x.id===selId); if(!l) return;
-  if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
-  l.blur = parseFloat(value) || 0;
-  applyImageVisuals(l);
   const lbl = document.getElementById('pp-blur-lbl');
-  if(lbl) lbl.textContent = `${l.blur}px`;
-  snapshotState();
+  if(lbl) lbl.textContent = `${parseFloat(value)||0}px`;
+  const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
+  if(!ids.length) return;
+  let applied=false;
+  ids.forEach(id=>{
+    const l=layers.find(x=>x.id===id); if(!l) return;
+    if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
+    l.blur = parseFloat(value) || 0;
+    applyImageVisuals(l);
+    applied=true;
+  });
+  if(applied) snapshotState();
 }
 
 function syncP(){
@@ -4743,17 +4903,18 @@ function syncP(){
 
 function updFrameRadiusFromPanel(v){
   document.getElementById('pp-frame-radius-lbl').textContent=v+'px';
-  const l=layers.find(x=>x.id===selId);
-  if(!l||l.type!=='frame') return;
-  l.frameRadius=parseInt(v);
-  if(l.el){
-    l.el.style.borderRadius=v+'px';
-    const clip=document.getElementById('fc-'+l.id);
-    if(clip){ clip.style.borderRadius=v+'px'; }
-    const img=document.getElementById('fi-'+l.id);
-    if(img) img.style.borderRadius=v+'px';
-    applyFrameBorder(l);
-  }
+  const ls=getSelectedFrameLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    l.frameRadius=parseInt(v);
+    if(l.el){
+      l.el.style.borderRadius=v+'px';
+      const clip=document.getElementById('fc-'+l.id);
+      if(clip){ clip.style.borderRadius=v+'px'; }
+      const img=document.getElementById('fi-'+l.id);
+      if(img) img.style.borderRadius=v+'px';
+      applyFrameBorder(l);
+    }
+  });
   snapshotState();
 }
 
@@ -4797,8 +4958,12 @@ function updSz(a,v){
   snapshotState();
 }
 function updOp(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.el)return;
-  l.opacity=v/100;l.el.style.opacity=l.opacity;
+  const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
+  if(!ids.length) return;
+  ids.forEach(id=>{
+    const l=layers.find(x=>x.id===id); if(!l?.el) return;
+    l.opacity=v/100; l.el.style.opacity=l.opacity;
+  });
   snapshotState();
 }
 function updTxt(v){
@@ -4809,24 +4974,41 @@ function updTxt(v){
   snapshotState();
 }
 
+// ── Helper: capas de texto en la selección actual ──
+function getSelectedTextLayers(){
+  if(selIds.length > 1){
+    return selIds.map(id=>layers.find(x=>x.id===id)).filter(l=>l?.type==='text' && l.tp);
+  }
+  const l = layers.find(x=>x.id===selId);
+  return (l?.type==='text' && l.tp) ? [l] : [];
+}
+// Helper: capas de marco en la selección actual
+function getSelectedFrameLayers(){
+  if(selIds.length > 1){
+    return selIds.map(id=>layers.find(x=>x.id===id)).filter(l=>l?.type==='frame');
+  }
+  const l = layers.find(x=>x.id===selId);
+  return l?.type==='frame' ? [l] : [];
+}
+
 // Font size: update ONLY font size, not box size
 function updTxtSize(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.fontSize=parseInt(v)||16;
-  applyTextStyles(l);
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{ l.tp.fontSize=parseInt(v)||16; applyTextStyles(l); });
   snapshotState();
 }
 
 function updTS(p,v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  const d=document.getElementById('ti-'+selId);if(!d)return;
-  if(p==='color') l.tp.color=v;
-  else if(p==='fontFamily') l.tp.fontFamily=v;
-  else if(p==='fontWeight') l.tp.fontWeight=v;
-  else if(p==='textAlign') l.tp.align=v;
-  else if(p==='letterSpacing') l.tp.letterSpacing=parseFloat(v)||0;
-  else if(p==='lineHeight') l.tp.lineHeight=parseFloat(v)||1.2;
-  applyTextStyles(l);
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    if(p==='color') l.tp.color=v;
+    else if(p==='fontFamily') l.tp.fontFamily=v;
+    else if(p==='fontWeight') l.tp.fontWeight=v;
+    else if(p==='textAlign') l.tp.align=v;
+    else if(p==='letterSpacing') l.tp.letterSpacing=parseFloat(v)||0;
+    else if(p==='lineHeight') l.tp.lineHeight=parseFloat(v)||1.2;
+    applyTextStyles(l);
+  });
   if(p==='color'){
     const hex=document.getElementById('pp-fc-hex');
     if(hex) hex.value = v;
@@ -4835,22 +5017,23 @@ function updTS(p,v){
 }
 
 function toggleFmt(type){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  const d=document.getElementById('ti-'+selId);if(!d)return;
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  // Determinar nuevo valor basado en la primera capa
+  const first=ls[0];
   if(type==='bold'){
-    const isBold=l.tp.fontWeight>='700';
-    l.tp.fontWeight=isBold?'400':'700';
-    document.getElementById('pp-fw').value=l.tp.fontWeight;
-    applyTextStyles(l);
+    const isBold=first.tp.fontWeight>='700';
+    const newW=isBold?'400':'700';
+    ls.forEach(l=>{ l.tp.fontWeight=newW; applyTextStyles(l); });
+    document.getElementById('pp-fw').value=newW;
     document.getElementById('fmt-b').classList.toggle('active',!isBold);
   } else if(type==='italic'){
-    l.tp.italic=!l.tp.italic;
-    document.getElementById('fmt-i').classList.toggle('active',l.tp.italic);
-    applyTextStyles(l);
+    const newVal=!first.tp.italic;
+    ls.forEach(l=>{ l.tp.italic=newVal; applyTextStyles(l); });
+    document.getElementById('fmt-i').classList.toggle('active',newVal);
   } else if(type==='underline'){
-    l.tp.underline=!l.tp.underline;
-    document.getElementById('fmt-u').classList.toggle('active',l.tp.underline);
-    applyTextStyles(l);
+    const newVal=!first.tp.underline;
+    ls.forEach(l=>{ l.tp.underline=newVal; applyTextStyles(l); });
+    document.getElementById('fmt-u').classList.toggle('active',newVal);
   }
   snapshotState();
 }
@@ -4902,22 +5085,20 @@ function applyTextStyles(layer){
 }
 
 function updStroke(){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.strokeColor=document.getElementById('pp-stroke-c').value;
-  l.tp.strokeWidth=parseInt(document.getElementById('pp-stroke-w').value)||0;
-  applyTextStyles(l);
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  const sc=document.getElementById('pp-stroke-c').value;
+  const sw=parseInt(document.getElementById('pp-stroke-w').value)||0;
+  ls.forEach(l=>{ l.tp.strokeColor=sc; l.tp.strokeWidth=sw; applyTextStyles(l); });
   snapshotState();
 }
 function updTextShadow(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.shadowBlur=parseInt(v)||0;
-  applyTextStyles(l);
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{ l.tp.shadowBlur=parseInt(v)||0; applyTextStyles(l); });
   snapshotState();
 }
 function updTextShadowColor(v){
-  const l=layers.find(x=>x.id===selId);if(!l?.tp)return;
-  l.tp.shadowColor=v;
-  applyTextStyles(l);
+  const ls=getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{ l.tp.shadowColor=v; applyTextStyles(l); });
   snapshotState();
 }
 
@@ -5022,11 +5203,17 @@ function applyCanvasSize(){
   zoom_=Math.round(zoom_*100)/100;
   cvs.style.transform=`scale(${zoom_})`;
   document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  updateControlScale();
   document.getElementById('size-overlay').classList.remove('open');
 }
 
 // ZOOM
-function doZoom(d){zoom_=Math.min(3,Math.max(0.05,zoom_+d));cvs.style.transform=`scale(${zoom_})`;document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';}
+function doZoom(d){
+  zoom_=Math.min(3,Math.max(0.05,zoom_+d));
+  cvs.style.transform=`scale(${zoom_})`;
+  document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  updateControlScale();
+}
 
 // ── PAN (middle mouse or Space+drag) ─────────────────────────
 let isPan=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
@@ -5146,6 +5333,7 @@ function setClientUI(){
   }
   csbtn.style.display='';
   desel();
+  ensureSmartGuides();
 }
 
 function setAdminUI(){
@@ -5161,6 +5349,7 @@ function setAdminUI(){
   const rnbtn=document.getElementById('btn-client-rename'); if(rnbtn) rnbtn.style.display='none';
   const csbtn=document.getElementById('btn-client-save'); if(csbtn) csbtn.style.display='none';
   desel();
+  ensureSmartGuides();
 }
 
 // Client design save
@@ -5913,7 +6102,10 @@ async function downloadPNG(){
     document.querySelectorAll('.rh,.sz-hint').forEach(e=>e.style.removeProperty('display'));
 
     const a = document.createElement('a');
-    a.download = 'mi-diseno.png';
+    // Usar nombre del diseño/plantilla — admin usa tplName, cliente usa currentClientDesignName
+    const rawName = (currentClientDesignName || tplName || 'mi-diseno').trim();
+    const safeDlName = rawName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g, '').trim() || 'mi-diseno';
+    a.download = safeDlName + '.png';
     a.href = c.toDataURL('image/png');
     a.click();
     showToast('✓ PNG descargado');
@@ -6390,7 +6582,7 @@ function loadData(tpl){
 
   // Remove all .cel elements but keep multi-box and marquee
   Array.from(cvs.children).forEach(el=>{
-    if(el.id!=='multi-box' && el.id!=='marquee-el') el.remove();
+    if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove();
   });
   layers=[]; lCtr=0;
 
@@ -6467,6 +6659,7 @@ function loadData(tpl){
     zoom_=Math.max(0.1, Math.round(zoom_*100)/100);
     cvs.style.transform=`scale(${zoom_})`;
     document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+    updateControlScale();
   },100);
 
   // Re-init multi-box handles (they survived the innerHTML clear)
@@ -6573,6 +6766,62 @@ function addImageLayerFromUrl(url){
   img.src = proxyUrl;
 }
 
+function getCanvasDims(){
+  return {
+    w: parseInt(cvs.style.width) || cvs.clientWidth || 1080,
+    h: parseInt(cvs.style.height) || cvs.clientHeight || 1080
+  };
+}
+
+function getTempBounds(ls){
+  if(!ls?.length) return null;
+  const minX = Math.min(...ls.map(l => l.x));
+  const minY = Math.min(...ls.map(l => l.y));
+  const maxX = Math.max(...ls.map(l => l.x + (l.w || 0)));
+  const maxY = Math.max(...ls.map(l => l.y + (l.h || 0)));
+  return { x:minX, y:minY, w:maxX-minX, h:maxY-minY };
+}
+
+function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
+  if(!ls?.length) return;
+  const b = getTempBounds(ls);
+  if(!b) return;
+
+  let dx = 0, dy = 0;
+
+  if(b.w >= cw - margin*2){
+    dx = Math.round((cw - b.w) / 2 - b.x);
+  } else if(b.x < margin){
+    dx = Math.round(margin - b.x);
+  } else if(b.x + b.w > cw - margin){
+    dx = Math.round((cw - margin) - (b.x + b.w));
+  }
+
+  if(b.h >= ch - margin*2){
+    dy = Math.round((ch - b.h) / 2 - b.y);
+  } else if(b.y < margin){
+    dy = Math.round(margin - b.y);
+  } else if(b.y + b.h > ch - margin){
+    dy = Math.round((ch - margin) - (b.y + b.h));
+  }
+
+  if(dx || dy){
+    ls.forEach(l=>{
+      l.x = Math.round(l.x + dx);
+      l.y = Math.round(l.y + dy);
+    });
+  }
+
+  ls.forEach(l=>{
+    if((l.w || 0) < cw - margin*2){
+      l.x = Math.min(cw - margin - (l.w || 0), Math.max(margin, l.x));
+    }
+    if((l.h || 0) < ch - margin*2){
+      l.y = Math.min(ch - margin - (l.h || 0), Math.max(margin, l.y));
+    }
+  });
+}
+
 async function pasteLayers(){
   // Lógica: el portapapeles del SISTEMA tiene prioridad si tiene URL o imagen
   // El portapapeles INTERNO tiene prioridad si tiene capas (Ctrl+C en el editor)
@@ -6656,13 +6905,14 @@ async function pasteLayers(){
     // Ordenar por zIndex original para preservar el orden de apilamiento al pegar
     copied.sort((a,b)=>(a.zIndex??0)-(b.zIndex??0));
     const newIds = [];
+    const prepared = [];
+    const { w:cw, h:ch } = getCanvasDims();
     // Calcular offset para que no se pegue encima
     const offset = 20;
     copied.forEach(l=>{
       const nl = {...JSON.parse(JSON.stringify(l)), id: lCtr++, el: null};
       nl.x += offset;
       nl.y += offset;
-      nl.zIndex = layers.length;
       // Formas: regenerar blob SVG (el src anterior ya no existe entre sesiones)
       if(nl.isShape && (!nl.src || nl.src.startsWith('blob:'))){
         const svgFill = buildShapeSvgFill(nl.shapeType||'rect', nl.shapeFill||'#4F8EF7', nl.w, nl.h, {rx: nl.shapeRadius??20});
@@ -6671,13 +6921,17 @@ async function pasteLayers(){
       }
       // Nuevo groupId si tenía grupo
       if(nl.groupId){
-        // Crear nuevo groupId único por grupo
         if(!pasteLayers._gmap) pasteLayers._gmap = {};
         if(!pasteLayers._gmap[nl.groupId]){
           pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
         }
         nl.groupId = pasteLayers._gmap[nl.groupId];
       }
+      prepared.push(nl);
+    });
+    keepPastedLayersInsideCanvas(prepared, cw, ch);
+    prepared.forEach(nl=>{
+      nl.zIndex = layers.length;
       layers.push(nl);
       mkEl(nl);
       newIds.push(nl.id);
