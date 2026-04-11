@@ -1009,6 +1009,52 @@ input[type=range]{filter:none !important;}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none !important;transition:none !important;}
 }
+
+</style>
+
+<style id="zoom-adaptive-controls">
+#cvs{
+  --ds-handle-size:12px;
+  --ds-handle-offset:-6px;
+  --ds-rotate-size:16px;
+  --ds-rotate-offset:-8px;
+  --ds-rotate-line-top:-28px;
+  --ds-rotate-line-height:16px;
+  --ds-rotate-handle-top:-42px;
+  --ds-multi-handle-size:12px;
+  --ds-multi-handle-offset:-6px;
+}
+.rh{
+  width:var(--ds-handle-size) !important;
+  height:var(--ds-handle-size) !important;
+}
+.rh.tl{top:var(--ds-handle-offset) !important;left:var(--ds-handle-offset) !important;}
+.rh.tr{top:var(--ds-handle-offset) !important;right:var(--ds-handle-offset) !important;}
+.rh.bl{bottom:var(--ds-handle-offset) !important;left:var(--ds-handle-offset) !important;}
+.rh.br{bottom:var(--ds-handle-offset) !important;right:var(--ds-handle-offset) !important;}
+.rh.tm{top:var(--ds-handle-offset) !important;left:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.bm{bottom:var(--ds-handle-offset) !important;left:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.ml{left:var(--ds-handle-offset) !important;top:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rh.mr{right:var(--ds-handle-offset) !important;top:calc(50% - (var(--ds-handle-size) / 2)) !important;}
+.rot-line{top:var(--ds-rotate-line-top) !important;height:var(--ds-rotate-line-height) !important;}
+.rot-handle{
+  top:var(--ds-rotate-handle-top) !important;
+  width:var(--ds-rotate-size) !important;
+  height:var(--ds-rotate-size) !important;
+  margin-left:var(--ds-rotate-offset) !important;
+}
+#multi-box .mrh{
+  width:var(--ds-multi-handle-size) !important;
+  height:var(--ds-multi-handle-size) !important;
+}
+#multi-box .mrh.tl{top:var(--ds-multi-handle-offset) !important;left:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.tr{top:var(--ds-multi-handle-offset) !important;right:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.bl{bottom:var(--ds-multi-handle-offset) !important;left:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.br{bottom:var(--ds-multi-handle-offset) !important;right:var(--ds-multi-handle-offset) !important;}
+#multi-box .mrh.tm{top:var(--ds-multi-handle-offset) !important;left:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.bm{bottom:var(--ds-multi-handle-offset) !important;left:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.ml{left:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrh.mr{right:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
 </style>
 
 </head>
@@ -1757,8 +1803,29 @@ initMultiBoxHandles();
   });
 })();
 
+function updateControlScale(){
+  const z = Math.max(0.05, zoom_ || 1);
+  const cvsEl = document.getElementById('cvs');
+  if(!cvsEl) return;
+
+  const handlePx = z >= 1.5 ? 8 : (z >= 1 ? 9 : 10);
+  const rotatePx = z >= 1.5 ? 12 : (z >= 1 ? 13 : 14);
+  const multiPx = z >= 1.5 ? 10 : (z >= 1 ? 11 : 12);
+
+  cvsEl.style.setProperty('--ds-handle-size', `${(handlePx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-handle-offset', `${(-(handlePx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-size', `${(rotatePx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-offset', `${(-(rotatePx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-line-top', `${(-28 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-line-height', `${(16 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-rotate-handle-top', `${(-42 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-handle-size', `${(multiPx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-handle-offset', `${(-(multiPx / 2) / z).toFixed(3)}px`);
+}
+
 // Set initial zoom
 cvs.style.transform=`scale(${zoom_})`;
+updateControlScale();
 
 // ── UNDO / REDO (MODIFIED: preserve text styles) ─────────────────────────
 const HISTORY_MAX = 50;
@@ -2716,6 +2783,7 @@ async function loadPSDData(data){
     zoom_=Math.max(0.1, Math.round(zoom_*100)/100);
     cvs.style.transform=`scale(${zoom_})`;
     document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+    updateControlScale();
   }, 100);
 
   const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
@@ -2887,13 +2955,23 @@ function renderLogoLibrary(){
     if(ch.id !== 'logo-library-empty') ch.remove();
   });
 
+  const catIcon = name => {
+    const n = (name||'').toLowerCase();
+    if(n.includes('oficial')) return '🏆';
+    if(n.includes('distorsion') || n.includes('distort')) return '🎨';
+    if(n.includes('streaming') || n.includes('plataforma')) return '📺';
+    if(n.includes('musica') || n.includes('música')) return '🎵';
+    if(n.includes('deporte') || n.includes('sport')) return '⚽';
+    return '📁';
+  };
+
   orderedCats.forEach((cat, idx)=>{
     const logos = groups[cat];
     const wrap = document.createElement('div');
-    wrap.className = 'logo-acc-wrap' + (idx===0?' logo-acc-open':'');
+    wrap.className = 'logo-acc-wrap'; // Todos cerrados por defecto — usuario elige cuál abrir
     wrap.innerHTML = `
       <div class="logo-acc-header" onclick="this.parentElement.classList.toggle('logo-acc-open')">
-        <span class="logo-acc-htitle">${cat} <span class="logo-acc-count">${logos.length}</span></span>
+        <span class="logo-acc-htitle">${catIcon(cat)} ${cat} <span class="logo-acc-count">${logos.length}</span></span>
         <span class="logo-acc-arrow">▼</span>
       </div>
       <div class="logo-acc-body">
@@ -3027,17 +3105,65 @@ async function uploadLibraryLogos(ev){
   const files=Array.from(ev.target.files); ev.target.value='';
   if(!files.length) return;
   if(!fbDb){ alert('Conecta Firebase primero'); return; }
+  // Pedir categoría al admin antes de subir
+  const categoria = await promptLogoCategory();
+  if(categoria === null) return; // Canceló
   showToast('Subiendo logos...');
   for(const file of files){
     try{
       const reader=new FileReader();
       const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
       const url=await uploadToStorage(dataUrl,`logos/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
-      await fbDb.collection('logos').add({url,name:file.name,createdAt:Date.now()});
+      await fbDb.collection('logos').add({url,name:file.name,categoria,createdAt:Date.now()});
     }catch(e){ console.warn('Logo upload failed:',e.message); }
   }
   showToast('✓ Logos subidos');
   loadLogoLibrary();
+}
+
+// Diálogo para elegir categoría al subir logos de plataforma
+function promptLogoCategory(){
+  return new Promise(resolve=>{
+    // Recopilar categorías existentes del cache
+    const existingCats = [...new Set(logoLibCache.map(l=>l.categoria||'Logos oficiales'))].sort();
+    const defaultCats = ['Logos oficiales','Logos distorsionados'];
+    const allCats = [...new Set([...defaultCats,...existingCats])];
+
+    // Crear modal simple
+    const overlay = document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText='background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:20px;min-width:260px;max-width:320px;';
+    box.innerHTML=`
+      <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:12px;">📂 Categoría de logos</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-bottom:10px;">¿A qué categoría pertenecen estos logos?</div>
+      <select id="_cat-sel" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:0.8rem;margin-bottom:8px;">
+        ${allCats.map(cat=>`<option value="${cat}">${cat}</option>`).join('')}
+        <option value="__new__">＋ Crear categoría nueva...</option>
+      </select>
+      <input id="_cat-new" type="text" placeholder="Nombre de la nueva categoría" style="display:none;width:100%;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:0.8rem;margin-bottom:8px;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button id="_cat-cancel" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;font-size:0.78rem;">Cancelar</button>
+        <button id="_cat-ok" style="flex:1;padding:8px;background:var(--accent);border:none;border-radius:8px;color:#002b22;font-weight:700;cursor:pointer;font-size:0.78rem;">Confirmar</button>
+      </div>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    const sel = box.querySelector('#_cat-sel');
+    const inp = box.querySelector('#_cat-new');
+    sel.addEventListener('change',()=>{
+      inp.style.display = sel.value==='__new__' ? 'block' : 'none';
+      if(sel.value==='__new__') inp.focus();
+    });
+    box.querySelector('#_cat-cancel').onclick=()=>{ overlay.remove(); resolve(null); };
+    box.querySelector('#_cat-ok').onclick=()=>{
+      let cat = sel.value==='__new__' ? inp.value.trim() : sel.value;
+      if(!cat){ inp.focus(); return; }
+      overlay.remove();
+      resolve(cat);
+    };
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ box.querySelector('#_cat-ok').click(); } });
+  });
 }
 
 async function deleteLibraryLogo(id,ev){
@@ -3792,8 +3918,9 @@ function startDrag(ev, id){
   if(ev.altKey){
     const srcL = layers.find(x=>x.id===id);
     if(srcL?.locked) return;
-    duplicateSelected(id);
-    return;
+    const duplicatedIds = duplicateSelected(id);
+    if(!duplicatedIds?.length) return;
+    id = duplicatedIds[0];
   }
   const draggedL = layers.find(x=>x.id===id);
   // When dragging an image, disable pointer-events on all frames so they don't intercept
@@ -3809,8 +3936,9 @@ function startDrag(ev, id){
       return {id:sid, x:l.x, y:l.y};
     }).filter(Boolean);
     const cr=cvs.getBoundingClientRect();
-    dOff.x=(ev.clientX-cr.left)/zoom_;
-    dOff.y=(ev.clientY-cr.top)/zoom_;
+    const b=getMultiBounds(selIds);
+    dOff.x=(ev.clientX-cr.left)/zoom_-(b?.x||0);
+    dOff.y=(ev.clientY-cr.top)/zoom_-(b?.y||0);
     isDrag=true;
   } else {
     const l=layers.find(x=>x.id===id);
@@ -3875,6 +4003,7 @@ function duplicateSelected(sourceId){
   renderList();
   selMulti(newIds);
   snapshotState();
+  return newIds;
 }
 
 function startRes(ev,id,c){
@@ -4964,11 +5093,17 @@ function applyCanvasSize(){
   zoom_=Math.round(zoom_*100)/100;
   cvs.style.transform=`scale(${zoom_})`;
   document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  updateControlScale();
   document.getElementById('size-overlay').classList.remove('open');
 }
 
 // ZOOM
-function doZoom(d){zoom_=Math.min(3,Math.max(0.05,zoom_+d));cvs.style.transform=`scale(${zoom_})`;document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';}
+function doZoom(d){
+  zoom_=Math.min(3,Math.max(0.05,zoom_+d));
+  cvs.style.transform=`scale(${zoom_})`;
+  document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+  updateControlScale();
+}
 
 // ── PAN (middle mouse or Space+drag) ─────────────────────────
 let isPan=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
@@ -6409,6 +6544,7 @@ function loadData(tpl){
     zoom_=Math.max(0.1, Math.round(zoom_*100)/100);
     cvs.style.transform=`scale(${zoom_})`;
     document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
+    updateControlScale();
   },100);
 
   // Re-init multi-box handles (they survived the innerHTML clear)
@@ -6515,6 +6651,62 @@ function addImageLayerFromUrl(url){
   img.src = proxyUrl;
 }
 
+function getCanvasDims(){
+  return {
+    w: parseInt(cvs.style.width) || cvs.clientWidth || 1080,
+    h: parseInt(cvs.style.height) || cvs.clientHeight || 1080
+  };
+}
+
+function getTempBounds(ls){
+  if(!ls?.length) return null;
+  const minX = Math.min(...ls.map(l => l.x));
+  const minY = Math.min(...ls.map(l => l.y));
+  const maxX = Math.max(...ls.map(l => l.x + (l.w || 0)));
+  const maxY = Math.max(...ls.map(l => l.y + (l.h || 0)));
+  return { x:minX, y:minY, w:maxX-minX, h:maxY-minY };
+}
+
+function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
+  if(!ls?.length) return;
+  const b = getTempBounds(ls);
+  if(!b) return;
+
+  let dx = 0, dy = 0;
+
+  if(b.w >= cw - margin*2){
+    dx = Math.round((cw - b.w) / 2 - b.x);
+  } else if(b.x < margin){
+    dx = Math.round(margin - b.x);
+  } else if(b.x + b.w > cw - margin){
+    dx = Math.round((cw - margin) - (b.x + b.w));
+  }
+
+  if(b.h >= ch - margin*2){
+    dy = Math.round((ch - b.h) / 2 - b.y);
+  } else if(b.y < margin){
+    dy = Math.round(margin - b.y);
+  } else if(b.y + b.h > ch - margin){
+    dy = Math.round((ch - margin) - (b.y + b.h));
+  }
+
+  if(dx || dy){
+    ls.forEach(l=>{
+      l.x = Math.round(l.x + dx);
+      l.y = Math.round(l.y + dy);
+    });
+  }
+
+  ls.forEach(l=>{
+    if((l.w || 0) < cw - margin*2){
+      l.x = Math.min(cw - margin - (l.w || 0), Math.max(margin, l.x));
+    }
+    if((l.h || 0) < ch - margin*2){
+      l.y = Math.min(ch - margin - (l.h || 0), Math.max(margin, l.y));
+    }
+  });
+}
+
 async function pasteLayers(){
   // Lógica: el portapapeles del SISTEMA tiene prioridad si tiene URL o imagen
   // El portapapeles INTERNO tiene prioridad si tiene capas (Ctrl+C en el editor)
@@ -6598,13 +6790,14 @@ async function pasteLayers(){
     // Ordenar por zIndex original para preservar el orden de apilamiento al pegar
     copied.sort((a,b)=>(a.zIndex??0)-(b.zIndex??0));
     const newIds = [];
+    const prepared = [];
+    const { w:cw, h:ch } = getCanvasDims();
     // Calcular offset para que no se pegue encima
     const offset = 20;
     copied.forEach(l=>{
       const nl = {...JSON.parse(JSON.stringify(l)), id: lCtr++, el: null};
       nl.x += offset;
       nl.y += offset;
-      nl.zIndex = layers.length;
       // Formas: regenerar blob SVG (el src anterior ya no existe entre sesiones)
       if(nl.isShape && (!nl.src || nl.src.startsWith('blob:'))){
         const svgFill = buildShapeSvgFill(nl.shapeType||'rect', nl.shapeFill||'#4F8EF7', nl.w, nl.h, {rx: nl.shapeRadius??20});
@@ -6613,13 +6806,17 @@ async function pasteLayers(){
       }
       // Nuevo groupId si tenía grupo
       if(nl.groupId){
-        // Crear nuevo groupId único por grupo
         if(!pasteLayers._gmap) pasteLayers._gmap = {};
         if(!pasteLayers._gmap[nl.groupId]){
           pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
         }
         nl.groupId = pasteLayers._gmap[nl.groupId];
       }
+      prepared.push(nl);
+    });
+    keepPastedLayersInsideCanvas(prepared, cw, ch);
+    prepared.forEach(nl=>{
+      nl.zIndex = layers.length;
       layers.push(nl);
       mkEl(nl);
       newIds.push(nl.id);
