@@ -3972,6 +3972,8 @@ function startDrag(ev, id){
     multiDragStartBounds = b ? {...b} : null;
     dOff.x=(ev.clientX-cr.left)/zoom_-(b?.x||0);
     dOff.y=(ev.clientY-cr.top)/zoom_-(b?.y||0);
+    dOff.startX=b?.x||0; dOff.startY=b?.y||0;
+    dOff.axisLocked=null;
     isDrag=true;
   } else {
     const l=layers.find(x=>x.id===id);
@@ -3981,6 +3983,8 @@ function startDrag(ev, id){
     const cr=cvs.getBoundingClientRect();
     dOff.x=(ev.clientX-cr.left)/zoom_-l.x;
     dOff.y=(ev.clientY-cr.top)/zoom_-l.y;
+    dOff.startX=l.x; dOff.startY=l.y;  // posición inicial para Shift-drag
+    dOff.axisLocked=null;               // eje bloqueado: 'h' | 'v' | null
   }
   ev.preventDefault();
 }
@@ -4178,8 +4182,19 @@ document.addEventListener('mousemove',ev=>{
       if(ids.length){
         const baseBox = multiDragStartBounds || getMultiBounds(ids);
         if(baseBox){
-          const nextX = mx - dOff.x;
-          const nextY = my - dOff.y;
+          let nextX = mx - dOff.x;
+          let nextY = my - dOff.y;
+          // Shift: bloquear eje con más desplazamiento
+          if(ev.shiftKey && dOff.startX!==undefined){
+            const dx=Math.abs(nextX-dOff.startX), dy=Math.abs(nextY-dOff.startY);
+            if(!dOff.axisLocked){
+              if(dx>6||dy>6) dOff.axisLocked = dx>=dy ? 'h' : 'v';
+            }
+            if(dOff.axisLocked==='h') nextY=dOff.startY;
+            if(dOff.axisLocked==='v') nextX=dOff.startX;
+          } else {
+            dOff.axisLocked=null;
+          }
           const ghost={id:-1,x:nextX,y:nextY,w:baseBox.w,h:baseBox.h};
           const snapped=applySmartSnapToLayer(ghost, ids);
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
@@ -4193,7 +4208,19 @@ document.addEventListener('mousemove',ev=>{
       updateMultiBox(); syncP(); return;
     }
     const l=layers.find(x=>x.id===selId); if(!l?.el) return;
-    l.x=(mx-dOff.x); l.y=(my-dOff.y);
+    let nx=mx-dOff.x, ny=my-dOff.y;
+    // Shift: bloquear al eje con más desplazamiento desde el origen
+    if(ev.shiftKey && dOff.startX!==undefined){
+      const dx=Math.abs(nx-dOff.startX), dy=Math.abs(ny-dOff.startY);
+      if(!dOff.axisLocked){
+        if(dx>6||dy>6) dOff.axisLocked = dx>=dy ? 'h' : 'v';
+      }
+      if(dOff.axisLocked==='h') ny=dOff.startY;
+      if(dOff.axisLocked==='v') nx=dOff.startX;
+    } else {
+      dOff.axisLocked=null; // soltar eje si sueltan Shift
+    }
+    l.x=nx; l.y=ny;
     const snapped=applySmartSnapToLayer(l, selIds);
     l.x=snapped.x; l.y=snapped.y;
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
@@ -4369,7 +4396,7 @@ document.addEventListener('mouseup',ev=>{
       applyImageToFrame(targetFrame, srcToInsert);
       renderList();
       snapshotState();
-      isDrag=false; isRes=false; isMultiDrag=false; rSt={};
+      isDrag=false; isRes=false; isMultiDrag=false; rSt={}; dOff.axisLocked=null;
       return;
     }
   }
@@ -4377,7 +4404,7 @@ document.addEventListener('mouseup',ev=>{
   hideSmartGuides();
 
   if(isDrag || isRes) snapshotState();
-  isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={};
+  isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff.axisLocked=null;
 });
 
 // SCROLL TO SCALE
