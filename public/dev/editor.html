@@ -1433,7 +1433,49 @@ input[type=range]{filter:none !important;}
       <div class="panel-card panel-hidden" id="pp-txt">
         <div class="panel-title">Texto <span class="panel-chip">Tipografía</span></div>
         <div class="mini-lbl">Contenido</div>
-        <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none; margin-bottom:8px;" oninput="updTxt(this.value)"></textarea>
+        <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none; margin-bottom:6px;" oninput="updTxt(this.value)"></textarea>
+
+        <!-- Selector de variable de perfil — solo visible en modo admin -->
+        <div id="pp-var-wrap" style="margin-bottom:10px;display:none;">
+          <div class="mini-lbl" style="color:var(--accent);">📌 Variable de perfil (renombra la capa)</div>
+          <select class="pp-sel" id="pp-var-sel" onchange="applyLayerVariable(this.value)" style="font-size:0.72rem;">
+<option value="">— sin variable —</option>
+<option value="{{whatsapp}}">{{whatsapp}} — WhatsApp</option>
+<option value="{{precio_netflix}}">{{precio_netflix}} — N*TFLIX</option>
+<option value="{{precio_disney_std}}">{{precio_disney_std}} — Disney+ Standar</option>
+<option value="{{precio_disney_prem}}">{{precio_disney_prem}} — Disney+ Premium</option>
+<option value="{{precio_spotify}}">{{precio_spotify}} — Spotify</option>
+<option value="{{precio_prime}}">{{precio_prime}} — Prime Video</option>
+<option value="{{precio_apple}}">{{precio_apple}} — Apple TV</option>
+<option value="{{precio_paramount}}">{{precio_paramount}} — Paramount+</option>
+<option value="{{precio_crunchyroll}}">{{precio_crunchyroll}} — Crunchyroll</option>
+<option value="{{precio_hob_max}}">{{precio_hob_max}} — HOB MAX</option>
+<option value="{{precio_canva}}">{{precio_canva}} — Canva</option>
+<option value="{{precio_youtube}}">{{precio_youtube}} — YouTube Premium</option>
+<option value="{{precio_vix}}">{{precio_vix}} — VIX Premium</option>
+<option value="{{precio_dgo}}">{{precio_dgo}} — DGO</option>
+<option value="{{precio_deezer}}">{{precio_deezer}} — D33Z3R</option>
+<option value="{{precio_plex}}">{{precio_plex}} — Plex</option>
+<option value="{{precio_ibo}}">{{precio_ibo}} — IBO Player</option>
+<option value="{{precio_cable_go}}">{{precio_cable_go}} — Cable GO</option>
+<option value="{{precio_capcut}}">{{precio_capcut}} — CapCut</option>
+<option value="{{precio_ufc}}">{{precio_ufc}} — UFC</option>
+<option value="{{precio_office}}">{{precio_office}} — Office 365</option>
+<option value="{{precio_st3lla}}">{{precio_st3lla}} — ST3LLA TV</option>
+<option value="{{precio_claro}}">{{precio_claro}} — Claro V1D30</option>
+<option value="{{precio_flivjo}}">{{precio_flivjo}} — FLIVJO</option>
+<option value="{{precio_gemini}}">{{precio_gemini}} — Gemini</option>
+<option value="{{precio_f4n4tiz}}">{{precio_f4n4tiz}} — F4N4TIZ</option>
+<option value="{{precio_iptv}}">{{precio_iptv}} — 1PTV Smart</option>
+<option value="{{precio_l1g41m4x}}">{{precio_l1g41m4x}} — L1G41MAX</option>
+<option value="{{precio_movistar}}">{{precio_movistar}} — Movistar TV</option>
+<option value="{{precio_kakuten}}">{{precio_kakuten}} — K4KUT3N VIK1</option>
+<option value="{{precio_chatgpt}}">{{precio_chatgpt}} — ChatGPT</option>
+<option value="{{precio_wlgtv}}">{{precio_wlgtv}} — WLGTV Pro</option>
+<option value="{{precio_nmas}}">{{precio_nmas}} — N+ Premium</option>
+<option value="{{precio_uno}}">{{precio_uno}} — Canal UNO</option>
+          </select>
+        </div>
 
         <div class="mini-lbl">Fuente</div>
         <div style="position:relative;margin-bottom:8px;">
@@ -4757,6 +4799,8 @@ function updatePropertyPanelState(targetLayer=null){
       chip.textContent = isText ? 'Texto' : isShape ? 'Forma' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento';
     }
   }
+  // Sincronizar selector de variable si hay función disponible
+  if(typeof syncVarSelector === 'function') syncVarSelector();
 }
 
 
@@ -5250,9 +5294,17 @@ function renderList(){
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(91,140,255,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
     const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
     const typeLabel = l.type==='text'?'Texto':l.type==='frame'?'Marco':l.isShape?'Forma':'Imagen';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    // Mostrar icono variable si el nombre contiene {{ }}
+    const isVar = l.name && l.name.includes('{{') && l.name.includes('}}');
+    const varBadge = isVar ? `<span title="Variable de perfil" style="font-size:0.58rem;background:rgba(21,214,164,0.2);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">📌var</span>` : '';
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name" title="Doble clic para renombrar">${l.name}${groupBadge}${oobBadge}${varBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
     li.className+=`${l.locked?' locked-l':''}`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
+    // Doble clic en el nombre para renombrar la capa
+    li.querySelector('.l-name').addEventListener('dblclick', ev=>{
+      ev.stopPropagation();
+      startLayerRename(l.id, li);
+    });
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
     li.addEventListener('dragleave',()=>li.classList.remove('drag-over-l'));
@@ -7165,6 +7217,34 @@ document.addEventListener('keydown',ev=>{
 </div>
 
 <script>
+// ── Renombrar capa inline con doble clic ──
+function startLayerRename(id, liEl){
+  const l = layers.find(x=>x.id===id); if(!l) return;
+  const nameEl = liEl.querySelector('.l-name');
+  if(!nameEl) return;
+  const oldName = l.name;
+  // Crear input inline
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = oldName;
+  inp.style.cssText = 'width:100%;font-size:0.75rem;font-weight:600;background:var(--panel2);border:1px solid var(--accent);border-radius:4px;padding:2px 6px;color:var(--text);outline:none;';
+  nameEl.innerHTML = '';
+  nameEl.appendChild(inp);
+  inp.focus(); inp.select();
+  const finish = ()=>{
+    const newName = inp.value.trim() || oldName;
+    l.name = newName;
+    renderList();
+    snapshotState();
+    showToast('✓ Capa renombrada: '+newName);
+  };
+  inp.addEventListener('blur', finish);
+  inp.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); inp.blur(); }
+    if(e.key==='Escape'){ l.name=oldName; renderList(); }
+  });
+}
+
 // ── Modal de perfil en el editor ──
 const PROFILE_PLATFORMS_EDITOR = [
   'netflix', 'disney_std', 'disney_prem', 'spotify', 'prime',
@@ -7213,6 +7293,35 @@ async function saveProfileFromEditor(){
   const ok = document.getElementById('pm-save-ok');
   if(ok){ ok.style.display='block'; setTimeout(()=>{ ok.style.display='none'; closeProfileModal(); }, 1800); }
   showToast('✓ Datos aplicados al diseño');
+}
+
+// Aplicar variable de perfil a la capa seleccionada
+function applyLayerVariable(varKey){
+  const l = layers.find(x=>x.id===selId); if(!l||l.type!=='text') return;
+  if(!varKey){ return; }
+  l.name = varKey;
+  renderList();
+  snapshotState();
+  showToast('✓ Capa vinculada a '+varKey);
+}
+
+// Mostrar/ocultar el selector de variable según modo
+function syncVarSelector(){
+  const wrap = document.getElementById('pp-var-wrap');
+  if(!wrap) return;
+  // Solo visible en modo admin
+  const isAdmin = document.getElementById('mode-pill')?.textContent.includes('ADMIN') ||
+                  window.__isVerifiedAdmin;
+  wrap.style.display = isAdmin ? 'block' : 'none';
+  // Sincronizar el valor con el nombre de la capa actual
+  const l = layers.find(x=>x.id===selId);
+  const sel = document.getElementById('pp-var-sel');
+  if(sel && l){
+    // Buscar si el nombre es una variable conocida
+    const name = l.name || '';
+    const found = [...sel.options].find(o=>o.value===name);
+    sel.value = found ? name : '';
+  }
 }
 
 // Cerrar modal al hacer clic fuera
