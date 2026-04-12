@@ -1754,11 +1754,38 @@ function applyProfileToLayers(){
       }
     });
     if(changed){
+      // Auto-escalar fuente si el texto nuevo es más largo que el original
+      // Esto evita que precios de 4 dígitos (ej: 9999) se salgan de la caja
+      // diseñada para 2 dígitos (ej: 99)
+      autoScaleFontForLayer(l);
       const d = document.getElementById('ti-'+l.id);
       if(d){ d.textContent = l.tp.text; applyTextStyles(l); }
     }
   });
   if(layers.some(l=>l.type==='text' && l.tp)) snapshotState();
+}
+
+// Escala el fontSize proporcionalmente al largo del texto
+// comparado con el tamaño original guardado en _origFontSize
+function autoScaleFontForLayer(l){
+  if(!l.tp) return;
+  const text = l.tp.text || '';
+  // Guardar el fontSize original del admin la primera vez
+  if(l._origFontSize === undefined) l._origFontSize = l.tp.fontSize || 24;
+  if(l._origTextLen === undefined)  l._origTextLen  = text.length || 1;
+
+  const origLen  = l._origTextLen;
+  const origSize = l._origFontSize;
+  const newLen   = text.length || 1;
+
+  if(newLen <= origLen){
+    // Texto igual o más corto → restaurar tamaño original
+    l.tp.fontSize = origSize;
+  } else {
+    // Texto más largo → reducir proporcionalmente, mínimo 60% del original
+    const ratio = Math.max(0.6, origLen / newLen);
+    l.tp.fontSize = Math.round(origSize * ratio);
+  }
 }
 
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
@@ -3969,8 +3996,44 @@ function mkEl(l){
     d.style.cssText='width:100%;';
     d.textContent=tp.text;
     applyTextStyles(l);
-    d.oninput=()=>{l.tp.text=d.textContent;syncP();};
-    d.onblur=()=>{d.style.pointerEvents='none';d.contentEditable='false';el.style.outline='';snapshotState();};
+    d.oninput=()=>{
+      // Limpiar cualquier HTML que el navegador haya insertado (pegar desde Word, etc.)
+      if(d.innerHTML !== d.textContent){
+        const clean = d.textContent;
+        d.textContent = clean; // fuerza texto plano
+        // Restaurar cursor al final
+        const range = document.createRange();
+        range.selectNodeContents(d); range.collapse(false);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
+      }
+      l.tp.text = d.textContent;
+      syncP();
+    };
+    // Interceptar paste para forzar texto plano siempre
+    d.addEventListener('paste', ev=>{
+      ev.preventDefault();
+      const plain = (ev.clipboardData || window.clipboardData).getData('text/plain');
+      // Insertar en posición del cursor
+      const sel = window.getSelection();
+      if(sel.rangeCount){
+        sel.deleteFromDocument();
+        sel.getRangeAt(0).insertNode(document.createTextNode(plain));
+        sel.collapseToEnd();
+      } else {
+        d.textContent += plain;
+      }
+      l.tp.text = d.textContent;
+      applyTextStyles(l);
+      syncP();
+    });
+    d.onblur=()=>{
+      // Asegurar que l.tp.text esté limpio al salir
+      l.tp.text = d.textContent;
+      d.style.pointerEvents='none';
+      d.contentEditable='false';
+      el.style.outline='';
+      snapshotState();
+    };
     el.appendChild(d);
     // Single click = select, double click = edit
     el.ondblclick=ev=>{
@@ -4966,6 +5029,11 @@ function updImageBlur(value){
 
 function syncP(){
   const l=layers.find(x=>x.id===selId);if(!l)return;
+  // Sincronizar l.tp.text desde el DOM por si paste dejó desincronización
+  if(l.type==='text' && l.tp){
+    const d=document.getElementById('ti-'+l.id);
+    if(d && d.contentEditable!=='true') l.tp.text = d.textContent;
+  }
   updatePropertyPanelState(l);
   document.getElementById('pp-x').value=Math.round(l.x);
   document.getElementById('pp-y').value=Math.round(l.y);
@@ -6772,6 +6840,11 @@ function loadData(tpl){
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     if(l.rotation == null) l.rotation = 0;
+    // Guardar tamaño y largo originales del admin para auto-escalar en clientes
+    if(l.type==='text' && l.tp){
+      l._origFontSize = l.tp.fontSize || 24;
+      l._origTextLen  = (l.tp.text||'').length || 1;
+    }
     // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
     if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
       const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
