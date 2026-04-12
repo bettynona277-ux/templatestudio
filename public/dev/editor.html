@@ -1763,11 +1763,25 @@ function applyProfileToLayers(){
 function autoScaleFontForLayer(l){
   if(!l.tp) return;
   const text = l.tp.text || '';
-  if(l._origFontSize === undefined) l._origFontSize = l.tp.fontSize || 24;
-  if(l._origTextLen  === undefined) l._origTextLen  = text.length || 1;
+  if(l._origFontSize    === undefined) l._origFontSize    = l.tp.fontSize   || 24;
+  if(l._origTextLen     === undefined) l._origTextLen     = text.length      || 1;
+  if(l._origFontFamily  === undefined) l._origFontFamily  = l.tp.fontFamily  || "'Poppins'";
+  if(l._origFontWeight  === undefined) l._origFontWeight  = l.tp.fontWeight  || '700';
+
   const newLen = text.length || 1;
-  if(newLen <= l._origTextLen) l.tp.fontSize = l._origFontSize;
-  else l.tp.fontSize = Math.round(l._origFontSize * Math.max(0.6, l._origTextLen/newLen));
+
+  if(newLen <= l._origTextLen){
+    // Texto igual o más corto → restaurar fuente y tamaño originales
+    l.tp.fontSize   = l._origFontSize;
+    l.tp.fontFamily = l._origFontFamily;
+    l.tp.fontWeight = l._origFontWeight;
+  } else {
+    // Texto más largo → cambiar a Bebas Neue (alta, compacta, misma altura visual)
+    // Mantiene el fontSize original — Bebas ocupa ~30% menos ancho
+    l.tp.fontFamily = "'Bebas Neue', sans-serif";
+    l.tp.fontWeight = '400'; // Bebas Neue solo tiene un peso
+    l.tp.fontSize   = l._origFontSize; // mismo tamaño, la fuente se encarga del espacio
+  }
 }
 
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
@@ -6840,7 +6854,12 @@ function loadData(tpl){
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     if(l.rotation == null) l.rotation = 0;
-    if(l.type==='text'&&l.tp){ l._origFontSize=l.tp.fontSize||24; l._origTextLen=(l.tp.text||'').length||1; }
+    if(l.type==='text'&&l.tp){
+      l._origFontSize   = l.tp.fontSize   || 24;
+      l._origTextLen    = (l.tp.text||'').length || 1;
+      l._origFontFamily = l.tp.fontFamily || "'Poppins'";
+      l._origFontWeight = l.tp.fontWeight || '700';
+    }
     // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
     if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
       const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
