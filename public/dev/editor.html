@@ -1242,10 +1242,13 @@ input[type=range]{filter:none !important;}
       <div style="padding:4px 12px 4px;border-top:1px solid var(--border);margin-top:4px;">
         <div class="lp-title" style="font-size:0.8rem;margin:8px 0 4px;">🎬 Logos de plataformas</div>
         <p style="font-size:0.68rem;color:var(--muted);margin-bottom:6px;line-height:1.4;">Visibles para todos los clientes.</p>
-        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:8px;font-size:0.75rem;padding:7px 12px;">
+        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:6px;font-size:0.75rem;padding:7px 12px;">
           ＋ Subir logo de plataforma
           <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
         </label>
+        <button id="logo-refresh-btn" onclick="forceRefreshLogos()" style="display:none;width:100%;margin-bottom:8px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:0.68rem;cursor:pointer;" title="Fuerza que todos los clientes descarguen los logos nuevos">
+          🔄 Forzar actualización de logos
+        </button>
       </div>
       <!-- Acordeones de categorías -->
       <div id="logo-library-accordions" style="padding:0 0 12px;">
@@ -2281,6 +2284,33 @@ function fitAllOutOfBounds(){
 }
 const CLOUDINARY_CLOUD = 'dwqtksxrp';
 const CLOUDINARY_PRESET = 'templatestudio';
+
+// Optimizar URLs de Cloudinary para reducir consumo de créditos
+// Agrega q_auto (calidad automática) y f_auto (formato WebP/AVIF si soportado)
+// Cache en memoria de URLs ya optimizadas — evita recalcular y re-pedir a Cloudinary
+const _cdnCache = new Map();
+
+function cdnOpt(url, opts={}){
+  if(!url || !url.includes('cloudinary.com')) return url;
+  const cacheKey = url + JSON.stringify(opts);
+  if(_cdnCache.has(cacheKey)) return _cdnCache.get(cacheKey);
+  // Extraer base y path
+  const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  if(!match) return url;
+  const base = match[1];
+  const ver  = match[2] || '';
+  const path = match[3];
+  // Construir transformaciones
+  const transforms = [];
+  transforms.push('q_auto');   // calidad automática (mayor compresión sin pérdida visual)
+  transforms.push('f_auto');   // formato automático (WebP/AVIF según navegador)
+  if(opts.w) transforms.push(`w_${opts.w}`);
+  if(opts.h) transforms.push(`h_${opts.h}`);
+  if(opts.c) transforms.push(`c_${opts.c}`); // crop mode
+  const result = `${base}${transforms.join(',')}/${ver}${path}`;
+  _cdnCache.set(cacheKey, result);
+  return result;
+}
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
   authDomain: "plantillas-bfaeb.firebaseapp.com",
@@ -3071,22 +3101,88 @@ async function compressImage(dataUrl, maxKB=400){
 }
 
 // ── Cargar logos de plataformas ──
-async function loadLogoLibrary(){
+const LOGO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días — logos casi nunca cambian
+let _logoLibLoadedAt = 0;
+
+async // Fuerza que todos los clientes descarguen los logos frescos desde Firestore
+// Borra el timestamp del caché en localStorage — al abrir el editor, detecta que expiró
+function forceRefreshLogos(){
+  try{
+    // Guardar el timestamp como 0 para que todos los cachés expiren
+    // Esto usa una clave especial en Firestore que el editor lee al iniciar
+    fbDb.collection('_config').doc('logo_version').set({
+      updatedAt: Date.now()
+    }).then(()=>{
+      showToast('✓ Logos actualizados — clientes verán los nuevos al abrir el editor');
+    });
+    // También limpiar el propio caché local
+    localStorage.removeItem('ds_logo_lib_cache');
+    logoLibCache = [];
+    _logoLibLoadedAt = 0;
+    loadLogoLibrary();
+  }catch(e){
+    // Fallback: solo limpiar localmente
+    localStorage.removeItem('ds_logo_lib_cache');
+    logoLibCache = [];
+    _logoLibLoadedAt = 0;
+    loadLogoLibrary();
+    showToast('✓ Caché local limpiado');
+  }
+}
+
+function loadLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
   const emptyEl=document.getElementById('logo-library-empty');
   if(!fbDb){ if(emptyEl) emptyEl.textContent='Conecta Firebase.'; return; }
   if(!fbAuth||!fbAuth.currentUser){ if(emptyEl) emptyEl.textContent='Inicia sesión.'; return; }
+
+  // Si ya tenemos logos en cache y no ha pasado 1 hora, reutilizarlos sin ir a Firestore
+  const now = Date.now();
+  if(logoLibCache.length > 0 && (now - _logoLibLoadedAt) < LOGO_CACHE_TTL){
+    renderLogoLibrary();
+    loadOwnLogosPC();
+    return;
+  }
+
+  // Intentar cargar desde localStorage como cache persistente entre sesiones
+  try{
+    const stored = localStorage.getItem('ds_logo_lib_cache');
+    if(stored){
+      const parsed = JSON.parse(stored);
+      if(parsed.ts && (now - parsed.ts) < LOGO_CACHE_TTL && parsed.logos?.length){
+        logoLibCache = parsed.logos;
+        _logoLibLoadedAt = parsed.ts;
+        renderLogoLibrary();
+        loadOwnLogosPC();
+        // Verificar en background si hay versión nueva (sin bloquear la UI)
+        fbDb.collection('_config').doc('logo_version').get().then(doc=>{
+          if(doc.exists && doc.data().updatedAt > parsed.ts){
+            // Hay logos nuevos — limpiar caché y recargar silenciosamente
+            localStorage.removeItem('ds_logo_lib_cache');
+            logoLibCache = []; _logoLibLoadedAt = 0;
+            loadLogoLibrary();
+          }
+        }).catch(()=>{});
+        return; // usar cache por ahora
+      }
+    }
+  }catch(_){}
+
   if(emptyEl) emptyEl.textContent='Cargando...';
   try{
     const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoLibCache=[];
     snap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
+    _logoLibLoadedAt = now;
+    // Guardar en localStorage para la próxima sesión
+    try{
+      localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts: now, logos: logoLibCache}));
+    }catch(_){}
     renderLogoLibrary();
   }catch(e){
     console.warn('Logo library error:',e.message);
     if(emptyEl) emptyEl.textContent='Error al cargar logos.';
   }
-  // Siempre cargar también los logos propios
   loadOwnLogosPC();
 }
 
@@ -3100,6 +3196,8 @@ function renderLogoLibrary(){
   // Mostrar botón subir solo a admin
   const uploadBtn = document.getElementById('logo-upload-btn');
   if(uploadBtn) uploadBtn.style.display = isAdmin ? 'flex' : 'none';
+  const refreshBtn = document.getElementById('logo-refresh-btn');
+  if(refreshBtn) refreshBtn.style.display = isAdmin ? 'block' : 'none';
 
   if(!logoLibCache.length){
     if(emptyEl){ emptyEl.textContent='Sin logos de plataformas aún.'; emptyEl.style.display='block'; }
@@ -3155,7 +3253,7 @@ function renderLogoLibrary(){
       const item=document.createElement('div');
       item.className='logo-lib-item';
       item.title='Clic para agregar al canvas';
-      item.innerHTML=`<img src="${logo.url}" alt="${logo.name||''}">
+      item.innerHTML=`<img src="${cdnOpt(logo.url,{w:120,h:120,c:'fit'})}" alt="${logo.name||''}">
         ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
       item.draggable=true;
       item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name||''));
@@ -3215,7 +3313,7 @@ function renderOwnLogosPC(){
     item.className='logo-lib-item';
     item.style.cssText='border:1px solid rgba(100,160,255,0.35);';
     item.title='Clic para agregar al canvas';
-    item.innerHTML=`<img src="${logo.url}" alt="${logo.name}">
+    item.innerHTML=`<img src="${cdnOpt(logo.url,{w:120,h:120,c:'fit'})}" alt="${logo.name}">
       <button class="logo-del" onclick="deleteOwnLogoPC('${logo.id}',event)" title="Eliminar" style="display:none;">✕</button>`;
     item.draggable=true;
     item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
@@ -3290,6 +3388,10 @@ async function uploadLibraryLogos(ev){
     }catch(e){ console.warn('Logo upload failed:',e.message); }
   }
   showToast('✓ Logos subidos');
+  // Invalidar cache para que se vean los logos nuevos
+  localStorage.removeItem('ds_logo_lib_cache');
+  _logoLibLoadedAt = 0;
+  logoLibCache = [];
   loadLogoLibrary();
 }
 
@@ -3344,6 +3446,8 @@ async function deleteLibraryLogo(id,ev){
   try{
     await fbDb.collection('logos').doc(id).delete();
     logoLibCache=logoLibCache.filter(l=>l.id!==id);
+    // Invalidar cache persistente
+    try{ localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts: Date.now(), logos: logoLibCache})); }catch(_){}
     renderLogoLibrary();
     showToast('Logo eliminado');
   }catch(e){ alert('Error: '+e.message); }
@@ -6614,7 +6718,8 @@ async function doSave(status){
     }
 
     st.textContent='Subiendo miniatura...';
-    thumb=await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.jpg`);
+    const rawThumbUrl = await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.jpg`);
+  thumb = cdnOpt(rawThumbUrl, {w:400,c:'fit'}); // thumbnails más pequeños
     console.log('✓ Thumb:', thumb.substring(0,60));
   }catch(e){
     console.warn('Thumb falló (continuando sin miniatura):', e.message);
