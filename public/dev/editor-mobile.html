@@ -536,10 +536,27 @@ function applyProfileToLayers(){
       }
     });
     if(changed){
+      autoScaleFontForLayerMob(l);
       const d = document.getElementById('ti-'+l.id);
       if(d){ d.textContent = l.tp.text; applyTextStylesMobile(l); }
     }
   });
+}
+
+function autoScaleFontForLayerMob(l){
+  if(!l.tp) return;
+  const text = l.tp.text || '';
+  if(l._origFontSize === undefined) l._origFontSize = l.tp.fontSize || 24;
+  if(l._origTextLen  === undefined) l._origTextLen  = text.length || 1;
+  const origLen  = l._origTextLen;
+  const origSize = l._origFontSize;
+  const newLen   = text.length || 1;
+  if(newLen <= origLen){
+    l.tp.fontSize = origSize;
+  } else {
+    const ratio = Math.max(0.6, origLen / newLen);
+    l.tp.fontSize = Math.round(origSize * ratio);
+  }
 }
 
 // ══════════════════════════════════════════
@@ -754,6 +771,11 @@ function loadDesign(tpl){
       tp: ld.tp ? {...ld.tp} : null,
       src: resolvedSrc
     };
+    // Guardar tamaño y largo originales del admin para auto-escalar en clientes
+    if(l.type==='text' && l.tp){
+      l._origFontSize = l.tp.fontSize || 24;
+      l._origTextLen  = (l.tp.text||'').length || 1;
+    }
     layers.push(l);
     buildEl(l);
   });
@@ -1516,15 +1538,39 @@ async function uploadToCloudinary(dataUrl, publicId){
 }
 
 // ── Cargar logos de plataformas (colección global, con categorías) ──
+const LOGO_CACHE_TTL_MOB = 7 * 24 * 60 * 60 * 1000; // 7 días
+let _logoLoadedAtMob = 0;
+
 async function loadLogos(){
   const empty = document.getElementById('logos-empty');
   if(!fbDb){ if(empty) empty.textContent='Firebase no conectado.'; return; }
   if(!fbAuth?.currentUser){ if(empty) empty.textContent='Inicia sesión para ver logos.'; return; }
+
+  const now = Date.now();
+  // Cache en memoria
+  if(logoCache.length > 0 && (now - _logoLoadedAtMob) < LOGO_CACHE_TTL_MOB){
+    renderLogos(); return;
+  }
+  // Cache en localStorage
+  try{
+    const stored = localStorage.getItem('ds_logo_lib_cache');
+    if(stored){
+      const parsed = JSON.parse(stored);
+      if(parsed.ts && (now - parsed.ts) < LOGO_CACHE_TTL_MOB && parsed.logos?.length){
+        logoCache = parsed.logos;
+        _logoLoadedAtMob = parsed.ts;
+        renderLogos(); return;
+      }
+    }
+  }catch(_){}
+
   if(empty){ empty.textContent='Cargando...'; empty.style.display='block'; }
   try{
     const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoCache = [];
     snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    _logoLoadedAtMob = now;
+    try{ localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts: now, logos: logoCache})); }catch(_){}
     renderLogos();
   }catch(e){
     if(empty){ empty.textContent='Error al cargar logos.'; empty.style.display='block'; }
