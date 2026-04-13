@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -283,6 +284,25 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 </head>
 <body>
 
+<!-- PANTALLA WEBVIEW: cubre todo si se abre desde Telegram/IG/etc -->
+<div id="wv-block" style="display:none;position:fixed;inset:0;z-index:999999;background:#0a0a1a;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;">
+  <div style="font-size:48px;margin-bottom:16px;">🌐</div>
+  <div style="color:#fff;font-size:1.05rem;font-weight:800;margin-bottom:8px;line-height:1.3;">Abre esto en Chrome</div>
+  <div style="color:rgba(255,255,255,0.6);font-size:0.8rem;line-height:1.6;margin-bottom:28px;max-width:280px;">
+    Estás en el navegador de Telegram. Para descargar tus diseños en la galería necesitas abrirlo en Chrome o Safari.
+  </div>
+  <button id="wv-open-btn" style="background:#15d6a4;border:none;color:#002b22;border-radius:14px;padding:14px 28px;font-size:0.92rem;font-weight:800;cursor:pointer;width:100%;max-width:280px;margin-bottom:12px;-webkit-tap-highlight-color:transparent;">
+    🌐 Abrir en Chrome
+  </button>
+  <button id="wv-copy-btn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:14px;padding:12px 28px;font-size:0.82rem;font-weight:600;cursor:pointer;width:100%;max-width:280px;margin-bottom:16px;-webkit-tap-highlight-color:transparent;">
+    📋 Copiar enlace
+  </button>
+  <div id="wv-copy-ok" style="display:none;color:#15d6a4;font-size:0.78rem;margin-bottom:12px;">✓ Enlace copiado — pégalo en Chrome</div>
+  <button onclick="document.getElementById('wv-block').style.display='none'" style="background:none;border:none;color:rgba(255,255,255,0.25);font-size:0.72rem;cursor:pointer;text-decoration:underline;-webkit-tap-highlight-color:transparent;padding:4px;">
+    Continuar aquí de todas formas
+  </button>
+</div>
+
 <!-- LOADING -->
 <div class="loading" id="loading">
   <div class="spin"></div>
@@ -301,6 +321,9 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
     </button>
     <button class="tbtn tbtn-ghost" onclick="undoStep()" id="btn-undo" style="width:36px;min-width:36px;padding:0;justify-content:center;opacity:0.35;" title="Deshacer">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+    </button>
+    <button class="tbtn tbtn-ghost" onclick="openProfileModalMob()" title="Mis datos" style="width:36px;min-width:36px;padding:0;justify-content:center;">
+      👤
     </button>
     <button class="tbtn tbtn-ghost" onclick="downloadPNG()" title="Descargar / Guardar en galería">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -451,6 +474,177 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 
 <script>
 // ══════════════════════════════════════════
+// PERFIL DE USUARIO — reemplazar {{variables}}
+// ══════════════════════════════════════════
+function getUserProfile(){
+  try{ return JSON.parse(localStorage.getItem('ts_user_profile') || 'null'); }
+  catch(_){ return null; }
+}
+
+function applyProfileToLayers(){
+  const profile = getUserProfile();
+  if(!profile) return;
+  const vars = {
+    '{{whatsapp}}':          profile.whatsapp || '',
+    '{{moneda}}':            profile.moneda    || 'S/',
+    '{{precio_netflix}}': profile.precio_netflix || '',
+    '{{precio_disney_std}}': profile.precio_disney_std || '',
+    '{{precio_disney_prem}}': profile.precio_disney_prem || '',
+    '{{precio_spotify}}': profile.precio_spotify || '',
+    '{{precio_prime}}': profile.precio_prime || '',
+    '{{precio_apple}}': profile.precio_apple || '',
+    '{{precio_paramount}}': profile.precio_paramount || '',
+    '{{precio_crunchyroll}}': profile.precio_crunchyroll || '',
+    '{{precio_hob_max}}': profile.precio_hob_max || '',
+    '{{precio_canva}}': profile.precio_canva || '',
+    '{{precio_youtube}}': profile.precio_youtube || '',
+    '{{precio_vix}}': profile.precio_vix || '',
+    '{{precio_dgo}}': profile.precio_dgo || '',
+    '{{precio_deezer}}': profile.precio_deezer || '',
+    '{{precio_plex}}': profile.precio_plex || '',
+    '{{precio_ibo}}': profile.precio_ibo || '',
+    '{{precio_cable_go}}': profile.precio_cable_go || '',
+    '{{precio_capcut}}': profile.precio_capcut || '',
+    '{{precio_ufc}}': profile.precio_ufc || '',
+    '{{precio_office}}': profile.precio_office || '',
+    '{{precio_st3lla}}': profile.precio_st3lla || '',
+    '{{precio_claro}}': profile.precio_claro || '',
+    '{{precio_flivjo}}': profile.precio_flivjo || '',
+    '{{precio_gemini}}': profile.precio_gemini || '',
+    '{{precio_f4n4tiz}}': profile.precio_f4n4tiz || '',
+    '{{precio_iptv}}': profile.precio_iptv || '',
+    '{{precio_l1g41m4x}}': profile.precio_l1g41m4x || '',
+    '{{precio_movistar}}': profile.precio_movistar || '',
+    '{{precio_kakuten}}': profile.precio_kakuten || '',
+    '{{precio_chatgpt}}': profile.precio_chatgpt || '',
+    '{{precio_wlgtv}}': profile.precio_wlgtv || '',
+    '{{precio_nmas}}': profile.precio_nmas || '',
+    '{{precio_uno}}': profile.precio_uno || '',
+  };
+  layers.forEach(l=>{
+    if(l.type !== 'text' || !l.tp) return;
+    let changed = false;
+    Object.entries(vars).forEach(([key, val])=>{
+      if(!val) return;
+      const inName = l.name && l.name.toLowerCase().includes(key.slice(2,-2));
+      const inText = l.tp.text && l.tp.text.includes(key);
+      if(inName && !inText){ l.tp.text = val; changed = true; }
+      else if(inText){
+        const re = new RegExp(key.replace(/\{/g,'\{').replace(/\}/g,'\}'), 'g');
+        l.tp.text = l.tp.text.replace(re, val);
+        changed = true;
+      }
+    });
+    if(changed){
+      autoScaleFontForLayerMob(l);
+      // Al aplicar variables del perfil, el rich text se reemplaza con texto plano
+      l.tp.html = null;
+      const d = document.getElementById('ti-'+l.id);
+      if(d){ d.textContent = l.tp.text; applyTextStylesMobile(l); }
+    }
+  });
+}
+
+function autoScaleFontForLayerMob(l){
+  if(!l.tp) return;
+  const text = l.tp.text || '';
+  if(l._origFontSize === undefined) l._origFontSize = l.tp.fontSize || 24;
+  if(l._origTextLen  === undefined) l._origTextLen  = text.length || 1;
+  const origLen  = l._origTextLen;
+  const origSize = l._origFontSize;
+  const newLen   = text.length || 1;
+  if(newLen <= origLen){
+    l.tp.fontSize = origSize;
+  } else {
+    const ratio = Math.max(0.6, origLen / newLen);
+    l.tp.fontSize = Math.round(origSize * ratio);
+  }
+}
+
+// ══════════════════════════════════════════
+// DETECCIÓN WEBVIEW — lo primero que corre
+// ══════════════════════════════════════════
+(function(){
+  var ua = navigator.userAgent || '';
+  var url = window.location.href;
+  var isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
+
+  var isWebView =
+    /Telegram/i.test(ua)         ||
+    /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua) ||
+    /Instagram/i.test(ua)        ||
+    /WhatsApp/i.test(ua)         ||
+    /TikTok/i.test(ua)           ||
+    /Twitter/i.test(ua)          ||
+    /LinkedInApp/i.test(ua)      ||
+    (!isIOS && /Android/i.test(ua) && /wv/.test(ua));
+
+  if(!isWebView) return;
+
+  // Mostrar pantalla de bloqueo
+  var block = document.getElementById('wv-block');
+  if(block) block.style.display = 'flex';
+
+  // Botón "Abrir en Chrome"
+  var openBtn = document.getElementById('wv-open-btn');
+  if(openBtn){
+    if(isIOS){
+      openBtn.textContent = '🌐 Abrir en Safari';
+      openBtn.onclick = function(){
+        // x-safari-https:// funciona en algunas apps iOS
+        try{ window.location.href = url.replace('https://', 'x-safari-https://'); }catch(e){}
+        setTimeout(function(){ window.open(url, '_blank'); }, 600);
+      };
+    } else {
+      openBtn.textContent = '🌐 Abrir en Chrome';
+      openBtn.onclick = function(){
+        // intent:// es la forma estándar de Android para abrir en el navegador por defecto
+        // funciona desde el click del usuario (no desde código auto-ejecutado)
+        var host = url.replace(/^https?:\/\//, '');
+        // Primero intentar Chrome específicamente
+        window.location.href = 'intent://' + host +
+          '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+          'category=android.intent.category.BROWSABLE;' +
+          'package=com.android.chrome;end';
+        // Fallback: cualquier navegador disponible
+        setTimeout(function(){
+          window.location.href = 'intent://' + host +
+            '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+            'category=android.intent.category.BROWSABLE;end';
+        }, 1200);
+      };
+    }
+  }
+
+  // Botón "Copiar enlace"
+  var copyBtn = document.getElementById('wv-copy-btn');
+  var copyOk  = document.getElementById('wv-copy-ok');
+  if(copyBtn){
+    copyBtn.onclick = function(){
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(url).then(function(){
+            if(copyOk){ copyOk.style.display='block'; }
+          });
+        } else {
+          // Fallback para WebViews sin Clipboard API
+          var ta = document.createElement('textarea');
+          ta.value = url;
+          ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          if(copyOk){ copyOk.style.display='block'; }
+        }
+      }catch(e){
+        if(copyOk){ copyOk.textContent = url; copyOk.style.display='block'; }
+      }
+    };
+  }
+})();
+
+// ══════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════
 const FIREBASE_CONFIG = {
@@ -579,6 +773,11 @@ function loadDesign(tpl){
       tp: ld.tp ? {...ld.tp} : null,
       src: resolvedSrc
     };
+    // Guardar tamaño y largo originales del admin para auto-escalar en clientes
+    if(l.type==='text' && l.tp){
+      l._origFontSize = l.tp.fontSize || 24;
+      l._origTextLen  = (l.tp.text||'').length || 1;
+    }
     layers.push(l);
     buildEl(l);
   });
@@ -596,6 +795,8 @@ function loadDesign(tpl){
   desel();
   history_ = []; // limpiar historial al cargar
   snapshot();    // guardar estado inicial
+  // Aplicar perfil solo si es plantilla nueva, NO si es diseño guardado del cliente
+  if(!clientDesignId) setTimeout(applyProfileToLayers, 150);
 }
 
 // ══════════════════════════════════════════
@@ -923,7 +1124,8 @@ function buildEl(l){
     const d = document.createElement('div');
     d.className = 'txt-inner';
     d.id = 'ti-'+l.id;
-    d.textContent = l.tp.text || '';
+    // Usar innerHTML si hay rich text guardado (colores individuales)
+    if(l.tp.html){ d.innerHTML = l.tp.html; } else { d.textContent = l.tp.text || ''; }
     el.appendChild(d);
     if(!l.locked) makeDraggable(el, l, ()=>selectLayer(l.id));
     else { el.style.pointerEvents='none'; }
@@ -1339,15 +1541,39 @@ async function uploadToCloudinary(dataUrl, publicId){
 }
 
 // ── Cargar logos de plataformas (colección global, con categorías) ──
+const LOGO_CACHE_TTL_MOB = 7 * 24 * 60 * 60 * 1000; // 7 días
+let _logoLoadedAtMob = 0;
+
 async function loadLogos(){
   const empty = document.getElementById('logos-empty');
   if(!fbDb){ if(empty) empty.textContent='Firebase no conectado.'; return; }
   if(!fbAuth?.currentUser){ if(empty) empty.textContent='Inicia sesión para ver logos.'; return; }
+
+  const now = Date.now();
+  // Cache en memoria
+  if(logoCache.length > 0 && (now - _logoLoadedAtMob) < LOGO_CACHE_TTL_MOB){
+    renderLogos(); return;
+  }
+  // Cache en localStorage
+  try{
+    const stored = localStorage.getItem('ds_logo_lib_cache');
+    if(stored){
+      const parsed = JSON.parse(stored);
+      if(parsed.ts && (now - parsed.ts) < LOGO_CACHE_TTL_MOB && parsed.logos?.length){
+        logoCache = parsed.logos;
+        _logoLoadedAtMob = parsed.ts;
+        renderLogos(); return;
+      }
+    }
+  }catch(_){}
+
   if(empty){ empty.textContent='Cargando...'; empty.style.display='block'; }
   try{
     const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoCache = [];
     snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    _logoLoadedAtMob = now;
+    try{ localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts: now, logos: logoCache})); }catch(_){}
     renderLogos();
   }catch(e){
     if(empty){ empty.textContent='Error al cargar logos.'; empty.style.display='block'; }
@@ -1427,24 +1653,31 @@ function renderLogos(){
 }
 
 // Modal post-descarga Android: imagen guardada + botón compartir
-function showDownloadModal(blob, fileName, displayName){
+function showDownloadModal(blob, fileName, displayName, isWebView){
   const modal = document.getElementById('save-img-modal');
   const preview = document.getElementById('save-img-preview');
   const tip = document.getElementById('save-img-tip');
   const shareBtn = document.getElementById('save-img-share');
+  const webviewTip = document.getElementById('save-img-webview-tip');
   if(!modal || !preview) return;
 
-  // Mostrar preview
   const url = URL.createObjectURL(blob);
   preview.src = url;
   preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
 
-  // Cambiar texto a modo Android
-  if(tip){
-    tip.innerHTML = '¡Imagen guardada en tu galería! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
+  if(isWebView){
+    // Navegador embebido: a.download no funciona, instruir a abrir en navegador o usar Share
+    if(tip) tip.innerHTML = 'Estás en un navegador interno.<br>Para guardar en tu galería:';
+    if(webviewTip) webviewTip.style.display = 'block';
+    toast('📤 Usa el botón compartir para guardar');
+  } else {
+    // Navegador real Android: la imagen ya se guardó en Descargas
+    if(tip) tip.innerHTML = '¡Lista! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
+    if(webviewTip) webviewTip.style.display = 'none';
+    toast('✓ Guardada en Descargas');
   }
 
-  // Botón compartir — abre menú completo de Android
+  // Botón compartir — siempre visible, abre menú completo del SO
   if(shareBtn){
     shareBtn.style.display = 'flex';
     shareBtn.onclick = async () => {
@@ -1452,13 +1685,18 @@ function showDownloadModal(blob, fileName, displayName){
         const shareFile = new File([blob], fileName, { type: 'image/png' });
         if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
           await navigator.share({ files: [shareFile], title: displayName });
+        } else {
+          // Fallback si Share API no disponible: abrir imagen en nueva pestaña
+          const u = URL.createObjectURL(blob);
+          window.open(u, '_blank');
+          setTimeout(()=>URL.revokeObjectURL(u), 15000);
+          toast('💡 Mantén presionada la imagen para guardarla');
         }
       }catch(e){ if(e.name !== 'AbortError') console.warn('Share:', e); }
     };
   }
 
   modal.style.display = 'flex';
-  toast('✓ Guardada en Descargas');
 }
 
 function closeSaveModal(){
@@ -1466,10 +1704,11 @@ function closeSaveModal(){
   const preview = document.getElementById('save-img-preview');
   const shareBtn = document.getElementById('save-img-share');
   const tip = document.getElementById('save-img-tip');
+  const wvTip = document.getElementById('save-img-webview-tip');
   if(modal) modal.style.display = 'none';
   if(preview) preview.src = '';
   if(shareBtn){ shareBtn.style.display = 'none'; shareBtn.onclick = null; }
-  // Restaurar texto iOS por defecto
+  if(wvTip) wvTip.style.display = 'none';
   if(tip) tip.innerHTML = 'Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar imagen"</span>';
 }
 
@@ -1785,8 +2024,13 @@ async function doSave(){
   }catch(e){ console.warn('Thumb error:',e.message); }
 
   // Layers data
-  const layerData = layers.map(l=>({
-    id:l.id,type:l.type,name:l.name,
+  // Limpiar nombres de variable ({{precio_...}}) al guardar — quedan como texto fijo
+  const layerData = layers.map(l=>{
+    const savedName = (l.name && l.name.startsWith('{{') && l.name.endsWith('}}') && l.tp?.text)
+      ? l.tp.text  // renombrar con el valor actual (ej: "14")
+      : l.name;
+    return ({
+    id:l.id,type:l.type,name:savedName,
     x:l.x,y:l.y,w:l.w,h:l.h,
     zIndex:l.zIndex,opacity:l.opacity,visible:l.visible,
     // Para frames: guardar src también como frameImage (compatibilidad con editor PC)
@@ -1811,7 +2055,7 @@ async function doSave(){
     rotation: parseFloat(l.rotation || 0) || 0,
     radius:l.radius||null,
     groupId:l.groupId||null
-  }));
+  });});
 
   const data={
     name,thumb,
@@ -2046,10 +2290,29 @@ async function downloadPNG(){
     const fileName = safeName + '.png';
     const blob = await new Promise(res => rendered.toBlob(res, 'image/png'));
 
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
 
-    // ── ANDROID: guardar directo en galería via link de descarga ──
-    // No usamos Share API para Android porque abre el menú de compartir en vez de guardar directo
+    // Detectar navegadores embebidos: Telegram, WhatsApp, Instagram, Facebook, etc.
+    // Estos bloquean a.download y el archivo va a carpeta temporal invisible para el usuario
+    const isWebView =
+      /wv/.test(ua) ||                          // Android WebView genérico
+      /Telegram/.test(ua) ||                        // Telegram InApp Browser
+      /FBAN|FBAV|FB_IAB/.test(ua) ||               // Facebook InApp Browser
+      /Instagram/.test(ua) ||                       // Instagram InApp Browser
+      /WhatsApp/.test(ua) ||                        // WhatsApp InApp Browser
+      /TikTok/.test(ua) ||                          // TikTok InApp Browser
+      /Twitter/.test(ua) ||                         // Twitter InApp Browser
+      (!isIOS && /Android/.test(ua) && !/Chrome\/\d/.test(ua) && !/Firefox\/\d/.test(ua));
+
+    // ── WEBVIEW (Telegram, WhatsApp, Instagram, etc.) ──
+    // a.download no funciona → ir directo al modal con botón compartir
+    if(isWebView){
+      showDownloadModal(blob, fileName, safeName, true);
+      return;
+    }
+
+    // ── ANDROID nativo (Chrome, Firefox, Samsung Browser) ──
     if(!isIOS){
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2059,8 +2322,7 @@ async function downloadPNG(){
       a.click();
       document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url), 8000);
-      // Mostrar modal con botón de compartir para que puedan enviar por WhatsApp etc.
-      showDownloadModal(blob, fileName, safeName);
+      showDownloadModal(blob, fileName, safeName, false);
       return;
     }
 
@@ -2077,7 +2339,7 @@ async function downloadPNG(){
       }
     }
 
-    // ── iOS sin Share API: modal con imagen para guardar manualmente ──
+    // ── iOS sin Share API / fallback: modal con imagen ──
     const url2 = URL.createObjectURL(blob);
     const modal = document.getElementById('save-img-modal');
     const preview = document.getElementById('save-img-preview');
@@ -2224,24 +2486,158 @@ window.addEventListener('load', async()=>{
 })();
 </script>
 
-<!-- MODAL POST-DESCARGA: preview + compartir -->
+
+<!-- MODAL POST-DESCARGA: preview + compartir + aviso WebView -->
 <div id="save-img-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.96);flex-direction:column;align-items:center;justify-content:center;padding:20px;">
   <div style="color:#fff;font-size:0.95rem;font-weight:700;margin-bottom:6px;text-align:center;">
     ✅ Tu diseño está listo
   </div>
-  <div id="save-img-tip" style="color:rgba(255,255,255,0.7);font-size:0.78rem;margin-bottom:16px;text-align:center;line-height:1.6;">
+  <div id="save-img-tip" style="color:rgba(255,255,255,0.7);font-size:0.78rem;margin-bottom:10px;text-align:center;line-height:1.6;">
     Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar imagen"</span>
   </div>
-  <img id="save-img-preview" src="" style="max-width:88vw;max-height:55vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5);" alt="Tu diseño">
-  <!-- Botón compartir (solo visible en Android tras descarga) -->
-  <button id="save-img-share" style="display:none;align-items:center;gap:8px;margin-top:16px;background:#25D366;border:none;color:#fff;border-radius:12px;padding:12px 28px;font-size:0.85rem;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+  <!-- Aviso solo visible en WebViews (Telegram, IG, etc.) -->
+  <div id="save-img-webview-tip" style="display:none;background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.3);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:0.75rem;color:#ffd166;text-align:center;line-height:1.6;max-width:300px;">
+    Estás en un navegador interno (Telegram / Instagram).<br>
+    Toca <strong>"Compartir imagen"</strong> abajo para guardarla en tu galería o enviarla por WhatsApp.
+  </div>
+  <img id="save-img-preview" src="" style="max-width:88vw;max-height:50vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5);" alt="Tu diseño">
+  <!-- Botón compartir — siempre disponible -->
+  <button id="save-img-share" style="display:none;align-items:center;gap:8px;margin-top:14px;background:#15d6a4;border:none;color:#002b22;border-radius:12px;padding:12px 28px;font-size:0.85rem;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-    Compartir imagen
+    Compartir / Guardar en galería
   </button>
   <button onclick="closeSaveModal()" style="margin-top:10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.8);border-radius:12px;padding:10px 32px;font-size:0.82rem;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;">
     Cerrar
   </button>
 </div>
+
+<!-- MODAL PERFIL — editar datos desde el editor móvil -->
+<div id="profile-modal-mob" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);align-items:flex-end;justify-content:center;">
+  <div style="background:var(--panel);border-radius:20px 20px 0 0;padding:20px 16px 36px;width:100%;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:0.88rem;font-weight:700;color:var(--text);">👤 Mis datos personales</div>
+      <button onclick="closeProfileModalMob()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;">×</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 80px;gap:10px;margin-bottom:10px;">
+      <div>
+        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px;">WhatsApp</div>
+        <input id="pmm-whatsapp" type="tel" placeholder="Ej: 51974834197" style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.85rem;box-sizing:border-box;">
+      </div>
+      <div>
+        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px;">Moneda</div>
+        <input id="pmm-moneda" type="text" placeholder="S/" maxlength="6" style="width:100%;padding:9px 8px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.85rem;text-align:center;box-sizing:border-box;">
+      </div>
+    </div>
+
+    <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--accent);margin:12px 0 6px;">💰 Precios</div>
+    <input id="pmm-search" type="text" placeholder="🔍 Buscar plataforma..." oninput="filterPlatMob(this.value)" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:0.78rem;outline:none;box-sizing:border-box;margin-bottom:8px;">
+    <div id="pmm-plat-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Netflix</div><input id="pmm-p-netflix" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Disney+ Estándar</div><input id="pmm-p-disney_std" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Disney+ Premium</div><input id="pmm-p-disney_prem" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Spotify</div><input id="pmm-p-spotify" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Amazon Prime Video</div><input id="pmm-p-prime" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Apple TV+</div><input id="pmm-p-apple" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Paramount+</div><input id="pmm-p-paramount" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Crunchyroll</div><input id="pmm-p-crunchyroll" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Max (HBO)</div><input id="pmm-p-hob_max" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Canva Pro</div><input id="pmm-p-canva" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">YouTube Premium</div><input id="pmm-p-youtube" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">ViX Premium</div><input id="pmm-p-vix" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">DGO (DirecTV)</div><input id="pmm-p-dgo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Deezer</div><input id="pmm-p-deezer" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Plex</div><input id="pmm-p-plex" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">IBO Player Pro</div><input id="pmm-p-ibo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">CableGO</div><input id="pmm-p-cable_go" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">CapCut Pro</div><input id="pmm-p-capcut" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">UFC Fight Pass</div><input id="pmm-p-ufc" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Microsoft Office 365</div><input id="pmm-p-office" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Stella TV</div><input id="pmm-p-st3lla" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Claro Video</div><input id="pmm-p-claro" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Flujo TV</div><input id="pmm-p-flivjo" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Google Gemini</div><input id="pmm-p-gemini" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Fanatiz</div><input id="pmm-p-f4n4tiz" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">IPTV Smarters Pro</div><input id="pmm-p-iptv" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Liga MX</div><input id="pmm-p-l1g41m4x" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Movistar TV</div><input id="pmm-p-movistar" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Rakuten Viki</div><input id="pmm-p-kakuten" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">ChatGPT Plus</div><input id="pmm-p-chatgpt" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Oleada TV</div><input id="pmm-p-wlgtv" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Universal+</div><input id="pmm-p-nmas" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+      <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Google One</div><input id="pmm-p-uno" type="text" placeholder="S/." style="width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.8rem;box-sizing:border-box;"></div>
+    </div>
+
+    <button onclick="saveProfileMob()" style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#002b22;font-weight:700;font-size:0.88rem;cursor:pointer;">
+      💾 Guardar y aplicar al diseño
+    </button>
+  </div>
+</div>
+
+<script>
+const PROFILE_PLATS_MOB = [
+  'netflix', 'disney_std', 'disney_prem', 'spotify', 'prime',
+  'apple', 'paramount', 'crunchyroll', 'hob_max', 'canva',
+  'youtube', 'vix', 'dgo', 'deezer', 'plex',
+  'ibo', 'cable_go', 'capcut', 'ufc', 'office',
+  'st3lla', 'claro', 'flivjo', 'gemini', 'f4n4tiz',
+  'iptv', 'l1g41m4x', 'movistar', 'kakuten', 'chatgpt',
+  'wlgtv', 'nmas', 'uno'
+];
+
+function openProfileModalMob(){
+  const profile = getUserProfile() || {};
+  const wa = document.getElementById('pmm-whatsapp');
+  if(wa) wa.value = profile.whatsapp || '';
+  const pmmMonedaEl = document.getElementById('pmm-moneda');
+  if(pmmMonedaEl) pmmMonedaEl.value = profile.moneda || 'S/';
+  PROFILE_PLATS_MOB.forEach(p=>{
+    const el = document.getElementById('pmm-p-'+p);
+    if(el) el.value = profile['precio_'+p] || '';
+  });
+  document.getElementById('profile-modal-mob').style.display='flex';
+}
+
+function closeProfileModalMob(){
+  document.getElementById('profile-modal-mob').style.display='none';
+}
+
+async function saveProfileMob(){
+  const wa = document.getElementById('pmm-whatsapp');
+  const pmmMoneda = document.getElementById('pmm-moneda');
+  const profile = {
+    whatsapp: (wa?.value||'').trim(),
+    moneda: (pmmMoneda?.value||'S/').trim() || 'S/',
+  };
+  PROFILE_PLATS_MOB.forEach(p=>{
+    const el = document.getElementById('pmm-p-'+p);
+    profile['precio_'+p] = (el?.value||'').trim();
+  });
+  localStorage.setItem('ts_user_profile', JSON.stringify(profile));
+  if(fbDb && fbAuth?.currentUser){
+    try{ await fbDb.collection('user_profiles').doc(fbAuth.currentUser.uid).set(profile,{merge:true}); }
+    catch(e){ console.warn('Perfil Firestore móvil:', e); }
+  }
+  applyProfileToLayers();
+  closeProfileModalMob();
+  toast('✓ Datos guardados y aplicados');
+}
+
+function filterPlatMob(q){
+  const grid = document.getElementById('pmm-plat-grid');
+  if(!grid) return;
+  const term = q.toLowerCase().trim();
+  grid.querySelectorAll('div').forEach(el=>{
+    const lbl = el.querySelector('div');
+    if(!lbl) return;
+    el.style.display = (!term || lbl.textContent.toLowerCase().includes(term)) ? '' : 'none';
+  });
+}
+
+document.getElementById('profile-modal-mob').addEventListener('click', function(e){
+  if(e.target === this) closeProfileModalMob();
+});
+</script>
 
 </body>
 </html>
