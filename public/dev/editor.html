@@ -1530,10 +1530,13 @@ input[type=range]{filter:none !important;}
 
         <div class="panel-grid2" style="margin-bottom:8px;">
           <div>
-            <div class="mini-lbl">Color</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+              <div class="mini-lbl" style="margin-bottom:0;">Color</div>
+              <button id="btn-clear-rich" onclick="clearRichText()" title="Quitar colores individuales" style="display:none;background:none;border:none;color:var(--muted);font-size:0.65rem;cursor:pointer;padding:0;">✕ quitar colores</button>
+            </div>
             <div style="display:flex;align-items:center;gap:6px;">
-              <input type="color" id="pp-fc" value="#ffffff" oninput="updTS('color',this.value)" style="width:28px;height:28px;border-radius:6px;">
-              <input class="pp-inp" id="pp-fc-hex" value="#ffffff" style="flex:1;padding:6px;" oninput="updTS('color',this.value)">
+              <input type="color" id="pp-fc" value="#ffffff" oninput="applyColorSmart(this.value)" style="width:28px;height:28px;border-radius:6px;">
+              <input class="pp-inp" id="pp-fc-hex" value="#ffffff" style="flex:1;padding:6px;" oninput="applyColorSmart(this.value)">
             </div>
           </div>
           <div>
@@ -4040,11 +4043,14 @@ function mkEl(l){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
     const tp=l.tp;
     d.style.cssText='width:100%;';
-    d.textContent=tp.text;
+    // Usar innerHTML si hay rich text guardado, si no usar textContent
+    if(tp.html){ d.innerHTML=tp.html; } else { d.textContent=tp.text; }
     applyTextStyles(l);
     d.oninput=()=>{
-      if(d.innerHTML !== d.textContent){ const clean=d.textContent; d.textContent=clean; const r=document.createRange(); r.selectNodeContents(d); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
-      l.tp.text=d.textContent; syncP();
+      // Permitir spans de color — solo limpiar si hay HTML no autorizado
+      l.tp.text = d.innerText || d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      syncP();
     };
     d.addEventListener('paste',ev=>{
       ev.preventDefault();
@@ -4052,9 +4058,15 @@ function mkEl(l){
       const sel=window.getSelection();
       if(sel.rangeCount){ sel.deleteFromDocument(); sel.getRangeAt(0).insertNode(document.createTextNode(plain)); sel.collapseToEnd(); }
       else{ d.textContent+=plain; }
-      l.tp.text=d.textContent; applyTextStyles(l); syncP();
+      l.tp.text=d.innerText||d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      applyTextStyles(l); syncP();
     });
-    d.onblur=()=>{ l.tp.text=d.textContent; d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState(); };
+    d.onblur=()=>{
+      l.tp.text = d.innerText || d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState();
+    };
     el.appendChild(d);
     // Single click = select, double click = edit
     el.ondblclick=ev=>{
@@ -5048,7 +5060,29 @@ function updImageBlur(value){
 
 function syncP(){
   const l=layers.find(x=>x.id===selId);if(!l)return;
-  if(l.type==='text'&&l.tp){ const d=document.getElementById('ti-'+l.id); if(d&&d.contentEditable!=='true') l.tp.text=d.textContent; }
+  if(l.type==='text'&&l.tp){
+    const d=document.getElementById('ti-'+l.id);
+    if(d&&d.contentEditable!=='true'){
+      l.tp.text=d.innerText||d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+    }
+    // Si hay selección dentro del div, mostrar el color del span seleccionado en el picker
+    const sel=window.getSelection();
+    if(sel&&sel.rangeCount>0&&!sel.isCollapsed&&d&&d.contains(sel.getRangeAt(0).commonAncestorContainer)){
+      const node=sel.getRangeAt(0).startContainer;
+      const span=node.parentElement?.closest('span[style*="color"]');
+      if(span){
+        const spanColor=span.style.color;
+        // Convertir rgb() a hex si es necesario
+        const hexColor=rgbToHex(spanColor)||spanColor;
+        const fc=document.getElementById('pp-fc'); if(fc&&hexColor.startsWith('#')) fc.value=hexColor;
+        const fch=document.getElementById('pp-fc-hex'); if(fch&&hexColor.startsWith('#')) fch.value=hexColor;
+      }
+    }
+  }
+  // Mostrar botón "quitar colores" si hay rich text activo
+  const clearBtn = document.getElementById('btn-clear-rich');
+  if(clearBtn) clearBtn.style.display = (l?.type==='text' && l.tp?.html) ? 'inline' : 'none';
   updatePropertyPanelState(l);
   document.getElementById('pp-x').value=Math.round(l.x);
   document.getElementById('pp-y').value=Math.round(l.y);
@@ -5217,6 +5251,98 @@ function updTxtSize(v){
   snapshotState();
 }
 
+// Aplicar color inteligente:
+// - Si hay texto seleccionado en el contenteditable → color solo a la selección (rich text)
+// - Si no hay selección → color a toda la capa (comportamiento original)
+// Quitar todos los colores individuales — volver al color uniforme de la capa
+function clearRichText(){
+  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
+  const d = document.getElementById('ti-'+l.id); if(!d) return;
+  // Extraer texto plano quitando todos los spans
+  const tmp = document.createElement('div');
+  tmp.innerHTML = l.tp.html || d.innerHTML;
+  tmp.querySelectorAll('span').forEach(s=>{
+    while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+    s.remove();
+  });
+  l.tp.html = null;
+  l.tp.text = tmp.textContent;
+  d.innerHTML = '';
+  d.textContent = l.tp.text;
+  applyTextStyles(l);
+  syncP();
+  snapshotState();
+}
+
+function rgbToHex(rgb){
+  if(!rgb) return null;
+  if(rgb.startsWith('#')) return rgb;
+  const m = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if(!m) return null;
+  return '#'+[m[1],m[2],m[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');
+}
+
+function applyColorSmart(color){
+  if(!color) return;
+  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
+  const d = document.getElementById('ti-'+l.id); if(!d) return;
+
+  // Sincronizar el color picker con el hex input y viceversa
+  const fc = document.getElementById('pp-fc');
+  const fch = document.getElementById('pp-fc-hex');
+  if(fc && fc.value !== color) fc.value = color;
+  if(fch && fch.value !== color) fch.value = color;
+
+  // Verificar si hay selección de texto dentro del div
+  const sel = window.getSelection();
+  const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
+  const inThisDiv = hasSelection && d.contains(sel.getRangeAt(0).commonAncestorContainer);
+
+  if(inThisDiv && d.contentEditable === 'true'){
+    // ── Rich text: aplicar color solo a la selección ──
+    const range = sel.getRangeAt(0);
+    // Crear un span con el color
+    const span = document.createElement('span');
+    span.style.color = color;
+    try{
+      // surroundContents falla si la selección cruza elementos — usar extractContents
+      const fragment = range.extractContents();
+      // Quitar colores previos en el contenido seleccionado y aplicar el nuevo
+      span.appendChild(fragment);
+      range.insertNode(span);
+      // Restaurar la selección para que el usuario vea qué cambió
+      sel.removeAllRanges();
+      const newRange = document.createRange();
+      newRange.selectNodeContents(span);
+      sel.addRange(newRange);
+    }catch(e){
+      // Fallback: aplicar a toda la capa
+      l.tp.color = color;
+      applyTextStyles(l);
+    }
+    // Guardar el HTML con rich text
+    l.tp.text = d.innerText || d.textContent;
+    l.tp.html  = d.innerHTML;
+    snapshotState();
+  } else {
+    // ── Sin selección: aplicar a toda la capa (comportamiento original) ──
+    // Si había rich text, limpiar los spans y aplicar color uniforme
+    if(l.tp.html){
+      // Quitar todos los spans de color del innerHTML
+      const tmp = document.createElement('div');
+      tmp.innerHTML = l.tp.html;
+      tmp.querySelectorAll('span[style*="color"]').forEach(s=>{
+        // Reemplazar el span por su contenido
+        while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+        s.remove();
+      });
+      l.tp.html = null;
+      d.innerHTML = tmp.innerHTML;
+    }
+    updTS('color', color);
+  }
+}
+
 function updTS(p,v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
   ls.forEach(l=>{
@@ -5277,6 +5403,8 @@ function applyTextStyles(layer){
   const d = document.getElementById('ti-'+layer.id);
   if(!d) return;
   const tp = layer.tp;
+  // Si hay rich text HTML, no sobreescribir el contenido — solo aplicar estilos del contenedor
+  // Los spans internos mantienen sus colores, el div padre da el estilo base
   const textShadowParts = [];
   const outerStroke = buildOuterStrokeShadow(tp.strokeWidth||0, tp.strokeColor||'#000000');
   if(outerStroke) textShadowParts.push(outerStroke);
