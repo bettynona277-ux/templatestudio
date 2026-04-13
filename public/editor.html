@@ -811,6 +811,8 @@ body.theme-light .panel-card{background:linear-gradient(180deg,#fff,#f8fbff) !im
 }
 body.theme-light .pp-inp,body.theme-light .pp-sel,body.theme-light textarea.pp-inp,body.theme-light .modal-inp{background:linear-gradient(180deg,#fff,#f8fbff) !important}
 .pp-inp::placeholder,.modal-inp::placeholder{color:color-mix(in srgb, var(--muted) 90%, transparent)}
+.var-opt{padding:6px 10px;font-size:0.72rem;color:var(--text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.var-opt:hover{background:rgba(21,214,164,0.12);color:var(--accent);}
 .pp-inp:focus,.pp-sel:focus,textarea.pp-inp:focus,.modal-inp:focus{
   transform:translateY(-1px);
   border-color:color-mix(in srgb, var(--accent) 50%, var(--border)) !important;
@@ -1100,6 +1102,9 @@ input[type=range]{filter:none !important;}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h0"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>
     </button>
 
+    <button class="tbtn tbtn-ghost" id="btn-profile" onclick="openProfileModal()" title="Editar mis datos personales" style="display:none;">
+      👤 Mis datos
+    </button>
     <button class="tbtn tbtn-ghost" id="btn-back" onclick="goBack()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       Admin
@@ -1237,10 +1242,13 @@ input[type=range]{filter:none !important;}
       <div style="padding:4px 12px 4px;border-top:1px solid var(--border);margin-top:4px;">
         <div class="lp-title" style="font-size:0.8rem;margin:8px 0 4px;">🎬 Logos de plataformas</div>
         <p style="font-size:0.68rem;color:var(--muted);margin-bottom:6px;line-height:1.4;">Visibles para todos los clientes.</p>
-        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:8px;font-size:0.75rem;padding:7px 12px;">
+        <label id="logo-upload-btn" class="upload-psd" style="display:none;margin-bottom:6px;font-size:0.75rem;padding:7px 12px;">
           ＋ Subir logo de plataforma
           <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="uploadLibraryLogos(event)">
         </label>
+        <button id="logo-refresh-btn" onclick="forceRefreshLogos()" style="display:none;width:100%;margin-bottom:8px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:0.68rem;cursor:pointer;" title="Fuerza que todos los clientes descarguen los logos nuevos">
+          🔄 Forzar actualización de logos
+        </button>
       </div>
       <!-- Acordeones de categorías -->
       <div id="logo-library-accordions" style="padding:0 0 12px;">
@@ -1430,7 +1438,60 @@ input[type=range]{filter:none !important;}
       <div class="panel-card panel-hidden" id="pp-txt">
         <div class="panel-title">Texto <span class="panel-chip">Tipografía</span></div>
         <div class="mini-lbl">Contenido</div>
-        <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none; margin-bottom:8px;" oninput="updTxt(this.value)"></textarea>
+        <textarea class="pp-inp" id="pp-tc" rows="3" style="resize:none; margin-bottom:6px;" oninput="updTxt(this.value)"></textarea>
+
+        <div id="pp-var-wrap" style="margin-bottom:10px;display:none;">
+          <div class="mini-lbl" style="color:var(--accent);">📌 Variable de perfil (renombra la capa)</div>
+          <div id="pp-var-sel-wrap" style="position:relative;">
+            <div id="pp-var-sel-display" onclick="toggleVarDropdown()" style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:0.72rem;cursor:pointer;user-select:none;">
+              <span id="pp-var-sel-label">— sin variable —</span>
+              <span style="font-size:0.6rem;color:var(--muted);">▼</span>
+            </div>
+            <div id="pp-var-sel-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.4);margin-top:2px;">
+              <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
+                <input id="pp-var-search" type="text" placeholder="🔍 Buscar plataforma..." oninput="filterVarOpts(this.value)" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:0.72rem;outline:none;box-sizing:border-box;">
+              </div>
+              <div id="pp-var-opts-list" style="max-height:180px;overflow-y:auto;">
+                <div class="var-opt" onclick="applyLayerVariable('')">— sin variable —</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{whatsapp}}')">{{whatsapp}} — WhatsApp</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{moneda}}')">{{moneda}} — Símbolo de moneda (S/, $, €…)</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_netflix}}')">{{precio_netflix}} — Netflix</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_disney_std}}')">{{precio_disney_std}} — Disney+ Estándar</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_disney_prem}}')">{{precio_disney_prem}} — Disney+ Premium</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_spotify}}')">{{precio_spotify}} — Spotify</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_prime}}')">{{precio_prime}} — Amazon Prime Video</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_apple}}')">{{precio_apple}} — Apple TV+</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_paramount}}')">{{precio_paramount}} — Paramount+</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_crunchyroll}}')">{{precio_crunchyroll}} — Crunchyroll</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_hob_max}}')">{{precio_hob_max}} — Max (HBO)</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_canva}}')">{{precio_canva}} — Canva Pro</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_youtube}}')">{{precio_youtube}} — YouTube Premium</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_vix}}')">{{precio_vix}} — ViX Premium</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_dgo}}')">{{precio_dgo}} — DGO (DirecTV)</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_deezer}}')">{{precio_deezer}} — Deezer</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_plex}}')">{{precio_plex}} — Plex</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_ibo}}')">{{precio_ibo}} — IBO Player Pro</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_cable_go}}')">{{precio_cable_go}} — CableGO</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_capcut}}')">{{precio_capcut}} — CapCut Pro</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_ufc}}')">{{precio_ufc}} — UFC Fight Pass</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_office}}')">{{precio_office}} — Microsoft Office 365</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_st3lla}}')">{{precio_st3lla}} — Stella TV</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_claro}}')">{{precio_claro}} — Claro Video</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_flivjo}}')">{{precio_flivjo}} — Flujo TV</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_gemini}}')">{{precio_gemini}} — Google Gemini</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_f4n4tiz}}')">{{precio_f4n4tiz}} — Fanatiz</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_iptv}}')">{{precio_iptv}} — IPTV Smarters Pro</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_l1g41m4x}}')">{{precio_l1g41m4x}} — Liga MX</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_movistar}}')">{{precio_movistar}} — Movistar TV</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_kakuten}}')">{{precio_kakuten}} — Rakuten Viki</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_chatgpt}}')">{{precio_chatgpt}} — ChatGPT Plus</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_wlgtv}}')">{{precio_wlgtv}} — Oleada TV</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_nmas}}')">{{precio_nmas}} — Universal+</div>
+                <div class="var-opt" onclick="applyLayerVariable('{{precio_uno}}')">{{precio_uno}} — Google One</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="mini-lbl">Fuente</div>
         <div style="position:relative;margin-bottom:8px;">
@@ -1469,10 +1530,13 @@ input[type=range]{filter:none !important;}
 
         <div class="panel-grid2" style="margin-bottom:8px;">
           <div>
-            <div class="mini-lbl">Color</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+              <div class="mini-lbl" style="margin-bottom:0;">Color</div>
+              <button id="btn-clear-rich" onclick="clearRichText()" title="Quitar colores individuales" style="display:none;background:none;border:none;color:var(--muted);font-size:0.65rem;cursor:pointer;padding:0;">✕ quitar colores</button>
+            </div>
             <div style="display:flex;align-items:center;gap:6px;">
-              <input type="color" id="pp-fc" value="#ffffff" oninput="updTS('color',this.value)" style="width:28px;height:28px;border-radius:6px;">
-              <input class="pp-inp" id="pp-fc-hex" value="#ffffff" style="flex:1;padding:6px;" oninput="updTS('color',this.value)">
+              <input type="color" id="pp-fc" value="#ffffff" oninput="applyColorSmart(this.value)" style="width:28px;height:28px;border-radius:6px;">
+              <input class="pp-inp" id="pp-fc-hex" value="#ffffff" style="flex:1;padding:6px;" oninput="applyColorSmart(this.value)">
             </div>
           </div>
           <div>
@@ -1627,6 +1691,105 @@ input[type=range]{filter:none !important;}
 
 <script>
 // --- EL JAVASCRIPT SE MANTIENE EXACTAMENTE IGUAL AL ARCHIVO ORIGINAL ---
+
+// ══════════════════════════════════════════
+// PERFIL DE USUARIO — reemplazar {{variables}} en capas de texto
+// ══════════════════════════════════════════
+function getUserProfile(){
+  try{ return JSON.parse(localStorage.getItem('ts_user_profile') || 'null'); }
+  catch(_){ return null; }
+}
+
+function applyProfileToLayers(){
+  const profile = getUserProfile();
+  if(!profile) return;
+  const vars = {
+    '{{whatsapp}}':          profile.whatsapp || '',
+    '{{moneda}}':            profile.moneda    || 'S/',
+    '{{precio_netflix}}': profile.precio_netflix || '',
+    '{{precio_disney_std}}': profile.precio_disney_std || '',
+    '{{precio_disney_prem}}': profile.precio_disney_prem || '',
+    '{{precio_spotify}}': profile.precio_spotify || '',
+    '{{precio_prime}}': profile.precio_prime || '',
+    '{{precio_apple}}': profile.precio_apple || '',
+    '{{precio_paramount}}': profile.precio_paramount || '',
+    '{{precio_crunchyroll}}': profile.precio_crunchyroll || '',
+    '{{precio_hob_max}}': profile.precio_hob_max || '',
+    '{{precio_canva}}': profile.precio_canva || '',
+    '{{precio_youtube}}': profile.precio_youtube || '',
+    '{{precio_vix}}': profile.precio_vix || '',
+    '{{precio_dgo}}': profile.precio_dgo || '',
+    '{{precio_deezer}}': profile.precio_deezer || '',
+    '{{precio_plex}}': profile.precio_plex || '',
+    '{{precio_ibo}}': profile.precio_ibo || '',
+    '{{precio_cable_go}}': profile.precio_cable_go || '',
+    '{{precio_capcut}}': profile.precio_capcut || '',
+    '{{precio_ufc}}': profile.precio_ufc || '',
+    '{{precio_office}}': profile.precio_office || '',
+    '{{precio_st3lla}}': profile.precio_st3lla || '',
+    '{{precio_claro}}': profile.precio_claro || '',
+    '{{precio_flivjo}}': profile.precio_flivjo || '',
+    '{{precio_gemini}}': profile.precio_gemini || '',
+    '{{precio_f4n4tiz}}': profile.precio_f4n4tiz || '',
+    '{{precio_iptv}}': profile.precio_iptv || '',
+    '{{precio_l1g41m4x}}': profile.precio_l1g41m4x || '',
+    '{{precio_movistar}}': profile.precio_movistar || '',
+    '{{precio_kakuten}}': profile.precio_kakuten || '',
+    '{{precio_chatgpt}}': profile.precio_chatgpt || '',
+    '{{precio_wlgtv}}': profile.precio_wlgtv || '',
+    '{{precio_nmas}}': profile.precio_nmas || '',
+    '{{precio_uno}}': profile.precio_uno || '',
+  };
+  layers.forEach(l=>{
+    if(l.type !== 'text' || !l.tp) return;
+    let changed = false;
+    Object.entries(vars).forEach(([key, val])=>{
+      if(!val) return;
+      const inName = l.name && l.name.toLowerCase().includes(key.slice(2,-2));
+      const inText = l.tp.text && l.tp.text.includes(key);
+      if(inName && !inText){ l.tp.text = val; changed = true; }
+      else if(inText){
+        const re = new RegExp(key.replace(/\{/g,'\\{').replace(/\}/g,'\\}'), 'g');
+        l.tp.text = l.tp.text.replace(re, val);
+        changed = true;
+      }
+    });
+    if(changed){
+      autoScaleFontForLayer(l);
+      const d = document.getElementById('ti-'+l.id);
+      if(d){ d.textContent = l.tp.text; applyTextStyles(l); }
+    }
+  });
+  if(layers.some(l=>l.type==='text'&&l.tp)) snapshotState();
+}
+
+function autoScaleFontForLayer(l){
+  if(!l.tp) return;
+  const text = l.tp.text || '';
+  if(l._origFontSize    === undefined) l._origFontSize    = l.tp.fontSize   || 24;
+  if(l._origTextLen     === undefined) l._origTextLen     = text.length      || 1;
+  if(l._origFontFamily  === undefined) l._origFontFamily  = l.tp.fontFamily  || "'Poppins'";
+  if(l._origFontWeight  === undefined) l._origFontWeight  = l.tp.fontWeight  || '700';
+
+  const newLen = text.length || 1;
+
+  if(newLen <= l._origTextLen){
+    // Texto igual o más corto → restaurar todo al original
+    l.tp.fontSize   = l._origFontSize;
+    l.tp.fontFamily = l._origFontFamily;
+    l.tp.fontWeight = l._origFontWeight;
+  } else {
+    // Texto más largo → Bebas Neue + reducción proporcional calibrada
+    // Fórmula: ratio = (origLen/newLen)*0.424 + 0.576
+    // Ejemplo real: 33px con "99"→"9999" (2→4 chars) = 26px exacto
+    // Mínimo 55% del original para no quedar ilegible
+    const ratio = Math.max(0.55, (l._origTextLen / newLen) * 0.424 + 0.576);
+    l.tp.fontFamily = "'Bebas Neue', sans-serif";
+    l.tp.fontWeight = '400';
+    l.tp.fontSize   = Math.round(l._origFontSize * ratio);
+  }
+}
+
 let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, isRot=false, dOff={x:0,y:0}, rSt={}, rotSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
@@ -2910,22 +3073,67 @@ async function compressImage(dataUrl, maxKB=400){
 }
 
 // ── Cargar logos de plataformas ──
+// Fuerza que todos los clientes descarguen logos frescos
+function forceRefreshLogos(){
+  try{
+    fbDb.collection('_config').doc('logo_version').set({updatedAt:Date.now()}).then(()=>{
+      showToast('✓ Logos actualizados — clientes verán los nuevos al abrir el editor');
+    });
+    localStorage.removeItem('ds_logo_lib_cache');
+    logoLibCache=[]; _logoLibLoadedAt=0; loadLogoLibrary();
+  }catch(e){
+    localStorage.removeItem('ds_logo_lib_cache');
+    logoLibCache=[]; _logoLibLoadedAt=0; loadLogoLibrary();
+    showToast('✓ Caché local limpiado');
+  }
+}
+
+const LOGO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días
+let _logoLibLoadedAt = 0;
+
 async function loadLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
   const emptyEl=document.getElementById('logo-library-empty');
   if(!fbDb){ if(emptyEl) emptyEl.textContent='Conecta Firebase.'; return; }
   if(!fbAuth||!fbAuth.currentUser){ if(emptyEl) emptyEl.textContent='Inicia sesión.'; return; }
+
+  const now = Date.now();
+  // Usar caché en memoria si no ha expirado
+  if(logoLibCache.length > 0 && (now - _logoLibLoadedAt) < LOGO_CACHE_TTL){
+    renderLogoLibrary(); loadOwnLogosPC(); return;
+  }
+  // Intentar caché en localStorage
+  try{
+    const stored = localStorage.getItem('ds_logo_lib_cache');
+    if(stored){
+      const parsed = JSON.parse(stored);
+      if(parsed.ts && (now - parsed.ts) < LOGO_CACHE_TTL && parsed.logos?.length){
+        logoLibCache = parsed.logos; _logoLibLoadedAt = parsed.ts;
+        renderLogoLibrary(); loadOwnLogosPC();
+        // Verificar en background si hay logos nuevos
+        fbDb.collection('_config').doc('logo_version').get().then(doc=>{
+          if(doc.exists && doc.data().updatedAt > parsed.ts){
+            localStorage.removeItem('ds_logo_lib_cache');
+            logoLibCache=[]; _logoLibLoadedAt=0; loadLogoLibrary();
+          }
+        }).catch(()=>{});
+        return;
+      }
+    }
+  }catch(_){}
+
   if(emptyEl) emptyEl.textContent='Cargando...';
   try{
     const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
     logoLibCache=[];
     snap.forEach(doc=>logoLibCache.push({id:doc.id,...doc.data()}));
+    _logoLibLoadedAt = now;
+    try{ localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts:now, logos:logoLibCache})); }catch(_){}
     renderLogoLibrary();
   }catch(e){
     console.warn('Logo library error:',e.message);
     if(emptyEl) emptyEl.textContent='Error al cargar logos.';
   }
-  // Siempre cargar también los logos propios
   loadOwnLogosPC();
 }
 
@@ -2939,6 +3147,8 @@ function renderLogoLibrary(){
   // Mostrar botón subir solo a admin
   const uploadBtn = document.getElementById('logo-upload-btn');
   if(uploadBtn) uploadBtn.style.display = isAdmin ? 'flex' : 'none';
+  const refreshBtn = document.getElementById('logo-refresh-btn');
+  if(refreshBtn) refreshBtn.style.display = isAdmin ? 'block' : 'none';
 
   if(!logoLibCache.length){
     if(emptyEl){ emptyEl.textContent='Sin logos de plataformas aún.'; emptyEl.style.display='block'; }
@@ -3833,10 +4043,30 @@ function mkEl(l){
     const d=document.createElement('div');d.className='txt-inner';d.id='ti-'+l.id;d.contentEditable='false';
     const tp=l.tp;
     d.style.cssText='width:100%;';
-    d.textContent=tp.text;
+    // Usar innerHTML si hay rich text guardado, si no usar textContent
+    if(tp.html){ d.innerHTML=tp.html; } else { d.textContent=tp.text; }
     applyTextStyles(l);
-    d.oninput=()=>{l.tp.text=d.textContent;syncP();};
-    d.onblur=()=>{d.style.pointerEvents='none';d.contentEditable='false';el.style.outline='';snapshotState();};
+    d.oninput=()=>{
+      // Permitir spans de color — solo limpiar si hay HTML no autorizado
+      l.tp.text = d.innerText || d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      syncP();
+    };
+    d.addEventListener('paste',ev=>{
+      ev.preventDefault();
+      const plain=(ev.clipboardData||window.clipboardData).getData('text/plain');
+      const sel=window.getSelection();
+      if(sel.rangeCount){ sel.deleteFromDocument(); sel.getRangeAt(0).insertNode(document.createTextNode(plain)); sel.collapseToEnd(); }
+      else{ d.textContent+=plain; }
+      l.tp.text=d.innerText||d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      applyTextStyles(l); syncP();
+    });
+    d.onblur=()=>{
+      l.tp.text = d.innerText || d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState();
+    };
     el.appendChild(d);
     // Single click = select, double click = edit
     el.ondblclick=ev=>{
@@ -4680,6 +4910,8 @@ function updatePropertyPanelState(targetLayer=null){
       chip.textContent = isText ? 'Texto' : isShape ? 'Forma' : isImage ? 'Imagen' : isFrame ? 'Marco' : l ? 'Elemento' : 'Elemento';
     }
   }
+  // Sincronizar selector de variable (solo visible en admin, solo en capas de texto)
+  if(typeof syncVarSelector === 'function') syncVarSelector();
 }
 
 
@@ -4830,6 +5062,29 @@ function updImageBlur(value){
 
 function syncP(){
   const l=layers.find(x=>x.id===selId);if(!l)return;
+  if(l.type==='text'&&l.tp){
+    const d=document.getElementById('ti-'+l.id);
+    if(d&&d.contentEditable!=='true'){
+      l.tp.text=d.innerText||d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+    }
+    // Si hay selección dentro del div, mostrar el color del span seleccionado en el picker
+    const sel=window.getSelection();
+    if(sel&&sel.rangeCount>0&&!sel.isCollapsed&&d&&d.contains(sel.getRangeAt(0).commonAncestorContainer)){
+      const node=sel.getRangeAt(0).startContainer;
+      const span=node.parentElement?.closest('span[style*="color"]');
+      if(span){
+        const spanColor=span.style.color;
+        // Convertir rgb() a hex si es necesario
+        const hexColor=rgbToHex(spanColor)||spanColor;
+        const fc=document.getElementById('pp-fc'); if(fc&&hexColor.startsWith('#')) fc.value=hexColor;
+        const fch=document.getElementById('pp-fc-hex'); if(fch&&hexColor.startsWith('#')) fch.value=hexColor;
+      }
+    }
+  }
+  // Mostrar botón "quitar colores" si hay rich text activo
+  const clearBtn = document.getElementById('btn-clear-rich');
+  if(clearBtn) clearBtn.style.display = (l?.type==='text' && l.tp?.html) ? 'inline' : 'none';
   updatePropertyPanelState(l);
   document.getElementById('pp-x').value=Math.round(l.x);
   document.getElementById('pp-y').value=Math.round(l.y);
@@ -4998,6 +5253,98 @@ function updTxtSize(v){
   snapshotState();
 }
 
+// Aplicar color inteligente:
+// - Si hay texto seleccionado en el contenteditable → color solo a la selección (rich text)
+// - Si no hay selección → color a toda la capa (comportamiento original)
+// Quitar todos los colores individuales — volver al color uniforme de la capa
+function clearRichText(){
+  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
+  const d = document.getElementById('ti-'+l.id); if(!d) return;
+  // Extraer texto plano quitando todos los spans
+  const tmp = document.createElement('div');
+  tmp.innerHTML = l.tp.html || d.innerHTML;
+  tmp.querySelectorAll('span').forEach(s=>{
+    while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+    s.remove();
+  });
+  l.tp.html = null;
+  l.tp.text = tmp.textContent;
+  d.innerHTML = '';
+  d.textContent = l.tp.text;
+  applyTextStyles(l);
+  syncP();
+  snapshotState();
+}
+
+function rgbToHex(rgb){
+  if(!rgb) return null;
+  if(rgb.startsWith('#')) return rgb;
+  const m = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if(!m) return null;
+  return '#'+[m[1],m[2],m[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');
+}
+
+function applyColorSmart(color){
+  if(!color) return;
+  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
+  const d = document.getElementById('ti-'+l.id); if(!d) return;
+
+  // Sincronizar el color picker con el hex input y viceversa
+  const fc = document.getElementById('pp-fc');
+  const fch = document.getElementById('pp-fc-hex');
+  if(fc && fc.value !== color) fc.value = color;
+  if(fch && fch.value !== color) fch.value = color;
+
+  // Verificar si hay selección de texto dentro del div
+  const sel = window.getSelection();
+  const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
+  const inThisDiv = hasSelection && d.contains(sel.getRangeAt(0).commonAncestorContainer);
+
+  if(inThisDiv && d.contentEditable === 'true'){
+    // ── Rich text: aplicar color solo a la selección ──
+    const range = sel.getRangeAt(0);
+    // Crear un span con el color
+    const span = document.createElement('span');
+    span.style.color = color;
+    try{
+      // surroundContents falla si la selección cruza elementos — usar extractContents
+      const fragment = range.extractContents();
+      // Quitar colores previos en el contenido seleccionado y aplicar el nuevo
+      span.appendChild(fragment);
+      range.insertNode(span);
+      // Restaurar la selección para que el usuario vea qué cambió
+      sel.removeAllRanges();
+      const newRange = document.createRange();
+      newRange.selectNodeContents(span);
+      sel.addRange(newRange);
+    }catch(e){
+      // Fallback: aplicar a toda la capa
+      l.tp.color = color;
+      applyTextStyles(l);
+    }
+    // Guardar el HTML con rich text
+    l.tp.text = d.innerText || d.textContent;
+    l.tp.html  = d.innerHTML;
+    snapshotState();
+  } else {
+    // ── Sin selección: aplicar a toda la capa (comportamiento original) ──
+    // Si había rich text, limpiar los spans y aplicar color uniforme
+    if(l.tp.html){
+      // Quitar todos los spans de color del innerHTML
+      const tmp = document.createElement('div');
+      tmp.innerHTML = l.tp.html;
+      tmp.querySelectorAll('span[style*="color"]').forEach(s=>{
+        // Reemplazar el span por su contenido
+        while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+        s.remove();
+      });
+      l.tp.html = null;
+      d.innerHTML = tmp.innerHTML;
+    }
+    updTS('color', color);
+  }
+}
+
 function updTS(p,v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
   ls.forEach(l=>{
@@ -5058,6 +5405,8 @@ function applyTextStyles(layer){
   const d = document.getElementById('ti-'+layer.id);
   if(!d) return;
   const tp = layer.tp;
+  // Si hay rich text HTML, no sobreescribir el contenido — solo aplicar estilos del contenedor
+  // Los spans internos mantienen sus colores, el div padre da el estilo base
   const textShadowParts = [];
   const outerStroke = buildOuterStrokeShadow(tp.strokeWidth||0, tp.strokeColor||'#000000');
   if(outerStroke) textShadowParts.push(outerStroke);
@@ -5173,9 +5522,12 @@ function renderList(){
     const groupBadge = l.groupId ? `<span style="font-size:0.58rem;background:rgba(91,140,255,0.15);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:3px;" onclick="event.stopPropagation();selectGroup('${l.groupId}')">G</span>` : '';
     const oobBadge = outOfBounds ? `<span title="Capa fuera del canvas — clic para centrar" style="font-size:0.58rem;background:rgba(255,107,107,0.2);color:var(--accent2);border-radius:4px;padding:1px 5px;margin-left:3px;cursor:pointer;" onclick="event.stopPropagation();fitLayerToCanvas(${l.id})">⚠ fuera</span>` : '';
     const typeLabel = l.type==='text'?'Texto':l.type==='frame'?'Marco':l.isShape?'Forma':'Imagen';
-    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name">${l.name}${groupBadge}${oobBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
+    const isVar = l.name && l.name.includes('{{') && l.name.includes('}}');
+    const varBadge = isVar ? `<span style="font-size:0.58rem;background:rgba(21,214,164,0.2);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">📌var</span>` : '';
+    li.innerHTML=`<span class="dh">⠿</span>${th}<div class="l-info"><div class="l-name" title="Doble clic para renombrar">${l.name}${groupBadge}${oobBadge}${varBadge}</div><div class="l-meta">${typeLabel} · ${l.w}×${l.h}</div></div><div class="l-acts"><button class="la" title="${l.locked?'Desbloquear':'Bloquear'}" onclick="togLock(${l.id},event)">${l.locked?'🔒':'🔓'}</button><button class="la" onclick="togVis(${l.id},event)">${l.visible?'👁':'🚫'}</button><button class="la" style="color:var(--accent2)" onclick="delL(${l.id},event)">✕</button></div>`;
     li.className+=`${l.locked?' locked-l':''}`;
     li.onclick=ev=>sel(l.id, ev.shiftKey);
+    li.querySelector('.l-name').addEventListener('dblclick', ev=>{ ev.stopPropagation(); startLayerRename(l.id, li); });
     li.addEventListener('dragstart',ev=>ev.dataTransfer.setData('lid',l.id));
     li.addEventListener('dragover',ev=>{ev.preventDefault();li.classList.add('drag-over-l');});
     li.addEventListener('dragleave',()=>li.classList.remove('drag-over-l'));
@@ -5269,6 +5621,14 @@ document.getElementById('canvas-area').addEventListener('wheel',ev=>{
   cvs.style.marginTop = canvasOffset.y + 'px';
 },{passive:false});
 
+// Bloquear Ctrl+rueda globalmente (evita zoom de página cuando foco está en inputs del panel)
+document.addEventListener('wheel', ev=>{
+  if(ev.ctrlKey){
+    ev.preventDefault();
+    if(!ev.target.closest('#canvas-area')) doZoom(ev.deltaY < 0 ? 0.1 : -0.1);
+  }
+}, {passive: false});
+
 // PREVIEW
 function goBack(){
   const p=new URLSearchParams(window.location.search);
@@ -5300,6 +5660,8 @@ function setClientUI(){
   document.getElementById('mode-pill').textContent='✏ CLIENTE';
   document.getElementById('mode-pill').className='mode-pill pill-client';
   // Hide admin-only topbar buttons
+  const profBtn = document.getElementById('btn-profile');
+  if(profBtn) profBtn.style.display='';
   document.getElementById('btn-prev').style.display='none';
   document.getElementById('btn-save').style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
@@ -5348,6 +5710,11 @@ function setAdminUI(){
   const correctBtn=document.querySelector('[onclick="fitAllOutOfBounds()"]'); if(correctBtn) correctBtn.style.display='';
   const rnbtn=document.getElementById('btn-client-rename'); if(rnbtn) rnbtn.style.display='none';
   const csbtn=document.getElementById('btn-client-save'); if(csbtn) csbtn.style.display='none';
+  // Mostrar el panel de variable si hay una capa de texto seleccionada
+  if(typeof syncVarSelector === 'function') syncVarSelector();
+  // Mostrar botón refresh logos para admin
+  const refreshBtn = document.getElementById('logo-refresh-btn');
+  if(refreshBtn) refreshBtn.style.display = 'block';
   desel();
   ensureSmartGuides();
 }
@@ -5387,6 +5754,13 @@ async function saveClientDesign(){
     }
 
     const layerData=await buildLayerData();
+    // Al guardar diseño del cliente: si una capa tiene nombre {{variable}},
+    // renombrarla al texto actual para que no se sobreescriba al reabrir
+    layerData.forEach(ld=>{
+      if(ld.name && ld.name.startsWith('{{') && ld.name.endsWith('}}') && ld.tp?.text){
+        ld.name = ld.tp.text; // el nombre pasa a ser el valor actual (ej: "14")
+      }
+    });
     const authUser = fbAuth?.currentUser;
     if(!authUser) throw new Error('Sesión no disponible');
 
@@ -6625,6 +6999,12 @@ function loadData(tpl){
     lCtr=Math.max(lCtr,(ld.id||0)+1);
     const l={...ld, el:null, tp:ld.tp?{...ld.tp}:null};
     if(l.rotation == null) l.rotation = 0;
+    if(l.type==='text'&&l.tp){
+      l._origFontSize   = l.tp.fontSize   || 24;
+      l._origTextLen    = (l.tp.text||'').length || 1;
+      l._origFontFamily = l.tp.fontFamily || "'Poppins'";
+      l._origFontWeight = l.tp.fontWeight || '700';
+    }
     // Formas: regenerar SVG desde parámetros guardados (el src blob no persiste entre sesiones)
     if(l.isShape && (!l.src || l.src.startsWith('blob:'))){
       const svgFill = buildShapeSvgFill(l.shapeType||'rect', l.shapeFill||'#4F8EF7', l.w, l.h, {rx: l.shapeRadius??20});
@@ -6666,6 +7046,9 @@ function loadData(tpl){
   initMultiBoxHandles();
   renderList();
   snapshotState();
+  // Aplicar perfil solo al abrir una PLANTILLA nueva, no un diseño guardado
+  // Si es diseño guardado (clientDesignId existe), el texto ya tiene los valores del cliente
+  if(isPrev && !clientDesignId) setTimeout(applyProfileToLayers, 100);
 }
 
 // LOADING UI
@@ -7018,5 +7401,245 @@ document.addEventListener('keydown',ev=>{
   }
 });
 </script>
+<!-- MODAL PERFIL USUARIO — editar WhatsApp y precios desde el editor -->
+<div id="profile-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px;width:min(520px,95vw);max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:0.9rem;font-weight:700;color:var(--text);">👤 Mis datos personales</div>
+      <button onclick="closeProfileModal()" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;line-height:1;">×</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:12px;align-items:end;">
+      <div>
+        <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;">WhatsApp (con código de país)</div>
+        <input id="pm-whatsapp" type="text" placeholder="Ej: 51974834197" maxlength="20" class="modal-inp" style="width:100%;">
+      </div>
+      <div>
+        <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;">Moneda</div>
+        <input id="pm-moneda" type="text" placeholder="S/" maxlength="6" class="modal-inp" style="width:70px;text-align:center;">
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;">
+      <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);">💰 Precios por plataforma</div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input id="pm-plat-search" type="text" placeholder="🔍 Buscar plataforma..." oninput="filterPlatformInputs(this.value,'pm-plat-grid')" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:0.78rem;outline:none;box-sizing:border-box;">
+    </div>
+    <div id="pm-plat-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Netflix</div><input id="pm-p-netflix" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Disney+ Estándar</div><input id="pm-p-disney_std" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Disney+ Premium</div><input id="pm-p-disney_prem" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Spotify</div><input id="pm-p-spotify" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Amazon Prime Video</div><input id="pm-p-prime" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Apple TV+</div><input id="pm-p-apple" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Paramount+</div><input id="pm-p-paramount" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Crunchyroll</div><input id="pm-p-crunchyroll" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Max (HBO)</div><input id="pm-p-hob_max" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Canva Pro</div><input id="pm-p-canva" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">YouTube Premium</div><input id="pm-p-youtube" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">ViX Premium</div><input id="pm-p-vix" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">DGO (DirecTV)</div><input id="pm-p-dgo" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Deezer</div><input id="pm-p-deezer" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Plex</div><input id="pm-p-plex" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">IBO Player Pro</div><input id="pm-p-ibo" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">CableGO</div><input id="pm-p-cable_go" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">CapCut Pro</div><input id="pm-p-capcut" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">UFC Fight Pass</div><input id="pm-p-ufc" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Microsoft Office 365</div><input id="pm-p-office" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Stella TV</div><input id="pm-p-st3lla" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Claro Video</div><input id="pm-p-claro" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Flujo TV</div><input id="pm-p-flivjo" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Google Gemini</div><input id="pm-p-gemini" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Fanatiz</div><input id="pm-p-f4n4tiz" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">IPTV Smarters Pro</div><input id="pm-p-iptv" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Liga MX</div><input id="pm-p-l1g41m4x" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Movistar TV</div><input id="pm-p-movistar" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Rakuten Viki</div><input id="pm-p-kakuten" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">ChatGPT Plus</div><input id="pm-p-chatgpt" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Oleada TV</div><input id="pm-p-wlgtv" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Universal+</div><input id="pm-p-nmas" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+      <div><div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">Google One</div><input id="pm-p-uno" type="text" placeholder="S/." class="modal-inp" style="width:100%;padding:6px 8px;"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button onclick="saveProfileFromEditor()" style="flex:1;padding:10px;background:var(--accent);border:none;border-radius:10px;color:#002b22;font-weight:700;font-size:0.82rem;cursor:pointer;">
+        💾 Guardar y aplicar al diseño
+      </button>
+      <button onclick="closeProfileModal()" style="padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:0.82rem;cursor:pointer;">
+        Cancelar
+      </button>
+    </div>
+    <div id="pm-save-ok" style="display:none;text-align:center;font-size:0.75rem;color:var(--accent);margin-top:8px;font-weight:600;">✓ Guardado y aplicado al diseño</div>
+  </div>
+</div>
+
+<script>
+// ── Renombrar capa inline con doble clic ──
+function startLayerRename(id, liEl){
+  const l = layers.find(x=>x.id===id); if(!l) return;
+  const nameEl = liEl.querySelector('.l-name');
+  if(!nameEl) return;
+  const oldName = l.name;
+  // Crear input inline
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = oldName;
+  inp.style.cssText = 'width:100%;font-size:0.75rem;font-weight:600;background:var(--panel2);border:1px solid var(--accent);border-radius:4px;padding:2px 6px;color:var(--text);outline:none;';
+  nameEl.innerHTML = '';
+  nameEl.appendChild(inp);
+  inp.focus(); inp.select();
+  const finish = ()=>{
+    const newName = inp.value.trim() || oldName;
+    l.name = newName;
+    renderList();
+    snapshotState();
+    showToast('✓ Capa renombrada: '+newName);
+  };
+  inp.addEventListener('blur', finish);
+  inp.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); inp.blur(); }
+    if(e.key==='Escape'){ l.name=oldName; renderList(); }
+  });
+}
+
+// ── Modal de perfil en el editor ──
+const PROFILE_PLATFORMS_EDITOR = [
+  'netflix', 'disney_std', 'disney_prem', 'spotify', 'prime',
+  'apple', 'paramount', 'crunchyroll', 'hob_max', 'canva',
+  'youtube', 'vix', 'dgo', 'deezer', 'plex',
+  'ibo', 'cable_go', 'capcut', 'ufc', 'office',
+  'st3lla', 'claro', 'flivjo', 'gemini', 'f4n4tiz',
+  'iptv', 'l1g41m4x', 'movistar', 'kakuten', 'chatgpt',
+  'wlgtv', 'nmas', 'uno'
+];
+
+function openProfileModal(){
+  // Cargar valores actuales del localStorage
+  const profile = getUserProfile() || {};
+  const waEl = document.getElementById('pm-whatsapp');
+  if(waEl) waEl.value = profile.whatsapp || '';
+  const pmMonedaEl = document.getElementById('pm-moneda');
+  if(pmMonedaEl) pmMonedaEl.value = profile.moneda || 'S/';
+  PROFILE_PLATFORMS_EDITOR.forEach(p=>{
+    const el = document.getElementById('pm-p-'+p);
+    if(el) el.value = profile['precio_'+p] || '';
+  });
+  document.getElementById('profile-modal').style.display='flex';
+}
+
+function closeProfileModal(){
+  document.getElementById('profile-modal').style.display='none';
+  document.getElementById('pm-save-ok').style.display='none';
+}
+
+async function saveProfileFromEditor(){
+  const waEl = document.getElementById('pm-whatsapp');
+  const pmMoneda = document.getElementById('pm-moneda');
+  const profile = {
+    whatsapp: (waEl?.value||'').trim(),
+    moneda: (pmMoneda?.value||'S/').trim() || 'S/',
+  };
+  PROFILE_PLATFORMS_EDITOR.forEach(p=>{
+    const el = document.getElementById('pm-p-'+p);
+    profile['precio_'+p] = (el?.value||'').trim();
+  });
+  // Guardar en localStorage
+  localStorage.setItem('ts_user_profile', JSON.stringify(profile));
+  // Guardar en Firestore si hay sesión
+  if(fbDb && fbAuth?.currentUser){
+    try{
+      await fbDb.collection('user_profiles').doc(fbAuth.currentUser.uid).set(profile, {merge:true});
+    }catch(e){ console.warn('Perfil Firestore:', e); }
+  }
+  // Aplicar al diseño actual
+  applyProfileToLayers();
+  const ok = document.getElementById('pm-save-ok');
+  if(ok){ ok.style.display='block'; setTimeout(()=>{ ok.style.display='none'; closeProfileModal(); }, 1800); }
+  showToast('✓ Datos aplicados al diseño');
+}
+
+// Toggle dropdown custom de variables
+function toggleVarDropdown(){
+  const dd = document.getElementById('pp-var-sel-dropdown');
+  if(!dd) return;
+  const opening = dd.style.display==='none';
+  dd.style.display = opening ? 'block' : 'none';
+  if(opening){
+    const search = document.getElementById('pp-var-search');
+    if(search){ search.value=''; filterVarOpts(''); search.focus(); }
+  }
+}
+
+// Filtrar opciones del dropdown
+function filterVarOpts(q){
+  const list = document.getElementById('pp-var-opts-list');
+  if(!list) return;
+  const term = q.toLowerCase().trim();
+  list.querySelectorAll('.var-opt').forEach(el=>{
+    const txt = el.textContent.toLowerCase();
+    el.style.display = (!term || txt.includes(term)) ? '' : 'none';
+  });
+}
+// Cerrar dropdown al hacer clic fuera
+document.addEventListener('click', e=>{
+  if(!e.target.closest('#pp-var-sel-wrap')){
+    const dd=document.getElementById('pp-var-sel-dropdown');
+    if(dd) dd.style.display='none';
+  }
+});
+
+// Aplicar variable de perfil a la capa seleccionada
+function applyLayerVariable(varKey){
+  const l = layers.find(x=>x.id===selId); if(!l||l.type!=='text') return;
+  l.name = varKey || l.name;
+  // Actualizar label del dropdown
+  const lbl = document.getElementById('pp-var-sel-label');
+  if(lbl) lbl.textContent = varKey || '— sin variable —';
+  const dd = document.getElementById('pp-var-sel-dropdown');
+  if(dd) dd.style.display='none';
+  renderList();
+  snapshotState();
+  if(varKey) showToast('✓ Capa vinculada a '+varKey);
+}
+
+// Mostrar/ocultar el selector de variable según modo
+function syncVarSelector(){
+  const wrap = document.getElementById('pp-var-wrap');
+  if(!wrap) return;
+  // Solo visible en modo admin verificado
+  const isAdmin = document.getElementById('mode-pill')?.textContent.includes('ADMIN') ||
+                  window.__isVerifiedAdmin;
+  wrap.style.display = isAdmin ? 'block' : 'none';
+  // Sincronizar label del dropdown con el nombre de la capa actual
+  const l = layers.find(x=>x.id===selId);
+  const lbl = document.getElementById('pp-var-sel-label');
+  if(lbl && l){
+    const name = l.name || '';
+    // Es variable si empieza con {{ y termina con }}
+    lbl.textContent = (name.startsWith('{{') && name.endsWith('}}')) ? name : '— sin variable —';
+  }
+}
+
+// Filtrar inputs de plataforma por búsqueda
+function filterPlatformInputs(q, gridId){
+  const grid = document.getElementById(gridId);
+  if(!grid) return;
+  const term = q.toLowerCase().trim();
+  grid.querySelectorAll('div').forEach(el=>{
+    const lbl = el.querySelector('div');
+    if(!lbl) return;
+    el.style.display = (!term || lbl.textContent.toLowerCase().includes(term)) ? '' : 'none';
+  });
+}
+
+// Cerrar modal al hacer clic fuera
+document.getElementById('profile-modal').addEventListener('click', function(e){
+  if(e.target === this) closeProfileModal();
+});
+</script>
+
+
+
 </body>
 </html>
