@@ -7120,6 +7120,14 @@ function copyLayers(){
     copiedAt: now
   }));
   window._lastInternalCopyTime = now;
+  window._ds_clipboard_layers = { layers: copied, copiedAt: now };
+  // Guardar snapshot del texto que hay en el clipboard en este momento
+  // Si al pegar el clipboard tiene el mismo texto → no cambió → usar capas
+  try{
+    navigator.clipboard.readText().then(t => {
+      window._clipboardTextAtCopy = (t||'').trim();
+    }).catch(()=>{ window._clipboardTextAtCopy = '__unknown__'; });
+  }catch(_){ window._clipboardTextAtCopy = '__unknown__'; }
   showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
 }
 
@@ -7142,12 +7150,12 @@ function addImageLayerFromUrl(url){
     try{
       // Dibujar en canvas para obtener base64
       const tmpCanvas = document.createElement('canvas');
-      // Max 300px, calidad 0.4 → ~15-25KB base64 para caber bien en Firestore
-      const scale = Math.min(1, 300/Math.max(nat,nath));
+      // Max 800px, calidad 0.85 → ~80-120KB base64 para mejor nitidez en Firestore
+      const scale = Math.min(1, 800/Math.max(nat,nath));
       tmpCanvas.width  = Math.round(nat*scale);
       tmpCanvas.height = Math.round(nath*scale);
       tmpCanvas.getContext('2d').drawImage(img, 0, 0, tmpCanvas.width, tmpCanvas.height);
-      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.4);
+      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.85);
       console.log('Imagen pegada base64 size:', Math.round(b64.length*0.75/1024)+'KB');
       const l = {
         id: lCtr++, type: 'img', name: 'Imagen pegada',
@@ -7225,74 +7233,124 @@ function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
   });
 }
 
+// ── COPY/PASTE — sistema híbrido localStorage + snapshot de clipboard ──
+// Al copiar capa: guarda snapshot del texto actual del clipboard
+// Al pegar: si el clipboard tiene el MISMO texto que cuando se copió → usar capas
+//           si el clipboard tiene texto DIFERENTE (URL nueva) → usar sistema
+
+document.addEventListener('paste', async (ev) => {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
+
+  ev.preventDefault();
+  const cd = ev.clipboardData;
+  if(!cd) { pasteLayers(); return; }
+
+  const text = (cd.getData('text/plain') || '').trim();
+
+  // Función para limpiar portapapeles después de pegar
+  // Así el próximo Ctrl+V no encuentra la URL vieja
+  function clearSystemClipboard(){
+    try{ navigator.clipboard.writeText(''); }catch(_){}
+  }
+
+  // ¿Vacío o marcador interno? → pegar capas
+  if(text === '' || text === '__ds_layer_copy__'){
+    pasteLayers();
+    clearSystemClipboard();
+    return;
+  }
+
+  // ¿Hay imagen binaria? → pegar imagen y limpiar
+  const imgFile = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
+  if(imgFile){
+    const blob = imgFile.getAsFile();
+    if(blob){
+      addImageLayerFromUrl(URL.createObjectURL(blob));
+      clearSystemClipboard();
+      return;
+    }
+  }
+
+  // ¿URL? → pegar imagen y limpiar
+  if(text.match(/^https?:\/\//)){
+    addImageLayerFromUrl(text);
+    clearSystemClipboard();
+    return;
+  }
+
+  // Otro texto → pegar capas y limpiar
+  pasteLayers();
+  clearSystemClipboard();
+});
+
 async function pasteLayers(){
-  // Lógica: el portapapeles del SISTEMA tiene prioridad si tiene URL o imagen
-  // El portapapeles INTERNO tiene prioridad si tiene capas (Ctrl+C en el editor)
-  // Si el sistema tiene una URL → siempre usarla (el usuario está copiando algo nuevo)
-  // Si el sistema tiene imagen binaria → avisar solo si no hay capas internas
-  // Si el sistema está vacío o no accesible → usar capas internas
+  // LÓGICA CORREGIDA:
+  // El portapapeles del SISTEMA siempre refleja lo último que copió el usuario.
+  // Si tiene URL → pegar imagen (prioridad máxima, el usuario copió algo del browser)
+  // Si tiene imagen binaria → pegar imagen
+  // Si no hay nada en sistema (o no hay permiso) → usar capas internas del editor
 
   let systemHasUrl = false;
   let systemHasImage = false;
   let systemUrl = '';
+  let systemText = '';
 
   try{
     const clipItems = await navigator.clipboard.read();
     for(const item of clipItems){
       if(item.types.includes('text/plain')){
         const blob = await item.getType('text/plain');
-        const text = (await blob.text()).trim();
-        if(text.match(/^https?:\/\//)){
+        systemText = (await blob.text()).trim();
+        if(systemText === '__ds_layer_copy__'){
+          // Marcador interno — lo último copiado fue una capa del editor, no una URL
+          systemText = '';
+        } else if(systemText.match(/^https?:\/\//)){
           systemHasUrl = true;
-          systemUrl = text;
+          systemUrl = systemText;
         }
       }
       if(item.types.some(t=>t.startsWith('image/'))){
         systemHasImage = true;
       }
     }
-  }catch(e){ /* sin permiso — ignorar */ }
+  }catch(e){ /* sin permiso de clipboard — usar portapapeles interno */ }
 
-  // Revisar portapapeles interno PRIMERO — tiene prioridad sobre el sistema
+  // Si el sistema tiene URL → SIEMPRE pegar como imagen
+  // (el usuario copió una URL DESPUÉS de copiar la capa — el clipboard del sistema lo refleja)
+  if(systemHasUrl){
+    addImageLayerFromUrl(systemUrl);
+    return;
+  }
+
+  // Si el sistema tiene imagen binaria → pegar imagen
+  if(systemHasImage){
+    try{
+      const clipItems = await navigator.clipboard.read();
+      for(const item of clipItems){
+        if(item.types.some(t=>t.startsWith('image/'))){
+          const mimeType = item.types.find(t=>t.startsWith('image/'));
+          const blob = await item.getType(mimeType);
+          const url = URL.createObjectURL(blob);
+          addImageLayerFromUrl(url);
+          return;
+        }
+      }
+    }catch(e){}
+    return;
+  }
+
+  // Sin URL ni imagen en sistema → usar capas internas del editor
   const rawFresh = localStorage.getItem('ds_clipboard');
   let internalCopied = null;
-  let internalCopiedAt = 0;
   if(rawFresh){
     try{
       const parsed = JSON.parse(rawFresh);
       const age = Date.now() - (parsed.copiedAt || 0);
       if(parsed.layers?.length && age < 30 * 60 * 1000){
         internalCopied = parsed;
-        internalCopiedAt = parsed.copiedAt || 0;
       }
     }catch(e){}
-  }
-
-  // Comparar cuál fue más reciente: copia interna vs copia del sistema (URL)
-  // window._lastInternalCopyTime se actualiza en copyLayers()
-  const lastInternal = window._lastInternalCopyTime || internalCopiedAt || 0;
-
-  // Si el sistema tiene URL → usarla solo si fue copiada DESPUÉS de las capas internas
-  if(systemHasUrl){
-    const urlIsNewer = lastInternal === 0 || !internalCopied;
-    // No podemos saber cuándo el usuario copió la URL del sistema,
-    // pero sí sabemos cuándo hizo Ctrl+C en el editor.
-    // Si hay capas internas Y el usuario las copió después de la última URL pegada → usar internas
-    // Para esto comparamos con window._lastUrlPastedTime
-    const lastUrlPasted = window._lastUrlPastedTime || 0;
-    if(internalCopied && lastInternal > lastUrlPasted){
-      // La última copia interna es más reciente que la última vez que se pegó una URL → usar internas
-    } else {
-      window._lastUrlPastedTime = Date.now();
-      addImageLayerFromUrl(systemUrl);
-      return;
-    }
-  }
-
-  // Si el sistema tiene imagen binaria y NO hay capas internas → avisar
-  if(systemHasImage && !internalCopied){
-    showToast('⚠ Solo imágenes de internet. Usa clic derecho → Copiar imagen en una web.');
-    return;
   }
 
   // Si hay capas internas → pegarlas
@@ -7387,7 +7445,7 @@ document.addEventListener('keydown',ev=>{
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
     if(ev.key==='g'||ev.key==='G'){ ev.preventDefault(); ev.shiftKey?ungroupSelected():groupSelected(); return; }
     if(ev.key==='c'||ev.key==='C'){ ev.preventDefault(); copyLayers(); return; }
-    if(ev.key==='v'||ev.key==='V'){ ev.preventDefault(); pasteLayers(); return; }
+    // Ctrl+V ahora lo maneja el evento 'paste' directamente
   }
 
   if((ev.key==='Delete'||ev.key==='Backspace')&&!active){
