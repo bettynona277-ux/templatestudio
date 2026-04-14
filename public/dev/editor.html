@@ -2339,12 +2339,8 @@ async function compressImage(dataUrl, maxW=1200, maxH=1200, quality=0.85){
       const scale=Math.min(maxW/w, maxH/h);
       w=Math.round(w*scale); h=Math.round(h*scale);
       const c=document.createElement('canvas'); c.width=w; c.height=h;
-      const ctx2d=c.getContext('2d');
-      // Preservar transparencia si es PNG — NO rellenar fondo
-      const isPng = dataUrl.startsWith('data:image/png');
-      if(!isPng){ ctx2d.fillStyle='#fff'; ctx2d.fillRect(0,0,w,h); }
-      ctx2d.drawImage(img,0,0,w,h);
-      resolve(isPng ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', quality));
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(c.toDataURL('image/jpeg', quality));
     };
     img.onerror=()=>resolve(dataUrl);
     img.src=dataUrl;
@@ -3067,14 +3063,8 @@ async function compressImage(dataUrl, maxKB=400){
       let result=c.toDataURL('image/png');
       const sizeKB=result.length*0.75/1024;
       if(sizeKB>maxKB){
-        const isPng2 = dataUrl.startsWith('data:image/png');
-        if(isPng2){
-          // PNG: recomprimir como PNG con menor resolución para preservar transparencia
-          result=c.toDataURL('image/png');
-        } else {
-          const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
-          result=c.toDataURL('image/jpeg',q);
-        }
+        const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
+        result=c.toDataURL('image/jpeg',q);
       }
       resolve(result);
     };
@@ -7226,73 +7216,69 @@ function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
 }
 
 async function pasteLayers(){
-  // Lógica: el portapapeles del SISTEMA tiene prioridad si tiene URL o imagen
-  // El portapapeles INTERNO tiene prioridad si tiene capas (Ctrl+C en el editor)
-  // Si el sistema tiene una URL → siempre usarla (el usuario está copiando algo nuevo)
-  // Si el sistema tiene imagen binaria → avisar solo si no hay capas internas
-  // Si el sistema está vacío o no accesible → usar capas internas
+  // LÓGICA CORREGIDA:
+  // El portapapeles del SISTEMA siempre refleja lo último que copió el usuario.
+  // Si tiene URL → pegar imagen (prioridad máxima, el usuario copió algo del browser)
+  // Si tiene imagen binaria → pegar imagen
+  // Si no hay nada en sistema (o no hay permiso) → usar capas internas del editor
 
   let systemHasUrl = false;
   let systemHasImage = false;
   let systemUrl = '';
+  let systemText = '';
 
   try{
     const clipItems = await navigator.clipboard.read();
     for(const item of clipItems){
       if(item.types.includes('text/plain')){
         const blob = await item.getType('text/plain');
-        const text = (await blob.text()).trim();
-        if(text.match(/^https?:\/\//)){
+        systemText = (await blob.text()).trim();
+        if(systemText.match(/^https?:\/\//)){
           systemHasUrl = true;
-          systemUrl = text;
+          systemUrl = systemText;
         }
       }
       if(item.types.some(t=>t.startsWith('image/'))){
         systemHasImage = true;
       }
     }
-  }catch(e){ /* sin permiso — ignorar */ }
+  }catch(e){ /* sin permiso de clipboard — usar portapapeles interno */ }
 
-  // Revisar portapapeles interno PRIMERO — tiene prioridad sobre el sistema
+  // Si el sistema tiene URL → SIEMPRE pegar como imagen
+  // (el usuario copió una URL DESPUÉS de copiar la capa — el clipboard del sistema lo refleja)
+  if(systemHasUrl){
+    addImageLayerFromUrl(systemUrl);
+    return;
+  }
+
+  // Si el sistema tiene imagen binaria → pegar imagen
+  if(systemHasImage){
+    try{
+      const clipItems = await navigator.clipboard.read();
+      for(const item of clipItems){
+        if(item.types.some(t=>t.startsWith('image/'))){
+          const mimeType = item.types.find(t=>t.startsWith('image/'));
+          const blob = await item.getType(mimeType);
+          const url = URL.createObjectURL(blob);
+          addImageLayerFromUrl(url);
+          return;
+        }
+      }
+    }catch(e){}
+    return;
+  }
+
+  // Sin URL ni imagen en sistema → usar capas internas del editor
   const rawFresh = localStorage.getItem('ds_clipboard');
   let internalCopied = null;
-  let internalCopiedAt = 0;
   if(rawFresh){
     try{
       const parsed = JSON.parse(rawFresh);
       const age = Date.now() - (parsed.copiedAt || 0);
       if(parsed.layers?.length && age < 30 * 60 * 1000){
         internalCopied = parsed;
-        internalCopiedAt = parsed.copiedAt || 0;
       }
     }catch(e){}
-  }
-
-  // Comparar cuál fue más reciente: copia interna vs copia del sistema (URL)
-  // window._lastInternalCopyTime se actualiza en copyLayers()
-  const lastInternal = window._lastInternalCopyTime || internalCopiedAt || 0;
-
-  // Si el sistema tiene URL → usarla solo si fue copiada DESPUÉS de las capas internas
-  if(systemHasUrl){
-    const urlIsNewer = lastInternal === 0 || !internalCopied;
-    // No podemos saber cuándo el usuario copió la URL del sistema,
-    // pero sí sabemos cuándo hizo Ctrl+C en el editor.
-    // Si hay capas internas Y el usuario las copió después de la última URL pegada → usar internas
-    // Para esto comparamos con window._lastUrlPastedTime
-    const lastUrlPasted = window._lastUrlPastedTime || 0;
-    if(internalCopied && lastInternal > lastUrlPasted){
-      // La última copia interna es más reciente que la última vez que se pegó una URL → usar internas
-    } else {
-      window._lastUrlPastedTime = Date.now();
-      addImageLayerFromUrl(systemUrl);
-      return;
-    }
-  }
-
-  // Si el sistema tiene imagen binaria y NO hay capas internas → avisar
-  if(systemHasImage && !internalCopied){
-    showToast('⚠ Solo imágenes de internet. Usa clic derecho → Copiar imagen en una web.');
-    return;
   }
 
   // Si hay capas internas → pegarlas
