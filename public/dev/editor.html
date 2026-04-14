@@ -7218,6 +7218,48 @@ function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
   });
 }
 
+// ── PASTE NATIVO — 100% confiable ──
+// Intercepta Ctrl+V directamente con clipboardData del evento
+document.addEventListener('paste', async (ev) => {
+  // No interferir si el foco está en un input/textarea de la página
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
+
+  ev.preventDefault();
+
+  const cd = ev.clipboardData;
+  if(!cd) { pasteLayers(); return; }
+
+  // 1. ¿Hay imagen binaria en el clipboard? (screenshot, clic derecho → copiar imagen)
+  const imgFile = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
+  if(imgFile){
+    const blob = imgFile.getAsFile();
+    if(blob){
+      const url = URL.createObjectURL(blob);
+      addImageLayerFromUrl(url);
+      return;
+    }
+  }
+
+  // 2. ¿Hay texto? puede ser URL o el marcador interno
+  const text = (cd.getData('text/plain') || '').trim();
+
+  if(text === '__ds_layer_copy__' || text === ''){
+    // Marcador interno o sin texto → pegar capas del editor
+    pasteLayers();
+    return;
+  }
+
+  if(text.match(/^https?:\/\//)){
+    // URL → pegar como imagen
+    addImageLayerFromUrl(text);
+    return;
+  }
+
+  // Texto no-URL → pegar capas internas si las hay
+  pasteLayers();
+});
+
 async function pasteLayers(){
   // LÓGICA CORREGIDA:
   // El portapapeles del SISTEMA siempre refleja lo último que copió el usuario.
@@ -7379,7 +7421,7 @@ document.addEventListener('keydown',ev=>{
     if(ev.key==='d'||ev.key==='D'){ ev.preventDefault(); duplicateSelected(); return; }
     if(ev.key==='g'||ev.key==='G'){ ev.preventDefault(); ev.shiftKey?ungroupSelected():groupSelected(); return; }
     if(ev.key==='c'||ev.key==='C'){ ev.preventDefault(); copyLayers(); return; }
-    if(ev.key==='v'||ev.key==='V'){ ev.preventDefault(); pasteLayers(); return; }
+    // Ctrl+V ahora lo maneja el evento 'paste' directamente
   }
 
   if((ev.key==='Delete'||ev.key==='Backspace')&&!active){
