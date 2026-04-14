@@ -7110,9 +7110,8 @@ function copyLayers(){
     copiedAt: now
   }));
   window._lastInternalCopyTime = now;
-  // Escribir marcador en clipboard del sistema para "limpiar" URLs anteriores
-  // Así Ctrl+V sabe que lo último copiado fue una capa, no una URL externa
-  try{ navigator.clipboard.writeText('__ds_layer_copy__'); }catch(_){}
+  // Guardar capas para que el evento 'copy' las incluya en el clipboard
+  window._ds_clipboard_layers = { layers: copied, copiedAt: now };
   showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
 }
 
@@ -7218,8 +7217,28 @@ function keepPastedLayersInsideCanvas(ls, cw, ch, margin=12){
   });
 }
 
-// ── PASTE NATIVO — 100% confiable ──
-// Intercepta Ctrl+V directamente con clipboardData del evento
+// ── COPY/PASTE NATIVO — usa tipo MIME custom para distinguir capas de URLs ──
+// Cuando Ctrl+C en editor → escribe "web application/ds-layer" + "__ds_layer_copy__" en clipboard
+// Cuando Ctrl+C en browser → clipboard solo tiene text/plain con la URL
+// En paste → si existe el tipo custom → capas; si hay URL → imagen
+
+document.addEventListener('copy', (ev) => {
+  // Solo interceptar si hay capas seleccionadas en el editor (no en inputs)
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
+  const ids = (typeof selIds !== 'undefined' ? selIds : []).concat(
+    (typeof selId !== 'undefined' && selId !== null) ? [selId] : []
+  );
+  if(!ids.length) return;
+  // Hay capas seleccionadas — escribir marcador custom en clipboard
+  ev.preventDefault();
+  const layerData = JSON.stringify(window._ds_clipboard_layers || {});
+  ev.clipboardData.setData('text/plain', '__ds_layer_copy__');
+  try{ ev.clipboardData.setData('web application/ds-layer', layerData); }catch(_){}
+  // También guardar en localStorage (fallback)
+  copyLayers();
+});
+
 document.addEventListener('paste', async (ev) => {
   // No interferir si el foco está en un input/textarea de la página
   const tag = document.activeElement?.tagName?.toLowerCase();
@@ -7230,7 +7249,22 @@ document.addEventListener('paste', async (ev) => {
   const cd = ev.clipboardData;
   if(!cd) { pasteLayers(); return; }
 
-  // 1. ¿Hay imagen binaria en el clipboard? (screenshot, clic derecho → copiar imagen)
+  // 1. ¿Hay tipo MIME custom de capas del editor? → SIEMPRE pegar capas
+  let hasLayerType = false;
+  try{ hasLayerType = cd.types && cd.types.includes('web application/ds-layer'); }catch(_){}
+  if(hasLayerType){
+    pasteLayers();
+    return;
+  }
+
+  // 2. ¿El texto es el marcador interno?
+  const text = (cd.getData('text/plain') || '').trim();
+  if(text === '__ds_layer_copy__'){
+    pasteLayers();
+    return;
+  }
+
+  // 3. ¿Hay imagen binaria? (screenshot, clic derecho → copiar imagen)
   const imgFile = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
   if(imgFile){
     const blob = imgFile.getAsFile();
@@ -7241,22 +7275,13 @@ document.addEventListener('paste', async (ev) => {
     }
   }
 
-  // 2. ¿Hay texto? puede ser URL o el marcador interno
-  const text = (cd.getData('text/plain') || '').trim();
-
-  if(text === '__ds_layer_copy__' || text === ''){
-    // Marcador interno o sin texto → pegar capas del editor
-    pasteLayers();
-    return;
-  }
-
+  // 4. ¿Hay URL en el texto?
   if(text.match(/^https?:\/\//)){
-    // URL → pegar como imagen
     addImageLayerFromUrl(text);
     return;
   }
 
-  // Texto no-URL → pegar capas internas si las hay
+  // 5. Sin URL ni imagen → pegar capas internas si las hay
   pasteLayers();
 });
 
