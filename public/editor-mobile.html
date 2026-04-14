@@ -771,7 +771,8 @@ function loadDesign(tpl){
       ...ld,
       el: null,
       tp: ld.tp ? {...ld.tp} : null,
-      src: resolvedSrc
+      src: resolvedSrc,
+      frameImage: (ld.type === 'frame') ? resolvedSrc : (ld.frameImage || null)
     };
     // Guardar tamaño y largo originales del admin para auto-escalar en clientes
     if(l.type==='text' && l.tp){
@@ -812,7 +813,9 @@ let history_ = [];
 function snapshot(){
   const state = JSON.stringify(layers.map(l=>({
     ...l, el:null,
-    tp: l.tp ? {...l.tp} : null
+    tp: l.tp ? {...l.tp} : null,
+    src: l.type === 'frame' ? (l.src || l.frameImage || null) : (l.src || null),
+    frameImage: l.type === 'frame' ? (l.src || l.frameImage || null) : (l.frameImage || null)
   })));
   if(history_.length && history_[history_.length-1] === state) return;
   history_.push(state);
@@ -834,7 +837,7 @@ function undoStep(){
     const resolvedSrc = (ld.type === 'frame')
       ? (ld.frameImage || ld.src || null)
       : (ld.src || null);
-    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null, src: resolvedSrc};
+    const l = {...ld, el:null, tp: ld.tp?{...ld.tp}:null, src: resolvedSrc, frameImage: (ld.type === 'frame') ? resolvedSrc : (ld.frameImage || null)};
     layers.push(l);
     buildEl(l);
   });
@@ -1315,6 +1318,7 @@ function applyLogoToFrame(src, name){
   const l = layers.find(x=>x.id===frameSelId);
   if(!l || l.type!=='frame') return false;
   l.src = src;
+  l.frameImage = src;
   const fBW = Number(l.frameBorderWidth || l.borderWidth || 0);
   const fBC = l.frameBorderColor || l.borderColor || '#00ffc3';
   // Actualizar el elemento visual
@@ -2274,7 +2278,7 @@ async function downloadPNG(){
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
     const rendered = await html2canvas(cvs,{
-      scale: 2,
+      scale: 3,
       useCORS: true,
       allowTaint: true,
       backgroundColor: null,
