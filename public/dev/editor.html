@@ -7236,42 +7236,42 @@ document.addEventListener('paste', async (ev) => {
   const cd = ev.clipboardData;
   if(!cd) { pasteLayers(); return; }
 
-  // Leer texto actual del clipboard
   const text = (cd.getData('text/plain') || '').trim();
 
-  // ¿El texto es el marcador interno o vacío?
-  if(text === '__ds_layer_copy__' || text === ''){
+  // Función para limpiar portapapeles después de pegar
+  // Así el próximo Ctrl+V no encuentra la URL vieja
+  function clearSystemClipboard(){
+    try{ navigator.clipboard.writeText(''); }catch(_){}
+  }
+
+  // ¿Vacío o marcador interno? → pegar capas
+  if(text === '' || text === '__ds_layer_copy__'){
     pasteLayers();
+    clearSystemClipboard();
     return;
   }
 
-  // ¿El texto es igual al snapshot guardado cuando se copió la capa?
-  // Si es igual → el usuario NO copió nada nuevo desde entonces → usar capas
-  const snapshotAtCopy = window._clipboardTextAtCopy || null;
-  if(snapshotAtCopy !== null && text === snapshotAtCopy){
-    // El clipboard no cambió desde que se copió la capa → usar capas internas
-    pasteLayers();
-    return;
-  }
-
-  // ¿Hay imagen binaria?
+  // ¿Hay imagen binaria? → pegar imagen y limpiar
   const imgFile = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
   if(imgFile){
     const blob = imgFile.getAsFile();
     if(blob){
       addImageLayerFromUrl(URL.createObjectURL(blob));
+      clearSystemClipboard();
       return;
     }
   }
 
-  // ¿Hay URL en el texto? → pegar como imagen
+  // ¿URL? → pegar imagen y limpiar
   if(text.match(/^https?:\/\//)){
     addImageLayerFromUrl(text);
+    clearSystemClipboard();
     return;
   }
 
-  // Sin URL ni imagen → pegar capas
+  // Otro texto → pegar capas y limpiar
   pasteLayers();
+  clearSystemClipboard();
 });
 
 async function pasteLayers(){
