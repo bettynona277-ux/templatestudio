@@ -7110,6 +7110,9 @@ function copyLayers(){
     copiedAt: now
   }));
   window._lastInternalCopyTime = now;
+  // Escribir marcador en clipboard del sistema para "limpiar" URLs anteriores
+  // Así Ctrl+V sabe que lo último copiado fue una capa, no una URL externa
+  try{ navigator.clipboard.writeText('__ds_layer_copy__'); }catch(_){}
   showToast(`📋 ${copied.length} capa${copied.length>1?'s':''} copiada${copied.length>1?'s':''}`);
 }
 
@@ -7233,7 +7236,10 @@ async function pasteLayers(){
       if(item.types.includes('text/plain')){
         const blob = await item.getType('text/plain');
         systemText = (await blob.text()).trim();
-        if(systemText.match(/^https?:\/\//)){
+        if(systemText === '__ds_layer_copy__'){
+          // Marcador interno — lo último copiado fue una capa del editor, no una URL
+          systemText = '';
+        } else if(systemText.match(/^https?:\/\//)){
           systemHasUrl = true;
           systemUrl = systemText;
         }
