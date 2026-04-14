@@ -1727,14 +1727,26 @@ async function ensureHtml2Canvas(){
 // APP INIT
 // ================================================================
 window.addEventListener('load', async () => {
+  // ── INICIO INSTANTÁNEO ──
+  // Si hay sesión guardada en localStorage, mostrar dashboard de inmediato
+  // sin esperar a Firebase — Firebase verificará en segundo plano
+  const cachedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
+  })();
+  if (cachedSession?.uid) {
+    currentUser = cachedSession;
+    showDashboard(); // mostrar dashboard inmediatamente
+  }
+
   const ok = await initFirebase();
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado. Contacta al administrador.';
+    if (!cachedSession) showScreen('login');
     return;
   }
-  // Listen for Firebase Auth state
-  // Forzar persistencia LOCAL para que el login sobreviva cierres del navegador
+  // Forzar persistencia LOCAL
   try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+  // Firebase verifica en segundo plano — si falla o sesión expiró, manda al login
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       // User is signed in — get their profile from Firestore
@@ -1760,6 +1772,10 @@ window.addEventListener('load', async () => {
         const redirect = getSafePostLoginRedirect();
         if(redirect) window.location.href = redirect;
         else if(urlTpl) openEditorFromTemplate(urlTpl);
+        // Si el dashboard ya está visible (carga instantánea), solo actualizar datos
+        else if(document.getElementById('screen-client')?.classList.contains('active')) {
+          loadDashboardData(); // actualizar datos frescos en segundo plano
+        }
         else if(document.getElementById('screen-login').classList.contains('active')) showDashboard();
       } else {
         // Account deactivated or no profile — sign out
