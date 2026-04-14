@@ -2339,8 +2339,12 @@ async function compressImage(dataUrl, maxW=1200, maxH=1200, quality=0.85){
       const scale=Math.min(maxW/w, maxH/h);
       w=Math.round(w*scale); h=Math.round(h*scale);
       const c=document.createElement('canvas'); c.width=w; c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      resolve(c.toDataURL('image/jpeg', quality));
+      const ctx2d=c.getContext('2d');
+      // Preservar transparencia si es PNG — NO rellenar fondo
+      const isPng = dataUrl.startsWith('data:image/png');
+      if(!isPng){ ctx2d.fillStyle='#fff'; ctx2d.fillRect(0,0,w,h); }
+      ctx2d.drawImage(img,0,0,w,h);
+      resolve(isPng ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', quality));
     };
     img.onerror=()=>resolve(dataUrl);
     img.src=dataUrl;
@@ -3063,8 +3067,14 @@ async function compressImage(dataUrl, maxKB=400){
       let result=c.toDataURL('image/png');
       const sizeKB=result.length*0.75/1024;
       if(sizeKB>maxKB){
-        const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
-        result=c.toDataURL('image/jpeg',q);
+        const isPng2 = dataUrl.startsWith('data:image/png');
+        if(isPng2){
+          // PNG: recomprimir como PNG con menor resolución para preservar transparencia
+          result=c.toDataURL('image/png');
+        } else {
+          const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
+          result=c.toDataURL('image/jpeg',q);
+        }
       }
       resolve(result);
     };
