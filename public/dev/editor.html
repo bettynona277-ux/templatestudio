@@ -1091,6 +1091,7 @@ input[type=range]{filter:none !important;}
   </div>
   <div class="btn-row">
     <button class="tbtn tbtn-ghost" id="btn-theme" title="Cambiar tema" onclick="toggleEditorTheme()" style="width:36px;min-width:36px;padding:0!important; justify-content:center;"><span class="theme-ico" id="theme-ico">🌙</span></button>
+    <button class="tbtn tbtn-ghost" id="btn-canvas-size" onclick="openCanvasSize()" title="Cambiar tamaño del lienzo" style="gap:5px;">📐 Medidas</button>
     <button class="tbtn tbtn-ghost" id="btn-undo" onclick="undo()" title="Deshacer (Ctrl+Z)" style="opacity:0.35;width:36px;min-width:36px;padding:0!important; justify-content:center;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
     </button>
@@ -1632,7 +1633,7 @@ input[type=range]{filter:none !important;}
 <div class="overlay" id="size-overlay">
   <div class="modal">
     <h3>📐 Tamaño del lienzo</h3>
-    <p>Define las medidas de tu diseño antes de subir las imágenes.</p>
+    <p>Cambia las dimensiones del canvas. Las capas existentes no se moverán.</p>
     <div style="display:flex;gap:10px;margin-bottom:10px;">
       <div style="flex:1">
         <div style="font-size:0.75rem;color:var(--muted);margin-bottom:5px;">Ancho (px)</div>
@@ -1644,12 +1645,12 @@ input[type=range]{filter:none !important;}
       </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
-      <div onclick="document.getElementById('size-w').value=1500;document.getElementById('size-h').value=1500" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">1500×1500</div>
       <div onclick="document.getElementById('size-w').value=1080;document.getElementById('size-h').value=1080" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">1080×1080</div>
-      <div onclick="document.getElementById('size-w').value=1080;document.getElementById('size-h').value=1920" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">Story</div>
-      <div onclick="document.getElementById('size-w').value=1200;document.getElementById('size-h').value=628" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">Banner</div>
+      <div onclick="document.getElementById('size-w').value=1080;document.getElementById('size-h').value=1350" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">1080×1350</div>
+      <div onclick="document.getElementById('size-w').value=1080;document.getElementById('size-h').value=1920" style="padding:6px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:0.75rem;cursor:pointer;color:var(--muted);">1080×1920</div>
     </div>
-    <button class="modal-btn modal-btn-green" onclick="applyCanvasSize()">✓ Crear lienzo</button>
+    <button class="modal-btn modal-btn-green" onclick="applyCanvasSize()">✓ Aplicar tamaño</button>
+    <button class="modal-btn modal-btn-ghost" onclick="document.getElementById('size-overlay').classList.remove('open')" style="margin-top:6px;">Cancelar</button>
   </div>
 </div>
 <div class="overlay" id="save-overlay">
@@ -2338,8 +2339,12 @@ async function compressImage(dataUrl, maxW=1200, maxH=1200, quality=0.85){
       const scale=Math.min(maxW/w, maxH/h);
       w=Math.round(w*scale); h=Math.round(h*scale);
       const c=document.createElement('canvas'); c.width=w; c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      resolve(c.toDataURL('image/jpeg', quality));
+      const ctx2d=c.getContext('2d');
+      // Preservar transparencia si es PNG — NO rellenar fondo
+      const isPng = dataUrl.startsWith('data:image/png');
+      if(!isPng){ ctx2d.fillStyle='#fff'; ctx2d.fillRect(0,0,w,h); }
+      ctx2d.drawImage(img,0,0,w,h);
+      resolve(isPng ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', quality));
     };
     img.onerror=()=>resolve(dataUrl);
     img.src=dataUrl;
@@ -3062,8 +3067,14 @@ async function compressImage(dataUrl, maxKB=400){
       let result=c.toDataURL('image/png');
       const sizeKB=result.length*0.75/1024;
       if(sizeKB>maxKB){
-        const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
-        result=c.toDataURL('image/jpeg',q);
+        const isPng2 = dataUrl.startsWith('data:image/png');
+        if(isPng2){
+          // PNG: recomprimir como PNG con menor resolución para preservar transparencia
+          result=c.toDataURL('image/png');
+        } else {
+          const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
+          result=c.toDataURL('image/jpeg',q);
+        }
       }
       resolve(result);
     };
@@ -5542,6 +5553,15 @@ function reorder(fid,tid){
   const fi=layers.findIndex(x=>x.id===fid),ti=layers.findIndex(x=>x.id===tid);
   if(fi<0||ti<0)return;const[m]=layers.splice(fi,1);layers.splice(ti,0,m);
   layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;});renderList();
+}
+
+function openCanvasSize(){
+  // Rellenar con el tamaño actual del canvas
+  const w = parseInt(cvs.style.width) || 1080;
+  const h = parseInt(cvs.style.height) || 1080;
+  document.getElementById('size-w').value = w;
+  document.getElementById('size-h').value = h;
+  document.getElementById('size-overlay').classList.add('open');
 }
 
 function applyCanvasSize(){
