@@ -1117,7 +1117,11 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
 <body>
 
 <!-- LOGIN -->
-<div class="screen active" id="screen-login">
+<div class="screen active" id="screen-splash" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:var(--bg,#0f1117);gap:16px;">
+  <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Ccircle cx='30' cy='30' r='26' fill='none' stroke='%237c5cbf' stroke-width='4' stroke-dasharray='40 60' stroke-linecap='round'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 30 30' to='360 30 30' dur='0.9s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E" width="60" height="60" alt="">
+  <span style="color:rgba(255,255,255,0.5);font-size:0.85rem;font-family:inherit;">Cargando...</span>
+</div>
+<div class="screen" id="screen-login">
   <div class="login-landing">
     <section class="login-showcase">
       <span class="login-landing-badge">Acceso privado para clientes</span>
@@ -1644,7 +1648,7 @@ function cdnOpt(url, opts={}){
   if(!url || !url.includes('cloudinary.com')) return url;
   const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!match) return url;
-  const transforms = ['q_auto','f_auto'];
+  const transforms = ['q_auto','f_auto','fl_immutable_cache']; // fl_immutable_cache = CDN cachea indefinidamente
   if(opts.w) transforms.push('w_'+opts.w);
   if(opts.h) transforms.push('h_'+opts.h);
   if(opts.c) transforms.push('c_'+opts.c);
@@ -1729,6 +1733,8 @@ window.addEventListener('load', async () => {
     return;
   }
   // Listen for Firebase Auth state
+  // Forzar persistencia LOCAL para que el login sobreviva cierres del navegador
+  try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       // User is signed in — get their profile from Firestore
@@ -1758,7 +1764,11 @@ window.addEventListener('load', async () => {
       } else {
         // Account deactivated or no profile — sign out
         fbAuth.signOut();
+        showScreen('login');
       }
+    } else {
+      // No hay sesión — mostrar login
+      showScreen('login');
     }
   });
   // Check URL for template
@@ -1966,7 +1976,7 @@ function makeHandles(el, getW, getH, setSize){
 function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>h.style.display='none');}
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
-const DASH_CACHE_TTL = 1000 * 60 * 15;
+const DASH_CACHE_TTL = 1000 * 60 * 120; // 2 horas — plantillas/diseños raramente cambian
 function dashCacheKey(scope){ return `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
@@ -2102,7 +2112,7 @@ function createDesignCard(id, d) {
   const date = new Date(d.updatedAt||d.createdAt).toLocaleDateString('es-PE');
   const safeName = d.name||'Sin nombre';
   const thumbHtml = d.thumb
-    ? `<img class="design-thumb" loading="lazy" decoding="async" src="${cdnOpt(d.thumb,{w:300,c:'fit'})}" alt="${safeName}">`
+    ? `<img class="design-thumb" loading="lazy" decoding="async" fetchpriority="low" src="${cdnOpt(d.thumb,{w:300,c:'fit'})}" alt="${safeName}">`
     : `<div class="design-thumb-empty">🎨</div>`;
   card.innerHTML = `
     <div class="design-preview">${thumbHtml}<div class="design-preview-badge">Actualizado</div></div>
@@ -2169,7 +2179,7 @@ function renderTemplateCards(docs){
   if (countEl) countEl.textContent=docs.length+' disponible'+(docs.length!==1?'s':'');
   docs.forEach(({id,d})=>{
     const card=document.createElement('div');card.className='tpl-card';
-    const thumbHtml=d.thumb?`<div class="tpl-preview"><img class="tpl-thumb" loading="lazy" decoding="async" src="${cdnOpt(d.thumb,{w:300,c:'fit'})}" alt="${d.name||'Plantilla'}"></div>`:`<div class="tpl-preview"><div class="tpl-thumb-empty">📦</div></div>`;
+    const thumbHtml=d.thumb?`<div class="tpl-preview"><img class="tpl-thumb" loading="lazy" decoding="async" fetchpriority="low" src="${cdnOpt(d.thumb,{w:300,c:'fit'})}" alt="${d.name||'Plantilla'}"></div>`:`<div class="tpl-preview"><div class="tpl-thumb-empty">📦</div></div>`;
     const catBadge=d.category?`<div class="tpl-chip">${d.category}</div>`:'';
     const date=new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
     card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-meta">${catBadge}<div class="tpl-date">${date}</div></div><div class="tpl-name">${d.name}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${id}')">Usar plantilla →</button></div>`;
@@ -2237,14 +2247,14 @@ function isMobile(){
 async function openEditorDesign(id) {
   const uid = currentUser?.uid||'';
   const tplRef = (await fbDb.collection('user_designs').doc(id).get()).data()?.tplId||'';
-  const editorFile = isMobile() ? 'editor-mobile.html' : '/dev/editor.html';
+  const editorFile = isMobile() ? 'editor-mobile.html' : 'editor.html';
   const url = `${editorFile}?mode=client&did=${id}&uid=${encodeURIComponent(uid)}${tplRef?'&tpl='+tplRef:''}`;
   window.location.href = url;
 }
 
 async function openEditorFromTemplate(tplId) {
   const uid = currentUser?.uid||'';
-  const editorFile = isMobile() ? 'editor-mobile.html' : '/dev/editor.html';
+  const editorFile = isMobile() ? 'editor-mobile.html' : 'editor.html';
   const url = `${editorFile}?mode=client&tpl=${tplId}&uid=${encodeURIComponent(uid)}`;
   window.location.href = url;
 }
