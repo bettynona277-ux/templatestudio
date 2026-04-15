@@ -1117,7 +1117,11 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
 <body>
 
 <!-- LOGIN -->
-<div class="screen active" id="screen-login">
+<div class="screen active" id="screen-splash" style="flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:var(--bg,#0f1117);gap:16px;">
+  <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Ccircle cx='30' cy='30' r='26' fill='none' stroke='%237c5cbf' stroke-width='4' stroke-dasharray='40 60' stroke-linecap='round'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 30 30' to='360 30 30' dur='0.9s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E" width="60" height="60" alt="">
+  <span style="color:rgba(255,255,255,0.5);font-size:0.85rem;font-family:inherit;">Cargando...</span>
+</div>
+<div class="screen" id="screen-login">
   <div class="login-landing">
     <section class="login-showcase">
       <span class="login-landing-badge">Acceso privado para clientes</span>
@@ -1723,13 +1727,65 @@ async function ensureHtml2Canvas(){
 // APP INIT
 // ================================================================
 window.addEventListener('load', async () => {
+  // ── INICIO INSTANTÁNEO ──
+  const cachedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
+  })();
+
+  if (cachedSession?.uid) {
+    // Hay sesión → mostrar dashboard AL INSTANTE con caché local
+    currentUser = cachedSession;
+    // showDashboard() sin Firebase — usa solo caché de localStorage
+    showScreen('client');
+    try {
+      const emailEl = document.getElementById('topbar-phone');
+      if(emailEl) emailEl.textContent = cachedSession.email || '';
+      const emailEl2 = document.getElementById('dashboard-user-email');
+      if(emailEl2) emailEl2.textContent = cachedSession.email || '';
+      setDashboardSyncLabel('Cargando tus diseños…');
+      warmDashboardFromCache(); // muestra diseños/plantillas del caché local
+    } catch(_){}
+
+    // Firebase en segundo plano — no bloquea la UI
+    initFirebase().then(ok => {
+      if(!ok) return;
+      try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+      fbAuth.onAuthStateChanged(async user => {
+        if(user){
+          const doc = await fbDb.collection('users').doc(user.uid).get().catch(()=>null);
+          if(doc && doc.exists && doc.data().active !== false){
+            const devResult = await registerDevice(user.uid);
+            if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
+            currentUser = { uid: user.uid, ...doc.data() };
+            localStorage.setItem('ts_session', JSON.stringify(currentUser));
+            startDeviceRevokeListener(user.uid);
+            loadUserProfile();
+            // Cargar datos frescos de Firestore en segundo plano
+            loadMyDesigns();
+            loadAdminTemplates();
+          } else {
+            fbAuth.signOut();
+            localStorage.removeItem('ts_session');
+            showScreen('login');
+          }
+        } else {
+          // Sesión Firebase expiró — volver al login
+          localStorage.removeItem('ts_session');
+          showScreen('login');
+        }
+      });
+    });
+    return; // No continuar — Firebase ya corre en segundo plano
+  }
+
+  // Sin sesión → flujo normal con Firebase
   const ok = await initFirebase();
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado. Contacta al administrador.';
+    showScreen('login');
     return;
   }
   // Listen for Firebase Auth state
-  // Forzar persistencia LOCAL para que el login sobreviva cierres del navegador
   try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
@@ -1756,11 +1812,18 @@ window.addEventListener('load', async () => {
         const redirect = getSafePostLoginRedirect();
         if(redirect) window.location.href = redirect;
         else if(urlTpl) openEditorFromTemplate(urlTpl);
+        else if(document.getElementById('screen-client')?.classList.contains('active')) {
+          loadDashboardData && loadDashboardData();
+        }
         else if(document.getElementById('screen-login').classList.contains('active')) showDashboard();
       } else {
         // Account deactivated or no profile — sign out
         fbAuth.signOut();
+        showScreen('login');
       }
+    } else {
+      // No hay sesión — mostrar login
+      showScreen('login');
     }
   });
   // Check URL for template
@@ -1899,7 +1962,8 @@ function doLogout() {
 // ================================================================
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById('screen-' + id).classList.add('active');
+  const target = document.getElementById('screen-' + id);
+  if(target) target.classList.add('active');
 }
 
 
@@ -3228,6 +3292,42 @@ function switchMobTab(tab){
     document.getElementById('tpl-search')?.focus({preventScroll:true});
   }
 }
+</script>
+
+<!-- ── INSTALACIÓN PWA ── -->
+<button id="pwa-install-btn" style="position:fixed;bottom:24px;right:24px;z-index:9999;display:none;align-items:center;gap:8px;padding:12px 18px;border-radius:50px;border:none;background:linear-gradient(135deg,#15d6a4,#0fb890);color:#fff;font-size:0.85rem;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(21,214,164,0.4);transition:transform 0.2s;font-family:inherit;">
+  <span>📲</span> Instalar app
+</button>
+<div id="pwa-ios-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:flex-end;justify-content:center;padding:16px;">
+  <div style="background:#1e2535;border-radius:20px;padding:24px;max-width:400px;width:100%;text-align:center;border:1px solid rgba(255,255,255,0.08);">
+    <h3 style="font-size:1.1rem;margin:0 0 8px;color:#fff;">📲 Instalar Diseños Streaming</h3>
+    <p style="font-size:0.82rem;color:rgba(255,255,255,0.65);margin:0 0 20px;line-height:1.6;">Sigue estos pasos en Safari para instalar la app:</p>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">⬆️</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca el botón <strong>Compartir</strong> en Safari</span></div>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">➕</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca <strong>"Añadir a pantalla de inicio"</strong></span></div>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">✅</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca <strong>"Añadir"</strong> ¡Listo!</span></div>
+    <button onclick="document.getElementById('pwa-ios-modal').style.display='none'" style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:0.85rem;cursor:pointer;font-family:inherit;">Entendido</button>
+  </div>
+</div>
+<script>
+(function(){
+  const btn = document.getElementById('pwa-install-btn');
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if(isStandalone) return;
+  if(isIOS){
+    btn.style.display='flex';
+    btn.onclick=function(){ document.getElementById('pwa-ios-modal').style.display='flex'; };
+  } else {
+    let deferredPrompt=null;
+    window.addEventListener('beforeinstallprompt',function(e){
+      e.preventDefault(); deferredPrompt=e; btn.style.display='flex';
+    });
+    btn.onclick=function(){
+      if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.then(function(r){ deferredPrompt=null; if(r.outcome==='accepted') btn.style.display='none'; }); }
+    };
+    window.addEventListener('appinstalled',function(){ btn.style.display='none'; });
+  }
+})();
 </script>
 </body>
 </html>
