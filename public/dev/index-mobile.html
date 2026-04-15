@@ -722,7 +722,7 @@ function cdnOpt(url, opts={}){
   if(!url || !url.includes('cloudinary.com')) return url;
   const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!match) return url;
-  const t = ['q_auto','f_auto'];
+  const t = ['q_auto','f_auto','fl_immutable_cache'];
   if(opts.w) t.push('w_'+opts.w);
   if(opts.c) t.push('c_'+opts.c);
   return match[1]+t.join(',')+'/'+(match[2]||'')+match[3];
@@ -847,6 +847,53 @@ function resolvePostLoginRedirect(){
 }
 
 window.addEventListener('load', async()=>{
+  // ── INICIO INSTANTÁNEO ──
+  const cachedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
+  })();
+
+  if(cachedSession?.uid){
+    // Sesión guardada → mostrar dashboard AL INSTANTE
+    currentUser = cachedSession;
+    try{
+      showScreen('dash');
+      loadMobProfile && loadMobProfile();
+      warmDashboardFromCache && warmDashboardFromCache();
+    }catch(_){}
+
+    // Firebase en segundo plano — no bloquea la UI
+    initFirebase().then(ok => {
+      if(!ok) return;
+      try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+      fbAuth.onAuthStateChanged(async user => {
+        if(user){
+          try{
+            const doc = await fbDb.collection('users').doc(user.uid).get();
+            if(doc.exists && doc.data().active !== false){
+              const devResult = await registerDevice(user.uid);
+              if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
+              currentUser = {uid:user.uid, ...doc.data()};
+              localStorage.setItem('ts_session', JSON.stringify(currentUser));
+              try{
+                const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
+                if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
+              }catch(_){}
+              loadMobProfile();
+              // Cargar datos frescos en segundo plano
+              try{ loadMyDesignsMob && loadMyDesignsMob(); }catch(_){}
+            } else {
+              fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
+            }
+          }catch(_){}
+        } else {
+          localStorage.removeItem('ts_session'); showScreen('login');
+        }
+      });
+    });
+    return; // Firebase ya corre en segundo plano
+  }
+
+  // Sin sesión → flujo normal
   document.getElementById('app-loading').style.display = 'flex';
   const ok = await initFirebase();
   if(!ok){
@@ -889,6 +936,9 @@ window.addEventListener('load', async()=>{
             window.location.href = redirectTarget;
           } else if(params.get('tpl')) {
             openEditorFromTemplate(params.get('tpl'));
+          } else if(document.getElementById('screen-dash')?.classList.contains('active')){
+            // Dashboard ya visible por caché — solo actualizar datos frescos
+            try{ loadMyDesignsMob && loadMyDesignsMob(); }catch(_){}
           } else {
             showDashboard();
           }
@@ -1064,7 +1114,7 @@ function createDesignCard(id, d){
   const date = new Date(d.updatedAt || d.createdAt || Date.now()).toLocaleDateString('es-PE');
   const name = d.name || 'Sin nombre';
   const thumb = d.thumb
-    ? `<img class="design-thumb" src="${cdnOpt(d.thumb,{w:200,c:'fit'})}" alt="${name}" loading="lazy" decoding="async">`
+    ? `<img class="design-thumb" fetchpriority="low" src="${cdnOpt(d.thumb,{w:200,c:'fit'})}" alt="${name}" loading="lazy" decoding="async">`
     : `<div class="design-thumb-empty">🎨</div>`;
   card.innerHTML = `
     <div class="design-thumb-wrap">${thumb}</div>
@@ -1183,7 +1233,7 @@ function renderTemplates(list){
     card.className = 'tpl-card';
     const date = t.createdAt ? new Date(t.createdAt).toLocaleDateString('es-PE') : '';
     const thumb = t.thumb
-      ? `<img class="tpl-thumb" src="${cdnOpt(t.thumb,{w:200,c:'fit'})}" alt="${t.name || ''}" loading="lazy" decoding="async">`
+      ? `<img class="tpl-thumb" fetchpriority="low" src="${cdnOpt(t.thumb,{w:200,c:'fit'})}" alt="${t.name || ''}" loading="lazy" decoding="async">`
       : `<div class="tpl-thumb-empty">📦</div>`;
     card.innerHTML = `
       ${thumb}
