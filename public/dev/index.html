@@ -1728,35 +1728,65 @@ async function ensureHtml2Canvas(){
 // ================================================================
 window.addEventListener('load', async () => {
   // ── INICIO INSTANTÁNEO ──
-  // Si hay sesión guardada en localStorage, mostrar dashboard de inmediato
-  // sin esperar a Firebase — Firebase verificará en segundo plano
   const cachedSession = (() => {
     try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
   })();
+
   if (cachedSession?.uid) {
+    // Hay sesión → mostrar dashboard AL INSTANTE con caché local
     currentUser = cachedSession;
-    // Mostrar la UI del dashboard inmediatamente sin esperar Firebase
+    // showDashboard() sin Firebase — usa solo caché de localStorage
     showScreen('client');
     try {
       const emailEl = document.getElementById('topbar-phone');
       if(emailEl) emailEl.textContent = cachedSession.email || '';
       const emailEl2 = document.getElementById('dashboard-user-email');
       if(emailEl2) emailEl2.textContent = cachedSession.email || '';
-      setDashboardSyncLabel && setDashboardSyncLabel('Sincronizando…');
-      warmDashboardFromCache && warmDashboardFromCache(); // datos del caché local
+      setDashboardSyncLabel('Cargando tus diseños…');
+      warmDashboardFromCache(); // muestra diseños/plantillas del caché local
     } catch(_){}
-    // Los datos frescos de Firestore se cargan cuando Firebase esté listo (abajo)
+
+    // Firebase en segundo plano — no bloquea la UI
+    initFirebase().then(ok => {
+      if(!ok) return;
+      try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+      fbAuth.onAuthStateChanged(async user => {
+        if(user){
+          const doc = await fbDb.collection('users').doc(user.uid).get().catch(()=>null);
+          if(doc && doc.exists && doc.data().active !== false){
+            const devResult = await registerDevice(user.uid);
+            if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
+            currentUser = { uid: user.uid, ...doc.data() };
+            localStorage.setItem('ts_session', JSON.stringify(currentUser));
+            startDeviceRevokeListener(user.uid);
+            loadUserProfile();
+            // Cargar datos frescos de Firestore en segundo plano
+            loadMyDesigns();
+            loadAdminTemplates();
+          } else {
+            fbAuth.signOut();
+            localStorage.removeItem('ts_session');
+            showScreen('login');
+          }
+        } else {
+          // Sesión Firebase expiró — volver al login
+          localStorage.removeItem('ts_session');
+          showScreen('login');
+        }
+      });
+    });
+    return; // No continuar — Firebase ya corre en segundo plano
   }
 
+  // Sin sesión → flujo normal con Firebase
   const ok = await initFirebase();
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado. Contacta al administrador.';
-    if (!cachedSession) showScreen('login');
+    showScreen('login');
     return;
   }
-  // Forzar persistencia LOCAL
+  // Listen for Firebase Auth state
   try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
-  // Firebase verifica en segundo plano — si falla o sesión expiró, manda al login
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       // User is signed in — get their profile from Firestore
@@ -1782,9 +1812,8 @@ window.addEventListener('load', async () => {
         const redirect = getSafePostLoginRedirect();
         if(redirect) window.location.href = redirect;
         else if(urlTpl) openEditorFromTemplate(urlTpl);
-        // Si el dashboard ya está visible (carga instantánea), solo actualizar datos
         else if(document.getElementById('screen-client')?.classList.contains('active')) {
-          loadDashboardData(); // actualizar datos frescos en segundo plano
+          loadDashboardData && loadDashboardData();
         }
         else if(document.getElementById('screen-login').classList.contains('active')) showDashboard();
       } else {
@@ -3262,6 +3291,42 @@ function switchMobTab(tab){
     document.getElementById('tpl-search')?.focus({preventScroll:true});
   }
 }
+</script>
+
+<!-- ── INSTALACIÓN PWA ── -->
+<button id="pwa-install-btn" style="position:fixed;bottom:24px;right:24px;z-index:9999;display:none;align-items:center;gap:8px;padding:12px 18px;border-radius:50px;border:none;background:linear-gradient(135deg,#15d6a4,#0fb890);color:#fff;font-size:0.85rem;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(21,214,164,0.4);transition:transform 0.2s;font-family:inherit;">
+  <span>📲</span> Instalar app
+</button>
+<div id="pwa-ios-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:flex-end;justify-content:center;padding:16px;">
+  <div style="background:#1e2535;border-radius:20px;padding:24px;max-width:400px;width:100%;text-align:center;border:1px solid rgba(255,255,255,0.08);">
+    <h3 style="font-size:1.1rem;margin:0 0 8px;color:#fff;">📲 Instalar Diseños Streaming</h3>
+    <p style="font-size:0.82rem;color:rgba(255,255,255,0.65);margin:0 0 20px;line-height:1.6;">Sigue estos pasos en Safari para instalar la app:</p>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">⬆️</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca el botón <strong>Compartir</strong> en Safari</span></div>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">➕</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca <strong>"Añadir a pantalla de inicio"</strong></span></div>
+    <div style="display:flex;align-items:center;gap:12px;text-align:left;margin-bottom:14px;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;"><span style="font-size:1.5rem;">✅</span><span style="font-size:0.8rem;color:rgba(255,255,255,0.8);">Toca <strong>"Añadir"</strong> ¡Listo!</span></div>
+    <button onclick="document.getElementById('pwa-ios-modal').style.display='none'" style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:0.85rem;cursor:pointer;font-family:inherit;">Entendido</button>
+  </div>
+</div>
+<script>
+(function(){
+  const btn = document.getElementById('pwa-install-btn');
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if(isStandalone) return;
+  if(isIOS){
+    btn.style.display='flex';
+    btn.onclick=function(){ document.getElementById('pwa-ios-modal').style.display='flex'; };
+  } else {
+    let deferredPrompt=null;
+    window.addEventListener('beforeinstallprompt',function(e){
+      e.preventDefault(); deferredPrompt=e; btn.style.display='flex';
+    });
+    btn.onclick=function(){
+      if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.then(function(r){ deferredPrompt=null; if(r.outcome==='accepted') btn.style.display='none'; }); }
+    };
+    window.addEventListener('appinstalled',function(){ btn.style.display='none'; });
+  }
+})();
 </script>
 </body>
 </html>
