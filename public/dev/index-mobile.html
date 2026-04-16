@@ -848,6 +848,7 @@ function resolvePostLoginRedirect(){
 }
 
 window.addEventListener('load', async()=>{
+
   // ── INICIO INSTANTÁNEO ──
   const cachedSession = (() => {
     try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
@@ -885,7 +886,7 @@ window.addEventListener('load', async()=>{
                 if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
               }catch(_){}
               loadMobProfile();
-              try{ loadMyDesignsMob && loadMyDesignsMob(); }catch(_){}
+              try{ loadMyDesigns && loadMyDesigns(); }catch(_){}
 
               // ── LISTENER EN TIEMPO REAL ──
               // Si admin pone active:false → expulsar inmediatamente
@@ -965,9 +966,6 @@ window.addEventListener('load', async()=>{
             window.location.href = redirectTarget;
           } else if(params.get('tpl')) {
             openEditorFromTemplate(params.get('tpl'));
-          } else if(document.getElementById('screen-dash')?.classList.contains('active')){
-            // Dashboard ya visible por caché — solo actualizar datos frescos
-            try{ loadMyDesignsMob && loadMyDesignsMob(); }catch(_){}
           } else {
             showDashboard();
           }
@@ -1120,6 +1118,9 @@ function renderCachedDesigns(){
 
 async function loadMyDesigns(){
   const list = document.getElementById('my-designs-list');
+  if(!list.children.length){
+    list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  }
   // Usar caché si es reciente (menos de 2 horas)
   const key = getDesignsCacheKey();
   if(key){
@@ -1130,9 +1131,6 @@ async function loadMyDesigns(){
         return; // caché válido — no consultar Firestore
       }
     }catch(e){}
-  }
-  if(!list.children.length){
-    list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
   try{
     const snap = await fbDb.collection('user_designs').where('uid','==',currentUser.uid).orderBy('updatedAt','desc').get();
@@ -1228,6 +1226,10 @@ function renderCachedTemplates(){
 }
 
 async function loadTemplates(){
+  const grid = document.getElementById('tpl-grid');
+  if(!grid.children.length){
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
+  }
   // Usar caché si es reciente (menos de 2 horas)
   try{
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
@@ -1239,10 +1241,6 @@ async function loadTemplates(){
       return; // caché válido
     }
   }catch(e){}
-  const grid = document.getElementById('tpl-grid');
-  if(!grid.children.length){
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
-  }
   try{
     const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
     allTemplates = [];
