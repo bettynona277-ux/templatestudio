@@ -1596,7 +1596,7 @@ const PROFILE_PLATFORMS = [
 
 function filterIdxPlatforms(q){
   const grid = document.getElementById('idx-plat-grid');
-  if(!grid) /* return */;
+  if(!grid) return;
   const term = q.toLowerCase().trim();
   grid.querySelectorAll('.profile-platform-item').forEach(el=>{
     const lbl = el.querySelector('label');
@@ -1605,10 +1605,10 @@ function filterIdxPlatforms(q){
 }
 
 async function loadUserProfile(){
-  if(!fbDb || !currentUser?.uid) /* return */;
+  if(!fbDb || !currentUser?.uid) return;
   try{
     const doc = await fbDb.collection('user_profiles').doc(currentUser.uid).get();
-    if(!doc.exists) /* return */;
+    if(!doc.exists) return;
     const data = doc.data();
     const waEl = document.getElementById('prof-whatsapp');
     if(waEl && data.whatsapp) waEl.value = data.whatsapp;
@@ -1624,7 +1624,7 @@ async function loadUserProfile(){
 }
 
 async function saveUserProfile(){
-  if(!fbDb || !currentUser?.uid){ alert('Inicia sesión primero'); /* return */; }
+  if(!fbDb || !currentUser?.uid){ alert('Inicia sesión primero'); return; }
   const waEl = document.getElementById('prof-whatsapp');
   const monedaEl = document.getElementById('prof-moneda');
   const profile = {
@@ -1645,14 +1645,14 @@ async function saveUserProfile(){
 
 // Optimizar URLs Cloudinary — menos ancho de banda
 function cdnOpt(url, opts={}){
-  if(!url || !url.includes('cloudinary.com')) /* return */ url;
+  if(!url || !url.includes('cloudinary.com')) return url;
   const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
-  if(!match) /* return */ url;
+  if(!match) return url;
   const transforms = ['q_auto','f_auto','fl_immutable_cache']; // fl_immutable_cache = CDN cachea indefinidamente
   if(opts.w) transforms.push('w_'+opts.w);
   if(opts.h) transforms.push('h_'+opts.h);
   if(opts.c) transforms.push('c_'+opts.c);
-  /* return */ match[1]+transforms.join(',')+'/'+(match[2]||'')+match[3];
+  return match[1]+transforms.join(',')+'/'+(match[2]||'')+match[3];
 }
 
 let fbApp = null, fbDb = null, fbAuth = null;
@@ -1675,13 +1675,13 @@ async function initFirebase() {
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
-    /* return */ true;
-  } catch(e) { console.error('Firebase init error:', e); /* return */ false; }
+    return true;
+  } catch(e) { console.error('Firebase init error:', e); return false; }
 }
 
 function loadScript(src) {
-  /* return */ new Promise((res, rej) => {
-    if (document.querySelector(`script[src="${src}"]`)) /* return */ res();
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
     const s = document.createElement('script'); s.src = src; s.defer = true; s.onload = res; s.onerror = rej;
     document.head.appendChild(s);
   });
@@ -1689,37 +1689,37 @@ function loadScript(src) {
 
 function getSafePostLoginRedirect(){
   const raw = new URLSearchParams(window.location.search).get('redirect');
-  if(!raw) /* return */ '';
+  if(!raw) return '';
   try{
     const decoded = decodeURIComponent(raw).trim();
-    if(!decoded) /* return */ '';
+    if(!decoded) return '';
 
     let targetUrl;
     if(/^https?:/i.test(decoded)){
       targetUrl = new URL(decoded);
-      if(targetUrl.origin !== window.location.origin) /* return */ '';
+      if(targetUrl.origin !== window.location.origin) return '';
     } else {
       targetUrl = new URL(decoded, window.location.origin);
     }
 
     const file = (targetUrl.pathname.split('/').pop() || '').toLowerCase();
     const blocked = new Set(['', 'index.html', 'index_responsivo_fix.html', 'index_responsivo_fix_compact.html']);
-    if(blocked.has(file)) /* return */ '';
+    if(blocked.has(file)) return '';
 
-    /* return */ targetUrl.pathname + targetUrl.search + targetUrl.hash;
+    return targetUrl.pathname + targetUrl.search + targetUrl.hash;
   }catch(_){
-    /* return */ '';
+    return '';
   }
 }
 
 async function ensureHtml2Canvas(){
-  if(window.html2canvas) /* return */ true;
+  if(window.html2canvas) return true;
   try{
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-    /* return */ true;
+    return true;
   }catch(e){
     console.error('html2canvas load error:', e);
-    /* return */ false;
+    return false;
   }
 }
 
@@ -1729,7 +1729,7 @@ async function ensureHtml2Canvas(){
 window.addEventListener('load', async () => {
   // ── INICIO INSTANTÁNEO ──
   const cachedSession = (() => {
-    try { /* return */ JSON.parse(localStorage.getItem('ts_session')); } catch(_){ /* return */ null; }
+    try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
   })();
 
   if (cachedSession?.uid) {
@@ -1748,14 +1748,14 @@ window.addEventListener('load', async () => {
 
     // Firebase en segundo plano — no bloquea la UI
     initFirebase().then(ok => {
-      if(!ok) /* return */;
+      if(!ok) return;
       try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
       fbAuth.onAuthStateChanged(async user => {
         if(user){
           const doc = await fbDb.collection('users').doc(user.uid).get().catch(()=>null);
           if(doc && doc.exists && doc.data().active !== false){
             const devResult = await registerDevice(user.uid);
-            if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); /* return */; }
+            if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
             currentUser = { uid: user.uid, ...doc.data() };
             localStorage.setItem('ts_session', JSON.stringify(currentUser));
             startDeviceRevokeListener(user.uid);
@@ -1775,7 +1775,7 @@ window.addEventListener('load', async () => {
         }
       });
     });
-    /* return */; // No continuar — Firebase ya corre en segundo plano
+    return; // No continuar — Firebase ya corre en segundo plano
   }
 
   // Sin sesión → flujo normal con Firebase
@@ -1783,7 +1783,7 @@ window.addEventListener('load', async () => {
   if (!ok) {
     document.getElementById('login-err').textContent = '⚠ Sistema no configurado. Contacta al administrador.';
     showScreen('login');
-    /* return */;
+    return;
   }
   // Listen for Firebase Auth state
   try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
@@ -1802,7 +1802,7 @@ window.addEventListener('load', async () => {
           } else {
             if(err) err.textContent = '✗ Límite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador para liberar un dispositivo.';
           }
-          /* return */;
+          return;
         }
         currentUser = { uid: user.uid, ...doc.data() };
         localStorage.setItem('ts_session', JSON.stringify(currentUser));
@@ -1848,7 +1848,7 @@ function getDeviceId() {
     id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
     localStorage.setItem('ts_device_id', id);
   }
-  /* return */ id;
+  return id;
 }
 
 function getDeviceName() {
@@ -1864,7 +1864,7 @@ function getDeviceName() {
   else if (/Firefox/i.test(ua)) name += ' · Firefox';
   else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) name += ' · Safari';
   else if (/Edg/i.test(ua)) name += ' · Edge';
-  /* return */ name;
+  return name;
 }
 
 async function registerDevice(uid) {
@@ -1875,18 +1875,18 @@ async function registerDevice(uid) {
   const existing = devices.find(d => d.id === deviceId);
   if (existing) {
     if (existing.revoked === true) {
-      /* return */ { ok: false, revoked: true };
+      return { ok: false, revoked: true };
     }
     await devRef.update({ lastSeen: Date.now(), name: getDeviceName() });
-    /* return */ { ok: true };
+    return { ok: true };
   }
   // Solo contar dispositivos activos (no revocados) para el límite
   const activeDevices = devices.filter(d => !d.revoked);
   if (activeDevices.length >= MAX_DEVICES) {
-    /* return */ { ok: false, count: devices.length };
+    return { ok: false, count: devices.length };
   }
   await devRef.set({ name: getDeviceName(), registeredAt: Date.now(), lastSeen: Date.now() });
-  /* return */ { ok: true };
+  return { ok: true };
 }
 
 async function unregisterDevice(uid) {
@@ -1919,8 +1919,8 @@ async function doLogin() {
   const err = document.getElementById('login-err');
   const btn = document.getElementById('login-btn');
   err.textContent = '';
-  if (!phone || !phone.includes('@')) { err.textContent = 'Ingresa tu correo Gmail'; /* return */; }
-  if (!pass) { err.textContent = 'Ingresa tu contraseña'; /* return */; }
+  if (!phone || !phone.includes('@')) { err.textContent = 'Ingresa tu correo Gmail'; return; }
+  if (!pass) { err.textContent = 'Ingresa tu contraseña'; return; }
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
@@ -2027,24 +2027,21 @@ function makeHandles(el, getW, getH, setSize){
     el.appendChild(h);
     hs.push(h);
   });
-  /* return */ hs;
+  return hs;
 }
 function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>h.style.display='none');}
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
 const DASH_CACHE_TTL = 1000 * 60 * 120; // 2 horas — plantillas/diseños raramente cambian
-function dashCacheKey(scope){
-  if (scope === 'templates') /* return */ 'ts_dash_cache_v5_public_templates';
-  /* return */ `ts_dash_cache_v5_${currentUser?.uid || 'guest'}_${scope}`;
-} /* return */ `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
+function dashCacheKey(scope){ return `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
     const raw = localStorage.getItem(dashCacheKey(scope));
-    if(!raw) /* return */ null;
+    if(!raw) return null;
     const parsed = JSON.parse(raw);
-    if(!parsed || !parsed.at || (Date.now()-parsed.at) > DASH_CACHE_TTL) /* return */ null;
-    /* return */ parsed.data || null;
-  }catch(e){ /* return */ null; }
+    if(!parsed || !parsed.at || (Date.now()-parsed.at) > DASH_CACHE_TTL) return null;
+    return parsed.data || null;
+  }catch(e){ return null; }
 }
 function writeDashCache(scope, data){
   try{ localStorage.setItem(dashCacheKey(scope), JSON.stringify({at:Date.now(), data})); }catch(e){}
@@ -2063,7 +2060,7 @@ function setRecentDesignName(name){
 }
 function populateTemplateCategoryOptions(items){
   const select = document.getElementById('tpl-cat-filter');
-  if(!select) /* return */;
+  if(!select) return;
   const current = select.value || '';
   const cats = [...new Set((items||[]).map(({d}) => (d?.category||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'es'));
@@ -2096,7 +2093,7 @@ function renderMyDesignCards(payload, isCached=false){
     msg.textContent = isCached ? 'No encontramos caché reciente de diseños todavía.' : 'Aún no tienes diseños guardados. ¡Crea el primero!';
     grid.appendChild(msg);
     setRecentDesignName('Sin actividad reciente');
-    /* return */;
+    return;
   }
   setRecentDesignName(items[0]?.d?.name || 'Diseño reciente');
   items.forEach(({id,d}) => grid.appendChild(createDesignCard(id, d)));
@@ -2139,9 +2136,16 @@ async function loadMyDesigns() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('user_designs')
+    let snap = await fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
       .orderBy('updatedAt', 'desc').get();
+    if (snap.empty) {
+      try {
+        snap = await fbDb.collection('user_designs')
+          .where('uid', '==', currentUser.uid)
+          .orderBy('updatedAt', 'desc').get({ source: 'server' });
+      } catch(e) {}
+    }
     const docs = snap.docs.map(doc => ({ id: doc.id, d: doc.data() || {} }));
     renderMyDesignCards({ items: docs, total: snap.size });
     writeDashCache('designs', {
@@ -2187,11 +2191,11 @@ function createDesignCard(id, d) {
         <button class="dact-del" onclick="deleteDesign('${id}',this)" title="Eliminar diseño">🗑</button>
       </div>
     </div>`;
-  /* return */ card;
+  return card;
 }
 
 async function deleteDesign(id, btn) {
-  if (!confirm('¿Eliminar este diseño?')) /* return */;
+  if (!confirm('¿Eliminar este diseño?')) return;
   btn.textContent = '...';
   try {
     await fbDb.collection('user_designs').doc(id).delete();
@@ -2207,12 +2211,12 @@ let allTemplatesCache = []; // store for search/filter
 function getFilteredTemplates(items){
   const q=(document.getElementById('tpl-search')?.value||'').toLowerCase().trim();
   const cat=document.getElementById('tpl-cat-filter')?.value||'';
-  /* return */ (items||[]).filter(({d})=>{
+  return (items||[]).filter(({d})=>{
     const name=(d?.name||'').toLowerCase();
     const category=(d?.category||'');
     const matchName=!q||name.includes(q);
     const matchCat=!cat||category=== cat;
-    /* return */ matchName&&matchCat;
+    return matchName&&matchCat;
   });
 }
 function resetTemplateFilters(){
@@ -2233,7 +2237,7 @@ function renderTemplateCards(docs){
   if(!docs.length){
     if (countEl) countEl.textContent='0 disponibles';
     grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No se encontraron plantillas.</div>';
-    /* return */;
+    return;
   }
   if (countEl) countEl.textContent=docs.length+' disponible'+(docs.length!==1?'s':'');
   docs.forEach(({id,d})=>{
@@ -2249,128 +2253,20 @@ async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   const heroCountEl = document.getElementById('hero-template-count');
   const countEl = document.getElementById('tpl-count');
-
-  const cached = readDashCache('templates');
-
-  if (!cached) {
-    if (heroCountEl) heroCountEl.textContent = '...';
-    if (countEl) countEl.textContent = 'Cargando...';
-    if (grid) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
-    }
-  }
-
-  try {
-    if (!fbDb) {
-      const ok = await initFirebase();
-      if (!ok || !fbDb) throw new Error('Firebase no está inicializado.');
-    }
-
-    let snap;
-
-    try {
-      snap = await fbDb.collection('templates')
-        .where('status', '==', 'published')
-        .get({ source: 'server' });
-    } catch (serverErr) {
-      console.warn('No se pudo leer plantillas desde servidor, usando fallback:', serverErr);
-      if (cached && Array.isArray(cached.items)) {
-        allTemplatesCache = cached.items;
-        populateTemplateCategoryOptions(allTemplatesCache);
-        renderTemplateCards(getFilteredTemplates(allTemplatesCache));
-        if (heroCountEl) heroCountEl.textContent = String(allTemplatesCache.length);
-        if (countEl) countEl.textContent = allTemplatesCache.length + ' disponible' + (allTemplatesCache.length !== 1 ? 's' : '');
-        setDashboardSyncLabel('Mostrando caché reciente de plantillas.');
-        /* return */;
-      }
-
-      snap = await fbDb.collection('templates')
-        .where('status', '==', 'published')
-        .get();
-    }
-
-    const rawDocs = snap.docs.map(doc => ({
-      id: doc.id,
-      d: doc.data() || {}
-    }));
-
-    rawDocs.sort((a, b) => {
-      const ta = a.d.updatedAt || a.d.createdAt || 0;
-      const tb = b.d.updatedAt || b.d.createdAt || 0;
-      /* return */ tb - ta;
-    });
-
-    allTemplatesCache = rawDocs;
-    populateTemplateCategoryOptions(rawDocs);
-    if (heroCountEl) heroCountEl.textContent = String(rawDocs.length);
-
-    if (!rawDocs.length) {
-      if (countEl) countEl.textContent = '0 disponibles';
-      if (grid) {
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Aún no hay plantillas publicadas.</div>';
-      }
-
-      if (!snap.metadata?.fromCache) {
-        writeDashCache('templates', { total: 0, items: [] });
-      }
-
-      setDashboardSyncLabel('No hay plantillas publicadas disponibles.');
-      /* return */;
-    }
-
-    renderTemplateCards(getFilteredTemplates(rawDocs));
-
-    writeDashCache('templates', {
-      total: rawDocs.length,
-      items: rawDocs.slice(0, 36).map(({ id, d }) => ({
-        id,
-        d: {
-          name: d.name || 'Plantilla',
-          thumb: d.thumb || '',
-          updatedAt: d.updatedAt || 0,
-          createdAt: d.createdAt || 0,
-          category: d.category || '',
-          status: 'published'
-        }
-      }))
-    });
-
-    if (countEl) {
-      countEl.textContent = rawDocs.length + ' disponible' + (rawDocs.length !== 1 ? 's' : '');
-    }
-
-    setDashboardSyncLabel('Diseños y plantillas sincronizados.');
-  } catch (e) {
-    console.error('Error al cargar plantillas:', e);
-
-    if (cached && Array.isArray(cached.items) && cached.items.length) {
-      allTemplatesCache = cached.items;
-      populateTemplateCategoryOptions(allTemplatesCache);
-      renderTemplateCards(getFilteredTemplates(allTemplatesCache));
-      if (heroCountEl) heroCountEl.textContent = String(allTemplatesCache.length);
-      if (countEl) countEl.textContent = allTemplatesCache.length + ' disponible' + (allTemplatesCache.length !== 1 ? 's' : '');
-      setDashboardSyncLabel('Mostrando caché reciente de plantillas.');
-      /* return */;
-    }
-
-    if (heroCountEl) heroCountEl.textContent = '—';
-    if (countEl) countEl.textContent = '—';
-    if (grid) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar plantillas: ${e.message}</div>`;
-    }
-    setDashboardSyncLabel('No pudimos actualizar las plantillas.');
-  }
-}
-  const grid = document.getElementById('admin-tpl-grid');
-  const heroCountEl = document.getElementById('hero-template-count');
-  const countEl = document.getElementById('tpl-count');
   if (!readDashCache('templates')) {
     if (heroCountEl) heroCountEl.textContent = '...';
     if (countEl) countEl.textContent = 'Cargando...';
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('templates').get();
+    let snap = await fbDb.collection('templates').get();
+    if (snap.empty) {
+      try {
+        snap = await fbDb.collection('templates').get({ source: 'server' });
+      } catch(e) {
+        console.warn('Fallback fetch server:', e);
+      }
+    }
     const rawDocs = [];
     snap.forEach(doc => {
       const d = doc.data() || {};
@@ -2379,7 +2275,7 @@ async function loadAdminTemplates() {
     rawDocs.sort((a, b) => {
       const ta = a.d.updatedAt || a.d.createdAt || 0;
       const tb = b.d.updatedAt || b.d.createdAt || 0;
-      /* return */ tb - ta;
+      return tb - ta;
     });
     if (heroCountEl) heroCountEl.textContent = String(rawDocs.length);
     if (!rawDocs.length) {
@@ -2388,7 +2284,7 @@ async function loadAdminTemplates() {
       allTemplatesCache = [];
       populateTemplateCategoryOptions([]);
       writeDashCache('templates', { total: 0, items: [] });
-      /* return */;
+      return;
     }
     allTemplatesCache = rawDocs;
     populateTemplateCategoryOptions(rawDocs);
@@ -2414,7 +2310,7 @@ function openEditorBlank() {
 }
 
 function isMobile(){
-  /* return */ /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
+  return /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
     || window.innerWidth < 768;
 }
 
@@ -2462,7 +2358,7 @@ function loadEditorData(data) {
 
 
     data.layers.forEach(l=>{
-      if(!l.visible)/* return */;
+      if(!l.visible)return;
       const el=document.createElement('div');
       el.style.cssText=`position:absolute;left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};opacity:${l.opacity??1};`;
       el.dataset.layerId=l.id;
@@ -2480,7 +2376,7 @@ function loadEditorData(data) {
           (nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';}
         );
         el.onmousedown=ev=>{
-          if(ev.target.classList.contains('layer-handle'))/* return */;
+          if(ev.target.classList.contains('layer-handle'))return;
           ev.stopPropagation();
           selectLayerEl(el);
           startDrag(ev,el);
@@ -2535,8 +2431,8 @@ function loadEditorData(data) {
           }
         );
         el.onmousedown=ev=>{
-          if(ev.target.classList.contains('layer-handle'))/* return */;
-          if(document.activeElement===inner)/* return */;
+          if(ev.target.classList.contains('layer-handle'))return;
+          if(document.activeElement===inner)return;
           ev.stopPropagation();
           selectEl(el,'text',tid);
           showHandles(el);
@@ -2547,7 +2443,7 @@ function loadEditorData(data) {
     });
     renderLayersPanel();
     addBuiltinLogos();
-    /* return */;
+    return;
   }
 
   // ── Formato legacy del cliente ──
@@ -2563,14 +2459,14 @@ function loadEditorData(data) {
     el.dataset.layerName=l.name||'Capa';
 
     if(l.type==='text-layer'){
-      /* return */; // texts restored via textEls below — skip to avoid duplicates
+      return; // texts restored via textEls below — skip to avoid duplicates
     } else {
       el.dataset.layerType='img';
       const img=document.createElement('img');img.src=l.src;img.crossOrigin='anonymous';
       img.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
       el.appendChild(img);
       makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
-      el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))/* return */;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
+      el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
     }
     canvas.appendChild(el);
     psdLayerEls.push(el);
@@ -2608,7 +2504,7 @@ function _addZone(z) {
 }
 
 function clearZone(id){
-  const z=snapZones.find(z=>z.id===id);if(!z)/* return */;
+  const z=snapZones.find(z=>z.id===id);if(!z)return;
   z.filledSrc='';
   const img=document.getElementById('zimg-'+id);if(img)img.style.display='none';
   const lbl=document.getElementById('zlbl-'+id);if(lbl)lbl.style.display='flex';
@@ -2616,7 +2512,7 @@ function clearZone(id){
   if(el){el.classList.remove('filled');el.style.border='2px dashed rgba(79,142,247,0.5)';el.style.background='rgba(79,142,247,0.05)';}
 }
 function fillZone(id,src){
-  const z=snapZones.find(z=>z.id===id);if(!z)/* return */;
+  const z=snapZones.find(z=>z.id===id);if(!z)return;
   z.filledSrc=src;
   const img=document.getElementById('zimg-'+id);if(img){img.src=src;img.style.display='block';}
   const lbl=document.getElementById('zlbl-'+id);if(lbl)lbl.style.display='none';
@@ -2647,8 +2543,8 @@ function _addText(t){
   rh.onmousedown=e=>{e.stopPropagation();startTextResize(e,t.id);};
   el.appendChild(inner);el.appendChild(rh);
   el.onmousedown=e=>{
-    if(e.target.classList.contains('t-resize'))/* return */;
-    if(document.activeElement===e.target)/* return */;
+    if(e.target.classList.contains('t-resize'))return;
+    if(document.activeElement===e.target)return;
     e.stopPropagation();selectEl(el,'text',t.id);
     startDrag(e,el);
   };
@@ -2705,19 +2601,19 @@ function addBuiltinLogos(){
 // ── SHARED LOGO LIBRARY (from Firestore, uploaded by admin) ──────
 let sharedLogoLibraryLoaded = false;
 async function ensureSharedLogoLibrary(){
-  if(sharedLogoLibraryLoaded) /* return */;
+  if(sharedLogoLibraryLoaded) return;
   await loadSharedLogoLibrary();
 }
 async function loadSharedLogoLibrary(){
   const grid=document.getElementById('shared-logo-grid');
-  if(!grid||!fbDb) /* return */;
+  if(!grid||!fbDb) return;
   try{
     const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
     grid.innerHTML='';
     if(snap.empty){
       sharedLogoLibraryLoaded = true;
       grid.innerHTML='<div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Sin logos disponibles.</div>';
-      /* return */;
+      return;
     }
     snap.forEach(doc=>{
       const d=doc.data();
@@ -2744,7 +2640,7 @@ async function loadSharedLogoLibrary(){
 }
 
 function renderLogoGrid(){
-  const grid=document.getElementById('logo-grid');if(!grid)/* return */;
+  const grid=document.getElementById('logo-grid');if(!grid)return;
   grid.innerHTML='';
   logos.forEach(logo=>{
     const d=document.createElement('div');d.className='logo-item';d.title=logo.name;
@@ -2781,7 +2677,7 @@ function addLogoToCanvas(src, name){
     i.style.cssText='width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
     el.appendChild(i);
     makeHandles(el,()=>el.offsetWidth,()=>el.offsetHeight,(nw,nh,nx,ny)=>{el.style.width=nw+'px';el.style.height=nh+'px';el.style.left=nx+'px';el.style.top=ny+'px';});
-    el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))/* return */;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
+    el.onmousedown=ev=>{if(ev.target.classList.contains('layer-handle'))return;ev.stopPropagation();selectLayerEl(el);startDrag(ev,el);};
     canvas.appendChild(el);
     renderLayersPanel();
     selectLayerEl(el);
@@ -2797,7 +2693,7 @@ function uploadLogos(event){
 }
 
 function uploadBase(event){
-  const file=event.target.files[0];if(!file)/* return */;
+  const file=event.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=e=>{
     const bi=document.getElementById('base-img');bi.src=e.target.result;bi.style.display='block';
@@ -2872,7 +2768,7 @@ function getNearestZone(e){
   const mx=(e.clientX-cr.left)/zoomLevel,my=(e.clientY-cr.top)/zoomLevel;
   let nearest=null,minD=90;
   snapZones.forEach(z=>{const cx=z.x+z.w/2,cy=z.y+z.h/2,d=Math.sqrt((mx-cx)**2+(my-cy)**2);if(d<minD){minD=d;nearest=z;}});
-  /* return */ nearest;
+  return nearest;
 }
 
 // ================================================================
@@ -2915,7 +2811,7 @@ canvas.addEventListener('click', function(e){
 
 function renderLayersPanel(){
   const panel=document.getElementById('layers-panel');
-  if(!panel)/* return */;
+  if(!panel)return;
   panel.innerHTML='';
   const els=[...canvas.querySelectorAll('[data-layer-id]')];
   els.forEach(el=>{
@@ -2958,7 +2854,7 @@ function selectEl(el, type, id) {
   document.getElementById('rp-shape').style.display='none';
   if(type==='text'||type==='sticker'){
     document.getElementById('rp-text').style.display='block';
-    const t=textEls.find(t=>t.id===id);if(!t)/* return */;
+    const t=textEls.find(t=>t.id===id);if(!t)return;
     const inner=document.getElementById('ti-'+id);
     document.getElementById('rp-text-content').value=inner?inner.textContent:'';
     document.getElementById('rp-text-font').value=t.font||"'Plus Jakarta Sans'";
@@ -2985,7 +2881,7 @@ function deselectAll(e){
   document.getElementById('rp-empty').style.display='block';
   document.getElementById('rp-text').style.display='none';
   document.getElementById('rp-shape').style.display='none';
-  if(e&&e.target!==canvas&&!e.target.classList.contains('canvas-area'))/* return */;
+  if(e&&e.target!==canvas&&!e.target.classList.contains('canvas-area'))return;
   document.querySelectorAll('.canvas-text-el').forEach(el=>el.classList.remove('selected'));
   selectedEl=null;
   document.getElementById('rp-empty').style.display='block';
@@ -2994,13 +2890,13 @@ function deselectAll(e){
 }
 
 function updateTextContent(val){
-  if(!selectedEl)/* return */;
+  if(!selectedEl)return;
   const id=parseInt(selectedEl.id.replace('t-',''));
   const inner=document.getElementById('ti-'+id);if(inner){inner.textContent=val;}
   const t=textEls.find(t=>t.id===id);if(t)t.current=val;
 }
 function applyFont(val){
-  if(!selectedEl) /* return */;
+  if(!selectedEl) return;
   // Find the text inner element — try multiple strategies
   const inner = selectedEl.querySelector('div[style*="font"]') ||
                 selectedEl.querySelector('[id^="ti-"]') ||
@@ -3017,7 +2913,7 @@ function applyFont(val){
   }
 }
 function updateTextStyle(prop,val){
-  if(!selectedEl)/* return */;
+  if(!selectedEl)return;
   const rawId=(selectedEl.id||'').replace('t-','');
   const id=parseInt(rawId);
   // Find inner — search by id first, then by querySelector fallback
@@ -3033,7 +2929,7 @@ function updateTextStyle(prop,val){
       else if(prop==='align') fallback.style.textAlign=val;
       else if(prop==='color') fallback.style.color=val;
     }
-    /* return */;
+    return;
   }
   if(prop==='font'){if(inner)inner.style.fontFamily=val;if(t)t.font=val;}
   else if(prop==='size'){if(inner){inner.style.fontSize=val+'px';}if(t)t.size=parseInt(val);}
@@ -3042,7 +2938,7 @@ function updateTextStyle(prop,val){
   else if(prop==='color'){if(inner)inner.style.color=val;if(t)t.color=val;}
 }
 function updateTextWidth(val){
-  if(!selectedEl)/* return */;
+  if(!selectedEl)return;
   selectedEl.style.width=val+'px';
   const id=parseInt(selectedEl.id.replace('t-',''));
   const t=textEls.find(t=>t.id===id);if(t)t.w=parseInt(val);
@@ -3050,7 +2946,7 @@ function updateTextWidth(val){
 function updateShapeColor(val){if(selectedEl)selectedEl.style.background=val;}
 function updateShapeOpacity(val){if(selectedEl)selectedEl.style.opacity=val/100;}
 function deleteSelected(){
-  if(!selectedEl)/* return */;
+  if(!selectedEl)return;
   if(selectedEl.id.startsWith('t-')){
     const id=parseInt(selectedEl.id.replace('t-',''));
     textEls=textEls.filter(t=>t.id!==id);
@@ -3079,7 +2975,7 @@ function zoom(d){zoomLevel=Math.min(3,Math.max(0.1,zoomLevel+d));canvas.style.tr
 
 // Ctrl+wheel to zoom
 document.addEventListener('wheel', function(e){
-  if(!e.ctrlKey) /* return */;
+  if(!e.ctrlKey) return;
   e.preventDefault();
   const delta = e.deltaY > 0 ? -0.1 : 0.1;
   zoom(delta);
@@ -3098,7 +2994,7 @@ function closeSaveModal(){document.getElementById('save-overlay').classList.remo
 
 async function doSaveDesign(){
   const name=document.getElementById('save-design-name').value.trim();
-  if(!name){document.getElementById('save-design-status').textContent='Escribe un nombre';/* return */;}
+  if(!name){document.getElementById('save-design-status').textContent='Escribe un nombre';return;}
   document.getElementById('save-design-status').textContent='Guardando...';
   editingDesignName=name;
   document.getElementById('editor-design-name').textContent=name;
@@ -3144,9 +3040,9 @@ function serializeEditor(){
   const psdLayers=[];
   canvas.querySelectorAll('[data-layer-id]').forEach(el=>{
     const isText=(el.dataset.layerType==='text'||el.classList.contains('canvas-text-el'));
-    if(isText) /* return */; // skip texts — they're in textEls
+    if(isText) return; // skip texts — they're in textEls
     const img=el.querySelector('img');
-    if(!img) /* return */;
+    if(!img) return;
     psdLayers.push({
       type:'img-layer',
       src:img.src,
@@ -3159,13 +3055,13 @@ function serializeEditor(){
       name:el.dataset.layerName||'Imagen',
     });
   });
-  /* return */{
+  return{
     baseImgSrc:bi&&bi.style.display!=='none'?bi.src:'',
     canvasW:parseInt(canvas.style.width),canvasH:parseInt(canvas.style.height),
     canvasBg:canvas.style.background,
     psdLayers,
     zones:snapZones.map(z=>({...z})),
-    texts:textEls.map(t=>{const inner=document.getElementById('ti-'+t.id);/* return */{...t,current:inner?inner.textContent:t.current||t.text||''}}),
+    texts:textEls.map(t=>{const inner=document.getElementById('ti-'+t.id);return{...t,current:inner?inner.textContent:t.current||t.text||''}}),
     logos:logos.map(l=>({...l}))
   };
 }
@@ -3175,7 +3071,7 @@ function serializeEditor(){
 // ================================================================
 async function downloadPNG(){
   const htmlReady = await ensureHtml2Canvas();
-  if(!htmlReady){ alert('No se pudo cargar el motor de descarga.'); /* return */; }
+  if(!htmlReady){ alert('No se pudo cargar el motor de descarga.'); return; }
   document.querySelectorAll('.canvas-text-el').forEach(e=>e.classList.remove('selected'));
   document.querySelectorAll('.snap-zone:not(.filled)').forEach(z=>{z.style.border='none';z.style.background='transparent';});
   document.querySelectorAll('.t-resize,.z-clr').forEach(e=>e.style.display='none');
@@ -3192,7 +3088,7 @@ async function downloadPNG(){
 async function quickDownload(id){
   try{
     const doc=await fbDb.collection('user_designs').doc(id).get();
-    if(!doc.exists)/* return */;
+    if(!doc.exists)return;
     openEditorDesign(id);
     setTimeout(()=>downloadPNG(),1200);
   }catch(e){alert('Error: '+e.message);}
@@ -3210,10 +3106,10 @@ document.addEventListener('keydown',e=>{
 // UTILS
 // ================================================================
 function rgbToHex(c){
-  if(c&&c.startsWith('#'))/* return */ c;
+  if(c&&c.startsWith('#'))return c;
   const m=c&&c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if(!m)/* return */ '#ffffff';
-  /* return */ '#'+[m[1],m[2],m[3]].map(x=>parseInt(x).toString(16).padStart(2,'0')).join('');
+  if(!m)return '#ffffff';
+  return '#'+[m[1],m[2],m[3]].map(x=>parseInt(x).toString(16).padStart(2,'0')).join('');
 }
 
 
@@ -3248,7 +3144,7 @@ function getAutosaveStatusEl(){
     autosaveStatus.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:8px 14px;border-radius:100px;font-size:0.72rem;font-weight:600;font-family:Inter,sans-serif;z-index:1000;opacity:0;transition:opacity 0.4s;pointer-events:none;';
     document.body.appendChild(autosaveStatus);
   }
-  /* return */ autosaveStatus;
+  return autosaveStatus;
 }
 
 function showAutosaveMsg(msg, color){
@@ -3264,15 +3160,15 @@ function showAutosaveMsg(msg, color){
 async function autoSave(){
   // Only autosave if in editor screen and user has a design loaded
   const editorScreen = document.getElementById('screen-editor');
-  if(!editorScreen || !editorScreen.classList.contains('active')) /* return */;
-  if(!currentUser || !fbDb) /* return */;
+  if(!editorScreen || !editorScreen.classList.contains('active')) return;
+  if(!currentUser || !fbDb) return;
 
   try {
     const data = serializeEditor();
     const dataStr = JSON.stringify(data);
     
     // Skip if nothing changed
-    if(dataStr === lastSavedData) /* return */;
+    if(dataStr === lastSavedData) return;
     lastSavedData = dataStr;
 
     const saveData = {
@@ -3322,7 +3218,7 @@ function stopAutosave(){
 activityTimer = null;
 function setupActivityAutosave(){
   const editorCanvas = document.getElementById('design-canvas');
-  if(!editorCanvas) /* return */;
+  if(!editorCanvas) return;
   const trigger = () => {
     clearTimeout(activityTimer);
     activityTimer = setTimeout(autoSave, 5000); // 5s after last change
@@ -3352,7 +3248,7 @@ window.addEventListener('beforeunload', (e) => {
 // Restore from backup if available
 function checkAutosaveBackup(){
   const backup = localStorage.getItem('ts_autosave_backup');
-  if(!backup) /* return */;
+  if(!backup) return;
   try {
     const b = JSON.parse(backup);
     const age = Date.now() - b.savedAt;
@@ -3376,7 +3272,7 @@ function checkAutosaveBackup(){
 }
 
 function applyFontNow(fontValue){
-  if(!selectedEl) { console.warn('No element selected'); /* return */; }
+  if(!selectedEl) { console.warn('No element selected'); return; }
   // Find ALL text divs inside selected element
   const divs = selectedEl.querySelectorAll('div');
   let applied = false;
@@ -3431,7 +3327,7 @@ function switchMobTab(tab){
   const btn = document.getElementById('pwa-install-btn');
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if(isStandalone) /* return */;
+  if(isStandalone) return;
   if(isIOS){
     btn.style.display='flex';
     btn.onclick=function(){ document.getElementById('pwa-ios-modal').style.display='flex'; };
