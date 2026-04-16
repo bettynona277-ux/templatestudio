@@ -874,14 +874,15 @@ window.addEventListener('load', async()=>{
       try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
       fbAuth.onAuthStateChanged(async user => {
         if(user){
-          // ── LISTENER EN TIEMPO REAL — se registra siempre, no dentro de try/catch ──
+          // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
+          let _snapFirstAutologin = true;
           fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+            if(_snapFirstAutologin){ _snapFirstAutologin = false; return; }
             if(!snap.exists || snap.data()?.active === false){
               fbAuth.signOut();
               localStorage.removeItem('ts_session');
               currentUser = null;
               showScreen('login');
-              alert('El administrador cerró tu sesión.');
             }
           }, (err) => { console.warn('onSnapshot error:', err); });
 
@@ -922,14 +923,15 @@ window.addEventListener('load', async()=>{
 
   fbAuth.onAuthStateChanged(async user=>{
     if(user){
-      // ── LISTENER EN TIEMPO REAL — se registra siempre, no dentro de try/catch ──
+      // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
+      let _snapFirstNormal = true;
       fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+        if(_snapFirstNormal){ _snapFirstNormal = false; return; }
         if(!snap.exists || snap.data()?.active === false){
           fbAuth.signOut();
           localStorage.removeItem('ts_session');
           currentUser = null;
           showScreen('login');
-          alert('El administrador cerró tu sesión.');
         }
       }, (err) => { console.warn('onSnapshot error:', err); });
 
