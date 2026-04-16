@@ -3598,8 +3598,8 @@ function rebuildShapeSvg(l){
   const fill   = l.shapeFill || '#4F8EF7';
   const stroke = l.shapeStrokeColor || '#ffffff';
   const strokeW= Number(l.shapeStrokeWidth || 0);
-  const w = l.origW || l.w;
-  const h = l.origH || l.h;
+  const w = l.w || 100;
+  const h = l.h || 100;
 
   // ── Fill SVG → img principal (drop-shadow sigue esta forma) ──
   const opts = {rx: l.shapeRadius??20};
@@ -4598,7 +4598,15 @@ document.addEventListener('mouseup',ev=>{
     }
     return;
   }
-  if(isMultiRes){ isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return; }
+  if(isMultiRes){
+    if(mResSt && mResSt.layers){
+      mResSt.layers.forEach(item => {
+        const l = layers.find(x => x.id === item.id);
+        if(l && l.isShape) rebuildShapeSvg(l);
+      });
+    }
+    isMultiRes=false; mResSt={}; updateMultiBox(); snapshotState(); return;
+  }
 
   // Re-enable pointer-events on all frames after any drag
   layers.forEach(fl=>{ if(fl.type==='frame'&&fl.el) fl.el.style.pointerEvents=''; });
@@ -4640,6 +4648,10 @@ document.addEventListener('mouseup',ev=>{
   frameSnapTarget=null;
   hideSmartGuides();
 
+  if(isRes && rSt.id !== undefined){
+    const l = layers.find(x => x.id === rSt.id);
+    if(l && l.isShape) rebuildShapeSvg(l);
+  }
   if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff.axisLocked=null;
 });
@@ -6330,7 +6342,8 @@ async function renderDesignToCanvas(scale=2){
 
       const lineHeight = fontSize * (parseFloat(tp.lineHeight) || 1.2);
       const letterSpacing = parseFloat(tp.letterSpacing) || 0;
-      const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2));
+      // Permitimos un buffer generoso para evitar saltos de línea erróneos
+      const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2) + (fontSize * 0.5) + 12);
 
       const measureLineVisualWidth = (line)=>{
         const chars = [...String(line || '')];
@@ -6439,9 +6452,9 @@ async function renderDesignToCanvas(scale=2){
         textBaseX + padX;
 
       // El editor DOM usa padding de 2px y line-height CSS.
-      // Con textBaseline='top' no debemos volver a sumar el ascent de la fuente.
+      // Ajuste visual extra (+ 0.08 * fontSize) para igualar desplazamiento sutil del navegador hacia arriba
       const halfLeading = Math.max(0, (lineHeight - fontSize) / 2);
-      const textOffsetY = padY + halfLeading;
+      const textOffsetY = padY + halfLeading + (fontSize * 0.08);
 
       lines.forEach((line, idx)=> drawLine(line, anchorX, textBaseY + textOffsetY + idx * lineHeight));
 
