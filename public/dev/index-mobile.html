@@ -874,6 +874,17 @@ window.addEventListener('load', async()=>{
       try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
       fbAuth.onAuthStateChanged(async user => {
         if(user){
+          // ── LISTENER EN TIEMPO REAL — se registra siempre, no dentro de try/catch ──
+          fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+            if(!snap.exists || snap.data()?.active === false){
+              fbAuth.signOut();
+              localStorage.removeItem('ts_session');
+              currentUser = null;
+              showScreen('login');
+              alert('El administrador cerró tu sesión.');
+            }
+          }, (err) => { console.warn('onSnapshot error:', err); });
+
           try{
             const doc = await fbDb.collection('users').doc(user.uid).get();
             if(doc.exists && doc.data().active !== false){
@@ -887,22 +898,10 @@ window.addEventListener('load', async()=>{
               }catch(_){}
               loadMobProfile();
               try{ loadMyDesigns && loadMyDesigns(); }catch(_){}
-
-              // ── LISTENER EN TIEMPO REAL ──
-              // Si admin pone active:false → expulsar inmediatamente
-              fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
-                if(!snap.exists || snap.data()?.active === false){
-                  fbAuth.signOut();
-                  localStorage.removeItem('ts_session');
-                  currentUser = null;
-                  showScreen('login');
-                  alert('El administrador cerró tu sesión.');
-                }
-              }, ()=>{});
             } else {
               fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
             }
-          }catch(_){}
+          }catch(e){ console.warn('auth flow error:', e); }
         } else {
           localStorage.removeItem('ts_session'); showScreen('login');
         }
@@ -923,6 +922,17 @@ window.addEventListener('load', async()=>{
 
   fbAuth.onAuthStateChanged(async user=>{
     if(user){
+      // ── LISTENER EN TIEMPO REAL — se registra siempre, no dentro de try/catch ──
+      fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+        if(!snap.exists || snap.data()?.active === false){
+          fbAuth.signOut();
+          localStorage.removeItem('ts_session');
+          currentUser = null;
+          showScreen('login');
+          alert('El administrador cerró tu sesión.');
+        }
+      }, (err) => { console.warn('onSnapshot error:', err); });
+
       try{
         const doc = await fbDb.collection('users').doc(user.uid).get();
         if(doc.exists && doc.data().active !== false){
@@ -947,17 +957,6 @@ window.addEventListener('load', async()=>{
           loadMobProfile();
           try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
           try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
-
-          // ── LISTENER EN TIEMPO REAL ──
-          fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
-            if(!snap.exists || snap.data()?.active === false){
-              fbAuth.signOut();
-              localStorage.removeItem('ts_session');
-              currentUser = null;
-              showScreen('login');
-              alert('El administrador cerró tu sesión.');
-            }
-          }, ()=>{});
 
           const params = new URLSearchParams(window.location.search);
           const redirectTarget = resolvePostLoginRedirect();
