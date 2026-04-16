@@ -733,6 +733,7 @@ let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v2';
+const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -847,6 +848,70 @@ function resolvePostLoginRedirect(){
 }
 
 window.addEventListener('load', async()=>{
+
+  // ── INICIO INSTANTÁNEO ──
+  const cachedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('ts_session')); } catch(_){ return null; }
+  })();
+
+  if(cachedSession?.uid){
+    // Sesión guardada → mostrar dashboard AL INSTANTE
+    currentUser = cachedSession;
+    // Ocultar pantalla de carga inmediatamente
+    const loadingEl = document.getElementById('app-loading');
+    if(loadingEl) loadingEl.style.display = 'none';
+    try{
+      showScreen('dash');
+      loadMobProfile && loadMobProfile();
+      // Mostrar datos del caché inmediatamente
+      renderCachedDesigns && renderCachedDesigns();
+      renderCachedTemplates && renderCachedTemplates();
+    }catch(_){}
+
+    // Firebase en segundo plano — no bloquea la UI
+    initFirebase().then(ok => {
+      if(!ok) return;
+      try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
+      fbAuth.onAuthStateChanged(async user => {
+        if(user){
+          // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
+          let _snapFirstAutologin = true;
+          fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+            if(_snapFirstAutologin){ _snapFirstAutologin = false; return; }
+            if(!snap.exists || snap.data()?.active === false){
+              fbAuth.signOut();
+              localStorage.removeItem('ts_session');
+              currentUser = null;
+              showScreen('login');
+            }
+          }, (err) => { console.warn('onSnapshot error:', err); });
+
+          try{
+            const doc = await fbDb.collection('users').doc(user.uid).get();
+            if(doc.exists && doc.data().active !== false){
+              const devResult = await registerDevice(user.uid);
+              if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
+              currentUser = {uid:user.uid, ...doc.data()};
+              localStorage.setItem('ts_session', JSON.stringify(currentUser));
+              try{
+                const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
+                if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
+              }catch(_){}
+              loadMobProfile();
+              try{ loadMyDesigns && loadMyDesigns(); }catch(_){}
+            } else {
+              fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
+            }
+          }catch(e){ console.warn('auth flow error:', e); }
+        } else {
+          localStorage.removeItem('ts_session'); showScreen('login');
+        }
+      });
+    });
+    return; // Firebase ya corre en segundo plano
+  }
+
+  // Sin sesión → flujo normal
   document.getElementById('app-loading').style.display = 'flex';
   const ok = await initFirebase();
   if(!ok){
@@ -858,6 +923,18 @@ window.addEventListener('load', async()=>{
 
   fbAuth.onAuthStateChanged(async user=>{
     if(user){
+      // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
+      let _snapFirstNormal = true;
+      fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+        if(_snapFirstNormal){ _snapFirstNormal = false; return; }
+        if(!snap.exists || snap.data()?.active === false){
+          fbAuth.signOut();
+          localStorage.removeItem('ts_session');
+          currentUser = null;
+          showScreen('login');
+        }
+      }, (err) => { console.warn('onSnapshot error:', err); });
+
       try{
         const doc = await fbDb.collection('users').doc(user.uid).get();
         if(doc.exists && doc.data().active !== false){
@@ -882,6 +959,7 @@ window.addEventListener('load', async()=>{
           loadMobProfile();
           try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
           try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
+
           const params = new URLSearchParams(window.location.search);
           const redirectTarget = resolvePostLoginRedirect();
           if(redirectTarget) {
@@ -1044,6 +1122,17 @@ async function loadMyDesigns(){
   if(!list.children.length){
     list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
+  // Usar caché si es reciente (menos de 2 horas)
+  const key = getDesignsCacheKey();
+  if(key){
+    try{
+      const cached = JSON.parse(localStorage.getItem(key) || 'null');
+      if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+        renderDesignsFromList(cached.items);
+        return; // caché válido — no consultar Firestore
+      }
+    }catch(e){}
+  }
   try{
     const snap = await fbDb.collection('user_designs').where('uid','==',currentUser.uid).orderBy('updatedAt','desc').get();
     const items = [];
@@ -1142,6 +1231,17 @@ async function loadTemplates(){
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
+  // Usar caché si es reciente (menos de 2 horas)
+  try{
+    const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
+    if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+      allTemplates = cached.items;
+      document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
+      setHeroCounts(null, allTemplates.length);
+      renderTemplates(allTemplates);
+      return; // caché válido
+    }
+  }catch(e){}
   try{
     const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
     allTemplates = [];
