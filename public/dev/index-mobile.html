@@ -733,6 +733,7 @@ let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v2';
+const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -879,8 +880,19 @@ window.addEventListener('load', async()=>{
                 if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
               }catch(_){}
               loadMobProfile();
-              // Cargar datos frescos en segundo plano
               try{ loadMyDesignsMob && loadMyDesignsMob(); }catch(_){}
+
+              // ── LISTENER EN TIEMPO REAL ──
+              // Si admin pone active:false → expulsar inmediatamente
+              fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+                if(!snap.exists || snap.data()?.active === false){
+                  fbAuth.signOut();
+                  localStorage.removeItem('ts_session');
+                  currentUser = null;
+                  showScreen('login');
+                  alert('El administrador cerró tu sesión.');
+                }
+              }, ()=>{});
             } else {
               fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
             }
@@ -929,6 +941,18 @@ window.addEventListener('load', async()=>{
           loadMobProfile();
           try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
           try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
+
+          // ── LISTENER EN TIEMPO REAL ──
+          fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+            if(!snap.exists || snap.data()?.active === false){
+              fbAuth.signOut();
+              localStorage.removeItem('ts_session');
+              currentUser = null;
+              showScreen('login');
+              alert('El administrador cerró tu sesión.');
+            }
+          }, ()=>{});
+
           const params = new URLSearchParams(window.location.search);
           const redirectTarget = resolvePostLoginRedirect();
           if(redirectTarget) {
@@ -1091,6 +1115,17 @@ function renderCachedDesigns(){
 
 async function loadMyDesigns(){
   const list = document.getElementById('my-designs-list');
+  // Usar caché si es reciente (menos de 2 horas)
+  const key = getDesignsCacheKey();
+  if(key){
+    try{
+      const cached = JSON.parse(localStorage.getItem(key) || 'null');
+      if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+        renderDesignsFromList(cached.items);
+        return; // caché válido — no consultar Firestore
+      }
+    }catch(e){}
+  }
   if(!list.children.length){
     list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
@@ -1188,6 +1223,17 @@ function renderCachedTemplates(){
 }
 
 async function loadTemplates(){
+  // Usar caché si es reciente (menos de 2 horas)
+  try{
+    const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
+    if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+      allTemplates = cached.items;
+      document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
+      setHeroCounts(null, allTemplates.length);
+      renderTemplates(allTemplates);
+      return; // caché válido
+    }
+  }catch(e){}
   const grid = document.getElementById('tpl-grid');
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
