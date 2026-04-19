@@ -1231,6 +1231,8 @@ async function loadTemplates(){
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
+  
+  let usedCache = false;
   // Usar caché si es reciente (menos de 2 horas)
   try{
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
@@ -1239,20 +1241,44 @@ async function loadTemplates(){
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
-      return; // caché válido
+      usedCache = true;
     }
   }catch(e){}
+
   try{
+    if (usedCache) {
+      // Verificación en segundo plano (1 lectura): si no hay plantillas nuevas, usamos el caché
+      const latestSnap = await fbDb.collection('templates').orderBy('createdAt','desc').limit(1).get();
+      if (!latestSnap.empty) {
+        const latestServerTime = latestSnap.docs[0].data().createdAt || 0;
+        const cachedMeta = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || '{}');
+        const latestCachedTime = cachedMeta.latestServerTime || 0;
+        
+        if (latestServerTime <= latestCachedTime) {
+           return; // Caché totalmente al día, no requiere recargar nada
+        }
+      } else {
+        return;
+      }
+    }
+
     const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
     allTemplates = [];
+    let latestServerTime = 0;
     snap.forEach(doc=>{
       const d = doc.data() || {};
+      if(d.createdAt > latestServerTime) latestServerTime = d.createdAt;
       if(d.status === 'published') allTemplates.push({id:doc.id, ...d});
     });
+    
     document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
     setHeroCounts(null, allTemplates.length);
     renderTemplates(allTemplates);
-    localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates}));
+    localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({
+      savedAt: Date.now(), 
+      items: allTemplates,
+      latestServerTime: latestServerTime
+    }));
   }catch(e){
     if(!grid.children.length){
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
