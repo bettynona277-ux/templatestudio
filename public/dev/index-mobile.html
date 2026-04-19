@@ -1250,7 +1250,8 @@ async function loadTemplates(){
       // Verificación en segundo plano (1 lectura): si no hay plantillas nuevas, usamos el caché
       const latestSnap = await fbDb.collection('templates').orderBy('createdAt','desc').limit(1).get();
       if (!latestSnap.empty) {
-        const latestServerTime = latestSnap.docs[0].data().createdAt || 0;
+        let tVal = latestSnap.docs[0].data().createdAt;
+        const latestServerTime = (tVal && typeof tVal === 'object' && tVal.toMillis) ? tVal.toMillis() : (Number(tVal) || 0);
         const cachedMeta = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || '{}');
         const latestCachedTime = cachedMeta.latestServerTime || 0;
         
@@ -1267,7 +1268,10 @@ async function loadTemplates(){
     let latestServerTime = 0;
     snap.forEach(doc=>{
       const d = doc.data() || {};
-      if(d.createdAt > latestServerTime) latestServerTime = d.createdAt;
+      let docTime = d.createdAt;
+      docTime = (docTime && typeof docTime === 'object' && docTime.toMillis) ? docTime.toMillis() : (Number(docTime) || 0);
+      if(docTime > latestServerTime) latestServerTime = docTime;
+      
       if(d.status === 'published') allTemplates.push({id:doc.id, ...d});
     });
     
@@ -1280,8 +1284,11 @@ async function loadTemplates(){
       latestServerTime: latestServerTime
     }));
   }catch(e){
+    console.error('Error cargando plantillas:', e);
     if(!grid.children.length){
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
+    }else{
+      toast('✗ Error al actualizar plantillas: ' + e.message);
     }
   }
 }
