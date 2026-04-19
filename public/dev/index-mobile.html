@@ -732,7 +732,7 @@ let fbApp, fbDb, fbAuth;
 let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
-const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v2';
+const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v3';
 const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 
 function toast(msg){
@@ -1231,64 +1231,32 @@ async function loadTemplates(){
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
-  
-  let usedCache = false;
-  // Usar caché si es reciente (menos de 2 horas)
+  // Mostrar caché inmediatamente (stale-while-revalidate)
+  // pero SIEMPRE ir a Firestore para tener plantillas actualizadas
   try{
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
-    if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+    if(cached?.items?.length){
       allTemplates = cached.items;
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
-      usedCache = true;
+      // NO hacer return — siempre ir a Firestore para actualizar
     }
   }catch(e){}
-
   try{
-    if (usedCache) {
-      // Verificación en segundo plano (1 lectura): si no hay plantillas nuevas, usamos el caché
-      const latestSnap = await fbDb.collection('templates').orderBy('createdAt','desc').limit(1).get();
-      if (!latestSnap.empty) {
-        let tVal = latestSnap.docs[0].data().createdAt;
-        const latestServerTime = (tVal && typeof tVal === 'object' && tVal.toMillis) ? tVal.toMillis() : (Number(tVal) || 0);
-        const cachedMeta = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || '{}');
-        const latestCachedTime = cachedMeta.latestServerTime || 0;
-        
-        if (latestServerTime <= latestCachedTime) {
-           return; // Caché totalmente al día, no requiere recargar nada
-        }
-      } else {
-        return;
-      }
-    }
-
     const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
     allTemplates = [];
-    let latestServerTime = 0;
     snap.forEach(doc=>{
       const d = doc.data() || {};
-      let docTime = d.createdAt;
-      docTime = (docTime && typeof docTime === 'object' && docTime.toMillis) ? docTime.toMillis() : (Number(docTime) || 0);
-      if(docTime > latestServerTime) latestServerTime = docTime;
-      
       if(d.status === 'published') allTemplates.push({id:doc.id, ...d});
     });
-    
     document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
     setHeroCounts(null, allTemplates.length);
     renderTemplates(allTemplates);
-    localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({
-      savedAt: Date.now(), 
-      items: allTemplates,
-      latestServerTime: latestServerTime
-    }));
+    localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates}));
   }catch(e){
-    console.error('Error cargando plantillas:', e);
     if(!grid.children.length){
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
-    }else{
-      toast('✗ Error al actualizar plantillas: ' + e.message);
     }
   }
 }
