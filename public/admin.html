@@ -176,6 +176,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="nav-item" onclick="showSection('users',this)">
         <span>👥</span> Gestión Clientes
       </div>
+      <div class="nav-item" onclick="showSection('logos',this)">
+        <span>🎬</span> Biblioteca de Logos
+      </div>
       <div class="nav-item" onclick="showSection('config',this)">
         <span>⚙️</span> Configuración
       </div>
@@ -240,6 +243,45 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <div id="users-table-wrap">
             <p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando clientes...</p>
           </div>
+        </div>
+      </div>
+
+      <!-- LOGOS -->
+      <div class="section" id="section-logos">
+        <div class="page-title">Biblioteca de Logos</div>
+        <div class="page-sub">Gestiona los logos de plataformas que ven todos los clientes. Puedes crear categorías personalizadas.</div>
+
+        <div class="cards-grid" style="margin-bottom:20px;">
+          <div class="card">
+            <div class="card-title">➕ Subir logos de plataforma</div>
+            <div class="f-row">
+              <label class="f-label">Categoría</label>
+              <select id="logo-cat-select" class="f-input" style="background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+                <option value="Logos oficiales">Logos oficiales</option>
+                <option value="Logos distorsionados">Logos distorsionados</option>
+                <option value="custom">➕ Nueva categoría...</option>
+              </select>
+            </div>
+            <div class="f-row" id="custom-cat-row" style="display:none;">
+              <label class="f-label">Nombre de categoría</label>
+              <input id="logo-cat-custom" class="f-input" type="text" placeholder="Ej: Logos animados">
+            </div>
+            <div class="f-row">
+              <label class="f-label">Logos (PNG, SVG, JPG)</label>
+              <label style="display:flex;align-items:center;gap:8px;background:rgba(21,214,164,0.08);border:1px dashed rgba(21,214,164,0.4);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:0.8rem;color:var(--accent);font-weight:600;">
+                📁 Seleccionar archivos
+                <input type="file" id="admin-logo-files" accept="image/*" multiple style="display:none" onchange="previewAdminLogos(event)">
+              </label>
+            </div>
+            <div id="admin-logo-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;"></div>
+            <button class="btn btn-green" onclick="uploadAdminLogos()" id="btn-upload-logos" style="margin-top:4px;" disabled>Subir logos</button>
+            <div id="upload-logos-status" style="font-size:0.75rem;color:var(--muted);margin-top:6px;"></div>
+          </div>
+        </div>
+
+        <div class="page-sub" style="margin-bottom:12px;font-weight:600;">Logos actuales por categoría</div>
+        <div id="admin-logos-list">
+          <div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>
         </div>
       </div>
 
@@ -541,9 +583,6 @@ async function loadUsers() {
           </td>
           <td>
             <button class="btn-devices" onclick="showDevices('${doc.id}', '${d.name||d.email}')">📱 Dispositivos</button>
-            <button class="btn-devices" style="background:rgba(255,200,0,0.1);color:#f5c842;border-color:rgba(245,200,66,0.3);" onclick="toggleUserActive('${doc.id}', ${d.active !== false})">
-              ${d.active === false ? '✅ Activar' : '🔒 Cerrar sesión'}
-            </button>
             <button class="btn btn-red" onclick="deleteUser('${doc.id}')">Borrar</button>
           </td>
         </tr>`;
@@ -612,24 +651,143 @@ function showSection(id, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('section-' + id).classList.add('active');
   if(el) el.classList.add('active');
+  if(id === 'logos') loadAdminLogos();
 }
 
 // ══════════════════════════════════════════
-// CERRAR / REACTIVAR SESIÓN DE CLIENTE
+// GESTIÓN DE LOGOS (admin)
 // ══════════════════════════════════════════
-async function toggleUserActive(id, currentlyActive) {
-  const accion = currentlyActive ? 'cerrar la sesión' : 'reactivar la cuenta';
-  if(!confirm(`¿Deseas ${accion} de este cliente? El cambio es inmediato.`)) return;
-  try {
-    await fbDb.collection('users').doc(id).update({ 
-      active: !currentlyActive,
-      updatedAt: Date.now()
-    });
-    showToast(currentlyActive ? '🔒 Sesión cerrada — el cliente será expulsado en segundos' : '✅ Cuenta reactivada');
-    loadUsers();
-  } catch(e) {
-    alert('Error: ' + e.message);
+let adminLogoFiles = [];
+
+// Selector de categoría — mostrar input custom si elige "Nueva..."
+document.addEventListener('DOMContentLoaded', ()=>{
+  const sel = document.getElementById('logo-cat-select');
+  if(sel) sel.addEventListener('change', ()=>{
+    const row = document.getElementById('custom-cat-row');
+    if(row) row.style.display = sel.value==='custom' ? 'flex' : 'none';
+  });
+});
+
+function getSelectedCategory(){
+  const sel = document.getElementById('logo-cat-select');
+  if(!sel) return 'Logos oficiales';
+  if(sel.value === 'custom'){
+    const inp = document.getElementById('logo-cat-custom');
+    return (inp?.value||'').trim() || 'Logos oficiales';
   }
+  return sel.value;
+}
+
+function previewAdminLogos(ev){
+  adminLogoFiles = Array.from(ev.target.files);
+  const preview = document.getElementById('admin-logo-preview');
+  const btn = document.getElementById('btn-upload-logos');
+  if(!preview) return;
+  preview.innerHTML = '';
+  adminLogoFiles.forEach(f=>{
+    const url = URL.createObjectURL(f);
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'width:52px;height:52px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:var(--panel2);padding:4px;';
+    preview.appendChild(img);
+  });
+  if(btn) btn.disabled = adminLogoFiles.length === 0;
+}
+
+async function uploadAdminLogos(){
+  if(!adminLogoFiles.length) return;
+  if(!fbDb){ alert('Firebase no conectado'); return; }
+  const categoria = getSelectedCategory();
+  const status = document.getElementById('upload-logos-status');
+  const btn = document.getElementById('btn-upload-logos');
+  if(btn) btn.disabled = true;
+  if(status) status.textContent = 'Subiendo...';
+
+  const CLOUD = 'dwqtksxrp';
+  const PRESET = 'templatestudio';
+  let ok = 0;
+
+  for(const file of adminLogoFiles){
+    try{
+      // Subir a Cloudinary
+      const fd = new FormData();
+      const reader = new FileReader();
+      const dataUrl = await new Promise(r=>{ reader.onload=e=>r(e.target.result); reader.readAsDataURL(file); });
+      fd.append('file', dataUrl);
+      fd.append('upload_preset', PRESET);
+      fd.append('folder', 'templatestudio/logos');
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`,{method:'POST',body:fd});
+      const data = await res.json();
+      if(!data.secure_url) throw new Error(data.error?.message||'Error Cloudinary');
+
+      // Guardar en Firestore con campo categoria
+      await fbDb.collection('logos').add({
+        url: data.secure_url,
+        name: file.name.replace(/\.[^.]+$/, ''),
+        categoria,
+        createdAt: Date.now()
+      });
+      ok++;
+    }catch(e){ console.error('Logo upload error:', e); }
+  }
+
+  if(status) status.textContent = ok > 0 ? `✓ ${ok} logo(s) subido(s) en "${categoria}"` : '✗ Error al subir';
+  if(btn) btn.disabled = false;
+  adminLogoFiles = [];
+  document.getElementById('admin-logo-preview').innerHTML = '';
+  document.getElementById('admin-logo-files').value = '';
+  if(ok > 0) loadAdminLogos();
+}
+
+async function loadAdminLogos(){
+  const container = document.getElementById('admin-logos-list');
+  if(!container || !fbDb) return;
+  container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
+  try{
+    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    const all = [];
+    snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+
+    if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
+
+    // Agrupar por categoría
+    const groups = {};
+    all.forEach(l=>{ const k=l.categoria||'Logos oficiales'; if(!groups[k])groups[k]=[]; groups[k].push(l); });
+
+    container.innerHTML = '';
+    Object.entries(groups).sort(([a],[b])=>{ if(a==='Logos oficiales')return -1; if(b==='Logos oficiales')return 1; return a.localeCompare(b); })
+    .forEach(([cat, logos])=>{
+      const section = document.createElement('div');
+      section.style.cssText = 'margin-bottom:20px;';
+      section.innerHTML = `<div style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px;">${cat} <span style="font-size:0.65rem;background:rgba(21,214,164,0.12);border-radius:8px;padding:1px 8px;">${logos.length}</span></div>`;
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;';
+      logos.forEach(logo=>{
+        const card = document.createElement('div');
+        card.style.cssText = 'position:relative;background:var(--panel2);border:1px solid var(--border);border-radius:10px;aspect-ratio:1;overflow:hidden;';
+        card.innerHTML = `
+          <img src="${logo.url}" style="width:100%;height:100%;object-fit:contain;padding:6px;">
+          <button onclick="deleteAdminLogo('${logo.id}',this)" style="position:absolute;top:3px;right:3px;background:rgba(255,80,80,0.9);color:#fff;border:none;border-radius:4px;width:18px;height:18px;font-size:0.6rem;cursor:pointer;display:none;align-items:center;justify-content:center;font-weight:900;">✕</button>
+        `;
+        card.addEventListener('mouseover',()=>card.querySelector('button').style.display='flex');
+        card.addEventListener('mouseout',()=>card.querySelector('button').style.display='none');
+        grid.appendChild(card);
+      });
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
+  }catch(e){
+    container.innerHTML = '<div style="color:#f66;font-size:0.8rem;">Error: '+e.message+'</div>';
+  }
+}
+
+async function deleteAdminLogo(id, btn){
+  if(!confirm('¿Eliminar este logo?')) return;
+  try{
+    await fbDb.collection('logos').doc(id).delete();
+    btn.closest('div[style*="aspect-ratio"]').remove();
+    showStatus && showStatus('','','');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 function showStatus(id, msg, type) {
