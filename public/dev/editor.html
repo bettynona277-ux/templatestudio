@@ -1319,9 +1319,15 @@ input[type=range]{filter:none !important;}
           <div><div class="mini-lbl">H</div><input type="number" class="pp-inp" id="pp-h" oninput="updSz('h',this.value)"></div>
         </div>
 
-        <div style="margin-top:8px;">
-          <div class="mini-lbl">Opacidad</div>
-          <input type="range" min="0" max="100" value="100" id="pp-op" oninput="updOp(this.value)">
+      </div>
+
+      <!-- Opacidad — visible para todos los tipos de capa -->
+      <div class="panel-card" id="pp-opacity-card" style="display:none;">
+        <div class="panel-title">Apariencia</div>
+        <div class="mini-lbl">Opacidad</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" min="0" max="100" value="100" id="pp-op" style="flex:1;accent-color:var(--accent);" oninput="updOp(this.value)">
+          <span id="pp-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;text-align:right;">100%</span>
         </div>
       </div>
 
@@ -4898,6 +4904,8 @@ function updatePropertyPanelState(targetLayer=null){
   if(empty) empty.style.display = hasSelection ? 'none' : 'block';
   if(el) el.style.display = hasSelection ? 'block' : 'none';
   if(general) general.style.display = 'none';
+  const opCard = document.getElementById('pp-opacity-card');
+  if(opCard) opCard.style.display = hasSelection ? 'block' : 'none';
 
   // En multi-selección: mostrar panel si TODAS las capas son del mismo tipo
   let multiAllText=false, multiAllFrame=false, multiAllImage=false;
@@ -5113,7 +5121,9 @@ function syncP(){
   document.getElementById('pp-y').value=Math.round(l.y);
   document.getElementById('pp-w').value=Math.round(l.w);
   document.getElementById('pp-h').value=Math.round(l.h);
-  document.getElementById('pp-op').value=Math.round(l.opacity*100);
+  const opVal = Math.round(l.opacity*100);
+  document.getElementById('pp-op').value=opVal;
+  const opLblEl = document.getElementById('pp-op-lbl'); if(opLblEl) opLblEl.textContent=opVal+'%';
   if(l.isShape){
     const sf=document.getElementById('pp-shape-fill'); if(sf) sf.value=l.shapeFill||'#4F8EF7';
     // Mostrar slider radio solo para rect-r
@@ -5163,6 +5173,9 @@ function syncP(){
   }
   // Frame props
   if(l.type==='frame'){
+    // Sincronizar slider general de opacidad con el del marco
+    const fop=document.getElementById('pp-frame-op'); if(fop) fop.value=Math.round(l.opacity*100);
+    const fopL=document.getElementById('pp-frame-op-lbl'); if(fopL) fopL.textContent=Math.round(l.opacity*100)+'%';
     const r=l.frameRadius||0;
     const rs=document.getElementById('pp-frame-radius'); if(rs) rs.value=r;
     const rl=document.getElementById('pp-frame-radius-lbl'); if(rl) rl.textContent=r+'px';
@@ -5242,6 +5255,10 @@ function updOp(v){
     const l=layers.find(x=>x.id===id); if(!l?.el) return;
     l.opacity=v/100; l.el.style.opacity=l.opacity;
   });
+  // Sincronizar label y slider duplicado de marcos
+  const lbl = document.getElementById('pp-op-lbl'); if(lbl) lbl.textContent=v+'%';
+  const frameOp = document.getElementById('pp-frame-op'); if(frameOp) frameOp.value=v;
+  const frameOpLbl = document.getElementById('pp-frame-op-lbl'); if(frameOpLbl) frameOpLbl.textContent=v+'%';
   snapshotState();
 }
 function updTxt(v){
@@ -7163,12 +7180,12 @@ function addImageLayerFromUrl(url){
     try{
       // Dibujar en canvas para obtener base64
       const tmpCanvas = document.createElement('canvas');
-      // Max 400px (50% del tamaño original), calidad 0.72 → compresión ~50%
-      const scale = Math.min(1, 400/Math.max(nat,nath));
+      // Max 800px, calidad 0.85 → ~80-120KB base64 para mejor nitidez en Firestore
+      const scale = Math.min(1, 800/Math.max(nat,nath));
       tmpCanvas.width  = Math.round(nat*scale);
       tmpCanvas.height = Math.round(nath*scale);
       tmpCanvas.getContext('2d').drawImage(img, 0, 0, tmpCanvas.width, tmpCanvas.height);
-      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.72);
+      const b64 = tmpCanvas.toDataURL('image/jpeg', 0.85);
       console.log('Imagen pegada base64 size:', Math.round(b64.length*0.75/1024)+'KB');
       const l = {
         id: lCtr++, type: 'img', name: 'Imagen pegada',
