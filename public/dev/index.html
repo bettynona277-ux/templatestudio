@@ -1847,32 +1847,20 @@ const MAX_DEVICES = 5;
 // Usa características del hardware (pantalla, CPU, GPU, zona horaria) que no
 // cambian aunque el usuario borre datos o abra otro navegador.
 function getHardwareFingerprint() {
+  // Solo hardware puro — igual en todos los navegadores del mismo dispositivo físico
   try {
-    const hw = [
-      screen.width, screen.height, screen.colorDepth, screen.pixelDepth||0,
+    const raw = [
+      screen.width, screen.height, screen.colorDepth, screen.pixelDepth || 0,
       navigator.hardwareConcurrency || 0,
       navigator.deviceMemory || 0,
       navigator.platform || '',
-      Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      screen.width * screen.height // área total como verificación extra
     ].join('|');
-
-    // Canvas fingerprint — varía por GPU/driver, único por dispositivo físico
-    const cvs = document.createElement('canvas');
-    const ctx = cvs.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '13px Arial';
-    ctx.fillStyle = '#0ff';
-    ctx.fillRect(0, 0, 80, 20);
-    ctx.fillStyle = '#000';
-    ctx.fillText('fp🔑ds', 2, 2);
-    const canvasFp = cvs.toDataURL().slice(-60);
-
-    // Hash simple (djb2)
-    const raw = hw + canvasFp;
     let hash = 5381;
     for (let i = 0; i < raw.length; i++) {
       hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
-      hash = hash >>> 0; // mantener positivo
+      hash = hash >>> 0;
     }
     return hash.toString(16).padStart(8, '0');
   } catch(e) {
