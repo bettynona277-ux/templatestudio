@@ -1118,6 +1118,10 @@ input[type=range]{filter:none !important;}
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
       Guardar
     </button>
+    <button class="tbtn tbtn-ghost" id="btn-wm" onclick="openWatermarkModal()" style="gap:5px;" title="Configurar marca de agua">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      Marca de agua
+    </button>
     <button class="tbtn tbtn-blue" id="btn-png" onclick="downloadPNG()" style="gap:5px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
@@ -1319,15 +1323,9 @@ input[type=range]{filter:none !important;}
           <div><div class="mini-lbl">H</div><input type="number" class="pp-inp" id="pp-h" oninput="updSz('h',this.value)"></div>
         </div>
 
-      </div>
-
-      <!-- Opacidad — visible para todos los tipos de capa -->
-      <div class="panel-card" id="pp-opacity-card" style="display:none;">
-        <div class="panel-title">Apariencia</div>
-        <div class="mini-lbl">Opacidad</div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <input type="range" min="0" max="100" value="100" id="pp-op" style="flex:1;accent-color:var(--accent);" oninput="updOp(this.value)">
-          <span id="pp-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;text-align:right;">100%</span>
+        <div style="margin-top:8px;">
+          <div class="mini-lbl">Opacidad</div>
+          <input type="range" min="0" max="100" value="100" id="pp-op" oninput="updOp(this.value)">
         </div>
       </div>
 
@@ -4904,8 +4902,6 @@ function updatePropertyPanelState(targetLayer=null){
   if(empty) empty.style.display = hasSelection ? 'none' : 'block';
   if(el) el.style.display = hasSelection ? 'block' : 'none';
   if(general) general.style.display = 'none';
-  const opCard = document.getElementById('pp-opacity-card');
-  if(opCard) opCard.style.display = hasSelection ? 'block' : 'none';
 
   // En multi-selección: mostrar panel si TODAS las capas son del mismo tipo
   let multiAllText=false, multiAllFrame=false, multiAllImage=false;
@@ -5121,9 +5117,7 @@ function syncP(){
   document.getElementById('pp-y').value=Math.round(l.y);
   document.getElementById('pp-w').value=Math.round(l.w);
   document.getElementById('pp-h').value=Math.round(l.h);
-  const opVal = Math.round(l.opacity*100);
-  document.getElementById('pp-op').value=opVal;
-  const opLblEl = document.getElementById('pp-op-lbl'); if(opLblEl) opLblEl.textContent=opVal+'%';
+  document.getElementById('pp-op').value=Math.round(l.opacity*100);
   if(l.isShape){
     const sf=document.getElementById('pp-shape-fill'); if(sf) sf.value=l.shapeFill||'#4F8EF7';
     // Mostrar slider radio solo para rect-r
@@ -5173,9 +5167,6 @@ function syncP(){
   }
   // Frame props
   if(l.type==='frame'){
-    // Sincronizar slider general de opacidad con el del marco
-    const fop=document.getElementById('pp-frame-op'); if(fop) fop.value=Math.round(l.opacity*100);
-    const fopL=document.getElementById('pp-frame-op-lbl'); if(fopL) fopL.textContent=Math.round(l.opacity*100)+'%';
     const r=l.frameRadius||0;
     const rs=document.getElementById('pp-frame-radius'); if(rs) rs.value=r;
     const rl=document.getElementById('pp-frame-radius-lbl'); if(rl) rl.textContent=r+'px';
@@ -5255,10 +5246,6 @@ function updOp(v){
     const l=layers.find(x=>x.id===id); if(!l?.el) return;
     l.opacity=v/100; l.el.style.opacity=l.opacity;
   });
-  // Sincronizar label y slider duplicado de marcos
-  const lbl = document.getElementById('pp-op-lbl'); if(lbl) lbl.textContent=v+'%';
-  const frameOp = document.getElementById('pp-frame-op'); if(frameOp) frameOp.value=v;
-  const frameOpLbl = document.getElementById('pp-frame-op-lbl'); if(frameOpLbl) frameOpLbl.textContent=v+'%';
   snapshotState();
 }
 function updTxt(v){
@@ -6495,6 +6482,11 @@ async function renderDesignToCanvas(scale=2){
     }
 
     ctx.restore();
+  }
+
+  // ── Marca de agua (solo al exportar) ──
+  if(window._wmConfig){
+    await applyWatermarkToCanvas(ctx, canvasW, canvasH);
   }
 
   return out;
@@ -7748,6 +7740,322 @@ document.getElementById('profile-modal').addEventListener('click', function(e){
 </script>
 
 
+
+
+<!-- ══════════════════════════════════════════
+     MODAL MARCA DE AGUA
+══════════════════════════════════════════ -->
+<div class="overlay" id="wm-overlay" style="z-index:600;">
+  <div class="modal" style="max-width:580px;width:96%;max-height:90vh;overflow-y:auto;">
+    <div class="modal-title" style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:1.3rem;">💧</span> Marca de agua
+      <span style="font-size:0.68rem;background:rgba(21,214,164,0.12);color:var(--accent);border:1px solid rgba(21,214,164,0.2);border-radius:100px;padding:2px 10px;margin-left:4px;">Solo al exportar</span>
+    </div>
+
+    <!-- Selector de logo -->
+    <div style="margin-bottom:16px;">
+      <div class="mini-lbl" style="margin-bottom:8px;">1. Elige tu logo</div>
+      <div id="wm-logo-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:8px;max-height:130px;overflow-y:auto;padding:4px;">
+        <div style="text-align:center;color:var(--muted);font-size:0.7rem;grid-column:1/-1;padding:16px;" id="wm-logo-empty">Carga primero tus logos en la pestaña Logos.</div>
+      </div>
+    </div>
+
+    <!-- Selector de patrón -->
+    <div style="margin-bottom:16px;">
+      <div class="mini-lbl" style="margin-bottom:8px;">2. Elige el patrón</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="wm-pattern-grid">
+        <div class="wm-pat-btn" data-pat="corner" onclick="selectWmPattern(this)" style="border:2px solid var(--accent);background:rgba(21,214,164,0.08);">
+          <canvas class="wm-preview-cvs" width="180" height="100" data-pat="corner"></canvas>
+          <div style="font-size:0.7rem;font-weight:700;margin-top:5px;">Esquina</div>
+          <div style="font-size:0.62rem;color:var(--muted);">Logo en esquina inferior derecha</div>
+        </div>
+        <div class="wm-pat-btn" data-pat="diagonal" onclick="selectWmPattern(this)">
+          <canvas class="wm-preview-cvs" width="180" height="100" data-pat="diagonal"></canvas>
+          <div style="font-size:0.7rem;font-weight:700;margin-top:5px;">Diagonal</div>
+          <div style="font-size:0.62rem;color:var(--muted);">Patrón repetido en diagonal</div>
+        </div>
+        <div class="wm-pat-btn" data-pat="grid" onclick="selectWmPattern(this)">
+          <canvas class="wm-preview-cvs" width="180" height="100" data-pat="grid"></canvas>
+          <div style="font-size:0.7rem;font-weight:700;margin-top:5px;">Cuadrícula</div>
+          <div style="font-size:0.62rem;color:var(--muted);">Repetición uniforme</div>
+        </div>
+        <div class="wm-pat-btn" data-pat="center" onclick="selectWmPattern(this)">
+          <canvas class="wm-preview-cvs" width="180" height="100" data-pat="center"></canvas>
+          <div style="font-size:0.7rem;font-weight:700;margin-top:5px;">Sello central</div>
+          <div style="font-size:0.62rem;color:var(--muted);">Logo grande centrado</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Opacidad -->
+    <div style="margin-bottom:20px;">
+      <div class="mini-lbl" style="margin-bottom:6px;">3. Opacidad de la marca de agua</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="range" id="wm-opacity-slider" min="5" max="80" value="25" style="flex:1;accent-color:var(--accent);" oninput="onWmOpacityChange(this.value)">
+        <span id="wm-opacity-lbl" style="font-size:0.75rem;color:var(--muted);min-width:34px;">25%</span>
+      </div>
+    </div>
+
+    <!-- Estado activo -->
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(21,214,164,0.06);border:1px solid rgba(21,214,164,0.15);border-radius:10px;margin-bottom:16px;" id="wm-status-row">
+      <div id="wm-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+      <div id="wm-status-txt" style="font-size:0.75rem;color:var(--muted);">Sin marca de agua configurada</div>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button class="modal-btn modal-btn-green" onclick="applyWatermarkConfig()" style="flex:1;">✓ Aplicar</button>
+      <button class="modal-btn modal-btn-ghost" onclick="clearWatermarkConfig()" style="padding:10px 14px;">🗑 Quitar</button>
+      <button class="modal-btn modal-btn-ghost" onclick="document.getElementById('wm-overlay').classList.remove('open')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.wm-pat-btn{
+  cursor:pointer;padding:10px;border-radius:12px;border:2px solid var(--border);
+  background:var(--panel2);text-align:center;transition:all 0.18s;
+}
+.wm-pat-btn:hover{ border-color:var(--accent);background:rgba(21,214,164,0.06); }
+.wm-pat-btn.active{ border-color:var(--accent);background:rgba(21,214,164,0.1); }
+.wm-preview-cvs{ width:100%;height:auto;border-radius:6px;display:block; }
+.wm-logo-opt{
+  cursor:pointer;border:2px solid var(--border);border-radius:8px;
+  background:var(--panel);padding:4px;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  transition:all 0.15s;
+}
+.wm-logo-opt:hover{ border-color:var(--accent); }
+.wm-logo-opt.active{ border-color:var(--accent);background:rgba(21,214,164,0.12); }
+.wm-logo-opt img{ width:100%;height:100%;object-fit:contain; }
+</style>
+
+<script>
+// ══════════════════════════════════════════
+// MARCA DE AGUA — config global
+// ══════════════════════════════════════════
+window._wmConfig = null; // { logoUrl, pattern, opacity }
+let _wmSelectedLogoUrl = null;
+let _wmSelectedPattern = 'corner';
+let _wmOpacity = 0.25;
+let _wmLogoImg = null; // HTMLImageElement cached
+
+function openWatermarkModal(){
+  // Poblar logos del cliente
+  const grid = document.getElementById('wm-logo-grid');
+  const empty = document.getElementById('wm-logo-empty');
+  if(grid){
+    grid.innerHTML = '';
+    if(ownLogoCache && ownLogoCache.length){
+      if(empty) grid.innerHTML = '';
+      ownLogoCache.forEach(logo=>{
+        const d = document.createElement('div');
+        d.className = 'wm-logo-opt' + (_wmSelectedLogoUrl===logo.url?' active':'');
+        d.innerHTML = `<img src="${logo.url}" alt="${logo.name}">`;
+        d.onclick = ()=>{ selectWmLogo(logo.url, d); };
+        grid.appendChild(d);
+      });
+    } else {
+      grid.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.7rem;grid-column:1/-1;padding:16px;" id="wm-logo-empty">Carga primero tus logos en la pestaña Logos.</div>';
+    }
+  }
+  // Restaurar estado previo
+  const sl = document.getElementById('wm-opacity-slider');
+  const ll = document.getElementById('wm-opacity-lbl');
+  if(sl){ sl.value = Math.round(_wmOpacity*100); }
+  if(ll){ ll.textContent = Math.round(_wmOpacity*100)+'%'; }
+  // Marcar patrón activo
+  document.querySelectorAll('.wm-pat-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.pat===_wmSelectedPattern);
+  });
+  syncWmStatus();
+  document.getElementById('wm-overlay').classList.add('open');
+  // Dibujar previews con el logo actual
+  setTimeout(()=>drawAllWmPreviews(), 80);
+}
+
+function selectWmLogo(url, el){
+  _wmSelectedLogoUrl = url;
+  document.querySelectorAll('.wm-logo-opt').forEach(d=>d.classList.remove('active'));
+  if(el) el.classList.add('active');
+  _wmLogoImg = null; // invalidar cache
+  drawAllWmPreviews();
+}
+
+function selectWmPattern(el){
+  _wmSelectedPattern = el.dataset.pat;
+  document.querySelectorAll('.wm-pat-btn').forEach(b=>b.classList.toggle('active', b.dataset.pat===_wmSelectedPattern));
+}
+
+function onWmOpacityChange(v){
+  _wmOpacity = v/100;
+  document.getElementById('wm-opacity-lbl').textContent = v+'%';
+  drawAllWmPreviews();
+}
+
+function syncWmStatus(){
+  const dot = document.getElementById('wm-status-dot');
+  const txt = document.getElementById('wm-status-txt');
+  if(window._wmConfig){
+    const labels = {corner:'Esquina',diagonal:'Diagonal',grid:'Cuadrícula',center:'Sello central'};
+    if(dot) dot.style.background = 'var(--accent)';
+    if(txt){ txt.style.color='var(--accent)'; txt.textContent='Activa — Patrón: '+labels[window._wmConfig.pattern]+' · '+Math.round(window._wmConfig.opacity*100)+'% opacidad'; }
+  } else {
+    if(dot) dot.style.background = 'var(--muted)';
+    if(txt){ txt.style.color='var(--muted)'; txt.textContent='Sin marca de agua configurada'; }
+  }
+}
+
+function applyWatermarkConfig(){
+  if(!_wmSelectedLogoUrl){ showToast('⚠ Selecciona un logo primero'); return; }
+  window._wmConfig = { logoUrl: _wmSelectedLogoUrl, pattern: _wmSelectedPattern, opacity: _wmOpacity };
+  _wmLogoImg = null;
+  syncWmStatus();
+  document.getElementById('wm-overlay').classList.remove('open');
+  showToast('💧 Marca de agua activada · se aplicará al exportar');
+  // Actualizar badge del botón
+  const btn = document.getElementById('btn-wm');
+  if(btn) btn.style.borderColor = 'var(--accent)';
+}
+
+function clearWatermarkConfig(){
+  window._wmConfig = null;
+  _wmSelectedLogoUrl = null;
+  _wmLogoImg = null;
+  syncWmStatus();
+  const btn = document.getElementById('btn-wm');
+  if(btn) btn.style.borderColor = '';
+  showToast('🗑 Marca de agua eliminada');
+  document.getElementById('wm-overlay').classList.remove('open');
+}
+
+// ── Cargar imagen para marca de agua ──
+function loadWmLogo(url){
+  return new Promise(resolve=>{
+    if(_wmLogoImg && _wmLogoImg._src===url){ resolve(_wmLogoImg); return; }
+    const img = new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{ img._src=url; _wmLogoImg=img; resolve(img); };
+    img.onerror=()=>resolve(null);
+    img.src=url;
+  });
+}
+
+// ── Dibujar marca de agua sobre canvas exportado ──
+async function applyWatermarkToCanvas(ctx, cw, ch){
+  const cfg = window._wmConfig;
+  if(!cfg || !cfg.logoUrl) return;
+  const img = await loadWmLogo(cfg.logoUrl);
+  if(!img) return;
+
+  const op = cfg.opacity ?? 0.25;
+  const pat = cfg.pattern || 'corner';
+
+  // Tamaño base del logo para la marca de agua
+  const logoSize = Math.round(Math.min(cw, ch) * 0.18); // 18% del lado menor
+  const lw = logoSize;
+  const lh = Math.round(logoSize * (img.naturalHeight/img.naturalWidth));
+
+  ctx.save();
+  ctx.globalAlpha = op;
+
+  if(pat === 'corner'){
+    const pad = Math.round(Math.min(cw,ch)*0.03);
+    ctx.drawImage(img, cw - lw - pad, ch - lh - pad, lw, lh);
+
+  } else if(pat === 'center'){
+    const bigSize = Math.round(Math.min(cw,ch) * 0.45);
+    const bw = bigSize;
+    const bh = Math.round(bigSize * (img.naturalHeight/img.naturalWidth));
+    ctx.drawImage(img, (cw-bw)/2, (ch-bh)/2, bw, bh);
+
+  } else if(pat === 'diagonal'){
+    const tileW = Math.round(Math.min(cw,ch)*0.22);
+    const tileH = Math.round(tileW*(img.naturalHeight/img.naturalWidth));
+    const gapX = Math.round(tileW * 1.6);
+    const gapY = Math.round(tileH * 2.2);
+    ctx.translate(cw/2, ch/2);
+    ctx.rotate(-28 * Math.PI/180);
+    ctx.translate(-cw/2, -ch/2);
+    const cols = Math.ceil(cw*1.6/gapX)+2;
+    const rows = Math.ceil(ch*1.6/gapY)+2;
+    const startX = -Math.ceil(cols/2)*gapX;
+    const startY = -Math.ceil(rows/2)*gapY;
+    for(let r=0; r<rows*2; r++){
+      for(let c=0; c<cols*2; c++){
+        const x = startX + c*gapX + (r%2===0?0:gapX/2);
+        const y = startY + r*gapY;
+        ctx.drawImage(img, x, y, tileW, tileH);
+      }
+    }
+
+  } else if(pat === 'grid'){
+    const tileW = Math.round(Math.min(cw,ch)*0.16);
+    const tileH = Math.round(tileW*(img.naturalHeight/img.naturalWidth));
+    const cols = Math.ceil(cw / (tileW*2.2)) + 1;
+    const rows = Math.ceil(ch / (tileH*2.5)) + 1;
+    const gapX = Math.round(cw / cols);
+    const gapY = Math.round(ch / rows);
+    const padX = Math.round((gapX - tileW)/2);
+    const padY = Math.round((gapY - tileH)/2);
+    for(let r=0; r<rows; r++){
+      for(let c=0; c<cols; c++){
+        ctx.drawImage(img, c*gapX+padX, r*gapY+padY, tileW, tileH);
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+// ── Dibujar previews en los mini-canvas del modal ──
+async function drawAllWmPreviews(){
+  const url = _wmSelectedLogoUrl || (ownLogoCache[0]?.url);
+  let previewImg = null;
+  if(url){
+    previewImg = await loadWmLogo(url);
+    if(previewImg) { previewImg._src=url; _wmLogoImg=previewImg; }
+  }
+  document.querySelectorAll('.wm-preview-cvs').forEach(cvs=>{
+    const pat = cvs.dataset.pat;
+    const ctx = cvs.getContext('2d');
+    const w = cvs.width, h = cvs.height;
+    ctx.clearRect(0,0,w,h);
+    // Fondo simulado (diseño)
+    ctx.fillStyle='#1a2235';
+    ctx.fillRect(0,0,w,h);
+    // Líneas decorativas para simular un diseño
+    ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=1;
+    for(let i=0;i<8;i++){ ctx.beginPath(); ctx.moveTo(0,i*(h/7)); ctx.lineTo(w,i*(h/7)); ctx.stroke(); }
+    for(let i=0;i<6;i++){ ctx.beginPath(); ctx.moveTo(i*(w/5),0); ctx.lineTo(i*(w/5),h); ctx.stroke(); }
+    if(!previewImg){ ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='center'; ctx.fillText('sin logo', w/2, h/2+3); return; }
+    // Dibujar patrón de preview
+    const op = _wmOpacity;
+    const logoSize = Math.round(Math.min(w,h)*0.2);
+    const lw2 = logoSize;
+    const lh2 = Math.round(logoSize*(previewImg.naturalHeight/previewImg.naturalWidth));
+    ctx.save(); ctx.globalAlpha=op;
+    if(pat==='corner'){
+      const pad=4; ctx.drawImage(previewImg, w-lw2-pad, h-lh2-pad, lw2, lh2);
+    } else if(pat==='center'){
+      const bs=Math.round(Math.min(w,h)*0.48); const bh2=Math.round(bs*(previewImg.naturalHeight/previewImg.naturalWidth));
+      ctx.drawImage(previewImg,(w-bs)/2,(h-bh2)/2,bs,bh2);
+    } else if(pat==='diagonal'){
+      const tw=Math.round(Math.min(w,h)*0.2); const th=Math.round(tw*(previewImg.naturalHeight/previewImg.naturalWidth));
+      ctx.translate(w/2,h/2); ctx.rotate(-28*Math.PI/180); ctx.translate(-w/2,-h/2);
+      const gx=Math.round(tw*1.7), gy=Math.round(th*2.4);
+      for(let r=-1;r<4;r++) for(let c=-1;c<5;c++) ctx.drawImage(previewImg, c*gx+(r%2?gx/2:0), r*gy, tw, th);
+    } else if(pat==='grid'){
+      const tw=Math.round(Math.min(w,h)*0.15); const th=Math.round(tw*(previewImg.naturalHeight/previewImg.naturalWidth));
+      const cols=3, rows=3, gx=Math.round(w/cols), gy=Math.round(h/rows);
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) ctx.drawImage(previewImg, c*gx+(gx-tw)/2, r*gy+(gy-th)/2, tw, th);
+    }
+    ctx.restore();
+    // Borde redondeado sobre el canvas
+    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1.5; ctx.strokeRect(0.5,0.5,w-1,h-1);
+  });
+}
+
+document.getElementById('wm-overlay').addEventListener('click',function(e){ if(e.target===this) this.classList.remove('open'); });
+</script>
 
 </body>
 </html>
