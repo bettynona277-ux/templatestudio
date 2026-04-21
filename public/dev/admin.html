@@ -754,6 +754,21 @@ async function loadAdminLogos(){
     const groups = {};
     all.forEach(l=>{ const k=l.categoria||'Logos oficiales'; if(!groups[k])groups[k]=[]; groups[k].push(l); });
 
+    // Sincronizar el <select> con las categorías reales de Firestore
+    const sel = document.getElementById('logo-cat-select');
+    if(sel){
+      const currentVal = sel.value;
+      // Quitar todas las opciones excepto "custom"
+      Array.from(sel.options).filter(o=>o.value!=='custom').forEach(o=>o.remove());
+      const customOpt = sel.querySelector('option[value="custom"]');
+      Object.keys(groups).sort((a,b)=>{ if(a==='Logos oficiales')return -1; if(b==='Logos oficiales')return 1; return a.localeCompare(b); }).forEach(cat=>{
+        const opt = document.createElement('option');
+        opt.value = cat; opt.textContent = cat;
+        sel.insertBefore(opt, customOpt);
+      });
+      if([...sel.options].some(o=>o.value===currentVal)) sel.value = currentVal;
+    }
+
     container.innerHTML = '';
     Object.entries(groups).sort(([a],[b])=>{ if(a==='Logos oficiales')return -1; if(b==='Logos oficiales')return 1; return a.localeCompare(b); })
     .forEach(([cat, logos])=>{
@@ -825,22 +840,53 @@ async function refreshDevicesList(uid) {
       list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
       return;
     }
+    const activeCount = snap.docs.filter(d => !d.data().revoked).length;
     let html = '';
     snap.forEach(doc => {
       const d = doc.data();
+      const isRevoked = !!d.revoked;
       const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('es-PE') : '—';
       const registered = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString('es-PE') : '—';
+
+      // Detectar tipo de dispositivo para icono
+      const osLower = (d.os || d.name || '').toLowerCase();
+      const icon = /iphone|android.*móvil|android.*movil/i.test(osLower) ? '📱'
+                 : /ipad|tablet/i.test(osLower) ? '📲'
+                 : /windows|mac|linux/i.test(osLower) ? '💻' : '🖥';
+
+      // Fingerprint: primeros 8 chars del ID si empieza con hw_
+      const devId = doc.id;
+      const hwFp = devId.startsWith('hw_') ? devId.slice(3, 11) : null;
+      const fpBadge = hwFp
+        ? `<span style="font-family:monospace;font-size:0.65rem;background:rgba(91,140,255,0.12);color:#7ba4ff;border:1px solid rgba(91,140,255,0.25);border-radius:4px;padding:1px 6px;" title="Hardware fingerprint — identifica el dispositivo físico">🔑 ${hwFp}</span>`
+        : `<span style="font-size:0.65rem;background:rgba(255,165,0,0.1);color:#ffa64d;border:1px solid rgba(255,165,0,0.2);border-radius:4px;padding:1px 6px;" title="ID antiguo sin fingerprint — podría cambiar si borran datos">⚠ legacy</span>`;
+
+      const screenInfo = d.screen ? `<span style="color:var(--muted);font-size:0.68rem;">🖥 ${d.screen}</span>` : '';
+      const browserInfo = d.browser ? `<span style="font-size:0.68rem;color:var(--muted);">${d.browser}</span>` : '';
+
+      const revokedStyle = isRevoked ? 'opacity:0.45;' : '';
+      const revokedBadge = isRevoked ? '<span style="font-size:0.62rem;background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:4px;padding:1px 6px;margin-left:4px;">revocado</span>' : '';
+
       html += `
-        <div class="device-item">
+        <div class="device-item" style="${revokedStyle}">
           <div class="device-info">
-            <div class="device-name">📱 ${d.name || 'Dispositivo'}</div>
-            <div class="device-date">Registrado: ${registered} · Última vez: ${lastSeen}</div>
+            <div class="device-name" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              ${icon} ${d.os || d.name || 'Dispositivo'} ${revokedBadge}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:3px;">
+              ${fpBadge}
+              ${browserInfo}
+              ${screenInfo}
+            </div>
+            <div class="device-date" style="margin-top:3px;">Registrado: ${registered} · Última vez: ${lastSeen}</div>
           </div>
-          <button class="btn-del-device" onclick="deleteDevice('${uid}','${doc.id}')">🗑 Quitar</button>
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+            <button class="btn-del-device" onclick="deleteDevice('${uid}','${doc.id}')" title="Eliminar permanentemente">🗑</button>
+          </div>
         </div>`;
     });
-    const count = snap.size;
-    list.innerHTML = `<p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">${count}/5 dispositivos usados</p>` + html;
+    const total = snap.size;
+    list.innerHTML = `<p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">${activeCount} activo${activeCount!==1?'s':''} · ${total} total · máximo 5</p>` + html;
   } catch(e) {
     list.innerHTML = '<p style="color:var(--accent2);">Error al cargar dispositivos.</p>';
   }
@@ -863,6 +909,10 @@ function closeDevicesModal() {
   <div class="devices-modal">
     <h3>📱 Dispositivos registrados</h3>
     <p class="subtitle" id="devices-modal-subtitle"></p>
+    <div style="background:rgba(91,140,255,0.06);border:1px solid rgba(91,140,255,0.15);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:0.72rem;color:var(--muted);line-height:1.5;">
+      <strong style="color:#7ba4ff;">🔑 Fingerprint</strong> — identifica el hardware físico (pantalla, CPU, GPU). Persiste aunque borren datos del navegador o cambien de navegador en el mismo celular.<br>
+      <strong style="color:#ffa64d;">⚠ legacy</strong> — ID antiguo sin fingerprint. Si el cliente borra datos, generará un nuevo slot.
+    </div>
     <div id="devices-list"></div>
     <button class="btn" style="width:100%;margin-top:16px;" onclick="closeDevicesModal()">Cerrar</button>
   </div>
