@@ -732,7 +732,7 @@ let fbApp, fbDb, fbAuth;
 let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
-const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v3';
+const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v2';
 const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 
 function toast(msg){
@@ -989,30 +989,62 @@ window.addEventListener('load', async()=>{
 
 const MAX_DEVICES = 5;
 
+function getHardwareFingerprint(){
+  try{
+    const hw=[screen.width,screen.height,screen.colorDepth,screen.pixelDepth||0,
+      navigator.hardwareConcurrency||0,navigator.deviceMemory||0,
+      navigator.platform||'',Intl.DateTimeFormat().resolvedOptions().timeZone||''].join('|');
+    const cvs=document.createElement('canvas');
+    const ctx=cvs.getContext('2d');
+    ctx.textBaseline='top'; ctx.font='13px Arial';
+    ctx.fillStyle='#0ff'; ctx.fillRect(0,0,80,20);
+    ctx.fillStyle='#000'; ctx.fillText('fp-ds',2,2);
+    const canvasFp=cvs.toDataURL().slice(-60);
+    const raw=hw+canvasFp;
+    let hash=5381;
+    for(let i=0;i<raw.length;i++){ hash=((hash<<5)+hash)^raw.charCodeAt(i); hash=hash>>>0; }
+    return hash.toString(16).padStart(8,'0');
+  }catch(e){ return 'fb'+Math.random().toString(36).slice(2,10); }
+}
+
 function getDeviceId(){
-  let id = localStorage.getItem('ts_device_id');
-  if(!id){
-    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
-    localStorage.setItem('ts_device_id', id);
+  const hwFp=getHardwareFingerprint();
+  const hwPrefix='hw_'+hwFp;
+  const stored=localStorage.getItem('ts_device_id');
+  if(stored && stored.startsWith(hwPrefix)) return stored;
+  if(stored && stored.startsWith('dev_')){
+    const mid=hwPrefix+'_'+stored.slice(4,12);
+    localStorage.setItem('ts_device_id',mid); return mid;
   }
-  return id;
+  const newId=hwPrefix+'_'+Math.random().toString(36).slice(2,8);
+  localStorage.setItem('ts_device_id',newId); return newId;
+}
+
+function getDeviceInfo(){
+  const ua=navigator.userAgent;
+  let os='Desconocido';
+  if(/iPhone/i.test(ua)) os='iPhone';
+  else if(/iPad/i.test(ua)) os='iPad';
+  else if(/Android/i.test(ua)) os=ua.includes('Mobile')?'Android (movil)':'Android (tablet)';
+  else if(/Windows NT 10/i.test(ua)) os='Windows 10/11';
+  else if(/Windows/i.test(ua)) os='Windows';
+  else if(/Mac OS X/i.test(ua)&&!/iPhone|iPad/i.test(ua)) os='macOS';
+  else if(/Linux/i.test(ua)) os='Linux';
+  let browser='Desconocido';
+  if(/Edg\//i.test(ua)) browser='Edge';
+  else if(/OPR\//i.test(ua)) browser='Opera';
+  else if(/Firefox/i.test(ua)) browser='Firefox';
+  else if(/SamsungBrowser/i.test(ua)) browser='Samsung Internet';
+  else if(/Chrome/i.test(ua)) browser='Chrome';
+  else if(/Safari/i.test(ua)) browser='Safari';
+  return {os,browser};
 }
 
 function getDeviceName(){
-  const ua = navigator.userAgent;
-  let name = 'Dispositivo desconocido';
-  if(/iPhone/i.test(ua)) name = 'iPhone';
-  else if(/iPad/i.test(ua)) name = 'iPad';
-  else if(/Android/i.test(ua)) name = ua.includes('Mobile') ? 'Android móvil' : 'Android tablet';
-  else if(/Windows/i.test(ua)) name = 'Windows PC';
-  else if(/Mac/i.test(ua)) name = 'Mac';
-  else if(/Linux/i.test(ua)) name = 'Linux PC';
-  if(/Chrome/i.test(ua) && !/Edg/i.test(ua)) name += ' · Chrome';
-  else if(/Firefox/i.test(ua)) name += ' · Firefox';
-  else if(/Safari/i.test(ua) && !/Chrome/i.test(ua)) name += ' · Safari';
-  else if(/Edg/i.test(ua)) name += ' · Edge';
-  return name;
+  const {os,browser}=getDeviceInfo();
+  return os+' \u00b7 '+browser;
 }
+
 
 async function registerDevice(uid){
   const deviceId = getDeviceId();
@@ -1021,13 +1053,13 @@ async function registerDevice(uid){
   const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
   const existing = devices.find(d=>d.id === deviceId);
   if(existing){
-    await devRef.update({lastSeen: Date.now(), name: getDeviceName()});
+    const {os:_o2,browser:_b2}=getDeviceInfo(); await devRef.update({lastSeen:Date.now(),name:getDeviceName(),os:_o2,browser:_b2,hardwareFingerprint:getHardwareFingerprint(),screen:screen.width+'x'+screen.height});
     return {ok:true};
   }
   if(devices.length >= MAX_DEVICES){
     return {ok:false, count:devices.length};
   }
-  await devRef.set({name:getDeviceName(), registeredAt:Date.now(), lastSeen:Date.now()});
+  const {os:_os,browser:_br}=getDeviceInfo(); await devRef.set({name:getDeviceName(),os:_os,browser:_br,hardwareFingerprint:getHardwareFingerprint(),screen:screen.width+'x'+screen.height,registeredAt:Date.now(),lastSeen:Date.now()});
   return {ok:true};
 }
 
@@ -1231,16 +1263,15 @@ async function loadTemplates(){
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
-  // Mostrar caché inmediatamente (stale-while-revalidate)
-  // pero SIEMPRE ir a Firestore para tener plantillas actualizadas
+  // Usar caché si es reciente (menos de 2 horas)
   try{
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
-    if(cached?.items?.length){
+    if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
       allTemplates = cached.items;
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
-      // NO hacer return — siempre ir a Firestore para actualizar
+      return; // caché válido
     }
   }catch(e){}
   try{
