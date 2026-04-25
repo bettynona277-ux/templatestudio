@@ -722,10 +722,38 @@ function cdnOpt(url, opts={}){
   if(!url || !url.includes('cloudinary.com')) return url;
   const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!match) return url;
-  const t = ['q_auto','f_auto','fl_immutable_cache'];
+  const t = ['q_auto:eco','f_auto','fl_immutable_cache'];
   if(opts.w) t.push('w_'+opts.w);
   if(opts.c) t.push('c_'+opts.c);
   return match[1]+t.join(',')+'/'+(match[2]||'')+match[3];
+}
+
+
+
+// IntersectionObserver — lazy load real: solo descarga cuando está cerca del viewport
+const __lazyImgObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries, obs) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const img = entry.target;
+      const realSrc = img.getAttribute('data-src');
+      if (realSrc) {
+        img.src = realSrc;
+        img.removeAttribute('data-src');
+      }
+      obs.unobserve(img);
+    }
+  });
+}, { rootMargin: '200px 0px', threshold: 0.01 }) : null;
+
+function observeLazyImages(root) {
+  if (!__lazyImgObserver) {
+    (root || document).querySelectorAll('img.lazy-img[data-src]').forEach(img => {
+      img.src = img.getAttribute('data-src');
+      img.removeAttribute('data-src');
+    });
+    return;
+  }
+  (root || document).querySelectorAll('img.lazy-img[data-src]').forEach(img => __lazyImgObserver.observe(img));
 }
 
 let fbApp, fbDb, fbAuth;
@@ -989,57 +1017,30 @@ window.addEventListener('load', async()=>{
 
 const MAX_DEVICES = 5;
 
-function getHardwareFingerprint(){
-  // Solo hardware puro — igual en todos los navegadores del mismo dispositivo fisico
-  try{
-    const raw=[screen.width,screen.height,screen.colorDepth,screen.pixelDepth||0,
-      navigator.hardwareConcurrency||0,navigator.deviceMemory||0,
-      navigator.platform||'',Intl.DateTimeFormat().resolvedOptions().timeZone||'',
-      screen.width*screen.height].join('|');
-    let hash=5381;
-    for(let i=0;i<raw.length;i++){ hash=((hash<<5)+hash)^raw.charCodeAt(i); hash=hash>>>0; }
-    return hash.toString(16).padStart(8,'0');
-  }catch(e){ return 'fb'+Math.random().toString(36).slice(2,10); }
-}
-
 function getDeviceId(){
-  const hwFp=getHardwareFingerprint();
-  const hwPrefix='hw_'+hwFp;
-  const stored=localStorage.getItem('ts_device_id');
-  if(stored && stored.startsWith(hwPrefix)) return stored;
-  if(stored && stored.startsWith('dev_')){
-    const mid=hwPrefix+'_'+stored.slice(4,12);
-    localStorage.setItem('ts_device_id',mid); return mid;
+  let id = localStorage.getItem('ts_device_id');
+  if(!id){
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    localStorage.setItem('ts_device_id', id);
   }
-  const newId=hwPrefix+'_'+Math.random().toString(36).slice(2,8);
-  localStorage.setItem('ts_device_id',newId); return newId;
-}
-
-function getDeviceInfo(){
-  const ua=navigator.userAgent;
-  let os='Desconocido';
-  if(/iPhone/i.test(ua)) os='iPhone';
-  else if(/iPad/i.test(ua)) os='iPad';
-  else if(/Android/i.test(ua)) os=ua.includes('Mobile')?'Android (movil)':'Android (tablet)';
-  else if(/Windows NT 10/i.test(ua)) os='Windows 10/11';
-  else if(/Windows/i.test(ua)) os='Windows';
-  else if(/Mac OS X/i.test(ua)&&!/iPhone|iPad/i.test(ua)) os='macOS';
-  else if(/Linux/i.test(ua)) os='Linux';
-  let browser='Desconocido';
-  if(/Edg\//i.test(ua)) browser='Edge';
-  else if(/OPR\//i.test(ua)) browser='Opera';
-  else if(/Firefox/i.test(ua)) browser='Firefox';
-  else if(/SamsungBrowser/i.test(ua)) browser='Samsung Internet';
-  else if(/Chrome/i.test(ua)) browser='Chrome';
-  else if(/Safari/i.test(ua)) browser='Safari';
-  return {os,browser};
+  return id;
 }
 
 function getDeviceName(){
-  const {os,browser}=getDeviceInfo();
-  return os+' \u00b7 '+browser;
+  const ua = navigator.userAgent;
+  let name = 'Dispositivo desconocido';
+  if(/iPhone/i.test(ua)) name = 'iPhone';
+  else if(/iPad/i.test(ua)) name = 'iPad';
+  else if(/Android/i.test(ua)) name = ua.includes('Mobile') ? 'Android móvil' : 'Android tablet';
+  else if(/Windows/i.test(ua)) name = 'Windows PC';
+  else if(/Mac/i.test(ua)) name = 'Mac';
+  else if(/Linux/i.test(ua)) name = 'Linux PC';
+  if(/Chrome/i.test(ua) && !/Edg/i.test(ua)) name += ' · Chrome';
+  else if(/Firefox/i.test(ua)) name += ' · Firefox';
+  else if(/Safari/i.test(ua) && !/Chrome/i.test(ua)) name += ' · Safari';
+  else if(/Edg/i.test(ua)) name += ' · Edge';
+  return name;
 }
-
 
 async function registerDevice(uid){
   const deviceId = getDeviceId();
@@ -1048,13 +1049,13 @@ async function registerDevice(uid){
   const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
   const existing = devices.find(d=>d.id === deviceId);
   if(existing){
-    const {os:_o2,browser:_b2}=getDeviceInfo(); await devRef.update({lastSeen:Date.now(),name:getDeviceName(),os:_o2,browser:_b2,hardwareFingerprint:getHardwareFingerprint(),screen:screen.width+'x'+screen.height});
+    await devRef.update({lastSeen: Date.now(), name: getDeviceName()});
     return {ok:true};
   }
   if(devices.length >= MAX_DEVICES){
     return {ok:false, count:devices.length};
   }
-  const {os:_os,browser:_br}=getDeviceInfo(); await devRef.set({name:getDeviceName(),os:_os,browser:_br,hardwareFingerprint:getHardwareFingerprint(),screen:screen.width+'x'+screen.height,registeredAt:Date.now(),lastSeen:Date.now()});
+  await devRef.set({name:getDeviceName(), registeredAt:Date.now(), lastSeen:Date.now()});
   return {ok:true};
 }
 
@@ -1133,6 +1134,7 @@ function renderDesignsFromList(items){
     return;
   }
   items.forEach(item=> list.appendChild(createDesignCard(item.id, item.data)));
+  observeLazyImages(list);
 }
 
 function renderCachedDesigns(){
@@ -1180,7 +1182,7 @@ function createDesignCard(id, d){
   const date = new Date(d.updatedAt || d.createdAt || Date.now()).toLocaleDateString('es-PE');
   const name = d.name || 'Sin nombre';
   const thumb = d.thumb
-    ? `<img class="design-thumb" fetchpriority="low" src="${cdnOpt(d.thumb,{w:200,c:'fit'})}" alt="${name}" loading="lazy" decoding="async">`
+    ? `<img class="design-thumb lazy-img" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:160,c:'fit'})}" alt="${name}" decoding="async">`
     : `<div class="design-thumb-empty">🎨</div>`;
   card.innerHTML = `
     <div class="design-thumb-wrap">${thumb}</div>
@@ -1310,7 +1312,7 @@ function renderTemplates(list){
     card.className = 'tpl-card';
     const date = t.createdAt ? new Date(t.createdAt).toLocaleDateString('es-PE') : '';
     const thumb = t.thumb
-      ? `<img class="tpl-thumb" fetchpriority="low" src="${cdnOpt(t.thumb,{w:200,c:'fit'})}" alt="${t.name || ''}" loading="lazy" decoding="async">`
+      ? `<img class="tpl-thumb lazy-img" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(t.thumb,{w:160,c:'fit'})}" alt="${t.name || ''}" decoding="async">`
       : `<div class="tpl-thumb-empty">📦</div>`;
     card.innerHTML = `
       ${thumb}
@@ -1321,6 +1323,7 @@ function renderTemplates(list){
       </div>`;
     grid.appendChild(card);
   });
+  observeLazyImages(grid);
 }
 
 function openEditorBlank(){
