@@ -1151,26 +1151,34 @@ async function loadMyDesigns(){
   if(!list.children.length){
     list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
-  // Usar caché si es reciente (menos de 2 horas)
+  // Stale-while-revalidate: muestra caché al instante Y consulta Firestore en paralelo
   const key = getDesignsCacheKey();
+  let hadCache = false;
+  let cachedItems = [];
   if(key){
     try{
       const cached = JSON.parse(localStorage.getItem(key) || 'null');
-      if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
-        renderDesignsFromList(cached.items);
-        return; // caché válido — no consultar Firestore
+      if(cached?.items?.length){
+        cachedItems = cached.items;
+        renderDesignsFromList(cachedItems);
+        hadCache = true;
       }
     }catch(e){}
   }
+  // Siempre consulta Firestore para detectar cambios
   try{
     const snap = await fbDb.collection('user_designs').where('uid','==',currentUser.uid).orderBy('updatedAt','desc').get();
     const items = [];
     snap.forEach(doc=> items.push({id:doc.id, data:doc.data()}));
-    renderDesignsFromList(items);
-    const key = getDesignsCacheKey();
+    // Comparar firmas (id + updatedAt) para evitar re-render innecesario
+    const sigOld = cachedItems.map(it => `${it.id}:${it.data?.updatedAt||0}`).join('|');
+    const sigNew = items.map(it => `${it.id}:${it.data?.updatedAt||0}`).join('|');
+    if(sigOld !== sigNew){
+      renderDesignsFromList(items);
+    }
     if(key) localStorage.setItem(key, JSON.stringify({savedAt: Date.now(), items}));
   }catch(e){
-    if(!list.children.length || list.textContent.includes('Error al cargar')){
+    if(!hadCache && (!list.children.length || list.textContent.includes('Error al cargar'))){
       list.innerHTML = `<div class="empty-state">Error al cargar: ${e.message}</div>`;
     }
   }
@@ -1260,30 +1268,45 @@ async function loadTemplates(){
   if(!grid.children.length){
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
-  // Usar caché si es reciente (menos de 2 horas)
+  // Stale-while-revalidate: muestra caché al instante (rápido) Y consulta Firestore en paralelo (actualiza si hay cambios)
+  let hadCache = false;
   try{
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
-    if(cached?.items?.length && cached.savedAt && (Date.now() - cached.savedAt) < MOB_CACHE_TTL){
+    if(cached?.items?.length){
       allTemplates = cached.items;
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
-      return; // caché válido
+      hadCache = true;
     }
   }catch(e){}
+  // Siempre consulta Firestore en background para detectar cambios
   try{
     const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
-    allTemplates = [];
+    const fresh = [];
     snap.forEach(doc=>{
       const d = doc.data() || {};
-      if(d.status === 'published') allTemplates.push({id:doc.id, ...d});
+      if(d.status === 'published') fresh.push({id:doc.id, ...d});
     });
-    document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
-    setHeroCounts(null, allTemplates.length);
-    renderTemplates(allTemplates);
-    localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates}));
+    // Comparar firmas para evitar re-render innecesario (solo redibuja si cambió algo)
+    const sigOld = allTemplates.map(t => `${t.id}:${t.updatedAt||t.createdAt||0}`).join('|');
+    const sigNew = fresh.map(t => `${t.id}:${t.updatedAt||t.createdAt||0}`).join('|');
+    if(sigOld !== sigNew){
+      allTemplates = fresh;
+      document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
+      setHeroCounts(null, allTemplates.length);
+      renderTemplates(allTemplates);
+      localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates}));
+    } else if(!hadCache){
+      // No había caché y no hay cambios — guardar igual
+      allTemplates = fresh;
+      document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
+      setHeroCounts(null, allTemplates.length);
+      renderTemplates(allTemplates);
+      localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates}));
+    }
   }catch(e){
-    if(!grid.children.length){
+    if(!hadCache && !grid.children.length){
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error: ${e.message}</div>`;
     }
   }
