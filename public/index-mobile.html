@@ -763,6 +763,21 @@ let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v3';
 const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 
+// Limpiar cachés viejos para liberar espacio en localStorage
+try{
+  const keysToRemove = [];
+  for(let i=0; i<localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(k && (k.includes('_cache_v1') || k.includes('_cache_v2') || k.includes('ts_dash_cache_v') || k === 'ts_mobile_templates_cache')) keysToRemove.push(k);
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+}catch(_){}
+
+// Solo guardar campos mínimos en caché (ahorra ~80% de espacio)
+function minifyTemplatesForCache(items){
+  return items.map(t => ({id:t.id, name:t.name||'', thumb:t.thumb||'', category:t.category||'', createdAt:t.createdAt||0}));
+}
+
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1365,7 +1380,7 @@ async function loadTemplatesPage(isFirst){
     }
 
     // Guardar caché con lo que tenemos hasta ahora
-    try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates})); }catch(_){}
+    try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
 
   }catch(e){
     if(isFirst && !grid.children.length){
@@ -1388,7 +1403,7 @@ async function filterTemplates(){
       allTemplates = [];
       snap.forEach(doc => { const d = doc.data() || {}; if(d.status === 'published') allTemplates.push({id:doc.id, ...d}); });
       noMoreTpls = true;
-      try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates})); }catch(_){}
+      try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
     }catch(e){}
   }
 
