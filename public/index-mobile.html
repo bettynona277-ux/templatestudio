@@ -1302,21 +1302,21 @@ async function loadTemplatesPage(isFirst){
 
   try{
     let query = fbDb.collection('templates')
-      .where('status','==','published')
       .orderBy('createdAt','desc')
-      .limit(TPL_PAGE_SIZE);
+      .limit(TPL_PAGE_SIZE * 2); // pedir más porque filtramos en JS
     if(lastTplDoc) query = query.startAfter(lastTplDoc);
 
     const snap = await query.get();
     const newDocs = [];
     snap.forEach(doc => {
-      newDocs.push({id:doc.id, ...doc.data()});
+      const d = doc.data() || {};
+      if(d.status === 'published') newDocs.push({id:doc.id, ...d});
     });
 
     if(snap.docs.length > 0){
       lastTplDoc = snap.docs[snap.docs.length - 1];
     }
-    if(snap.docs.length < TPL_PAGE_SIZE){
+    if(snap.docs.length < TPL_PAGE_SIZE * 2){
       noMoreTpls = true;
     }
 
@@ -1384,9 +1384,9 @@ async function filterTemplates(){
     const grid = document.getElementById('tpl-grid');
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
     try{
-      const snap = await fbDb.collection('templates').where('status','==','published').orderBy('createdAt','desc').get();
+      const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
       allTemplates = [];
-      snap.forEach(doc => { allTemplates.push({id:doc.id, ...doc.data()}); });
+      snap.forEach(doc => { const d = doc.data() || {}; if(d.status === 'published') allTemplates.push({id:doc.id, ...d}); });
       noMoreTpls = true;
       try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: allTemplates})); }catch(_){}
     }catch(e){}
