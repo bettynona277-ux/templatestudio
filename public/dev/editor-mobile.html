@@ -669,6 +669,15 @@ let clientDesignId = null;
 let zoom_ = 1;
 let currentTab = 'text';
 
+// Optimizar URLs de Cloudinary para reducir bandwidth (~80% menos)
+function cdnOpt(url){
+  if(!url || typeof url !== 'string') return url;
+  if(url.startsWith('data:') || url.startsWith('blob:')) return url;
+  const m = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  if(!m) return url;
+  return m[1] + 'q_auto,f_auto,fl_immutable_cache/' + (m[2]||'') + m[3];
+}
+
 const cvs = document.getElementById('cvs');
 
 function getPreferredAuthAppNames(){
@@ -1135,7 +1144,7 @@ function buildEl(l){
 
   } else if(l.type === 'img'){
     const img = document.createElement('img');
-    img.src = l.src||'';
+    img.src = cdnOpt(l.src||'');
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
     el.appendChild(img);
     if(!l.locked) makeDraggable(el, l);
@@ -1163,7 +1172,7 @@ function buildEl(l){
         el.style.border = 'none';
       }
       const img = document.createElement('img');
-      img.src = l.src;
+      img.src = cdnOpt(l.src);
       img.className = 'frame-inner';
       img.id = 'fi-'+l.id;
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
@@ -1665,25 +1674,17 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
   const webviewTip = document.getElementById('save-img-webview-tip');
   if(!modal || !preview) return;
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-  // iOS: usar dataURL para el preview (blob URLs se revocan y Safari da error "sin conexión")
-  // Android: blob URL funciona bien
-  if(isIOS){
-    const reader = new FileReader();
-    reader.onload = () => { preview.src = reader.result; };
-    reader.readAsDataURL(blob);
-  } else {
-    const url = URL.createObjectURL(blob);
-    preview.src = url;
-    preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
-  }
+  const url = URL.createObjectURL(blob);
+  preview.src = url;
+  preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
 
   if(isWebView){
+    // Navegador embebido: a.download no funciona, instruir a abrir en navegador o usar Share
     if(tip) tip.innerHTML = 'Estás en un navegador interno.<br>Para guardar en tu galería:';
     if(webviewTip) webviewTip.style.display = 'block';
     toast('📤 Usa el botón compartir para guardar');
   } else {
+    // Navegador real Android: la imagen ya se guardó en Descargas
     if(tip) tip.innerHTML = '¡Lista! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
     if(webviewTip) webviewTip.style.display = 'none';
     toast('✓ Guardada en Descargas');
@@ -1697,11 +1698,8 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
         const shareFile = new File([blob], fileName, { type: 'image/png' });
         if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
           await navigator.share({ files: [shareFile], title: displayName });
-        } else if(isIOS){
-          // iOS sin Share API: la imagen ya está como dataURL en el preview
-          toast('💡 Mantén presionada la imagen y elige "Guardar imagen"');
         } else {
-          // Android fallback
+          // Fallback si Share API no disponible: abrir imagen en nueva pestaña
           const u = URL.createObjectURL(blob);
           window.open(u, '_blank');
           setTimeout(()=>URL.revokeObjectURL(u), 15000);
@@ -2354,14 +2352,14 @@ async function downloadPNG(){
       }
     }
 
-    // ── iOS sin Share API / fallback: modal con imagen como dataURL (no blob) ──
-    // Safari iOS revoca blob URLs rápido — usar dataURL es más fiable para "mantener presionada"
-    const dataUrl = rendered.toDataURL('image/png');
+    // ── iOS sin Share API / fallback: modal con imagen ──
+    const url2 = URL.createObjectURL(blob);
     const modal = document.getElementById('save-img-modal');
     const preview = document.getElementById('save-img-preview');
     if(modal && preview){
-      preview.src = dataUrl;
+      preview.src = url2;
       modal.style.display = 'flex';
+      preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url2), 30000); }, {once:true});
     }
 
   }catch(e){
