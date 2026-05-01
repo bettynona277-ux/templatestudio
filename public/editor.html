@@ -1801,6 +1801,18 @@ let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, isRot=false, dOff={x:0,y:0}, rSt={}, rotSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
 let isPrev=false;
+
+// Optimizar URLs de Cloudinary para reducir bandwidth (~80% menos)
+// Solo aplica a URLs de res.cloudinary.com — no toca blobs, data:, ni URLs externas
+function cdnOpt(url){
+  if(!url || typeof url !== 'string') return url;
+  if(url.startsWith('data:') || url.startsWith('blob:')) return url;
+  const m = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  if(!m) return url;
+  // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
+  return m[1] + 'q_auto,f_auto,fl_immutable_cache/' + (m[2]||'') + m[3];
+}
+
 const cvs=document.getElementById('cvs');
 
 // ── MULTI-SELECT ──────────────────────────────────────────────
@@ -3888,7 +3900,7 @@ function mkEl(l){
        !l.src.includes('firebasestorage'));
     if(!isExternal){
       img.crossOrigin='anonymous';
-      img.src=l.src;
+      img.src=cdnOpt(l.src);
     } else {
       // Proxy público con CORS abierto para URLs externas
       img.crossOrigin='anonymous';
@@ -3930,7 +3942,7 @@ function mkEl(l){
       const img=document.createElement('img');
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
-      img.src=l.frameImage;
+      img.src=cdnOpt(l.frameImage);
       img.onerror=()=>{
         console.warn('No se pudo cargar imagen del marco:', l.name, l.frameImage);
         clip.innerHTML='';
