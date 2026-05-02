@@ -6646,13 +6646,24 @@ async function normalizePersistableImageSrc(src, folder='layer-images'){
 
   let workingSrc = src;
 
-  // Limpiar transformaciones duplicadas de Cloudinary (q_auto,f_auto apilados)
-  // Pasa cuando cdnOpt se aplica múltiples veces a la misma URL
-  if(typeof workingSrc === 'string' && workingSrc.includes('res.cloudinary.com')){
-    const m = workingSrc.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.*?\/)?(v\d+\/.+|[^/]+\.[a-z]+.*)$/i);
-    if(m){
-      workingSrc = m[1] + (m[3] || m[2] || '');
+  // Si es URL de Cloudinary ya persistida, devolverla limpia (sin transformaciones cdnOpt)
+  // para que se guarde en Firestore sin q_auto,f_auto en la URL
+  if(typeof workingSrc === 'string' && workingSrc.includes('res.cloudinary.com/') && workingSrc.includes('/image/upload/')){
+    const uploadIdx = workingSrc.indexOf('/image/upload/');
+    const base = workingSrc.substring(0, uploadIdx + '/image/upload/'.length);
+    const rest = workingSrc.substring(base.length);
+    // Quitar solo los segmentos de transformación (contienen coma o dos puntos sin punto de extensión)
+    const parts = rest.split('/');
+    let startIdx = 0;
+    for(let i = 0; i < parts.length; i++){
+      const p = parts[i];
+      if(p.includes(',') || (p.includes(':') && !p.includes('.'))){
+        startIdx = i + 1;
+      } else {
+        break;
+      }
     }
+    return base + parts.slice(startIdx).join('/');
   }
 
   // blob: no sobrevive entre sesiones; convertirlo primero a dataURL
@@ -6705,8 +6716,8 @@ async function buildLayerData(){
           if(normalizedSrc !== src) retryCount++;
           src = normalizedSrc;
           l.src = normalizedSrc;
-          const domImg = l.el?.querySelector('img');
-          if(domImg && !normalizedSrc.startsWith('data:') && domImg.src !== normalizedSrc) domImg.src = normalizedSrc;
+          // NO actualizar domImg.src — el DOM ya muestra la imagen correctamente
+          // y cambiar .src dispara re-descarga innecesaria de Cloudinary
         }
       }catch(e){
         console.warn(`No se pudo normalizar capa "${l.name}":`, e.message);
