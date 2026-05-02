@@ -6708,6 +6708,23 @@ async function buildLayerData(){
       }
     }
 
+    // Si l.src tiene transformaciones de Cloudinary (q_auto, etc.), limpiarla de entrada
+    // para evitar que normalizePersistableImageSrc siempre detecte un cambio
+    if(src && src.includes('res.cloudinary.com/') && src.includes('/image/upload/')){
+      const uploadIdx = src.indexOf('/image/upload/');
+      const base = src.substring(0, uploadIdx + '/image/upload/'.length);
+      const rest = src.substring(base.length);
+      const parts = rest.split('/');
+      let startIdx = 0;
+      for(let i = 0; i < parts.length; i++){
+        const p = parts[i];
+        if(p.includes(',') || (p.includes(':') && !p.includes('.'))) startIdx = i + 1;
+        else break;
+      }
+      const cleanSrc = base + parts.slice(startIdx).join('/');
+      if(cleanSrc !== src){ src = cleanSrc; l.src = cleanSrc; }
+    }
+
     // Normalizar referencias de imagen para que sobrevivan entre sesiones
     if(src){
       try{
