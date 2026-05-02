@@ -5958,19 +5958,20 @@ function stripCloudinaryTransforms(url){
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
-    // Primero buscar en el DOM una imagen ya cargada (evita re-descarga a Cloudinary)
-    // Comparamos tanto la URL original como la optimizada y la limpia
+    // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
+    // IMPORTANTE: solo reutilizar si tiene crossOrigin='anonymous' (de lo contrario tainted canvas)
     const optimizedSrc = cdnOpt ? cdnOpt(src) : src;
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = document.querySelectorAll('img[src]');
     for(const d of domImgs){
       if(!d.complete || !d.naturalWidth) continue;
+      if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
       const dClean = stripCloudinaryTransforms(d.src);
       if(d.src === src || d.src === optimizedSrc || dClean === cleanSrc || dClean === src){
         return resolve(d);
       }
     }
-    // No está en DOM — pedir con crossOrigin anonymous
+    // No está en DOM con CORS — pedir con crossOrigin anonymous
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=>resolve(img);
@@ -5978,7 +5979,6 @@ function loadImgForExport(src){
       const img2 = new Image();
       img2.onload = ()=>resolve(img2);
       img2.onerror = ()=>resolve(null);
-      // Si es URL de weserv, extraer la URL original
       if(src.includes('weserv.nl')){
         try{
           const u = new URL(src);
