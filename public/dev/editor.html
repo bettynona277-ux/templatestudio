@@ -6787,6 +6787,18 @@ async function buildLayerData(){
       if(domFrameImg && domFrameImg.src && domFrameImg.complete && domFrameImg.naturalWidth > 0){
         frameSrc = domFrameImg.currentSrc || domFrameImg.src;
       }
+      // Limpiar transformaciones de Cloudinary del frameSrc antes de normalizar
+      if(frameSrc && frameSrc.includes('res.cloudinary.com/') && frameSrc.includes('/image/upload/')){
+        const uploadIdx = frameSrc.indexOf('/image/upload/');
+        const base = frameSrc.substring(0, uploadIdx + '/image/upload/'.length);
+        const parts = frameSrc.substring(base.length).split('/');
+        let si = 0;
+        for(let i = 0; i < parts.length; i++){
+          if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+          else break;
+        }
+        frameSrc = base + parts.slice(si).join('/');
+      }
       if(frameSrc){
         try{
           const normalizedFrame = await normalizePersistableImageSrc(frameSrc, 'frames');
