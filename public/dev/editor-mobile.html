@@ -2311,6 +2311,15 @@ function canvasShapePath(ctx,layer,x,y,w,h){
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
+    // Primero buscar en el DOM una imagen ya cargada con esa URL (evita re-descarga)
+    const optimizedSrc = cdnOpt(src);
+    const domImgs = document.querySelectorAll('img[src]');
+    for(const d of domImgs){
+      if((d.src === src || d.src === optimizedSrc) && d.complete && d.naturalWidth > 0){
+        return resolve(d);
+      }
+    }
+    // Si no está en DOM, pedir con crossOrigin (necesario para drawImage en canvas)
     const img=new Image(); img.crossOrigin='anonymous';
     img.onload=()=>resolve(img);
     img.onerror=()=>{
@@ -2318,7 +2327,7 @@ function loadImgForExport(src){
       img2.onload=()=>resolve(img2);img2.onerror=()=>resolve(null);
       img2.src=src;
     };
-    img.src=cdnOpt(src);
+    img.src=optimizedSrc;
   });
 }
 
