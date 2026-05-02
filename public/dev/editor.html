@@ -5941,14 +5941,32 @@ async function saveClientDesign(){
 
 
 // DOWNLOAD
+// Extraer URL limpia de Cloudinary (sin transformaciones q_auto,f_auto,etc.)
+function stripCloudinaryTransforms(url){
+  if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const uploadIdx = url.indexOf('/image/upload/');
+  const base = url.substring(0, uploadIdx + '/image/upload/'.length);
+  const parts = url.substring(base.length).split('/');
+  let si = 0;
+  for(let i = 0; i < parts.length; i++){
+    if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+    else break;
+  }
+  return base + parts.slice(si).join('/');
+}
+
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
     // Primero buscar en el DOM una imagen ya cargada (evita re-descarga a Cloudinary)
+    // Comparamos tanto la URL original como la optimizada y la limpia
     const optimizedSrc = cdnOpt ? cdnOpt(src) : src;
+    const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = document.querySelectorAll('img[src]');
     for(const d of domImgs){
-      if((d.src === src || d.src === optimizedSrc) && d.complete && d.naturalWidth > 0){
+      if(!d.complete || !d.naturalWidth) continue;
+      const dClean = stripCloudinaryTransforms(d.src);
+      if(d.src === src || d.src === optimizedSrc || dClean === cleanSrc || dClean === src){
         return resolve(d);
       }
     }
