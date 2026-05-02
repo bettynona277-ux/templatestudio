@@ -1676,23 +1676,31 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
   const webviewTip = document.getElementById('save-img-webview-tip');
   if(!modal || !preview) return;
 
-  const url = URL.createObjectURL(blob);
-  preview.src = url;
-  preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+  // iOS: usar dataURL para el preview (blob URLs se revocan y Safari da "sin conexión")
+  // Android: blob URL funciona bien
+  if(isIOS){
+    const reader = new FileReader();
+    reader.onload = () => { preview.src = reader.result; };
+    reader.readAsDataURL(blob);
+  } else {
+    const url = URL.createObjectURL(blob);
+    preview.src = url;
+    preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
+  }
 
   if(isWebView){
-    // Navegador embebido: a.download no funciona, instruir a abrir en navegador o usar Share
     if(tip) tip.innerHTML = 'Estás en un navegador interno.<br>Para guardar en tu galería:';
     if(webviewTip) webviewTip.style.display = 'block';
     toast('📤 Usa el botón compartir para guardar');
   } else {
-    // Navegador real Android: la imagen ya se guardó en Descargas
     if(tip) tip.innerHTML = '¡Lista! <span style="color:#15d6a4;">📂 Revisa tu carpeta Descargas</span>';
     if(webviewTip) webviewTip.style.display = 'none';
     toast('✓ Guardada en Descargas');
   }
 
-  // Botón compartir — siempre visible, abre menú completo del SO
+  // Botón compartir — siempre visible
   if(shareBtn){
     shareBtn.style.display = 'flex';
     shareBtn.onclick = async () => {
@@ -1700,8 +1708,11 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
         const shareFile = new File([blob], fileName, { type: 'image/png' });
         if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
           await navigator.share({ files: [shareFile], title: displayName });
+        } else if(isIOS){
+          // iOS sin Share API: la imagen ya está como dataURL en el preview
+          toast('💡 Mantén presionada la imagen y elige "Guardar imagen"');
         } else {
-          // Fallback si Share API no disponible: abrir imagen en nueva pestaña
+          // Android fallback
           const u = URL.createObjectURL(blob);
           window.open(u, '_blank');
           setTimeout(()=>URL.revokeObjectURL(u), 15000);
@@ -2028,7 +2039,7 @@ async function doSave(){
     await new Promise(r=>setTimeout(r,60));
     const cw=parseInt(cvs.style.width)||800;
     const sc=Math.min(1,320/cw);
-    const tc=await html2canvas(cvs,{scale:sc,useCORS:true,allowTaint:false,backgroundColor:'#000',logging:false,width:cw,height:parseInt(cvs.style.height)||800,ignoreElements:el=>el!==cvs&&!cvs.contains(el)});
+    const tc=await html2canvas(cvs,{scale:sc,useCORS:true,allowTaint:false,backgroundColor:'#000',logging:false,width:cw,height:parseInt(cvs.style.height)||800,ignoreElements:el=>{if(el===cvs||cvs.contains(el))return false;const tag=el.tagName||'';if(['HEAD','STYLE','LINK','META','SCRIPT'].includes(tag))return false;return true;}});
     cvs.style.transform=savedT;
     const b64=tc.toDataURL('image/jpeg',0.8);
     st.textContent='Subiendo...';
@@ -2298,7 +2309,12 @@ async function downloadPNG(){
       height: canvasH,
       windowWidth: canvasW,
       windowHeight: canvasH,
-      ignoreElements: el => el !== cvs && !cvs.contains(el)
+      ignoreElements: el => {
+        if(el === cvs || cvs.contains(el)) return false; // siempre incluir el canvas y sus hijos
+        const tag = el.tagName || '';
+        if(['HEAD','STYLE','LINK','META','SCRIPT'].includes(tag)) return false; // necesarios para render
+        return true; // ignorar todo lo demás (sidebar, botones, logos, etc.)
+      }
     });
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
@@ -2355,14 +2371,15 @@ async function downloadPNG(){
       }
     }
 
-    // ── iOS sin Share API / fallback: modal con imagen ──
-    const url2 = URL.createObjectURL(blob);
+    // ── iOS sin Share API / fallback: modal con dataURL (no blob) ──
+    // Safari iOS revoca blob URLs rápido → usar dataURL para que el usuario pueda mantener presionada
+    const dataUrl2 = rendered.toDataURL('image/png');
     const modal = document.getElementById('save-img-modal');
     const preview = document.getElementById('save-img-preview');
     if(modal && preview){
-      preview.src = url2;
+      preview.src = dataUrl2;
       modal.style.display = 'flex';
-      preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url2), 30000); }, {once:true});
+      toast('💡 Mantén presionada la imagen y elige "Guardar imagen"');
     }
 
   }catch(e){
