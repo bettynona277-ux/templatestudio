@@ -6646,6 +6646,15 @@ async function normalizePersistableImageSrc(src, folder='layer-images'){
 
   let workingSrc = src;
 
+  // Limpiar transformaciones duplicadas de Cloudinary (q_auto,f_auto apilados)
+  // Pasa cuando cdnOpt se aplica múltiples veces a la misma URL
+  if(typeof workingSrc === 'string' && workingSrc.includes('res.cloudinary.com')){
+    const m = workingSrc.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.*?\/)?(v\d+\/.+|[^/]+\.[a-z]+.*)$/i);
+    if(m){
+      workingSrc = m[1] + (m[3] || m[2] || '');
+    }
+  }
+
   // blob: no sobrevive entre sesiones; convertirlo primero a dataURL
   if(typeof workingSrc === 'string' && workingSrc.startsWith('blob:')){
     try{
@@ -6697,7 +6706,7 @@ async function buildLayerData(){
           src = normalizedSrc;
           l.src = normalizedSrc;
           const domImg = l.el?.querySelector('img');
-          if(domImg && !normalizedSrc.startsWith('data:')) domImg.src = normalizedSrc;
+          if(domImg && !normalizedSrc.startsWith('data:') && domImg.src !== normalizedSrc) domImg.src = normalizedSrc;
         }
       }catch(e){
         console.warn(`No se pudo normalizar capa "${l.name}":`, e.message);
