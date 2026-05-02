@@ -5944,13 +5944,19 @@ async function saveClientDesign(){
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
-    // Intento 1: con crossOrigin anonymous (necesario para drawImage en canvas)
+    // Primero buscar en el DOM una imagen ya cargada (evita re-descarga a Cloudinary)
+    const optimizedSrc = cdnOpt ? cdnOpt(src) : src;
+    const domImgs = document.querySelectorAll('img[src]');
+    for(const d of domImgs){
+      if((d.src === src || d.src === optimizedSrc) && d.complete && d.naturalWidth > 0){
+        return resolve(d);
+      }
+    }
+    // No está en DOM — pedir con crossOrigin anonymous
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=>resolve(img);
     img.onerror = ()=>{
-      // Intento 2: Si es URL de proxy weserv, probar directamente con la URL original
-      // Intento 3: sin crossOrigin como último recurso (puede fallar drawImage por taint)
       const img2 = new Image();
       img2.onload = ()=>resolve(img2);
       img2.onerror = ()=>resolve(null);
@@ -5971,7 +5977,7 @@ function loadImgForExport(src){
       }
       img2.src = src;
     };
-    img.src = src;
+    img.src = optimizedSrc;
   });
 }
 
