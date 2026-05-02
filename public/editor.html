@@ -5850,11 +5850,12 @@ async function saveClientDesign(){
         const thumbCanvas = await html2canvas(cvs,{
           scale: targetScale,
           useCORS: true,
-          allowTaint: true,
+          allowTaint: false,
           backgroundColor: '#000',
           logging: false,
           width: canvasW,
-          height: canvasH
+          height: canvasH,
+          ignoreElements: undefined
         });
         thumbB64 = thumbCanvas.toDataURL('image/jpeg', 0.55);
       } catch(h2cErr){
@@ -5940,20 +5941,44 @@ async function saveClientDesign(){
 
 
 // DOWNLOAD
+// Extraer URL limpia de Cloudinary (sin transformaciones q_auto,f_auto,etc.)
+function stripCloudinaryTransforms(url){
+  if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const uploadIdx = url.indexOf('/image/upload/');
+  const base = url.substring(0, uploadIdx + '/image/upload/'.length);
+  const parts = url.substring(base.length).split('/');
+  let si = 0;
+  for(let i = 0; i < parts.length; i++){
+    if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+    else break;
+  }
+  return base + parts.slice(si).join('/');
+}
+
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
-    // Intento 1: con crossOrigin anonymous (necesario para drawImage en canvas)
+    // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
+    // IMPORTANTE: solo reutilizar si tiene crossOrigin='anonymous' (de lo contrario tainted canvas)
+    const optimizedSrc = cdnOpt ? cdnOpt(src) : src;
+    const cleanSrc = stripCloudinaryTransforms(src);
+    const domImgs = document.querySelectorAll('img[src]');
+    for(const d of domImgs){
+      if(!d.complete || !d.naturalWidth) continue;
+      if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
+      const dClean = stripCloudinaryTransforms(d.src);
+      if(d.src === src || d.src === optimizedSrc || dClean === cleanSrc || dClean === src){
+        return resolve(d);
+      }
+    }
+    // No está en DOM con CORS — pedir con crossOrigin anonymous
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=>resolve(img);
     img.onerror = ()=>{
-      // Intento 2: Si es URL de proxy weserv, probar directamente con la URL original
-      // Intento 3: sin crossOrigin como último recurso (puede fallar drawImage por taint)
       const img2 = new Image();
       img2.onload = ()=>resolve(img2);
       img2.onerror = ()=>resolve(null);
-      // Si es URL de weserv, extraer la URL original
       if(src.includes('weserv.nl')){
         try{
           const u = new URL(src);
@@ -5970,7 +5995,7 @@ function loadImgForExport(src){
       }
       img2.src = src;
     };
-    img.src = src;
+    img.src = optimizedSrc;
   });
 }
 
@@ -6639,6 +6664,26 @@ async function normalizePersistableImageSrc(src, folder='layer-images'){
 
   let workingSrc = src;
 
+  // Si es URL de Cloudinary ya persistida, devolverla limpia (sin transformaciones cdnOpt)
+  // para que se guarde en Firestore sin q_auto,f_auto en la URL
+  if(typeof workingSrc === 'string' && workingSrc.includes('res.cloudinary.com/') && workingSrc.includes('/image/upload/')){
+    const uploadIdx = workingSrc.indexOf('/image/upload/');
+    const base = workingSrc.substring(0, uploadIdx + '/image/upload/'.length);
+    const rest = workingSrc.substring(base.length);
+    // Quitar solo los segmentos de transformación (contienen coma o dos puntos sin punto de extensión)
+    const parts = rest.split('/');
+    let startIdx = 0;
+    for(let i = 0; i < parts.length; i++){
+      const p = parts[i];
+      if(p.includes(',') || (p.includes(':') && !p.includes('.'))){
+        startIdx = i + 1;
+      } else {
+        break;
+      }
+    }
+    return base + parts.slice(startIdx).join('/');
+  }
+
   // blob: no sobrevive entre sesiones; convertirlo primero a dataURL
   if(typeof workingSrc === 'string' && workingSrc.startsWith('blob:')){
     try{
@@ -6681,6 +6726,23 @@ async function buildLayerData(){
       }
     }
 
+    // Si l.src tiene transformaciones de Cloudinary (q_auto, etc.), limpiarla de entrada
+    // para evitar que normalizePersistableImageSrc siempre detecte un cambio
+    if(src && src.includes('res.cloudinary.com/') && src.includes('/image/upload/')){
+      const uploadIdx = src.indexOf('/image/upload/');
+      const base = src.substring(0, uploadIdx + '/image/upload/'.length);
+      const rest = src.substring(base.length);
+      const parts = rest.split('/');
+      let startIdx = 0;
+      for(let i = 0; i < parts.length; i++){
+        const p = parts[i];
+        if(p.includes(',') || (p.includes(':') && !p.includes('.'))) startIdx = i + 1;
+        else break;
+      }
+      const cleanSrc = base + parts.slice(startIdx).join('/');
+      if(cleanSrc !== src){ src = cleanSrc; l.src = cleanSrc; }
+    }
+
     // Normalizar referencias de imagen para que sobrevivan entre sesiones
     if(src){
       try{
@@ -6689,8 +6751,8 @@ async function buildLayerData(){
           if(normalizedSrc !== src) retryCount++;
           src = normalizedSrc;
           l.src = normalizedSrc;
-          const domImg = l.el?.querySelector('img');
-          if(domImg && !normalizedSrc.startsWith('data:')) domImg.src = normalizedSrc;
+          // NO actualizar domImg.src — el DOM ya muestra la imagen correctamente
+          // y cambiar .src dispara re-descarga innecesaria de Cloudinary
         }
       }catch(e){
         console.warn(`No se pudo normalizar capa "${l.name}":`, e.message);
@@ -6743,6 +6805,18 @@ async function buildLayerData(){
       if(domFrameImg && domFrameImg.src && domFrameImg.complete && domFrameImg.naturalWidth > 0){
         frameSrc = domFrameImg.currentSrc || domFrameImg.src;
       }
+      // Limpiar transformaciones de Cloudinary del frameSrc antes de normalizar
+      if(frameSrc && frameSrc.includes('res.cloudinary.com/') && frameSrc.includes('/image/upload/')){
+        const uploadIdx = frameSrc.indexOf('/image/upload/');
+        const base = frameSrc.substring(0, uploadIdx + '/image/upload/'.length);
+        const parts = frameSrc.substring(base.length).split('/');
+        let si = 0;
+        for(let i = 0; i < parts.length; i++){
+          if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+          else break;
+        }
+        frameSrc = base + parts.slice(si).join('/');
+      }
       if(frameSrc){
         try{
           const normalizedFrame = await normalizePersistableImageSrc(frameSrc, 'frames');
@@ -6779,7 +6853,7 @@ async function buildLayerData(){
     };
     result.push(obj);
   }
-  if(retryCount) console.log(`📤 Resubidas ${retryCount} capas a Cloudinary`);
+  if(retryCount) console.log(`✓ Normalizadas ${retryCount} URLs de capas (transformaciones removidas para Firestore)`);
   return result;
 }
 
