@@ -2511,7 +2511,28 @@ async function downloadPNG(){
     }catch(_){}
     await new Promise(r => setTimeout(r, 100)); // pequeña pausa extra para iOS
 
-    const rendered = await renderDesignToCanvas(3);
+    let rendered;
+    try{
+      rendered = await renderDesignToCanvas(3);
+      // Verificar que el canvas tenga contenido válido
+      if(!rendered || !rendered.width || !rendered.height){
+        throw new Error('Canvas vacío');
+      }
+    }catch(renderErr){
+      console.warn('Renderer manual falló, usando html2canvas como fallback:', renderErr.message);
+      // Fallback a html2canvas
+      rendered = await html2canvas(cvs,{
+        scale: 3,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: null,
+        logging: false,
+        width: canvasW,
+        height: canvasH,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+      });
+    }
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
