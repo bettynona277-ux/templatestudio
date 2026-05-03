@@ -2511,18 +2511,20 @@ async function downloadPNG(){
     }catch(_){}
     await new Promise(r => setTimeout(r, 100)); // pequeña pausa extra para iOS
 
+    // iOS tiene límite de memoria para canvas grandes — usar scale 2 en vez de 3
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const exportScale = isIOSDevice ? 2 : 3;
+
     let rendered;
     try{
-      rendered = await renderDesignToCanvas(3);
-      // Verificar que el canvas tenga contenido válido
+      rendered = await renderDesignToCanvas(exportScale);
       if(!rendered || !rendered.width || !rendered.height){
         throw new Error('Canvas vacío');
       }
     }catch(renderErr){
-      console.warn('Renderer manual falló, usando html2canvas como fallback:', renderErr.message);
-      // Fallback a html2canvas
+      console.warn('Renderer manual falló, usando html2canvas:', renderErr.message);
       rendered = await html2canvas(cvs,{
-        scale: 3,
+        scale: exportScale,
         useCORS: true,
         allowTaint: false,
         backgroundColor: null,
