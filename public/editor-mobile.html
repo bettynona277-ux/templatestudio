@@ -1658,7 +1658,7 @@ function renderLogos(){
       const card = document.createElement('div');
       card.className='logo-card';
       card.innerHTML=`
-        <img src="${cdnOpt(logo.url||logo.src||'')}" alt="${logo.name||'Logo'}">
+        <img src="${cdnOpt(logo.url||logo.src||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
         <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       `;
       grid.appendChild(card);
@@ -1786,7 +1786,7 @@ function renderOwnLogos(){
     const card = document.createElement('div');
     card.className='logo-card personal';
     card.innerHTML=`
-      <img src="${cdnOpt(logo.url||'')}" alt="${logo.name||'Logo'}">
+      <img src="${cdnOpt(logo.url||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
       <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       <button class="del-btn" onclick="deleteOwnLogo('${docId}',event)" style="display:flex;">✕</button>
     `;
@@ -2332,18 +2332,19 @@ function stripCloudinaryTransforms(url){
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
-    // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
+    // Buscar en DOM comparando URLs limpias — SOLO si tiene crossOrigin anonymous
     const optimizedSrc = cdnOpt(src);
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = document.querySelectorAll('img[src]');
     for(const d of domImgs){
       if(!d.complete || !d.naturalWidth) continue;
+      if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
       const dClean = stripCloudinaryTransforms(d.src);
       if(d.src === src || d.src === optimizedSrc || dClean === cleanSrc || dClean === src){
         return resolve(d);
       }
     }
-    // No está en DOM — pedir con crossOrigin anonymous
+    // No está en DOM con CORS — pedir con crossOrigin anonymous
     const img=new Image(); img.crossOrigin='anonymous';
     img.onload=()=>resolve(img);
     img.onerror=()=>{
