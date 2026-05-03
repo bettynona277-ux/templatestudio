@@ -2179,7 +2179,8 @@ async function loadMyDesigns() {
           name: d.name || 'Sin nombre',
           thumb: d.thumb || '',
           updatedAt: d.updatedAt || 0,
-          createdAt: d.createdAt || 0
+          createdAt: d.createdAt || 0,
+          tplId: d.tplId || ''
         }
       }))
     });
@@ -2283,16 +2284,15 @@ async function loadAdminTemplates() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('templates').get();
+    // Pedir solo publicadas, ordenadas y limitadas — mucho más rápido que traer todo
+    const snap = await fbDb.collection('templates')
+      .where('status', '==', 'published')
+      .orderBy('updatedAt', 'desc')
+      .get();
     const rawDocs = [];
     snap.forEach(doc => {
       const d = doc.data() || {};
-      if (d.status === 'published') rawDocs.push({ id: doc.id, d });
-    });
-    rawDocs.sort((a, b) => {
-      const ta = a.d.updatedAt || a.d.createdAt || 0;
-      const tb = b.d.updatedAt || b.d.createdAt || 0;
-      return tb - ta;
+      rawDocs.push({ id: doc.id, d });
     });
     if (heroCountEl) heroCountEl.textContent = String(rawDocs.length);
     if (!rawDocs.length) {
@@ -2312,10 +2312,30 @@ async function loadAdminTemplates() {
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {
-    if (heroCountEl) heroCountEl.textContent = '—';
-    if (countEl) countEl.textContent = '—';
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar plantillas: ${e.message}</div>`;
-    setDashboardSyncLabel('No pudimos actualizar las plantillas.');
+    // Si falla el índice compuesto, intentar sin filtro (fallback)
+    try {
+      const snap2 = await fbDb.collection('templates').get();
+      const rawDocs2 = [];
+      snap2.forEach(doc => {
+        const d = doc.data() || {};
+        if (d.status === 'published') rawDocs2.push({ id: doc.id, d });
+      });
+      rawDocs2.sort((a, b) => (b.d.updatedAt||0) - (a.d.updatedAt||0));
+      if (heroCountEl) heroCountEl.textContent = String(rawDocs2.length);
+      allTemplatesCache = rawDocs2;
+      populateTemplateCategoryOptions(rawDocs2);
+      renderTemplateCards(getFilteredTemplates(rawDocs2));
+      writeDashCache('templates', {
+        total: rawDocs2.length,
+        items: rawDocs2.slice(0, 36).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      });
+      setDashboardSyncLabel('Diseños y plantillas sincronizados.');
+    } catch(e2) {
+      if (heroCountEl) heroCountEl.textContent = '—';
+      if (countEl) countEl.textContent = '—';
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar plantillas: ${e2.message}</div>`;
+      setDashboardSyncLabel('No pudimos actualizar las plantillas.');
+    }
   }
 }
 
@@ -2333,8 +2353,21 @@ function isMobile(){
 
 async function openEditorDesign(id) {
   const uid = currentUser?.uid||'';
-  const tplRef = (await fbDb.collection('user_designs').doc(id).get()).data()?.tplId||'';
   const editorFile = isMobile() ? 'editor-mobile.html' : 'editor.html';
+  // Buscar tplId en caché local primero (evita query extra a Firestore)
+  let tplRef = '';
+  const cachedDesigns = readDashCache('designs');
+  if(cachedDesigns?.items){
+    const found = cachedDesigns.items.find(it => it.id === id);
+    if(found?.d?.tplId) tplRef = found.d.tplId;
+  }
+  // Si no está en caché, ir a Firestore (fallback)
+  if(!tplRef){
+    try{
+      const snap = await fbDb.collection('user_designs').doc(id).get();
+      tplRef = snap.data()?.tplId || '';
+    }catch(_){}
+  }
   const url = `${editorFile}?mode=client&did=${id}&uid=${encodeURIComponent(uid)}${tplRef?'&tpl='+tplRef:''}`;
   window.location.href = url;
 }
