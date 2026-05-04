@@ -503,6 +503,9 @@ body.multisel-mode #dots-btn{display:none!important;}
 
 <!-- MENÚ 3 PUNTITOS -->
 <div id="dots-menu">
+  <button class="dots-menu-item" onclick="duplicateActive()">
+    <span>⧉</span> Duplicar
+  </button>
   <button class="dots-menu-item" onclick="startMultiSelect()">
     <span>☑️</span> Seleccionar varios
   </button>
@@ -1438,55 +1441,29 @@ function applyLogoToFrame(src, name){
   if(!frameSelId) return false;
   const l = layers.find(x=>x.id===frameSelId);
   if(!l || l.type!=='frame') return false;
+
+  // Actualizar datos de la capa
   l.src = src;
   l.frameImage = src;
-  const fBW = Number(l.frameBorderWidth || l.borderWidth || 0);
-  const fBC = l.frameBorderColor || l.borderColor || '#00ffc3';
-  // Actualizar el elemento visual
+
+  // Reconstruir el elemento limpio: clonamos el nodo para
+  // eliminar TODOS los event listeners acumulados de cambios anteriores
   if(l.el){
-    l.el.style.boxSizing = 'border-box';
-    l.el.style.outline = 'none';
-    l.el.style.border = fBW > 0 ? `${fBW}px solid ${fBC}` : 'none';
-    l.el.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = src;
-    img.className = 'frame-inner';
-    img.id = 'fi-'+l.id;
-    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
-    l.el.appendChild(img);
-    setTimeout(()=>applyImageVisuals(l),0);
-    {
-      let sx,sy,sl,st,moved=false;
-      l.el.addEventListener('touchstart',e=>{
-        if(e.touches.length!==1)return;
-        e.stopPropagation();
-        const t=e.touches[0];
-        sx=t.clientX;sy=t.clientY;sl=l.x;st=l.y;moved=false;
-      },{passive:true});
-      l.el.addEventListener('touchmove',e=>{
-        if(e.touches.length!==1)return;
-        if(multiselActive) return;
-        e.preventDefault();e.stopPropagation();
-        const t=e.touches[0];
-        const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
-        if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
-        if(moved){
-          const sn = applySnapSingle(l, sl+dx, st+dy);
-          l.x=sn.x; l.y=sn.y;
-          l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
-        }
-      },{passive:false});
-      l.el.addEventListener('touchend',e=>{
-        e.stopPropagation();
-        if(multiselActive) return;
-        if(moved) hideGuides();
-        if(!moved) selectFrame(l.id);
-        moved=false;
-      },{passive:true});
+    const parent = l.el.parentNode;
+    const oldEl = l.el;
+
+    // Crear elemento fresco con buildEl
+    oldEl.remove();
+    l.el = null;
+    buildEl(l);   // buildEl hace cvs.appendChild y asigna l.el
+
+    // Restaurar clase active si era el seleccionado
+    if(activeLayer === l){
+      l.el.classList.add('active-touch');
     }
   }
+
   frameSelId = null;
-  l.el?.classList.remove('active-touch');
   document.getElementById('frame-hint').style.display = 'none';
   snapshot();
   toast('✓ Logo aplicado al marco');
@@ -3272,6 +3249,49 @@ function applySnapMulti(deltaX, deltaY, origPositions, origBounds){
   else { gh.style.display='none'; }
 
   return {dx: dxAdj, dy: dyAdj};
+}
+
+// ══════════════════════════════════════════
+// DUPLICAR CAPA ACTIVA
+// ══════════════════════════════════════════
+function duplicateActive(){
+  const menu = document.getElementById('dots-menu');
+  if(menu) menu.style.display = 'none';
+
+  const src = activeLayer;
+  if(!src) return;
+
+  // Clonar profundamente todos los datos (sin el DOM)
+  const clone = JSON.parse(JSON.stringify({
+    ...src,
+    el: undefined,
+    tp: src.tp ? {...src.tp} : undefined,
+  }));
+  delete clone.el;
+
+  // Nuevo id único, offset de posición para que se vea separado
+  clone.id  = Date.now() + '_dup';
+  clone.x   = (src.x || 0) + 20;
+  clone.y   = (src.y || 0) + 20;
+  clone.zIndex = layers.length;
+
+  // Para frames: asegurarse de que src/frameImage queden correctos
+  if(clone.type === 'frame'){
+    clone.src        = src.src        || src.frameImage || null;
+    clone.frameImage = src.frameImage || src.src        || null;
+  }
+
+  layers.push(clone);
+  buildEl(clone);      // crea el DOM y asigna clone.el
+
+  // Seleccionar el duplicado
+  layers.forEach(x=>{ if(x.el) x.el.classList.remove('active-touch'); });
+  clone.el?.classList.add('active-touch');
+  showSelBox(clone);
+  selId = clone.id;
+
+  snapshot();
+  toast('⧉ Duplicado');
 }
 </script>
 
