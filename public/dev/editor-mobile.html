@@ -280,6 +280,110 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 }
 
 /* zoom via pinch only */
+
+/* ── MENÚ 3 PUNTITOS ── */
+#dots-btn{
+  position:fixed;z-index:9002;
+  background:rgba(26,26,46,0.92);
+  color:#fff;border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;
+  padding:8px 10px;font-size:1rem;font-weight:900;
+  font-family:inherit;cursor:pointer;
+  display:none;white-space:nowrap;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  letter-spacing:0.02em;
+  line-height:1;
+}
+#dots-menu{
+  position:fixed;z-index:9003;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:14px;
+  overflow:hidden;
+  display:none;
+  box-shadow:0 8px 32px rgba(0,0,0,0.25);
+  min-width:180px;
+}
+.dots-menu-item{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 16px;
+  font-size:0.84rem;font-weight:600;
+  color:var(--text);
+  cursor:pointer;
+  border:none;background:none;
+  font-family:inherit;
+  width:100%;text-align:left;
+  border-bottom:1px solid var(--border);
+}
+.dots-menu-item:last-child{border-bottom:none;}
+.dots-menu-item:active{background:rgba(124,92,252,0.08);}
+
+/* ── MULTI-SELECT MODE ── */
+body.multisel-mode .cel[data-multiselectable="true"]{
+  cursor:pointer;
+}
+body.multisel-mode .cel.multisel-selected{
+  outline:2.5px solid var(--accent) !important;
+  outline-offset:3px;
+}
+body.multisel-mode .cel.multisel-selected::after{
+  content:'✓';
+  position:absolute;top:-8px;right:-8px;
+  width:18px;height:18px;
+  background:var(--accent);color:#002b22;
+  border-radius:50%;font-size:0.65rem;font-weight:900;
+  display:flex;align-items:center;justify-content:center;
+  z-index:9010;line-height:18px;text-align:center;
+}
+/* Botón "Listo / Desactivar selección múltiple" */
+#multisel-done-btn{
+  position:fixed;
+  bottom:calc(38vh + 16px);
+  left:50%;transform:translateX(-50%);
+  z-index:9100;
+  background:var(--accent);color:#002b22;
+  border:none;border-radius:999px;
+  padding:10px 22px;
+  font-size:0.82rem;font-weight:800;
+  font-family:inherit;cursor:pointer;
+  box-shadow:0 4px 20px rgba(21,214,164,0.5);
+  display:none;
+  white-space:nowrap;
+  gap:7px;align-items:center;
+  letter-spacing:0.02em;
+}
+#multisel-done-btn.show{display:flex;}
+/* Barra de acciones multi-select */
+#multisel-bar{
+  position:fixed;
+  bottom:calc(38vh + 0px);
+  left:0;right:0;
+  z-index:9099;
+  background:rgba(26,26,46,0.96);
+  border-top:1px solid rgba(255,255,255,0.08);
+  padding:10px 16px 10px;
+  display:none;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+#multisel-bar.show{display:flex;}
+#multisel-bar .mbar-info{
+  font-size:0.78rem;font-weight:700;color:rgba(255,255,255,0.7);
+  flex-shrink:0;
+}
+#multisel-bar .mbar-info span{color:var(--accent);}
+.mbar-btn{
+  flex:1;padding:9px 8px;border-radius:10px;border:none;
+  font-family:inherit;font-weight:700;font-size:0.75rem;
+  cursor:pointer;
+}
+.mbar-btn-size-minus{background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.12);}
+.mbar-btn-size-plus{background:var(--accent);color:#002b22;}
+.mbar-btn-del{background:rgba(255,71,87,0.15);color:#ff4757;border:1px solid rgba(255,71,87,0.3);}
+/* Handles del sel-box en modo multi */
+body.multisel-mode .sel-handle{display:none;}
+body.multisel-mode #del-btn{display:none!important;}
+body.multisel-mode #dots-btn{display:none!important;}
 </style>
 </head>
 <body>
@@ -431,6 +535,27 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   <div class="sel-handle se" id="sh-se"></div>
   <button id="del-btn" onclick="deleteActive()">✕ Eliminar</button>
 </div>
+
+<!-- BOTÓN 3 PUNTITOS (junto a del-btn) -->
+<button id="dots-btn" onclick="toggleDotsMenu(event)">⋯</button>
+
+<!-- MENÚ 3 PUNTITOS -->
+<div id="dots-menu">
+  <button class="dots-menu-item" onclick="startMultiSelect()">
+    <span>☑️</span> Seleccionar varios
+  </button>
+</div>
+
+<!-- BARRA MULTI-SELECT -->
+<div id="multisel-bar">
+  <div class="mbar-info">Selec: <span id="multisel-count">0</span></div>
+  <button class="mbar-btn mbar-btn-size-minus" onclick="multiselResize(-10)">− Tamaño</button>
+  <button class="mbar-btn mbar-btn-size-plus" onclick="multiselResize(10)">+ Tamaño</button>
+  <button class="mbar-btn mbar-btn-del" onclick="multiselDelete()">🗑 Eliminar</button>
+</div>
+
+<!-- BOTÓN LISTO (desactivar multi-select) -->
+<button id="multisel-done-btn" onclick="endMultiSelect()">✓ Listo — salir de selección</button>
 
 <!-- TOAST -->
 <div id="m-toast"></div>
@@ -873,9 +998,16 @@ function showSelBox(layer){
   const delBtn = document.getElementById('del-btn');
   if(delBtn){
     delBtn.style.display = 'block';
-    delBtn.style.left = (rect.left + rect.width/2) + 'px';
+    delBtn.style.left = (rect.left + rect.width/2 - 40) + 'px';
     delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-    delBtn.style.transform = 'translateX(-50%)';
+    delBtn.style.transform = 'none';
+  }
+  // Mostrar botón 3 puntitos al lado del Eliminar
+  const dotsBtn = document.getElementById('dots-btn');
+  if(dotsBtn){
+    dotsBtn.style.display = 'block';
+    dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
+    dotsBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
   }
 }
 
@@ -891,9 +1023,15 @@ function updateSelBox(){
   // Reposicionar el del-btn
   const delBtn = document.getElementById('del-btn');
   if(delBtn && delBtn.style.display !== 'none'){
-    delBtn.style.left = (rect.left + rect.width/2) + 'px';
+    delBtn.style.left = (rect.left + rect.width/2 - 40) + 'px';
     delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-    delBtn.style.transform = 'translateX(-50%)';
+    delBtn.style.transform = 'none';
+  }
+  // Reposicionar 3 puntitos
+  const dotsBtn = document.getElementById('dots-btn');
+  if(dotsBtn && dotsBtn.style.display !== 'none'){
+    dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
+    dotsBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
   }
 }
 
@@ -902,6 +1040,10 @@ function hideSelBox(){
   if(box) box.style.display = 'none';
   const delBtn = document.getElementById('del-btn');
   if(delBtn) delBtn.style.display = 'none';
+  const dotsBtn = document.getElementById('dots-btn');
+  if(dotsBtn) dotsBtn.style.display = 'none';
+  const dotsMenu = document.getElementById('dots-menu');
+  if(dotsMenu) dotsMenu.style.display = 'none';
   activeLayer = null;
 }
 
@@ -1658,7 +1800,7 @@ function renderLogos(){
       const card = document.createElement('div');
       card.className='logo-card';
       card.innerHTML=`
-        <img src="${cdnOpt(logo.url||logo.src||'')}" alt="${logo.name||'Logo'}">
+        <img src="${cdnOpt(logo.url||logo.src||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
         <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       `;
       grid.appendChild(card);
@@ -1786,7 +1928,7 @@ function renderOwnLogos(){
     const card = document.createElement('div');
     card.className='logo-card personal';
     card.innerHTML=`
-      <img src="${cdnOpt(logo.url||'')}" alt="${logo.name||'Logo'}">
+      <img src="${cdnOpt(logo.url||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
       <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       <button class="del-btn" onclick="deleteOwnLogo('${docId}',event)" style="display:flex;">✕</button>
     `;
@@ -1865,6 +2007,7 @@ function addLogoToCanvas(src, name){
   const ch = parseInt(cvs.style.height)||800;
   // Cargar imagen primero para respetar proporciones reales
   const probe = new Image();
+  probe.crossOrigin = 'anonymous';
   probe.onload = () => {
     const maxSize = Math.round(Math.min(cw, ch) * 0.30);
     let w = probe.width || maxSize;
@@ -2037,6 +2180,13 @@ async function doSave(){
     desel();
     const savedT=cvs.style.transform; cvs.style.transform='scale(1)';
     await new Promise(r=>setTimeout(r,60));
+    // Esperar fuentes antes de generar thumbnail
+    try{
+      await Promise.race([
+        document.fonts.ready,
+        new Promise(r=>setTimeout(r,2000))
+      ]);
+    }catch(_){}
     const cw=parseInt(cvs.style.width)||800;
     const sc=Math.min(1,320/cw);
     const tc = await renderDesignToCanvas(sc);
@@ -2324,18 +2474,19 @@ function stripCloudinaryTransforms(url){
 function loadImgForExport(src){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
-    // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
+    // Buscar en DOM comparando URLs limpias — SOLO si tiene crossOrigin anonymous
     const optimizedSrc = cdnOpt(src);
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = document.querySelectorAll('img[src]');
     for(const d of domImgs){
       if(!d.complete || !d.naturalWidth) continue;
+      if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
       const dClean = stripCloudinaryTransforms(d.src);
       if(d.src === src || d.src === optimizedSrc || dClean === cleanSrc || dClean === src){
         return resolve(d);
       }
     }
-    // No está en DOM — pedir con crossOrigin anonymous
+    // No está en DOM con CORS — pedir con crossOrigin anonymous
     const img=new Image(); img.crossOrigin='anonymous';
     img.onload=()=>resolve(img);
     img.onerror=()=>{
@@ -2447,9 +2598,13 @@ async function renderDesignToCanvas(scale=3){
       const drawLine=(line,x,y)=>{const sw=Number(tp.strokeWidth||0),shadow=Number(tp.shadowBlur||0);const drawOF=(txt,px,py)=>{if(sw>0){ctx.save();ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=sw*2;ctx.strokeStyle=tp.strokeColor||'#000000';ctx.strokeText(txt,px,py);ctx.restore();}if(shadow>0){ctx.save();ctx.shadowColor=tp.shadowColor||'rgba(0,0,0,0.45)';ctx.shadowBlur=Math.max(3,shadow*0.8);ctx.shadowOffsetY=Math.max(1,Math.round(shadow*0.18));ctx.fillText(txt,px,py);ctx.restore();ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillText(txt,px,py);ctx.restore();}else ctx.fillText(txt,px,py);};if(letterSpacing===0){drawOF(line,x,y);return;}const total=measureLineVisualWidth(line);let cursorX=x;if(ctx.textAlign==='center')cursorX=x-total/2;else if(ctx.textAlign==='right')cursorX=x-total;[...line].forEach((ch,idx)=>{drawOF(ch,cursorX,y);cursorX+=ctx.measureText(ch).width+(idx<line.length-1?letterSpacing:0);});};
       const anchorX=tp.align==='center'?textBaseX+l.w/2:tp.align==='right'?textBaseX+l.w-padX:textBaseX+padX;
       const halfLeading=Math.max(0,(lineHeight-fontSize)/2);
-      const textOffsetY=padY+halfLeading+(fontSize*0.08);
+      // Usar 'alphabetic' baseline que es más consistente entre Chrome/Safari/iOS
+      // El ascender típico de una fuente es ~0.8 del fontSize (varía por fuente)
+      ctx.textBaseline='alphabetic';
+      const ascentEst = fontSize * 0.78; // estimación del ascender
+      const textOffsetY = padY + halfLeading + ascentEst;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
-      if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+fontSize+1;ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
+      if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;
     }
 
@@ -2482,7 +2637,48 @@ async function downloadPNG(){
     const canvasH = parseInt(cvs.style.height)||1080;
 
     // Usar renderer manual Canvas 2D — no re-descarga imágenes de Cloudinary
-    const rendered = await renderDesignToCanvas(3);
+    // Esperar que todas las fuentes del diseño carguen antes de renderizar (evita texto desplazado en iOS)
+    const fontSpecs = [...new Set(
+      layers.filter(l => l.tp?.fontFamily).map(l => {
+        const fw = l.tp.fontWeight || '400';
+        const fi = l.tp.italic ? 'italic' : 'normal';
+        const ff = (l.tp.fontFamily || 'Poppins').replace(/'/g,'');
+        return `${fi} ${fw} 32px "${ff}"`;
+      })
+    )];
+    try{
+      await Promise.race([
+        Promise.all(fontSpecs.map(f => document.fonts.load(f))),
+        new Promise(r => setTimeout(r, 3000)) // máximo 3 segundos de espera
+      ]);
+      await document.fonts.ready;
+    }catch(_){}
+    await new Promise(r => setTimeout(r, 100)); // pequeña pausa extra para iOS
+
+    // iOS tiene límite de memoria para canvas grandes — usar scale 2 en vez de 3
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const exportScale = isIOSDevice ? 2 : 3;
+
+    let rendered;
+    try{
+      rendered = await renderDesignToCanvas(exportScale);
+      if(!rendered || !rendered.width || !rendered.height){
+        throw new Error('Canvas vacío');
+      }
+    }catch(renderErr){
+      console.warn('Renderer manual falló, usando html2canvas:', renderErr.message);
+      rendered = await html2canvas(cvs,{
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: null,
+        logging: false,
+        width: canvasW,
+        height: canvasH,
+        windowWidth: canvasW,
+        windowHeight: canvasH,
+      });
+    }
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
@@ -2684,6 +2880,213 @@ window.addEventListener('load', async()=>{
 
   window.addEventListener('touchend', ()=>{ dragging = false; }, {passive: true});
 })();
+
+// ══════════════════════════════════════════
+// MENÚ 3 PUNTITOS
+// ══════════════════════════════════════════
+function toggleDotsMenu(e){
+  e.stopPropagation();
+  const menu = document.getElementById('dots-menu');
+  const btn = document.getElementById('dots-btn');
+  if(!menu || !btn) return;
+  const isOpen = menu.style.display === 'block';
+  if(isOpen){ menu.style.display = 'none'; return; }
+  const rect = btn.getBoundingClientRect();
+  menu.style.display = 'block';
+  // Posicionar encima/abajo del botón
+  const menuH = 52;
+  let top = rect.bottom + 6;
+  if(top + menuH > window.innerHeight - 20) top = rect.top - menuH - 6;
+  menu.style.top = top + 'px';
+  menu.style.left = Math.max(8, rect.right - 200) + 'px';
+}
+// Cerrar menú al tocar fuera
+document.addEventListener('touchstart', e=>{
+  const menu = document.getElementById('dots-menu');
+  const btn = document.getElementById('dots-btn');
+  if(menu && menu.style.display === 'block'){
+    if(!menu.contains(e.target) && e.target !== btn) menu.style.display = 'none';
+  }
+},{passive:true});
+
+// ══════════════════════════════════════════
+// SELECCIÓN MÚLTIPLE
+// ══════════════════════════════════════════
+let multiselActive = false;
+let multiselIds = new Set();
+let _msStartX = 0, _msStartY = 0, _msStartPositions = {};
+
+function startMultiSelect(){
+  const menu = document.getElementById('dots-menu');
+  if(menu) menu.style.display = 'none';
+  multiselActive = true;
+  multiselIds.clear();
+  document.body.classList.add('multisel-mode');
+  hideSelBox();
+  // Marcar capas de tipo img como seleccionables
+  layers.forEach(l=>{
+    if(l.type==='img' && l.el && !l.locked){
+      l.el.dataset.multiselectable = 'true';
+    }
+  });
+  // Instalar handlers de toque para cada capa img
+  installMultiTapHandlers();
+  updateMultiselBar();
+  document.getElementById('multisel-bar').classList.add('show');
+  document.getElementById('multisel-done-btn').classList.add('show');
+  toast('☑️ Toca logos para seleccionarlos');
+}
+
+function endMultiSelect(){
+  multiselActive = false;
+  multiselIds.clear();
+  document.body.classList.remove('multisel-mode');
+  // Quitar clases visuales de todas las capas
+  layers.forEach(l=>{
+    if(l.el){
+      l.el.classList.remove('multisel-selected');
+      delete l.el.dataset.multiselectable;
+    }
+  });
+  removeMultiTapHandlers();
+  document.getElementById('multisel-bar').classList.remove('show');
+  document.getElementById('multisel-done-btn').classList.remove('show');
+  toast('✓ Selección múltiple desactivada');
+}
+
+function toggleMultiselLayer(layer){
+  if(!layer.el) return;
+  if(multiselIds.has(layer.id)){
+    multiselIds.delete(layer.id);
+    layer.el.classList.remove('multisel-selected');
+  } else {
+    multiselIds.add(layer.id);
+    layer.el.classList.add('multisel-selected');
+  }
+  updateMultiselBar();
+}
+
+function updateMultiselBar(){
+  const countEl = document.getElementById('multisel-count');
+  if(countEl) countEl.textContent = multiselIds.size;
+}
+
+// ── Handlers de toque multi-select ──
+const _multiTapRefs = new Map(); // layer.id → {touchstart, touchmove, touchend}
+
+function installMultiTapHandlers(){
+  layers.forEach(l=>{
+    if(l.type !== 'img' || !l.el || l.locked) return;
+    const el = l.el;
+
+    let tapStartX = 0, tapStartY = 0, tapMoved = false;
+    let dragActive = false;
+
+    const onStart = e=>{
+      if(e.touches.length !== 1) return;
+      e.stopPropagation();
+      const t = e.touches[0];
+      tapStartX = t.clientX; tapStartY = t.clientY;
+      tapMoved = false;
+      dragActive = multiselIds.has(l.id);
+      if(dragActive){
+        // Guardar posiciones iniciales de todas las seleccionadas
+        _msStartX = t.clientX; _msStartY = t.clientY;
+        layers.forEach(x=>{
+          if(multiselIds.has(x.id)) _msStartPositions[x.id] = {x: x.x, y: x.y};
+        });
+      }
+    };
+
+    const onMove = e=>{
+      if(e.touches.length !== 1) return;
+      e.preventDefault(); e.stopPropagation();
+      const t = e.touches[0];
+      const dx = t.clientX - tapStartX;
+      const dy = t.clientY - tapStartY;
+      if(Math.abs(dx) > 6 || Math.abs(dy) > 6) tapMoved = true;
+      if(tapMoved && dragActive && multiselIds.has(l.id)){
+        const ddx = (t.clientX - _msStartX) / zoom_;
+        const ddy = (t.clientY - _msStartY) / zoom_;
+        layers.forEach(x=>{
+          if(multiselIds.has(x.id) && _msStartPositions[x.id]){
+            x.x = Math.round(_msStartPositions[x.id].x + ddx);
+            x.y = Math.round(_msStartPositions[x.id].y + ddy);
+            if(x.el){ x.el.style.left = x.x+'px'; x.el.style.top = x.y+'px'; }
+          }
+        });
+      }
+    };
+
+    const onEnd = e=>{
+      e.stopPropagation();
+      if(!tapMoved){
+        // Tap simple = toggle selección
+        toggleMultiselLayer(l);
+      } else if(dragActive){
+        snapshot();
+      }
+      tapMoved = false;
+    };
+
+    el.addEventListener('touchstart', onStart, {passive:true});
+    el.addEventListener('touchmove', onMove, {passive:false});
+    el.addEventListener('touchend', onEnd, {passive:true});
+    _multiTapRefs.set(l.id, {onStart, onMove, onEnd});
+  });
+}
+
+function removeMultiTapHandlers(){
+  _multiTapRefs.forEach((handlers, id)=>{
+    const l = layers.find(x=>x.id===id);
+    if(l && l.el){
+      l.el.removeEventListener('touchstart', handlers.onStart);
+      l.el.removeEventListener('touchmove', handlers.onMove);
+      l.el.removeEventListener('touchend', handlers.onEnd);
+    }
+  });
+  _multiTapRefs.clear();
+}
+
+function multiselResize(delta){
+  if(multiselIds.size === 0){ toast('Selecciona al menos un logo'); return; }
+  snapshot();
+  multiselIds.forEach(id=>{
+    const l = layers.find(x=>x.id===id);
+    if(!l) return;
+    const ratio = l.h / l.w;
+    const newW = Math.max(20, l.w + delta * 2);
+    const newH = Math.max(20, Math.round(newW * ratio));
+    // Escalar desde el centro
+    const cx = l.x + l.w/2;
+    const cy = l.y + l.h/2;
+    l.w = newW; l.h = newH;
+    l.x = Math.round(cx - newW/2);
+    l.y = Math.round(cy - newH/2);
+    if(l.el){
+      l.el.style.width  = l.w+'px';
+      l.el.style.height = l.h+'px';
+      l.el.style.left   = l.x+'px';
+      l.el.style.top    = l.y+'px';
+    }
+  });
+  snapshot();
+}
+
+function multiselDelete(){
+  if(multiselIds.size === 0) return;
+  if(!confirm('¿Eliminar '+multiselIds.size+' logo(s) seleccionados?')) return;
+  snapshot();
+  multiselIds.forEach(id=>{
+    const l = layers.find(x=>x.id===id);
+    if(l && l.el) l.el.remove();
+  });
+  layers = layers.filter(x=>!multiselIds.has(x.id));
+  multiselIds.clear();
+  updateMultiselBar();
+  snapshot();
+  toast('🗑 Eliminados');
+}
 </script>
 
 
