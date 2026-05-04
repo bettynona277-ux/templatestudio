@@ -279,6 +279,14 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   border:1.5px solid rgba(255,255,255,0.2);
 }
 
+
+/* ── GUÍAS INTELIGENTES ── */
+.snap-guide{
+  position:absolute;pointer-events:none;z-index:8500;
+  background:rgba(21,214,164,0.85);
+}
+.snap-guide.h{ left:0;right:0;height:1px; }
+.snap-guide.v{ top:0;bottom:0;width:1px; }
 /* zoom via pinch only */
 
 /* ── MENÚ 3 PUNTITOS ── */
@@ -1108,8 +1116,8 @@ function makeDraggable(el, layer, onTap){
     const dy=(t.clientY-startY)/zoom_;
     if(Math.abs(dx)>MOVE_THRESHOLD||Math.abs(dy)>MOVE_THRESHOLD) moved=true;
     if(moved){
-      layer.x=Math.round(startL+dx);
-      layer.y=Math.round(startT+dy);
+      const snapped = applySnapSingle(layer, startL+dx, startT+dy);
+      layer.x = snapped.x; layer.y = snapped.y;
       el.style.left=layer.x+'px';
       el.style.top=layer.y+'px';
       updateSelBox();
@@ -1120,6 +1128,7 @@ function makeDraggable(el, layer, onTap){
     e.stopPropagation();
     if(multiselActive) return; // en modo multi-select, lo maneja installMultiTapHandlers
     if(moved){
+      hideGuides();
       snapshot(); // guardar después de mover
     }
     if(!moved){
@@ -1322,6 +1331,7 @@ function buildEl(l){
       el.addEventListener('touchend',e=>{
         e.stopPropagation();
         if(multiselActive) return;
+        if(moved) hideGuides();
         if(!moved) selectFrame(l.id);
         moved=false;
       },{passive:true});
@@ -2935,6 +2945,8 @@ function hideMultiselBox(){
 function startMultiSelect(){
   const menu = document.getElementById('dots-menu');
   if(menu) menu.style.display = 'none';
+  // Capturar la capa activa ANTES de limpiar el estado
+  const preselLayer = activeLayer;
   multiselActive = true;
   multiselIds.clear();
   document.body.classList.add('multisel-mode');
@@ -2946,8 +2958,15 @@ function startMultiSelect(){
   });
   installMultiTapHandlers();
   installMultiHandleHandlers();
-  hideMultiselBox();
-  toast('☑️ Toca logos para seleccionarlos');
+  // Pre-seleccionar el logo que estaba activo al abrir el menú
+  if(preselLayer && (preselLayer.type==='img' || preselLayer.type==='frame') && !preselLayer.locked){
+    multiselIds.add(preselLayer.id);
+    if(preselLayer.el) preselLayer.el.classList.add('multisel-selected');
+    updateMultiselBox();
+  } else {
+    hideMultiselBox();
+  }
+  toast('☑️ Toca más logos para añadirlos');
 }
 
 function endMultiSelect(){
@@ -3010,10 +3029,17 @@ function installMultiTapHandlers(){
       if(tapMoved && dragActive && multiselIds.has(l.id)){
         const ddx = (t.clientX - _msStartX) / zoom_;
         const ddy = (t.clientY - _msStartY) / zoom_;
+        const origB = {
+          minX: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.x ?? (lx?.x||0); })),
+          minY: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.y ?? (lx?.y||0); })),
+          maxX: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.x??0) + (lx?.w||0); })),
+          maxY: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.y??0) + (lx?.h||0); })),
+        };
+        const snapped = applySnapMulti(ddx, ddy, _msStartPositions, origB);
         layers.forEach(x=>{
           if(multiselIds.has(x.id) && _msStartPositions[x.id]){
-            x.x = Math.round(_msStartPositions[x.id].x + ddx);
-            x.y = Math.round(_msStartPositions[x.id].y + ddy);
+            x.x = Math.round(_msStartPositions[x.id].x + snapped.dx);
+            x.y = Math.round(_msStartPositions[x.id].y + snapped.dy);
             if(x.el){ x.el.style.left = x.x+'px'; x.el.style.top = x.y+'px'; }
           }
         });
@@ -3024,7 +3050,7 @@ function installMultiTapHandlers(){
     const onEnd = e=>{
       e.stopPropagation();
       if(!tapMoved){ toggleMultiselLayer(l); }
-      else if(dragActive){ snapshot(); }
+      else if(dragActive){ hideGuides(); snapshot(); }
       tapMoved = false;
     };
 
@@ -3132,6 +3158,124 @@ function multiselDelete(){
 }
 
 document.addEventListener('scroll', ()=>{ if(multiselActive && multiselIds.size>0) updateMultiselBox(); }, true);
+
+// ══════════════════════════════════════════
+// GUÍAS INTELIGENTES (Smart Guides)
+// ══════════════════════════════════════════
+const SNAP_THRESH = 6; // px en espacio canvas
+let _guideH = null, _guideV = null;
+
+function getOrCreateGuide(axis){
+  const id = 'snap-guide-' + axis;
+  let g = document.getElementById(id);
+  if(!g){
+    g = document.createElement('div');
+    g.id = id;
+    g.className = 'snap-guide ' + axis;
+    g.style.display = 'none';
+    cvs.appendChild(g);
+  }
+  return g;
+}
+
+function hideGuides(){
+  ['h','v'].forEach(axis=>{
+    const g = document.getElementById('snap-guide-'+axis);
+    if(g) g.style.display = 'none';
+  });
+}
+
+// Calcula los puntos de snap de otras capas (excluir las ids pasadas)
+function getSnapPoints(excludeIds){
+  const cw = parseInt(cvs.style.width)||800;
+  const ch = parseInt(cvs.style.height)||800;
+  const xs = new Set([0, cw/2, cw]);   // bordes + centro canvas
+  const ys = new Set([0, ch/2, ch]);
+  layers.forEach(l=>{
+    if(!l.visible || excludeIds.has(l.id)) return;
+    xs.add(l.x); xs.add(l.x + l.w/2); xs.add(l.x + l.w);
+    ys.add(l.y); ys.add(l.y + l.h/2); ys.add(l.y + l.h);
+  });
+  return {xs: Array.from(xs), ys: Array.from(ys)};
+}
+
+// Intenta hacer snap de un punto a los snap points; retorna {val, snapped}
+function trySnap(val, points){
+  let best = null, bestD = SNAP_THRESH;
+  points.forEach(p=>{ const d=Math.abs(val-p); if(d<bestD){bestD=d;best=p;} });
+  return best !== null ? {val: best, snapped: true} : {val, snapped: false};
+}
+
+// Aplica snap a una capa durante drag individual y actualiza guías
+function applySnapSingle(layer, newX, newY){
+  const pts = getSnapPoints(new Set([layer.id]));
+  const cx = newX + layer.w/2, cy = newY + layer.h/2;
+  const rx = newX + layer.w,   ry = newY + layer.h;
+
+  // Snap X: izquierdo, centro, derecho
+  let finalX = newX; let snapXval = null;
+  const sxL = trySnap(newX, pts.xs);
+  const sxC = trySnap(cx, pts.xs);
+  const sxR = trySnap(rx, pts.xs);
+  if(sxL.snapped){ finalX = sxL.val; snapXval = sxL.val; }
+  else if(sxC.snapped){ finalX = sxC.val - layer.w/2; snapXval = sxC.val; }
+  else if(sxR.snapped){ finalX = sxR.val - layer.w; snapXval = sxR.val; }
+
+  // Snap Y: superior, centro, inferior
+  let finalY = newY; let snapYval = null;
+  const syT = trySnap(newY, pts.ys);
+  const syC = trySnap(cy, pts.ys);
+  const syB = trySnap(ry, pts.ys);
+  if(syT.snapped){ finalY = syT.val; snapYval = syT.val; }
+  else if(syC.snapped){ finalY = syC.val - layer.h/2; snapYval = syC.val; }
+  else if(syB.snapped){ finalY = syB.val - layer.h; snapYval = syB.val; }
+
+  // Mostrar guías
+  const gv = getOrCreateGuide('v');
+  const gh = getOrCreateGuide('h');
+  if(snapXval !== null){
+    gv.style.display='block'; gv.style.left = snapXval+'px';
+  } else { gv.style.display='none'; }
+  if(snapYval !== null){
+    gh.style.display='block'; gh.style.top = snapYval+'px';
+  } else { gh.style.display='none'; }
+
+  return {x: Math.round(finalX), y: Math.round(finalY)};
+}
+
+// Snap para selección múltiple: snap sobre el bounding box conjunto
+function applySnapMulti(deltaX, deltaY, origPositions, origBounds){
+  const pts = getSnapPoints(multiselIds);
+  const b = origBounds;
+  const newMinX = b.minX + deltaX, newMinY = b.minY + deltaY;
+  const newMaxX = b.maxX + deltaX, newMaxY = b.maxY + deltaY;
+  const newCX = (newMinX+newMaxX)/2, newCY = (newMinY+newMaxY)/2;
+
+  let dxAdj = deltaX; let snapXval = null;
+  const sxL = trySnap(newMinX, pts.xs);
+  const sxC = trySnap(newCX, pts.xs);
+  const sxR = trySnap(newMaxX, pts.xs);
+  if(sxL.snapped){ dxAdj = deltaX+(sxL.val-newMinX); snapXval=sxL.val; }
+  else if(sxC.snapped){ dxAdj = deltaX+(sxC.val-newCX); snapXval=sxC.val; }
+  else if(sxR.snapped){ dxAdj = deltaX+(sxR.val-newMaxX); snapXval=sxR.val; }
+
+  let dyAdj = deltaY; let snapYval = null;
+  const syT = trySnap(newMinY, pts.ys);
+  const syC = trySnap(newCY, pts.ys);
+  const syB = trySnap(newMaxY, pts.ys);
+  if(syT.snapped){ dyAdj = deltaY+(syT.val-newMinY); snapYval=syT.val; }
+  else if(syC.snapped){ dyAdj = deltaY+(syC.val-newCY); snapYval=syC.val; }
+  else if(syB.snapped){ dyAdj = deltaY+(syB.val-newMaxY); snapYval=syB.val; }
+
+  const gv = getOrCreateGuide('v');
+  const gh = getOrCreateGuide('h');
+  if(snapXval!==null){ gv.style.display='block'; gv.style.left=snapXval+'px'; }
+  else { gv.style.display='none'; }
+  if(snapYval!==null){ gh.style.display='block'; gh.style.top=snapYval+'px'; }
+  else { gh.style.display='none'; }
+
+  return {dx: dxAdj, dy: dyAdj};
+}
 </script>
 
 
