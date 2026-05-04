@@ -337,13 +337,13 @@ body.multisel-mode .cel.multisel-selected::after{
 /* Botón "Listo / Desactivar selección múltiple" */
 #multisel-done-btn{
   position:fixed;
-  bottom:calc(38vh + 16px);
+  bottom:calc(38vh + 52px);
   left:50%;transform:translateX(-50%);
   z-index:9100;
   background:var(--accent);color:#002b22;
   border:none;border-radius:999px;
-  padding:10px 22px;
-  font-size:0.82rem;font-weight:800;
+  padding:9px 20px;
+  font-size:0.8rem;font-weight:800;
   font-family:inherit;cursor:pointer;
   box-shadow:0 4px 20px rgba(21,214,164,0.5);
   display:none;
@@ -355,16 +355,16 @@ body.multisel-mode .cel.multisel-selected::after{
 /* Barra de acciones multi-select */
 #multisel-bar{
   position:fixed;
-  bottom:calc(38vh + 0px);
+  bottom:38vh;
   left:0;right:0;
   z-index:9099;
-  background:rgba(26,26,46,0.96);
+  background:rgba(26,26,46,0.97);
   border-top:1px solid rgba(255,255,255,0.08);
-  padding:10px 16px 10px;
+  padding:8px 12px 8px;
   display:none;
   align-items:center;
   justify-content:space-between;
-  gap:10px;
+  gap:8px;
 }
 #multisel-bar.show{display:flex;}
 #multisel-bar .mbar-info{
@@ -1140,6 +1140,8 @@ function makeDraggable(el, layer, onTap){
 
   el.addEventListener('touchmove', e=>{
     if(e.touches.length!==1) return;
+    // En modo multi-select: si la capa está seleccionada el movimiento lo maneja installMultiTapHandlers
+    if(multiselActive) return;
     // Solo mover si esta capa está activa
     if(activeLayer !== layer) return;
     e.preventDefault(); e.stopPropagation();
@@ -1158,6 +1160,7 @@ function makeDraggable(el, layer, onTap){
 
   el.addEventListener('touchend', e=>{
     e.stopPropagation();
+    if(multiselActive) return; // en modo multi-select, lo maneja installMultiTapHandlers
     if(moved){
       snapshot(); // guardar después de mover
     }
@@ -1347,6 +1350,7 @@ function buildEl(l){
       },{passive:true});
       el.addEventListener('touchmove',e=>{
         if(e.touches.length!==1)return;
+        if(multiselActive) return;
         e.preventDefault();e.stopPropagation();
         const t=e.touches[0];
         const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
@@ -1359,6 +1363,7 @@ function buildEl(l){
       },{passive:false});
       el.addEventListener('touchend',e=>{
         e.stopPropagation();
+        if(multiselActive) return;
         if(!moved) selectFrame(l.id);
         moved=false;
       },{passive:true});
@@ -1497,6 +1502,7 @@ function applyLogoToFrame(src, name){
       },{passive:true});
       l.el.addEventListener('touchmove',e=>{
         if(e.touches.length!==1)return;
+        if(multiselActive) return;
         e.preventDefault();e.stopPropagation();
         const t=e.touches[0];
         const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
@@ -1508,6 +1514,7 @@ function applyLogoToFrame(src, name){
       },{passive:false});
       l.el.addEventListener('touchend',e=>{
         e.stopPropagation();
+        if(multiselActive) return;
         if(!moved) selectFrame(l.id);
         moved=false;
       },{passive:true});
@@ -2923,13 +2930,13 @@ function startMultiSelect(){
   multiselIds.clear();
   document.body.classList.add('multisel-mode');
   hideSelBox();
-  // Marcar capas de tipo img como seleccionables
+  // Marcar capas de tipo img Y frame como seleccionables
   layers.forEach(l=>{
-    if(l.type==='img' && l.el && !l.locked){
+    if((l.type==='img' || l.type==='frame') && l.el && !l.locked){
       l.el.dataset.multiselectable = 'true';
     }
   });
-  // Instalar handlers de toque para cada capa img
+  // Instalar handlers de toque para cada capa img/frame
   installMultiTapHandlers();
   updateMultiselBar();
   document.getElementById('multisel-bar').classList.add('show');
@@ -2976,7 +2983,7 @@ const _multiTapRefs = new Map(); // layer.id → {touchstart, touchmove, touchen
 
 function installMultiTapHandlers(){
   layers.forEach(l=>{
-    if(l.type !== 'img' || !l.el || l.locked) return;
+    if((l.type !== 'img' && l.type !== 'frame') || !l.el || l.locked) return;
     const el = l.el;
 
     let tapStartX = 0, tapStartY = 0, tapMoved = false;
