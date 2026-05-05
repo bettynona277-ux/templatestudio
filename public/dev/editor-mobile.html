@@ -1442,28 +1442,34 @@ function applyLogoToFrame(src, name){
   const l = layers.find(x=>x.id===frameSelId);
   if(!l || l.type!=='frame') return false;
 
-  // Actualizar datos de la capa
+  // Actualizar datos
   l.src = src;
   l.frameImage = src;
 
-  // Reconstruir el elemento limpio: clonamos el nodo para
-  // eliminar TODOS los event listeners acumulados de cambios anteriores
   if(l.el){
-    const parent = l.el.parentNode;
-    const oldEl = l.el;
+    const fBW = Number(l.frameBorderWidth || l.borderWidth || 0);
+    const fBC = l.frameBorderColor || l.borderColor || '#00ffc3';
+    l.el.style.boxSizing = 'border-box';
+    l.el.style.border = fBW > 0 ? `${fBW}px solid ${fBC}` : 'none';
 
-    // Crear elemento fresco con buildEl
-    oldEl.remove();
-    l.el = null;
-    buildEl(l);   // buildEl hace cvs.appendChild y asigna l.el
-
-    // Restaurar clase active si era el seleccionado
-    if(activeLayer === l){
-      l.el.classList.add('active-touch');
+    // Reusar o crear img interior — sin acumular listeners
+    let img = l.el.querySelector('.frame-inner');
+    if(!img){
+      img = document.createElement('img');
+      img.className = 'frame-inner';
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
+      // Limpiar hints vacíos antes de agregar img
+      l.el.innerHTML = '';
+      l.el.appendChild(img);
     }
+    img.src = cdnOpt(src);
+    img.id = 'fi-'+l.id;
+    img.crossOrigin = 'anonymous';
+    setTimeout(()=>applyImageVisuals(l), 0);
   }
 
   frameSelId = null;
+  l.el?.classList.remove('active-touch');
   document.getElementById('frame-hint').style.display = 'none';
   snapshot();
   toast('✓ Logo aplicado al marco');
@@ -2970,81 +2976,99 @@ function toggleMultiselLayer(layer){
   updateMultiselBox();
 }
 
-const _multiTapRefs = new Map();
+// Multi-select touch: handled via global overlay on cvs, not per-layer listeners
+// This avoids any risk of stale handlers blocking normal selection
+
+let _msOverlayActive = false;
+let _msGlobalStart = null; // {t0x, t0y, layerId, dragActive}
 
 function installMultiTapHandlers(){
-  layers.forEach(l=>{
-    if((l.type !== 'img' && l.type !== 'frame') || !l.el || l.locked) return;
-    const el = l.el;
-    let tapStartX=0, tapStartY=0, tapMoved=false, dragActive=false;
-
-    const onStart = e=>{
-      if(e.touches.length !== 1) return;
-      e.stopPropagation();
-      const t = e.touches[0];
-      tapStartX = t.clientX; tapStartY = t.clientY;
-      tapMoved = false;
-      dragActive = multiselIds.has(l.id);
-      if(dragActive){
-        _msStartX = t.clientX; _msStartY = t.clientY;
-        layers.forEach(x=>{
-          if(multiselIds.has(x.id)) _msStartPositions[x.id] = {x: x.x, y: x.y};
-        });
-      }
-    };
-
-    const onMove = e=>{
-      if(e.touches.length !== 1) return;
-      e.preventDefault(); e.stopPropagation();
-      const t = e.touches[0];
-      const dx = t.clientX - tapStartX;
-      const dy = t.clientY - tapStartY;
-      if(Math.abs(dx) > 6 || Math.abs(dy) > 6) tapMoved = true;
-      if(tapMoved && dragActive && multiselIds.has(l.id)){
-        const ddx = (t.clientX - _msStartX) / zoom_;
-        const ddy = (t.clientY - _msStartY) / zoom_;
-        const origB = {
-          minX: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.x ?? (lx?.x||0); })),
-          minY: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.y ?? (lx?.y||0); })),
-          maxX: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.x??0) + (lx?.w||0); })),
-          maxY: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.y??0) + (lx?.h||0); })),
-        };
-        const snapped = applySnapMulti(ddx, ddy, _msStartPositions, origB);
-        layers.forEach(x=>{
-          if(multiselIds.has(x.id) && _msStartPositions[x.id]){
-            x.x = Math.round(_msStartPositions[x.id].x + snapped.dx);
-            x.y = Math.round(_msStartPositions[x.id].y + snapped.dy);
-            if(x.el){ x.el.style.left = x.x+'px'; x.el.style.top = x.y+'px'; }
-          }
-        });
-        updateMultiselBox();
-      }
-    };
-
-    const onEnd = e=>{
-      e.stopPropagation();
-      if(!tapMoved){ toggleMultiselLayer(l); }
-      else if(dragActive){ hideGuides(); snapshot(); }
-      tapMoved = false;
-    };
-
-    el.addEventListener('touchstart', onStart, {passive:true});
-    el.addEventListener('touchmove', onMove, {passive:false});
-    el.addEventListener('touchend', onEnd, {passive:true});
-    _multiTapRefs.set(l.id, {onStart, onMove, onEnd});
-  });
+  if(_msOverlayActive) return;
+  _msOverlayActive = true;
+  // We listen at cvs level with capture=true so we intercept before layer handlers
+  cvs.addEventListener('touchstart', _msCvsStart, {capture:true, passive:true});
+  cvs.addEventListener('touchmove',  _msCvsMove,  {capture:true, passive:false});
+  cvs.addEventListener('touchend',   _msCvsEnd,   {capture:true, passive:true});
 }
 
 function removeMultiTapHandlers(){
-  _multiTapRefs.forEach((handlers, id)=>{
-    const l = layers.find(x=>x.id===id);
-    if(l && l.el){
-      l.el.removeEventListener('touchstart', handlers.onStart);
-      l.el.removeEventListener('touchmove', handlers.onMove);
-      l.el.removeEventListener('touchend', handlers.onEnd);
-    }
-  });
-  _multiTapRefs.clear();
+  if(!_msOverlayActive) return;
+  _msOverlayActive = false;
+  cvs.removeEventListener('touchstart', _msCvsStart, {capture:true});
+  cvs.removeEventListener('touchmove',  _msCvsMove,  {capture:true});
+  cvs.removeEventListener('touchend',   _msCvsEnd,   {capture:true});
+}
+
+function _msCvsStart(e){
+  if(!multiselActive || e.touches.length!==1) return;
+  const t = e.touches[0];
+  // Find which layer was touched
+  const hit = _msHitLayer(t.clientX, t.clientY);
+  _msGlobalStart = {
+    t0x: t.clientX, t0y: t.clientY,
+    moved: false,
+    layer: hit,
+    dragActive: hit && multiselIds.has(hit.id)
+  };
+  if(_msGlobalStart.dragActive){
+    _msStartX = t.clientX; _msStartY = t.clientY;
+    layers.forEach(x=>{
+      if(multiselIds.has(x.id)) _msStartPositions[x.id] = {x:x.x, y:x.y};
+    });
+  }
+}
+
+function _msCvsMove(e){
+  if(!multiselActive || !_msGlobalStart || e.touches.length!==1) return;
+  const t = e.touches[0];
+  const dx = t.clientX - _msGlobalStart.t0x;
+  const dy = t.clientY - _msGlobalStart.t0y;
+  if(Math.abs(dx)>6||Math.abs(dy)>6) _msGlobalStart.moved = true;
+  if(_msGlobalStart.moved && _msGlobalStart.dragActive){
+    e.preventDefault(); e.stopPropagation();
+    const ddx = (t.clientX - _msStartX) / zoom_;
+    const ddy = (t.clientY - _msStartY) / zoom_;
+    const origB = {
+      minX: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.x??(lx?.x||0); })),
+      minY: Math.min(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return _msStartPositions[id]?.y??(lx?.y||0); })),
+      maxX: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.x??0)+(lx?.w||0); })),
+      maxY: Math.max(...[...multiselIds].map(id=>{ const lx=layers.find(x=>x.id===id); return (_msStartPositions[id]?.y??0)+(lx?.h||0); })),
+    };
+    const sn = applySnapMulti(ddx, ddy, _msStartPositions, origB);
+    layers.forEach(x=>{
+      if(multiselIds.has(x.id) && _msStartPositions[x.id]){
+        x.x = Math.round(_msStartPositions[x.id].x + sn.dx);
+        x.y = Math.round(_msStartPositions[x.id].y + sn.dy);
+        if(x.el){ x.el.style.left=x.x+'px'; x.el.style.top=x.y+'px'; }
+      }
+    });
+    updateMultiselBox();
+  }
+}
+
+function _msCvsEnd(e){
+  if(!multiselActive || !_msGlobalStart) return;
+  if(!_msGlobalStart.moved && _msGlobalStart.layer){
+    toggleMultiselLayer(_msGlobalStart.layer);
+  } else if(_msGlobalStart.moved && _msGlobalStart.dragActive){
+    hideGuides(); snapshot();
+  }
+  _msGlobalStart = null;
+}
+
+// Hit test: find topmost img/frame layer at screen coords
+function _msHitLayer(screenX, screenY){
+  const cvsRect = cvs.getBoundingClientRect();
+  const cx = (screenX - cvsRect.left) / zoom_;
+  const cy = (screenY - cvsRect.top)  / zoom_;
+  // Iterate in reverse zIndex order (topmost first)
+  const candidates = layers
+    .filter(l=>(l.type==='img'||l.type==='frame') && l.el && !l.locked && l.visible)
+    .sort((a,b)=>(b.zIndex||0)-(a.zIndex||0));
+  for(const l of candidates){
+    if(cx >= l.x && cx <= l.x+l.w && cy >= l.y && cy <= l.y+l.h) return l;
+  }
+  return null;
 }
 
 function installMultiHandleHandlers(){
