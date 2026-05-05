@@ -3058,15 +3058,19 @@ function _msCvsEnd(e){
 
 // Hit test: find topmost img/frame layer at screen coords
 function _msHitLayer(screenX, screenY){
-  const cvsRect = cvs.getBoundingClientRect();
-  const cx = (screenX - cvsRect.left) / zoom_;
-  const cy = (screenY - cvsRect.top)  / zoom_;
-  // Iterate in reverse zIndex order (topmost first)
-  const candidates = layers
-    .filter(l=>(l.type==='img'||l.type==='frame') && l.el && !l.locked && l.visible)
-    .sort((a,b)=>(b.zIndex||0)-(a.zIndex||0));
-  for(const l of candidates){
-    if(cx >= l.x && cx <= l.x+l.w && cy >= l.y && cy <= l.y+l.h) return l;
+  // Use elementFromPoint for reliable hit detection (handles border-radius, overlap, etc.)
+  const el = document.elementFromPoint(screenX, screenY);
+  if(!el) return null;
+  // Walk up the DOM to find a .cel that belongs to a layer
+  let target = el;
+  while(target && target !== cvs){
+    const layer = layers.find(l =>
+      l.el === target &&
+      (l.type==='img' || l.type==='frame') &&
+      !l.locked
+    );
+    if(layer) return layer;
+    target = target.parentElement;
   }
   return null;
 }
