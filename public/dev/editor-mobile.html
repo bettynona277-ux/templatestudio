@@ -1312,25 +1312,32 @@ function buildEl(l){
     {
       let sx,sy,sl,st,moved=false;
       el.addEventListener('touchstart',e=>{
-        if(l.locked) return; // no mover capas bloqueadas
-        if(e.touches.length!==1)return;
+        if(l.locked) return;
+        if(e.touches.length!==1) return;
+        if(multiselActive) return; // multisel maneja esto en cvs capture
         e.stopPropagation();
         const t=e.touches[0];
-        sx=t.clientX;sy=t.clientY;sl=l.x;st=l.y;moved=false;
+        sx=t.clientX; sy=t.clientY; sl=l.x; st=l.y; moved=false;
       },{passive:true});
       el.addEventListener('touchmove',e=>{
-        if(e.touches.length!==1)return;
+        if(e.touches.length!==1) return;
         if(multiselActive) return;
-        e.preventDefault();e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         const t=e.touches[0];
         const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
         if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
         if(moved){
           const sn = applySnapSingle(l, sl+dx, st+dy);
           l.x=sn.x; l.y=sn.y;
-          el.style.left=l.x+'px';el.style.top=l.y+'px';
+          el.style.left=l.x+'px'; el.style.top=l.y+'px';
           if(activeLayer===l) updateSelBox();
         }
+      },{passive:false});
+      el.addEventListener('touchend',e=>{
+        if(multiselActive) return;
+        e.stopPropagation();
+        if(moved){ hideGuides(); snapshot(); }
+        else { selectFrame(l.id); }
         moved=false;
       },{passive:true});
     }
