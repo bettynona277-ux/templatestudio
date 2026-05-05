@@ -334,11 +334,19 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 <!-- MODAL VER LINK DE DISEÑO -->
 <div class="modal-overlay" id="link-modal">
   <div class="modal-box">
-    <h3>🔗 Link de acceso del cliente</h3>
-    <p>Comparte este link con tu cliente para que pueda editar su diseño:</p>
-    <div class="link-display" id="link-display-url"></div>
+    <h3>🔗 Link del diseño</h3>
+    <p id="link-modal-sub">Copia y comparte — se adapta automáticamente a celular o PC:</p>
+
+    <div id="link-draft-warn" style="display:none;background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.25);border-radius:8px;padding:9px 12px;font-size:0.75rem;color:var(--yellow);margin-bottom:12px;">
+      ⚠️ Esta plantilla es un <strong>borrador</strong>. El link funciona pero el cliente no la verá en su lista hasta que la publiques.
+    </div>
+
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;">
+      <div class="link-display" id="link-display-url" style="flex:1;margin:0;cursor:pointer;" onclick="copyAndFlash()"></div>
+      <button id="link-copy-btn" class="btn btn-green" style="flex-shrink:0;white-space:nowrap;" onclick="copyAndFlash()">📋 Copiar</button>
+    </div>
+
     <div class="modal-actions">
-      <button class="btn btn-green" onclick="copyDesignLink()">📋 Copiar link</button>
       <button class="btn btn-ghost" onclick="closeLinkModal()">Cerrar</button>
     </div>
   </div>
@@ -579,6 +587,7 @@ function renderTemplates() {
         <div class="tpl-actions">
           <button onclick="editTemplate('${d.id}')">✏️ Editar</button>
           <button onclick="${isDraft?`publishTemplate('${d.id}')`:`draftTemplate('${d.id}')`}">${isDraft?'🚀 Publicar':'📁 Borrador'}</button>
+          <button onclick="showTemplateLink('${d.id}','${(d.name||'Diseño').replace(/'/g,"\\'")}',${isDraft})" style="${isDraft?'opacity:0.45;':''}color:var(--blue);">🔗 Link</button>
           <button onclick="deleteTpl('${d.id}')" style="color:var(--accent2);">🗑️</button>
         </div>
       </div>`;
@@ -698,11 +707,42 @@ async function deleteUser(id) {
 }
 
 // ══════════════════════════════════════════
-// MODAL LINK
+// MODAL LINK DE PLANTILLA
 // ══════════════════════════════════════════
+function showTemplateLink(id, name, isDraft) {
+  const url = `${location.origin}/editor.html?tpl=${id}`;
+  _currentLinkUrl = url;
+  document.getElementById('link-display-url').textContent = url;
+  document.getElementById('link-modal-sub').textContent = `"${name}" — se adapta automáticamente a celular o PC:`;
+  document.getElementById('link-draft-warn').style.display = isDraft ? 'block' : 'none';
+  document.getElementById('link-copy-btn').textContent = '📋 Copiar';
+  document.getElementById('link-copy-btn').style.cssText = '';
+  document.getElementById('link-modal').classList.add('open');
+}
+
+function copyAndFlash() {
+  const url = _currentLinkUrl;
+  const btn = document.getElementById('link-copy-btn');
+  navigator.clipboard.writeText(url).then(() => {
+    btn.textContent = '✓ Copiado!';
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#000';
+    setTimeout(() => {
+      btn.textContent = '📋 Copiar';
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2000);
+    showToast('✓ Link copiado al portapapeles');
+  }).catch(() => { prompt('Copia este link:', url); });
+}
+
 function showLinkModal(url, email) {
   _currentLinkUrl = url;
   document.getElementById('link-display-url').textContent = url;
+  document.getElementById('link-modal-sub').textContent = `Link de acceso para ${email}:`;
+  document.getElementById('link-draft-warn').style.display = 'none';
+  document.getElementById('link-copy-btn').textContent = '📋 Copiar';
+  document.getElementById('link-copy-btn').style.cssText = '';
   document.getElementById('link-modal').classList.add('open');
 }
 
@@ -711,7 +751,7 @@ function closeLinkModal() {
 }
 
 function copyDesignLink() {
-  copyText(_currentLinkUrl);
+  copyAndFlash();
 }
 
 function copyText(text) {
