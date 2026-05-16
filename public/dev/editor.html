@@ -3619,6 +3619,11 @@ function toggleCase(mode){
   const newTransform = mode==='upper'
     ? (first.tp.textTransform==='uppercase'?'none':'uppercase')
     : (first.tp.textTransform==='lowercase'?'none':'lowercase');
+  if(applyRichStyleToSelection(richStyleForTextProp('textTransform', newTransform))){
+    document.getElementById('fmt-upper').classList.toggle('active',newTransform==='uppercase');
+    document.getElementById('fmt-lower').classList.toggle('active',newTransform==='lowercase');
+    return;
+  }
   ls.forEach(l=>{ l.tp.textTransform=newTransform; applyTextStyles(l); });
   document.getElementById('fmt-upper').classList.toggle('active',newTransform==='uppercase');
   document.getElementById('fmt-lower').classList.toggle('active',newTransform==='lowercase');
@@ -5399,6 +5404,7 @@ function getSelectedFrameLayers(){
 // Font size: update ONLY font size, not box size
 function updTxtSize(v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
+  if(applyRichStyleToSelection(richStyleForTextProp('fontSize', v))) return;
   ls.forEach(l=>{ l.tp.fontSize=parseInt(v)||16; applyTextStyles(l); });
   snapshotState();
 }
@@ -5408,20 +5414,21 @@ function updTxtSize(v){
 // - Si no hay selección → color a toda la capa (comportamiento original)
 // Quitar todos los colores individuales — volver al color uniforme de la capa
 function clearRichText(){
-  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
-  const d = document.getElementById('ti-'+l.id); if(!d) return;
-  // Extraer texto plano quitando todos los spans
-  const tmp = document.createElement('div');
-  tmp.innerHTML = l.tp.html || d.innerHTML;
-  tmp.querySelectorAll('span').forEach(s=>{
-    while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
-    s.remove();
+  const ls = getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    const d = document.getElementById('ti-'+l.id); if(!d) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = l.tp.html || d.innerHTML;
+    tmp.querySelectorAll('span').forEach(s=>{
+      while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+      s.remove();
+    });
+    l.tp.html = null;
+    l.tp.text = tmp.textContent;
+    d.innerHTML = '';
+    d.textContent = l.tp.text;
+    applyTextStyles(l);
   });
-  l.tp.html = null;
-  l.tp.text = tmp.textContent;
-  d.innerHTML = '';
-  d.textContent = l.tp.text;
-  applyTextStyles(l);
   syncP();
   snapshotState();
 }
@@ -5434,23 +5441,122 @@ function rgbToHex(rgb){
   return '#'+[m[1],m[2],m[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');
 }
 
+let savedRichTextSelection = null;
+function getTextLayerFromEditable(editable){
+  if(!editable?.id?.startsWith('ti-')) return null;
+  const id = parseInt(editable.id.slice(3), 10);
+  return layers.find(l=>l.id===id && l.type==='text' && l.tp) || null;
+}
+function rememberRichTextSelection(){
+  const sel = window.getSelection();
+  if(!sel || !sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const node = range.commonAncestorContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  const editable = el?.closest?.('.txt-inner');
+  const layer = getTextLayerFromEditable(editable);
+  if(!layer || editable.contentEditable !== 'true') return;
+  savedRichTextSelection = { layerId: layer.id, range: range.cloneRange() };
+}
+document.addEventListener('selectionchange', rememberRichTextSelection);
+document.addEventListener('mouseup', rememberRichTextSelection);
+document.addEventListener('keyup', rememberRichTextSelection);
+
+function getRichSelectionTarget(){
+  const selectedTextLayers = getSelectedTextLayers();
+  if(selectedTextLayers.length !== 1) return null;
+  const layer = selectedTextLayers[0];
+  const editable = document.getElementById('ti-'+layer.id);
+  if(!editable || editable.contentEditable !== 'true') return null;
+
+  const current = window.getSelection();
+  if(current && current.rangeCount && !current.isCollapsed){
+    const range = current.getRangeAt(0);
+    if(editable.contains(range.commonAncestorContainer)){
+      savedRichTextSelection = { layerId: layer.id, range: range.cloneRange() };
+      return { layer, editable, range: range.cloneRange() };
+    }
+  }
+
+  if(savedRichTextSelection?.layerId === layer.id){
+    const range = savedRichTextSelection.range;
+    if(range && editable.contains(range.commonAncestorContainer)){
+      return { layer, editable, range: range.cloneRange() };
+    }
+  }
+  return null;
+}
+
+function applyRichStyleToSelection(styles){
+  const target = getRichSelectionTarget();
+  if(!target) return false;
+  const {layer, editable, range} = target;
+  if(range.collapsed) return false;
+  const span = document.createElement('span');
+  Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined && v!==null) span.style[k]=String(v); });
+  try{
+    const fragment = range.extractContents();
+    if(!fragment.textContent) return false;
+    span.appendChild(fragment);
+    range.insertNode(span);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    sel.addRange(newRange);
+    savedRichTextSelection = { layerId: layer.id, range: newRange.cloneRange() };
+    layer.tp.text = editable.innerText || editable.textContent;
+    layer.tp.html = editable.innerHTML.includes('<span') ? editable.innerHTML : null;
+    syncP();
+    snapshotState();
+    return true;
+  }catch(e){
+    console.warn('No se pudo aplicar estilo parcial:', e.message);
+    return false;
+  }
+}
+
+function getRichSelectionComputed(prop){
+  const target = getRichSelectionTarget();
+  if(!target) return '';
+  const node = target.range.startContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  return window.getComputedStyle(el || target.editable)[prop] || '';
+}
+
+function richStyleForTextProp(p,v){
+  if(p==='color') return {color:v};
+  if(p==='fontFamily') return {fontFamily:v};
+  if(p==='fontWeight') return {fontWeight:v};
+  if(p==='fontSize') return {fontSize:(parseInt(v)||16)+'px'};
+  if(p==='italic') return {fontStyle:v?'italic':'normal'};
+  if(p==='underline') return {textDecoration:v?'underline':'none'};
+  if(p==='letterSpacing') return {letterSpacing:(parseFloat(v)||0)+'px'};
+  if(p==='lineHeight') return {lineHeight:String(parseFloat(v)||1.2)};
+  if(p==='textTransform') return {textTransform:v||'none'};
+  return null;
+}
+
 function applyColorSmart(color){
   if(!color) return;
-  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
-  const d = document.getElementById('ti-'+l.id); if(!d) return;
+  const selectedTextLayers = getSelectedTextLayers();
+  if(!selectedTextLayers.length) return;
+  const l = selectedTextLayers.length === 1 ? selectedTextLayers[0] : null;
+  const d = l ? document.getElementById('ti-'+l.id) : null;
 
   // Sincronizar el color picker con el hex input y viceversa
   const fc = document.getElementById('pp-fc');
   const fch = document.getElementById('pp-fc-hex');
   if(fc && fc.value !== color) fc.value = color;
   if(fch && fch.value !== color) fch.value = color;
+  if(applyRichStyleToSelection({color})) return;
 
   // Verificar si hay selección de texto dentro del div
   const sel = window.getSelection();
   const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
-  const inThisDiv = hasSelection && d.contains(sel.getRangeAt(0).commonAncestorContainer);
+  const inThisDiv = hasSelection && d && d.contains(sel.getRangeAt(0).commonAncestorContainer);
 
-  if(inThisDiv && d.contentEditable === 'true'){
+  if(l && inThisDiv && d.contentEditable === 'true'){
     // ── Rich text: aplicar color solo a la selección ──
     const range = sel.getRangeAt(0);
     // Crear un span con el color
@@ -5479,24 +5585,35 @@ function applyColorSmart(color){
   } else {
     // ── Sin selección: aplicar a toda la capa (comportamiento original) ──
     // Si había rich text, limpiar los spans y aplicar color uniforme
-    if(l.tp.html){
+    selectedTextLayers.forEach(tl=>{
+      const td = document.getElementById('ti-'+tl.id);
+      if(tl.tp.html){
       // Quitar todos los spans de color del innerHTML
       const tmp = document.createElement('div');
-      tmp.innerHTML = l.tp.html;
+      tmp.innerHTML = tl.tp.html;
       tmp.querySelectorAll('span[style*="color"]').forEach(s=>{
         // Reemplazar el span por su contenido
         while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
         s.remove();
       });
-      l.tp.html = null;
-      d.innerHTML = tmp.innerHTML;
-    }
+      tl.tp.html = null;
+      if(td) td.innerHTML = tmp.innerHTML;
+      }
+    });
     updTS('color', color);
   }
 }
 
 function updTS(p,v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
+  const richStyle = richStyleForTextProp(p,v);
+  if(richStyle && applyRichStyleToSelection(richStyle)){
+    if(p==='color'){
+      const hex=document.getElementById('pp-fc-hex');
+      if(hex) hex.value = v;
+    }
+    return;
+  }
   ls.forEach(l=>{
     if(p==='color') l.tp.color=v;
     else if(p==='fontFamily') l.tp.fontFamily=v;
@@ -5518,17 +5635,33 @@ function toggleFmt(type){
   // Determinar nuevo valor basado en la primera capa
   const first=ls[0];
   if(type==='bold'){
-    const isBold=first.tp.fontWeight>='700';
+    const richWeight = parseInt(getRichSelectionComputed('fontWeight'),10);
+    const isBold=Number.isFinite(richWeight) ? richWeight>=700 : first.tp.fontWeight>='700';
     const newW=isBold?'400':'700';
+    if(applyRichStyleToSelection(richStyleForTextProp('fontWeight', newW))){
+      document.getElementById('pp-fw').value=newW;
+      document.getElementById('fmt-b').classList.toggle('active',!isBold);
+      return;
+    }
     ls.forEach(l=>{ l.tp.fontWeight=newW; applyTextStyles(l); });
     document.getElementById('pp-fw').value=newW;
     document.getElementById('fmt-b').classList.toggle('active',!isBold);
   } else if(type==='italic'){
-    const newVal=!first.tp.italic;
+    const richItalic = getRichSelectionComputed('fontStyle');
+    const newVal=richItalic ? richItalic!=='italic' : !first.tp.italic;
+    if(applyRichStyleToSelection(richStyleForTextProp('italic', newVal))){
+      document.getElementById('fmt-i').classList.toggle('active',newVal);
+      return;
+    }
     ls.forEach(l=>{ l.tp.italic=newVal; applyTextStyles(l); });
     document.getElementById('fmt-i').classList.toggle('active',newVal);
   } else if(type==='underline'){
-    const newVal=!first.tp.underline;
+    const richUnderline = getRichSelectionComputed('textDecorationLine');
+    const newVal=richUnderline ? !richUnderline.includes('underline') : !first.tp.underline;
+    if(applyRichStyleToSelection(richStyleForTextProp('underline', newVal))){
+      document.getElementById('fmt-u').classList.toggle('active',newVal);
+      return;
+    }
     ls.forEach(l=>{ l.tp.underline=newVal; applyTextStyles(l); });
     document.getElementById('fmt-u').classList.toggle('active',newVal);
   }
