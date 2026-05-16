@@ -1421,6 +1421,18 @@ input[type=range]{filter:none !important;}
               <input type="range" id="pp-lightness" min="-100" max="100" step="1" value="0" style="flex:1;" oninput="updImageAdjustments()">
               <span id="pp-lightness-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">0%</span>
             </div>
+            <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <label class="mini-lbl" style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="pp-colorize-enabled" onchange="updImageAdjustments()">
+                Colorear
+              </label>
+              <input type="color" id="pp-colorize-color" value="#ff005c" oninput="updImageAdjustments()" style="width:42px;height:30px;border:none;border-radius:6px;cursor:pointer;">
+            </div>
+            <div class="mini-lbl" style="margin-top:8px;">Intensidad color</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="pp-colorize-strength" min="0" max="100" step="1" value="0" style="flex:1;" oninput="updImageAdjustments()">
+              <span id="pp-colorize-strength-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">0%</span>
+            </div>
           </div>
         </details>
       </div>
@@ -3101,7 +3113,7 @@ function addImgLayer(src,name){
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height,
-      blur:0,hue:0,saturation:0,lightness:0};
+      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
     layers.push(l);mkEl(l);renderList();sel(l.id);
   };img.src=src;
 }
@@ -3611,7 +3623,7 @@ function addLogoToCanvas(src, name){
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height,
-      blur:0,hue:0,saturation:0,lightness:0};
+      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
     layers.push(l); mkEl(l); renderList(); sel(l.id);
     snapshotState();
     showToast('✓ Logo agregado al canvas');
@@ -3743,7 +3755,7 @@ function addShape(type){
   const l={id:lCtr++,type:'img',name:'Forma',src:url,
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
     opacity,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:w,origH:h,isShape:true,shapeType:type,shapeFill:fill,shapeStrokeColor:stroke,shapeStrokeWidth:strokeW,shapeSvg:svg,
-    blur:0,hue:0,saturation:0,lightness:0};
+    blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
 }
 
@@ -4965,6 +4977,9 @@ function copyStyleFromLayer(layer){
         hue: layer.hue||0,
         saturation: layer.saturation||0,
         lightness: layer.lightness||0,
+        colorizeEnabled: !!layer.colorizeEnabled,
+        colorizeColor: layer.colorizeColor||'#ff005c',
+        colorizeStrength: layer.colorizeStrength||0,
         flipX: !!layer.flipX,
         flipY: !!layer.flipY,
         rotation: getLayerRotation(layer)
@@ -4979,6 +4994,9 @@ function copyStyleFromLayer(layer){
         hue: layer.hue||0,
         saturation: layer.saturation||0,
         lightness: layer.lightness||0,
+        colorizeEnabled: !!layer.colorizeEnabled,
+        colorizeColor: layer.colorizeColor||'#ff005c',
+        colorizeStrength: layer.colorizeStrength||0,
         flipX: !!layer.flipX,
         flipY: !!layer.flipY,
         rotation: getLayerRotation(layer)
@@ -5320,13 +5338,36 @@ function getImageTargetElement(layer){
   if(layer.type==='frame' && layer.frameImage) return document.getElementById('fi-'+layer.id);
   return null;
 }
+function hexToHue(hex){
+  const {r,g,b}=hexToRgb(hex||'#ff005c');
+  const rn=r/255, gn=g/255, bn=b/255;
+  const max=Math.max(rn,gn,bn), min=Math.min(rn,gn,bn);
+  const d=max-min;
+  if(d===0) return 0;
+  let h=0;
+  if(max===rn) h=((gn-bn)/d)%6;
+  else if(max===gn) h=(bn-rn)/d+2;
+  else h=(rn-gn)/d+4;
+  h=Math.round(h*60);
+  return h<0?h+360:h;
+}
 function imageFilterString(layer){
   const blur = Number(layer?.blur || 0);
   const hue = Number(layer?.hue || 0);
   const saturation = Number(layer?.saturation || 0);
   const lightness = Number(layer?.lightness || 0);
+  const colorizeStrength = Number(layer?.colorizeStrength || 0);
+  const colorizeEnabled = !!layer?.colorizeEnabled && colorizeStrength > 0;
   const filters = [];
   if(blur > 0) filters.push(`blur(${blur}px)`);
+  if(colorizeEnabled){
+    const targetHue = hexToHue(layer.colorizeColor || '#ff005c');
+    const amount = Math.max(0, Math.min(100, colorizeStrength));
+    filters.push(`grayscale(${amount}%)`);
+    filters.push(`sepia(${amount}%)`);
+    filters.push(`saturate(${100 + amount * 9}%)`);
+    filters.push(`hue-rotate(${targetHue - 48}deg)`);
+  }
   if(hue) filters.push(`hue-rotate(${hue}deg)`);
   if(saturation) filters.push(`saturate(${Math.max(0, 100 + saturation)}%)`);
   if(lightness) filters.push(`brightness(${Math.max(0, 100 + lightness)}%)`);
@@ -5359,12 +5400,17 @@ function syncImageAdjustmentLabels(layer){
   if(satLbl) satLbl.textContent = `${Number(layer?.saturation||0)}%`;
   const lightLbl = document.getElementById('pp-lightness-lbl');
   if(lightLbl) lightLbl.textContent = `${Number(layer?.lightness||0)}%`;
+  const colorizeLbl = document.getElementById('pp-colorize-strength-lbl');
+  if(colorizeLbl) colorizeLbl.textContent = `${Number(layer?.colorizeStrength||0)}%`;
 }
 function updImageAdjustments(){
   const blur = parseFloat(document.getElementById('pp-blur')?.value)||0;
   const hue = parseFloat(document.getElementById('pp-hue')?.value)||0;
   const saturation = parseFloat(document.getElementById('pp-saturation')?.value)||0;
   const lightness = parseFloat(document.getElementById('pp-lightness')?.value)||0;
+  const colorizeEnabled = !!document.getElementById('pp-colorize-enabled')?.checked;
+  const colorizeColor = document.getElementById('pp-colorize-color')?.value || '#ff005c';
+  const colorizeStrength = parseFloat(document.getElementById('pp-colorize-strength')?.value)||0;
   const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
   if(!ids.length) return;
   let applied=false;
@@ -5375,10 +5421,13 @@ function updImageAdjustments(){
     l.hue = hue;
     l.saturation = saturation;
     l.lightness = lightness;
+    l.colorizeEnabled = colorizeEnabled;
+    l.colorizeColor = colorizeColor;
+    l.colorizeStrength = colorizeStrength;
     applyImageVisuals(l);
     applied=true;
   });
-  syncImageAdjustmentLabels({blur,hue,saturation,lightness});
+  syncImageAdjustmentLabels({blur,hue,saturation,lightness,colorizeStrength});
   if(applied) snapshotState();
 }
 function updImageBlur(value){
@@ -5500,11 +5549,14 @@ function syncP(){
     const ih=document.getElementById('pp-hue'); if(ih) ih.value=Number(l.hue||0);
     const isat=document.getElementById('pp-saturation'); if(isat) isat.value=Number(l.saturation||0);
     const il=document.getElementById('pp-lightness'); if(il) il.value=Number(l.lightness||0);
+    const ice=document.getElementById('pp-colorize-enabled'); if(ice) ice.checked=!!l.colorizeEnabled;
+    const icc=document.getElementById('pp-colorize-color'); if(icc) icc.value=(l.colorizeColor||'#ff005c').startsWith('#')?l.colorizeColor:'#ff005c';
+    const ics=document.getElementById('pp-colorize-strength'); if(ics) ics.value=Number(l.colorizeStrength||0);
     document.getElementById('pp-flipx')?.classList.toggle('active',!!l.flipX);
     document.getElementById('pp-flipy')?.classList.toggle('active',!!l.flipY);
     syncImageAdjustmentLabels(l);
     const iadj=document.getElementById('pp-img-adjust');
-    if(iadj) iadj.open = !!(Number(l.blur||0) || Number(l.hue||0) || Number(l.saturation||0) || Number(l.lightness||0));
+    if(iadj) iadj.open = !!(Number(l.blur||0) || Number(l.hue||0) || Number(l.saturation||0) || Number(l.lightness||0) || (l.colorizeEnabled && Number(l.colorizeStrength||0)));
     const itr=document.getElementById('pp-img-transform');
     if(itr) itr.open = !!(l.flipX || l.flipY);
   }
@@ -7467,6 +7519,9 @@ async function buildLayerData(){
     obj.hue = Number(l.hue||0);
     obj.saturation = Number(l.saturation||0);
     obj.lightness = Number(l.lightness||0);
+    obj.colorizeEnabled = !!l.colorizeEnabled;
+    obj.colorizeColor = l.colorizeColor || '#ff005c';
+    obj.colorizeStrength = Number(l.colorizeStrength||0);
     obj.flipX = !!l.flipX;
     obj.flipY = !!l.flipY;
     if(l.tp) obj.tp = {
@@ -7810,6 +7865,9 @@ function loadData(tpl){
         hue: 0,
         saturation: 0,
         lightness: 0,
+        colorizeEnabled: false,
+        colorizeColor: '#ff005c',
+        colorizeStrength: 0,
         recoveredFromThumb: true
       };
       layers.push(fallbackLayer);
@@ -7972,7 +8030,7 @@ function addImageLayerFromUrl(url){
         x: Math.round((cw-w)/2), y: Math.round((ch-h)/2),
         w, h,
         opacity:1, visible:true, zIndex:layers.length,
-        flipX:false, flipY:false, blur:0, hue:0, saturation:0, lightness:0, rotation:0
+        flipX:false, flipY:false, blur:0, hue:0, saturation:0, lightness:0, colorizeEnabled:false, colorizeColor:'#ff005c', colorizeStrength:0, rotation:0
       };
       layers.push(l); mkEl(l); renderList(); sel(l.id); snapshotState();
       showToast('🖼 Imagen pegada');
