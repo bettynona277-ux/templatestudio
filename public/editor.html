@@ -1801,17 +1801,87 @@ let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, isRot=false, dOff={x:0,y:0}, rSt={}, rotSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
 let isPrev=false;
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 6;
 
 // Optimizar URLs de Cloudinary para reducir bandwidth (~80% menos)
 // Solo aplica a URLs de res.cloudinary.com — no toca blobs, data:, ni URLs externas
-function cdnOpt(url){
+function cdnOpt(url, opts={}){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
-  const m = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
+  const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
   // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
-  return m[1] + 'q_auto,f_auto,fl_immutable_cache/' + (m[2]||'') + m[3];
+  const maxW = Math.max(40, Math.min(3000, parseInt(opts.w || 2000, 10)));
+  const quality = opts.quality || 'eco';
+  return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
 }
+
+const cloudinaryAuditStats = { uploads:0, uploadBytes:0, lastUploadAt:null, lastUploadNames:[] };
+(function initCloudinaryFetchAudit(){
+  if(window.__tsCloudinaryFetchAuditInstalled) return;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init={}){
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if(url.includes('api.cloudinary.com') && url.includes('/image/upload')){
+      cloudinaryAuditStats.uploads++;
+      cloudinaryAuditStats.lastUploadAt = new Date().toISOString();
+      try{
+        const file = init?.body instanceof FormData ? init.body.get('file') : null;
+        if(file?.size) cloudinaryAuditStats.uploadBytes += file.size;
+        if(file?.name) cloudinaryAuditStats.lastUploadNames.unshift(file.name);
+        cloudinaryAuditStats.lastUploadNames = cloudinaryAuditStats.lastUploadNames.slice(0,8);
+      }catch(_){}
+    }
+    return nativeFetch(input, init);
+  };
+  window.__tsCloudinaryFetchAuditInstalled = true;
+})();
+
+function tsCloudinaryAudit(){
+  const imgUrls = Array.from(document.images).map(img=>img.currentSrc || img.src).filter(Boolean);
+  const cloudinaryImgs = imgUrls.filter(src=>src.includes('res.cloudinary.com/'));
+  const optimizedImgs = cloudinaryImgs.filter(src=>src.includes('q_auto:') && src.includes('f_auto') && src.includes('c_limit,w_'));
+  const rawImgs = cloudinaryImgs.filter(src=>!optimizedImgs.includes(src));
+  const localAssets = (Array.isArray(layers)?layers:[]).flatMap(l=>[
+    {id:l.id,name:l.name,type:l.type,field:'src',src:l.src},
+    {id:l.id,name:l.name,type:l.type,field:'frameImage',src:l.frameImage}
+  ]).filter(x=>typeof x.src==='string' && (x.src.startsWith('blob:') || x.src.startsWith('data:')));
+  const largeLocalAssets = localAssets.filter(x=>x.src.startsWith('blob:') || Math.round(x.src.length*0.75/1024)>100);
+  const summary = {
+    domImages: imgUrls.length,
+    cloudinaryImages: cloudinaryImgs.length,
+    optimizedCloudinaryImages: optimizedImgs.length,
+    rawCloudinaryImages: rawImgs.length,
+    pendingLargeLocalAssets: largeLocalAssets.length,
+    uploadsThisSession: cloudinaryAuditStats.uploads,
+    uploadedKBThisSession: Math.round(cloudinaryAuditStats.uploadBytes/1024),
+    lastUploadAt: cloudinaryAuditStats.lastUploadAt,
+    lastUploadNames: cloudinaryAuditStats.lastUploadNames
+  };
+  console.table(summary);
+  if(rawImgs.length) console.warn('Cloudinary sin optimizar:', rawImgs.slice(0,10));
+  if(largeLocalAssets.length) console.info('Assets locales pendientes de guardado manual:', largeLocalAssets.map(x=>({id:x.id,name:x.name,type:x.type,field:x.field})));
+  if(typeof showToast === 'function') showToast(`Cloudinary: ${summary.optimizedCloudinaryImages}/${summary.cloudinaryImages} optimizadas, ${summary.uploadsThisSession} subidas`);
+  return summary;
+}
+window.tsCloudinaryAudit = tsCloudinaryAudit;
+window.tsCloudinaryAuditStats = cloudinaryAuditStats;
+
+function openCloudinaryAudit(){
+  const r = tsCloudinaryAudit();
+  alert(
+    'Auditoria Cloudinary\\n\\n' +
+    `Imagenes Cloudinary en pantalla: ${r.cloudinaryImages}\\n` +
+    `Optimizadas: ${r.optimizedCloudinaryImages}\\n` +
+    `Sin optimizar: ${r.rawCloudinaryImages}\\n` +
+    `Assets locales grandes pendientes: ${r.pendingLargeLocalAssets}\\n` +
+    `Subidas a Cloudinary en esta sesion: ${r.uploadsThisSession}\\n` +
+    `KB subidos en esta sesion: ${r.uploadedKBThisSession}`
+  );
+}
+window.openCloudinaryAudit = openCloudinaryAudit;
 
 const cvs=document.getElementById('cvs');
 
@@ -1832,9 +1902,10 @@ let copiedStyle = null;
 let styleMode = false;
 let styleSourceId = null;
 
-const SNAP_THRESHOLD=2;
+const SNAP_THRESHOLD=3;
 const GRID_SIZE=10;
 const GRID_SNAP_THRESHOLD=1;
+const GRID_SNAP_ENABLED=false;
 
 function ensureSmartGuides(){
   const needsV = !guideV || !guideV.isConnected;
@@ -1870,8 +1941,8 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   const w=layer.w, h=layer.h;
   const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
   const z = Math.max(zoom_ || 1, 0.35);
-  const snapThreshold = Math.max(3, Math.min(8, 6 / z));
-  const gridThreshold = Math.max(1, Math.min(3, 2 / z));
+  const snapThreshold = Math.max(2, Math.min(5, SNAP_THRESHOLD / z));
+  const gridThreshold = Math.max(1, Math.min(2, GRID_SNAP_THRESHOLD / z));
   let bestX={d:Infinity,val:null,guide:null};
   let bestY={d:Infinity,val:null,guide:null};
 
@@ -1897,9 +1968,11 @@ function applySmartSnapToLayer(layer,movingIds=[]){
     [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h],[oy,oy-h],[oy+oh,oy+oh]].forEach(([gy,ny])=>considerY(gy,ny));
   });
 
-  const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
-  if(bestX.val===null && gx!==x && Math.abs(gx-x) <= gridThreshold) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
-  if(bestY.val===null && gy!==y && Math.abs(gy-y) <= gridThreshold) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
+  if(GRID_SNAP_ENABLED){
+    const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
+    if(bestX.val===null && gx!==x && Math.abs(gx-x) <= gridThreshold) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
+    if(bestY.val===null && gy!==y && Math.abs(gy-y) <= gridThreshold) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
+  }
 
   if(bestX.val!==null){ x=Math.round(bestX.val); showGuideV(bestX.guide); }
   if(bestY.val!==null){ y=Math.round(bestY.val); showGuideH(bestY.guide); }
@@ -2139,9 +2212,18 @@ function showToast(msg){
 let groups = {};   // { groupId: [layerIds] }
 let gCtr = 0;
 
+function groupIdExists(gid){
+  return !!groups[gid] || layers.some(l=>l.groupId===gid);
+}
+function nextGroupId(){
+  let gid;
+  do{ gid = 'g' + (gCtr++); }while(groupIdExists(gid));
+  return gid;
+}
+
 function groupSelected(){
   if(selIds.length < 2){ showToast('Selecciona 2+ capas para agrupar'); return; }
-  const gid = 'g' + (gCtr++);
+  const gid = nextGroupId();
   selIds.forEach(id=>{ const l=layers.find(x=>x.id===id); if(l) l.groupId=gid; });
   groups[gid] = [...selIds];
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
@@ -2565,6 +2647,16 @@ function ensureDiagnosticsUI(){
     btn.onclick = openDiagnosticsModal;
     btn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
     row.insertBefore(btn, document.getElementById('btn-save') || row.firstChild);
+
+    const cdnBtn = document.createElement('button');
+    cdnBtn.className = 'tbtn tbtn-ghost';
+    cdnBtn.id = 'btn-cdn-audit';
+    cdnBtn.type = 'button';
+    cdnBtn.textContent = 'CDN';
+    cdnBtn.title = 'Auditar uso de Cloudinary en esta pantalla';
+    cdnBtn.onclick = openCloudinaryAudit;
+    cdnBtn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
+    row.insertBefore(cdnBtn, document.getElementById('btn-save') || row.firstChild);
   }
 
   if(document.getElementById('diag-overlay')) return;
@@ -2923,13 +3015,12 @@ function addImgLayer(src,name){
     const s=Math.min(1,Math.min(cw*0.95/w,ch*0.95/h));
     w=Math.round(w*s);h=Math.round(h*s);
 
-    // Upload to Cloudinary, use URL instead of base64
+    // Mantener local mientras se edita; se sube a Cloudinary solo si el usuario guarda.
     let finalSrc=src;
-    try{
-      const safeName=name.replace(/[^a-zA-Z0-9._-]/g,'_');
-      finalSrc=await uploadToStorage(src, `layer-images/${Date.now()}_${safeName}`);
-    }catch(e){
-      console.warn('Cloudinary upload failed, usando base64 local:',e.message);
+    const approxKB = typeof src === 'string' && src.startsWith('data:') ? Math.round(src.length * 0.75 / 1024) : 0;
+    if(approxKB > 1800){
+      try{ finalSrc = await compressImage(src, 1800, 1800, 0.86); }
+      catch(e){ console.warn('No se pudo comprimir imagen local:', e.message); }
     }
 
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
@@ -2983,22 +3074,16 @@ async function loadPSDData(data){
     updateControlScale();
   }, 100);
 
-  const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
-  let uploadedCount=0;
   let l_w_override, l_h_override; // used for text layer dimension correction
 
   for(const ld of data.layers){
     let finalSrc=ld.src||'';
 
-    // Upload base64 PSD layer images to Cloudinary
+    // Mantener capas PSD locales durante la edicion; Cloudinary se usa solo al guardar.
     if(!ld.isText && ld.src && ld.src.startsWith('data:')){
       try{
-        uploadedCount++;
-        setLoad(`Subiendo capa ${uploadedCount}/${totalImgLayers} a Cloudinary...`, 70+Math.round(uploadedCount/Math.max(totalImgLayers,1)*20));
-        const safeName=(ld.name||'layer').replace(/[^a-zA-Z0-9._-]/g,'_');
-        // Compress large images before uploading (Cloudinary free tier has 10MB limit)
-        const compressed = await compressImage(ld.src, 1500, 1500, 0.88);
-        finalSrc=await uploadToStorage(compressed, `layer-images/psd_${Date.now()}_${uploadedCount}_${safeName}.png`);
+        const approxKB = Math.round(ld.src.length * 0.75 / 1024);
+        if(approxKB > 1800) finalSrc = await compressImage(ld.src, 1800, 1800, 0.86);
       }catch(e){
         console.warn('Cloudinary upload para capa PSD falló:',ld.name,e.message);
         finalSrc=ld.src; // keep base64 in memory, will retry on save
@@ -3078,20 +3163,32 @@ async function compressImage(dataUrl, maxKB=400){
     const img=new Image();
     img.onload=()=>{
       let w=img.width, h=img.height;
-      const maxDim=800;
-      if(w>maxDim||h>maxDim){ const r=Math.min(maxDim/w,maxDim/h); w=Math.round(w*r); h=Math.round(h*r); }
+      const dimensionMode = arguments.length >= 3;
+      const maxW = dimensionMode ? (parseInt(maxKB)||1200) : 800;
+      const maxH = dimensionMode ? (parseInt(arguments[2])||maxW) : 800;
+      const quality = dimensionMode ? (Number(arguments[3])||0.85) : 0.85;
+      const targetKB = dimensionMode ? Math.max(260, Math.round((maxW * maxH) / 4200)) : maxKB;
+      if(w>maxW||h>maxH){ const r=Math.min(maxW/w,maxH/h); w=Math.round(w*r); h=Math.round(h*r); }
       const c=document.createElement('canvas'); c.width=w; c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      let result=c.toDataURL('image/png');
-      const sizeKB=result.length*0.75/1024;
-      if(sizeKB>maxKB){
-        const isPng2 = dataUrl.startsWith('data:image/png');
-        if(isPng2){
-          // PNG: recomprimir como PNG con menor resolución para preservar transparencia
-          result=c.toDataURL('image/png');
-        } else {
-          const q=Math.min(0.85,(maxKB/sizeKB)*0.85);
-          result=c.toDataURL('image/jpeg',q);
+      const ctx=c.getContext('2d');
+      const keepAlpha = dataUrl.startsWith('data:image/png') || dataUrl.startsWith('data:image/webp');
+      if(!keepAlpha){ ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); }
+      ctx.drawImage(img,0,0,w,h);
+      let result = keepAlpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', quality);
+      let sizeKB=result.length*0.75/1024;
+      if(sizeKB>targetKB && !keepAlpha){
+        const q=Math.max(0.58, Math.min(quality, (targetKB/sizeKB)*quality));
+        result=c.toDataURL('image/jpeg',q);
+        sizeKB=result.length*0.75/1024;
+      }
+      if(sizeKB>targetKB && keepAlpha){
+        const scale=Math.max(0.45, Math.sqrt(targetKB/sizeKB));
+        if(scale<0.98){
+          const c2=document.createElement('canvas');
+          c2.width=Math.max(80, Math.round(w*scale));
+          c2.height=Math.max(80, Math.round(h*scale));
+          c2.getContext('2d').drawImage(c,0,0,c2.width,c2.height);
+          result=c2.toDataURL('image/png');
         }
       }
       resolve(result);
@@ -3233,7 +3330,7 @@ function renderLogoLibrary(){
       const item=document.createElement('div');
       item.className='logo-lib-item';
       item.title='Clic para agregar al canvas';
-      item.innerHTML=`<img src="${cdnOpt(logo.url)}" alt="${logo.name||''}">
+      item.innerHTML=`<img src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name||''}">
         ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
       item.draggable=true;
       item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name||''));
@@ -3293,7 +3390,7 @@ function renderOwnLogosPC(){
     item.className='logo-lib-item';
     item.style.cssText='border:1px solid rgba(100,160,255,0.35);';
     item.title='Clic para agregar al canvas';
-    item.innerHTML=`<img src="${cdnOpt(logo.url)}" alt="${logo.name}">
+    item.innerHTML=`<img src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name}">
       <button class="logo-del" onclick="deleteOwnLogoPC('${logo.id}',event)" title="Eliminar" style="display:none;">✕</button>`;
     item.draggable=true;
     item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));
@@ -3363,7 +3460,8 @@ async function uploadLibraryLogos(ev){
     try{
       const reader=new FileReader();
       const dataUrl=await new Promise(r=>{reader.onload=e=>r(e.target.result);reader.readAsDataURL(file);});
-      const url=await uploadToStorage(dataUrl,`logos/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
+      const compressed=await compressImage(dataUrl,700);
+      const url=await uploadToStorage(compressed,`logos/${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi,'_')}`);
       await fbDb.collection('logos').add({url,name:file.name,categoria,createdAt:Date.now()});
     }catch(e){ console.warn('Logo upload failed:',e.message); }
   }
@@ -3521,6 +3619,11 @@ function toggleCase(mode){
   const newTransform = mode==='upper'
     ? (first.tp.textTransform==='uppercase'?'none':'uppercase')
     : (first.tp.textTransform==='lowercase'?'none':'lowercase');
+  if(applyRichStyleToSelection(richStyleForTextProp('textTransform', newTransform))){
+    document.getElementById('fmt-upper').classList.toggle('active',newTransform==='uppercase');
+    document.getElementById('fmt-lower').classList.toggle('active',newTransform==='lowercase');
+    return;
+  }
   ls.forEach(l=>{ l.tp.textTransform=newTransform; applyTextStyles(l); });
   document.getElementById('fmt-upper').classList.toggle('active',newTransform==='uppercase');
   document.getElementById('fmt-lower').classList.toggle('active',newTransform==='lowercase');
@@ -4081,6 +4184,19 @@ function mkEl(l){
       l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
       syncP();
     };
+    d.addEventListener('mousedown',ev=>{
+      ev.stopPropagation();
+      if(selId!==l.id) sel(l.id);
+    });
+    d.addEventListener('mouseup',()=>{
+      if(selId!==l.id) sel(l.id);
+      rememberRichTextSelection();
+      syncP();
+    });
+    d.addEventListener('keyup',()=>{
+      rememberRichTextSelection();
+      syncP();
+    });
     d.addEventListener('paste',ev=>{
       ev.preventDefault();
       const plain=(ev.clipboardData||window.clipboardData).getData('text/plain');
@@ -4097,18 +4213,37 @@ function mkEl(l){
       d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState();
     };
     el.appendChild(d);
-    // Single click = select, double click = edit
-    el.ondblclick=ev=>{
-      if(ev.target.classList.contains('rh'))return;
-      ev.stopPropagation();
+    const enterTextEdit=(ev)=>{
+      if(ev?.target?.classList?.contains('rh')) return;
+      if(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      sel(l.id);
       d.contentEditable='true';
       d.style.pointerEvents='auto';
       d.focus();
-      // Place cursor at end
-      const range=document.createRange();
-      range.selectNodeContents(d);range.collapse(false);
-      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+      const selObj=window.getSelection();
+      selObj.removeAllRanges();
+      let range=null;
+      if(ev && document.caretRangeFromPoint){
+        range=document.caretRangeFromPoint(ev.clientX, ev.clientY);
+      }else if(ev && document.caretPositionFromPoint){
+        const pos=document.caretPositionFromPoint(ev.clientX, ev.clientY);
+        if(pos){ range=document.createRange(); range.setStart(pos.offsetNode,pos.offset); range.collapse(true); }
+      }
+      if(!range || !d.contains(range.commonAncestorContainer)){
+        range=document.createRange();
+        range.selectNodeContents(d);
+        range.collapse(false);
+      }
+      selObj.addRange(range);
       el.style.outline='2px solid var(--accent)';
+      syncP();
+    };
+    // Single click = select, double click = edit
+    el.ondblclick=ev=>{
+      enterTextEdit(ev);
     };
   }
   // Size hint display none via CSS
@@ -4138,6 +4273,35 @@ function mkEl(l){
   el.onmousedown=ev=>{
     // Allow clicks on resize handles through
     if(ev.target.classList.contains('rh')) return;
+    if(l.type==='text' && ev.button===0 && ev.detail>=2){
+      const d=document.getElementById('ti-'+l.id);
+      if(d){
+        ev.preventDefault();
+        ev.stopPropagation();
+        sel(l.id);
+        d.contentEditable='true';
+        d.style.pointerEvents='auto';
+        d.focus();
+        const selObj=window.getSelection();
+        selObj.removeAllRanges();
+        let range=null;
+        if(document.caretRangeFromPoint){
+          range=document.caretRangeFromPoint(ev.clientX, ev.clientY);
+        }else if(document.caretPositionFromPoint){
+          const pos=document.caretPositionFromPoint(ev.clientX, ev.clientY);
+          if(pos){ range=document.createRange(); range.setStart(pos.offsetNode,pos.offset); range.collapse(true); }
+        }
+        if(!range || !d.contains(range.commonAncestorContainer)){
+          range=document.createRange();
+          range.selectNodeContents(d);
+          range.collapse(false);
+        }
+        selObj.addRange(range);
+        el.style.outline='2px solid var(--accent)';
+        syncP();
+        return;
+      }
+    }
     if(styleMode){
       ev.preventDefault();
       ev.stopPropagation();
@@ -4265,7 +4429,7 @@ function duplicateSelected(sourceId, noOffset=false){
 
   // Map: old groupId → new groupId (so duplicated groups stay grouped among themselves)
   const groupMap = {};
-  srcGroupIds.forEach(gid => { groupMap[gid] = 'g'+(gCtr++); });
+  srcGroupIds.forEach(gid => { groupMap[gid] = nextGroupId(); });
 
   const newIds=[];
   ids.forEach(id=>{
@@ -4449,7 +4613,7 @@ document.addEventListener('mousemove',ev=>{
             dOff.axisLocked=null;
           }
           const ghost={id:-1,x:nextX,y:nextY,w:baseBox.w,h:baseBox.h};
-          const snapped=applySmartSnapToLayer(ghost, ids);
+          const snapped=ev.altKey ? (hideSmartGuides(), {x:ghost.x,y:ghost.y}) : applySmartSnapToLayer(ghost, ids);
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
           multiDragStart.forEach(({id,x,y})=>{
             const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
@@ -4476,7 +4640,7 @@ document.addEventListener('mousemove',ev=>{
       dOff.axisLocked=null;
     }
     l.x=nx; l.y=ny;
-    const snapped=applySmartSnapToLayer(l, selIds);
+    const snapped=ev.altKey ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
     l.x=snapped.x; l.y=snapped.y;
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
 
@@ -5301,6 +5465,7 @@ function getSelectedFrameLayers(){
 // Font size: update ONLY font size, not box size
 function updTxtSize(v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
+  if(applyRichStyleToSelection(richStyleForTextProp('fontSize', v))) return;
   ls.forEach(l=>{ l.tp.fontSize=parseInt(v)||16; applyTextStyles(l); });
   snapshotState();
 }
@@ -5310,20 +5475,21 @@ function updTxtSize(v){
 // - Si no hay selección → color a toda la capa (comportamiento original)
 // Quitar todos los colores individuales — volver al color uniforme de la capa
 function clearRichText(){
-  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
-  const d = document.getElementById('ti-'+l.id); if(!d) return;
-  // Extraer texto plano quitando todos los spans
-  const tmp = document.createElement('div');
-  tmp.innerHTML = l.tp.html || d.innerHTML;
-  tmp.querySelectorAll('span').forEach(s=>{
-    while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
-    s.remove();
+  const ls = getSelectedTextLayers(); if(!ls.length) return;
+  ls.forEach(l=>{
+    const d = document.getElementById('ti-'+l.id); if(!d) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = l.tp.html || d.innerHTML;
+    tmp.querySelectorAll('span').forEach(s=>{
+      while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+      s.remove();
+    });
+    l.tp.html = null;
+    l.tp.text = tmp.textContent;
+    d.innerHTML = '';
+    d.textContent = l.tp.text;
+    applyTextStyles(l);
   });
-  l.tp.html = null;
-  l.tp.text = tmp.textContent;
-  d.innerHTML = '';
-  d.textContent = l.tp.text;
-  applyTextStyles(l);
   syncP();
   snapshotState();
 }
@@ -5336,23 +5502,122 @@ function rgbToHex(rgb){
   return '#'+[m[1],m[2],m[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');
 }
 
+let savedRichTextSelection = null;
+function getTextLayerFromEditable(editable){
+  if(!editable?.id?.startsWith('ti-')) return null;
+  const id = parseInt(editable.id.slice(3), 10);
+  return layers.find(l=>l.id===id && l.type==='text' && l.tp) || null;
+}
+function rememberRichTextSelection(){
+  const sel = window.getSelection();
+  if(!sel || !sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const node = range.commonAncestorContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  const editable = el?.closest?.('.txt-inner');
+  const layer = getTextLayerFromEditable(editable);
+  if(!layer || editable.contentEditable !== 'true') return;
+  savedRichTextSelection = { layerId: layer.id, range: range.cloneRange() };
+}
+document.addEventListener('selectionchange', rememberRichTextSelection);
+document.addEventListener('mouseup', rememberRichTextSelection);
+document.addEventListener('keyup', rememberRichTextSelection);
+
+function getRichSelectionTarget(){
+  const selectedTextLayers = getSelectedTextLayers();
+  if(selectedTextLayers.length !== 1) return null;
+  const layer = selectedTextLayers[0];
+  const editable = document.getElementById('ti-'+layer.id);
+  if(!editable) return null;
+
+  const current = window.getSelection();
+  if(current && current.rangeCount && !current.isCollapsed){
+    const range = current.getRangeAt(0);
+    if(editable.contains(range.commonAncestorContainer)){
+      savedRichTextSelection = { layerId: layer.id, range: range.cloneRange() };
+      return { layer, editable, range: range.cloneRange() };
+    }
+  }
+
+  if(savedRichTextSelection?.layerId === layer.id){
+    const range = savedRichTextSelection.range;
+    if(range && editable.contains(range.commonAncestorContainer)){
+      return { layer, editable, range: range.cloneRange() };
+    }
+  }
+  return null;
+}
+
+function applyRichStyleToSelection(styles){
+  const target = getRichSelectionTarget();
+  if(!target) return false;
+  const {layer, editable, range} = target;
+  if(range.collapsed) return false;
+  const span = document.createElement('span');
+  Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined && v!==null) span.style[k]=String(v); });
+  try{
+    const fragment = range.extractContents();
+    if(!fragment.textContent) return false;
+    span.appendChild(fragment);
+    range.insertNode(span);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    sel.addRange(newRange);
+    savedRichTextSelection = { layerId: layer.id, range: newRange.cloneRange() };
+    layer.tp.text = editable.innerText || editable.textContent;
+    layer.tp.html = editable.innerHTML.includes('<span') ? editable.innerHTML : null;
+    syncP();
+    snapshotState();
+    return true;
+  }catch(e){
+    console.warn('No se pudo aplicar estilo parcial:', e.message);
+    return false;
+  }
+}
+
+function getRichSelectionComputed(prop){
+  const target = getRichSelectionTarget();
+  if(!target) return '';
+  const node = target.range.startContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  return window.getComputedStyle(el || target.editable)[prop] || '';
+}
+
+function richStyleForTextProp(p,v){
+  if(p==='color') return {color:v};
+  if(p==='fontFamily') return {fontFamily:v};
+  if(p==='fontWeight') return {fontWeight:v};
+  if(p==='fontSize') return {fontSize:(parseInt(v)||16)+'px'};
+  if(p==='italic') return {fontStyle:v?'italic':'normal'};
+  if(p==='underline') return {textDecoration:v?'underline':'none'};
+  if(p==='letterSpacing') return {letterSpacing:(parseFloat(v)||0)+'px'};
+  if(p==='lineHeight') return {lineHeight:String(parseFloat(v)||1.2)};
+  if(p==='textTransform') return {textTransform:v||'none'};
+  return null;
+}
+
 function applyColorSmart(color){
   if(!color) return;
-  const l = layers.find(x=>x.id===selId); if(!l?.tp) return;
-  const d = document.getElementById('ti-'+l.id); if(!d) return;
+  const selectedTextLayers = getSelectedTextLayers();
+  if(!selectedTextLayers.length) return;
+  const l = selectedTextLayers.length === 1 ? selectedTextLayers[0] : null;
+  const d = l ? document.getElementById('ti-'+l.id) : null;
 
   // Sincronizar el color picker con el hex input y viceversa
   const fc = document.getElementById('pp-fc');
   const fch = document.getElementById('pp-fc-hex');
   if(fc && fc.value !== color) fc.value = color;
   if(fch && fch.value !== color) fch.value = color;
+  if(applyRichStyleToSelection({color})) return;
 
   // Verificar si hay selección de texto dentro del div
   const sel = window.getSelection();
   const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
-  const inThisDiv = hasSelection && d.contains(sel.getRangeAt(0).commonAncestorContainer);
+  const inThisDiv = hasSelection && d && d.contains(sel.getRangeAt(0).commonAncestorContainer);
 
-  if(inThisDiv && d.contentEditable === 'true'){
+  if(l && inThisDiv && d.contentEditable === 'true'){
     // ── Rich text: aplicar color solo a la selección ──
     const range = sel.getRangeAt(0);
     // Crear un span con el color
@@ -5381,24 +5646,35 @@ function applyColorSmart(color){
   } else {
     // ── Sin selección: aplicar a toda la capa (comportamiento original) ──
     // Si había rich text, limpiar los spans y aplicar color uniforme
-    if(l.tp.html){
+    selectedTextLayers.forEach(tl=>{
+      const td = document.getElementById('ti-'+tl.id);
+      if(tl.tp.html){
       // Quitar todos los spans de color del innerHTML
       const tmp = document.createElement('div');
-      tmp.innerHTML = l.tp.html;
+      tmp.innerHTML = tl.tp.html;
       tmp.querySelectorAll('span[style*="color"]').forEach(s=>{
         // Reemplazar el span por su contenido
         while(s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
         s.remove();
       });
-      l.tp.html = null;
-      d.innerHTML = tmp.innerHTML;
-    }
+      tl.tp.html = null;
+      if(td) td.innerHTML = tmp.innerHTML;
+      }
+    });
     updTS('color', color);
   }
 }
 
 function updTS(p,v){
   const ls=getSelectedTextLayers(); if(!ls.length) return;
+  const richStyle = richStyleForTextProp(p,v);
+  if(richStyle && applyRichStyleToSelection(richStyle)){
+    if(p==='color'){
+      const hex=document.getElementById('pp-fc-hex');
+      if(hex) hex.value = v;
+    }
+    return;
+  }
   ls.forEach(l=>{
     if(p==='color') l.tp.color=v;
     else if(p==='fontFamily') l.tp.fontFamily=v;
@@ -5420,17 +5696,33 @@ function toggleFmt(type){
   // Determinar nuevo valor basado en la primera capa
   const first=ls[0];
   if(type==='bold'){
-    const isBold=first.tp.fontWeight>='700';
+    const richWeight = parseInt(getRichSelectionComputed('fontWeight'),10);
+    const isBold=Number.isFinite(richWeight) ? richWeight>=700 : first.tp.fontWeight>='700';
     const newW=isBold?'400':'700';
+    if(applyRichStyleToSelection(richStyleForTextProp('fontWeight', newW))){
+      document.getElementById('pp-fw').value=newW;
+      document.getElementById('fmt-b').classList.toggle('active',!isBold);
+      return;
+    }
     ls.forEach(l=>{ l.tp.fontWeight=newW; applyTextStyles(l); });
     document.getElementById('pp-fw').value=newW;
     document.getElementById('fmt-b').classList.toggle('active',!isBold);
   } else if(type==='italic'){
-    const newVal=!first.tp.italic;
+    const richItalic = getRichSelectionComputed('fontStyle');
+    const newVal=richItalic ? richItalic!=='italic' : !first.tp.italic;
+    if(applyRichStyleToSelection(richStyleForTextProp('italic', newVal))){
+      document.getElementById('fmt-i').classList.toggle('active',newVal);
+      return;
+    }
     ls.forEach(l=>{ l.tp.italic=newVal; applyTextStyles(l); });
     document.getElementById('fmt-i').classList.toggle('active',newVal);
   } else if(type==='underline'){
-    const newVal=!first.tp.underline;
+    const richUnderline = getRichSelectionComputed('textDecorationLine');
+    const newVal=richUnderline ? !richUnderline.includes('underline') : !first.tp.underline;
+    if(applyRichStyleToSelection(richStyleForTextProp('underline', newVal))){
+      document.getElementById('fmt-u').classList.toggle('active',newVal);
+      return;
+    }
     ls.forEach(l=>{ l.tp.underline=newVal; applyTextStyles(l); });
     document.getElementById('fmt-u').classList.toggle('active',newVal);
   }
@@ -5567,7 +5859,7 @@ function renderList(){
     let th;
     if(l.type==='text') th=`<div class="l-thumb-t">T</div>`;
     else if(l.type==='frame') th=`<div class="l-thumb-t" style="background:rgba(21,214,164,0.15);color:var(--accent);">⬜</div>`;
-    else if(l.type==='img'&&l.src) th=`<img class="l-thumb" src="${l.src}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="l-thumb-t" style="display:none">?</div>`;
+    else if(l.type==='img'&&l.src) th=`<img class="l-thumb" src="${cdnOpt(l.src,{w:96})}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="l-thumb-t" style="display:none">?</div>`;
     else th=`<div class="l-thumb-t">?</div>`;
     const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
     const outOfBounds = l.x+l.w < 0 || l.y+l.h < 0 || l.x > cw || l.y > ch;
@@ -5622,7 +5914,7 @@ function applyCanvasSize(){
 
 // ZOOM
 function doZoom(d){
-  zoom_=Math.min(3,Math.max(0.05,zoom_+d));
+  zoom_=Math.min(MAX_ZOOM,Math.max(MIN_ZOOM,zoom_+d));
   cvs.style.transform=`scale(${zoom_})`;
   document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
   updateControlScale();
@@ -5725,6 +6017,7 @@ function setClientUI(){
   if(profBtn) profBtn.style.display='';
   document.getElementById('btn-prev').style.display='none';
   document.getElementById('btn-save').style.display='none';
+  const cdnAuditBtn=document.getElementById('btn-cdn-audit'); if(cdnAuditBtn) cdnAuditBtn.style.display='none';
   document.getElementById('btn-back').textContent='← Mis diseños';
   document.getElementById('upload-zone').style.display='none';
   // Añadir texto habilitado para clientes
@@ -5765,6 +6058,7 @@ function setAdminUI(){
   document.getElementById('btn-prev').style.display='';
   document.getElementById('btn-prev').textContent='👁 Vista cliente';
   document.getElementById('btn-save').style.display='';
+  const cdnAuditBtn=document.getElementById('btn-cdn-audit'); if(cdnAuditBtn) cdnAuditBtn.style.display=window.__isVerifiedAdmin?'inline-flex':'none';
   document.getElementById('upload-zone').style.display='';
   document.querySelector('.add-text-btn').style.display='';
   const lub=document.getElementById('logo-upload-btn'); if(lub) lub.style.display='';
@@ -6583,6 +6877,15 @@ let tplStatus = 'draft'; // track current template status
 let tplCategory = ''; // track current template category
 let tplName = ''; // track current template name
 let currentClientDesignName = '';
+let _lastTemplateLayerSig = '';
+let _lastTemplateThumb = '';
+function stableStringify(value){
+  if(Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  if(value && typeof value === 'object'){
+    return '{' + Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableStringify(value[k])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
 function openSave(){
   // Si ya está publicada, guardar directamente sin abrir el modal
   if(tplId && tplStatus === 'published'){
@@ -6887,8 +7190,8 @@ async function doSave(status){
   syncLayersFromDOM();
 
   // 1. Generate + upload thumbnail (más nítida, pensada para cards de plantilla)
-  let thumb='';
-  try{
+  let thumb = _lastTemplateThumb || window.__lastLoadedTemplateMeta?.thumb || '';
+  if(false) try{
     st.textContent='Generando miniatura...';
     desel();
     hideMultiBox();
@@ -6934,6 +7237,7 @@ async function doSave(status){
     document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
     return;
   }
+  const layerSig = stableStringify(layerData);
 
   // 3. Check approximate doc size
   const payload = {name, thumb, status,
@@ -6959,6 +7263,33 @@ async function doSave(status){
     document.querySelectorAll('#save-overlay .modal-btn').forEach(b=>b.disabled=false);
     showToast('✗ Diagnóstico: corrige la plantilla antes de guardar');
     return;
+  }
+
+  if(layerSig === _lastTemplateLayerSig && thumb){
+    console.log('Miniatura reutilizada: el diseno no cambio desde el ultimo guardado.');
+  } else {
+    try{
+      st.textContent='Generando miniatura...';
+      desel();
+      hideMultiBox();
+      const canvasW = parseInt(cvs.style.width) || 1080;
+      const targetThumbW = 360;
+      const targetScale = Math.min(1, Math.max(0.25, targetThumbW / canvasW));
+      const c = await renderDesignToCanvas(targetScale);
+      let thumbB64='';
+      try{
+        thumbB64=c.toDataURL('image/webp',0.76);
+      }catch(_){
+        thumbB64=c.toDataURL('image/jpeg',0.76);
+      }
+      st.textContent='Subiendo miniatura...';
+      thumb=await uploadToStorage(thumbB64,`thumbnails/${tplId||('tpl_'+Date.now())}.webp`);
+      payload.thumb = thumb;
+      console.log('Thumb:', thumb.substring(0,60));
+    }catch(e){
+      console.warn('Thumb fallo (continuando con miniatura previa):', e.message);
+      payload.thumb = thumb || '';
+    }
   }
 
   // 4. Save to Firestore
@@ -7004,6 +7335,9 @@ async function doSave(status){
     // Actualizar variables globales con los valores guardados
     tplName = name;
     tplCategory = document.getElementById('save-category')?.value || tplCategory;
+    _lastTemplateLayerSig = layerSig;
+    _lastTemplateThumb = thumb || payload.thumb || _lastTemplateThumb;
+    if(window.__lastLoadedTemplateMeta) window.__lastLoadedTemplateMeta.thumb = _lastTemplateThumb;
     document.getElementById('save-name').value=name;
   }catch(e){
     console.error('❌ Firestore error:', e);
@@ -7029,6 +7363,17 @@ function markActivity(){ _lastActivity=Date.now(); }
 document.addEventListener('mousedown', markActivity);
 document.addEventListener('keydown', markActivity);
 
+function hasLargeLocalAssetsPending(){
+  return layers.some(l=>{
+    const srcs = [l.src, l.frameImage].filter(Boolean);
+    return srcs.some(src=>{
+      if(typeof src !== 'string') return false;
+      if(src.startsWith('blob:')) return true;
+      return src.startsWith('data:') && Math.round(src.length * 0.75 / 1024) > 100;
+    });
+  });
+}
+
 function showAutoSaveIndicator(msg){
   let el=document.getElementById('autosave-ind');
   if(!el){ el=document.createElement('span'); el.id='autosave-ind';
@@ -7044,6 +7389,10 @@ async function autoSaveToFirestore(){
   if(!fbDb||!tplId) return;
   // Don't autosave if user was active in the last 3 seconds (they might be mid-action)
   if(Date.now()-_lastActivity < 3000) return;
+  if(hasLargeLocalAssetsPending()){
+    showAutoSaveIndicator('Cambios locales pendientes de guardar');
+    return;
+  }
   try{
     const layerData=await buildLayerData();
     if(!Array.isArray(layerData) || !layerData.length){
@@ -7079,7 +7428,7 @@ async function autoSaveToFirestore(){
   }
 }
 
-_autoSaveTimer = setInterval(autoSaveToFirestore, 15000);
+_autoSaveTimer = setInterval(autoSaveToFirestore, 60000);
 
 // LOAD SAVED
 function loadData(tpl){
@@ -7180,6 +7529,8 @@ function loadData(tpl){
 
   // Re-init multi-box handles (they survived the innerHTML clear)
   initMultiBoxHandles();
+  _lastTemplateLayerSig = stableStringify(incomingLayers);
+  _lastTemplateThumb = window.__lastLoadedTemplateMeta?.thumb || '';
   renderList();
   snapshotState();
   // Aplicar perfil solo al abrir una PLANTILLA nueva, no un diseño guardado
@@ -7500,7 +7851,7 @@ async function pasteLayers(){
       if(nl.groupId){
         if(!pasteLayers._gmap) pasteLayers._gmap = {};
         if(!pasteLayers._gmap[nl.groupId]){
-          pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
+          pasteLayers._gmap[nl.groupId] = nextGroupId();
         }
         nl.groupId = pasteLayers._gmap[nl.groupId];
       }
