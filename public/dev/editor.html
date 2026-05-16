@@ -5356,22 +5356,75 @@ function imageFilterString(layer){
   const hue = Number(layer?.hue || 0);
   const saturation = Number(layer?.saturation || 0);
   const lightness = Number(layer?.lightness || 0);
-  const colorizeStrength = Number(layer?.colorizeStrength || 0);
-  const colorizeEnabled = !!layer?.colorizeEnabled && colorizeStrength > 0;
   const filters = [];
   if(blur > 0) filters.push(`blur(${blur}px)`);
-  if(colorizeEnabled){
-    const targetHue = hexToHue(layer.colorizeColor || '#ff005c');
-    const amount = Math.max(0, Math.min(100, colorizeStrength));
-    filters.push(`grayscale(${amount}%)`);
-    filters.push(`sepia(${amount}%)`);
-    filters.push(`saturate(${100 + amount * 9}%)`);
-    filters.push(`hue-rotate(${targetHue - 48}deg)`);
-  }
   if(hue) filters.push(`hue-rotate(${hue}deg)`);
   if(saturation) filters.push(`saturate(${Math.max(0, 100 + saturation)}%)`);
   if(lightness) filters.push(`brightness(${Math.max(0, 100 + lightness)}%)`);
   return filters.join(' ') || 'none';
+}
+function updateImageColorizeOverlay(layer){
+  if(!layer?.el) return;
+  const host = layer.type==='frame' ? document.getElementById('fc-'+layer.id) : layer.el;
+  if(!host) return;
+  let ov = host.querySelector(':scope > .image-colorize-ov');
+  const strength = Math.max(0, Math.min(100, Number(layer.colorizeStrength||0)));
+  if(!layer.colorizeEnabled || strength <= 0 || layer.isShape){
+    if(ov) ov.remove();
+    return;
+  }
+  const img = getImageTargetElement(layer);
+  const src = img?.currentSrc || img?.src || (layer.type==='frame' ? layer.frameImage : layer.src);
+  if(!src) return;
+  if(!ov){
+    ov = document.createElement('div');
+    ov.className = 'image-colorize-ov';
+    host.appendChild(ov);
+  }
+  const fit = layer.type==='frame' ? 'cover' : 'contain';
+  ov.style.cssText = `
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    z-index:7;
+    background:${layer.colorizeColor||'#ff005c'};
+    opacity:${strength/100};
+    mix-blend-mode:color;
+    -webkit-mask-image:url("${src.replace(/"/g,'%22')}");
+    mask-image:url("${src.replace(/"/g,'%22')}");
+    -webkit-mask-size:${fit};
+    mask-size:${fit};
+    -webkit-mask-repeat:no-repeat;
+    mask-repeat:no-repeat;
+    -webkit-mask-position:center;
+    mask-position:center;
+  `;
+}
+function renderAdjustedImageCanvas(img, dw, dh, layer){
+  const out=document.createElement('canvas');
+  out.width=Math.max(1,Math.round(dw));
+  out.height=Math.max(1,Math.round(dh));
+  const octx=out.getContext('2d');
+  octx.filter=imageFilterString(layer);
+  octx.drawImage(img,0,0,out.width,out.height);
+  octx.filter='none';
+  const strength=Math.max(0,Math.min(100,Number(layer?.colorizeStrength||0)));
+  if(layer?.colorizeEnabled && strength>0 && !layer?.isShape){
+    octx.save();
+    octx.globalCompositeOperation='color';
+    octx.globalAlpha=strength/100;
+    octx.fillStyle=layer.colorizeColor||'#ff005c';
+    octx.fillRect(0,0,out.width,out.height);
+    octx.restore();
+
+    const mask=document.createElement('canvas');
+    mask.width=out.width; mask.height=out.height;
+    mask.getContext('2d').drawImage(img,0,0,out.width,out.height);
+    octx.globalCompositeOperation='destination-in';
+    octx.drawImage(mask,0,0);
+    octx.globalCompositeOperation='source-over';
+  }
+  return out;
 }
 function applyImageVisuals(layer){
   const img = getImageTargetElement(layer);
@@ -5381,6 +5434,7 @@ function applyImageVisuals(layer){
   img.style.transform = `scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`;
   img.style.transformOrigin = 'center center';
   img.style.filter = imageFilterString(layer);
+  updateImageColorizeOverlay(layer);
 }
 function toggleImageFlip(axis){
   const l=layers.find(x=>x.id===selId); if(!l) return;
@@ -6873,7 +6927,7 @@ async function renderDesignToCanvas(scale=2){
           ctx.save();
           roundedRectPath(ctx, fx, fy, l.w, l.h, radius);
           ctx.clip();
-          ctx.filter = imageFilterString(l);
+          ctx.filter = 'none';
           const sw = img.naturalWidth || img.width || l.w;
           const sh = img.naturalHeight || img.height || l.h;
           const scaleCover = Math.max(l.w / sw, l.h / sh);
@@ -6881,11 +6935,12 @@ async function renderDesignToCanvas(scale=2){
           const dh = sh * scaleCover;
           const dx = fx + (l.w - dw)/2;
           const dy = fy + (l.h - dh)/2;
+          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l);
           const localCx = hasRotation ? 0 : layerCx;
           const localCy = hasRotation ? 0 : layerCy;
           ctx.translate(localCx, localCy);
           ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          ctx.drawImage(img, dx - localCx, dy - localCy, dw, dh);
+          ctx.drawImage(adjustedImg, dx - localCx, dy - localCy, dw, dh);
           ctx.restore();
         }
       }
@@ -6935,7 +6990,7 @@ async function renderDesignToCanvas(scale=2){
       const img = await loadImgForExport(l.src);
       if(img){
         const radius = Number(l.borderRadius || 0);
-        ctx.filter = imageFilterString(l);
+        ctx.filter = 'none';
         ctx.translate(layerCx, layerCy);
         if(hasRotation) ctx.rotate(rotationRad);
         ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
@@ -6952,10 +7007,12 @@ async function renderDesignToCanvas(scale=2){
           const dh = Math.round(nh * scale);
           const dx = Math.round(-dw / 2);
           const dy = Math.round(-dh / 2);
-          ctx.drawImage(img, dx, dy, dw, dh);
+          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l);
+          ctx.drawImage(adjustedImg, dx, dy, dw, dh);
         } else {
           // Shapes sí se estiran (SVG diseñado para eso)
-          ctx.drawImage(img, -l.w/2, -l.h/2, l.w, l.h);
+          const adjustedImg = renderAdjustedImageCanvas(img, l.w, l.h, l);
+          ctx.drawImage(adjustedImg, -l.w/2, -l.h/2, l.w, l.h);
         }
       }
       ctx.restore();
