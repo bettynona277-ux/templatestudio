@@ -1801,16 +1801,19 @@ let layers=[], selId=null, lCtr=0, zoom_=0.6;
 let isDrag=false, isRes=false, isRot=false, dOff={x:0,y:0}, rSt={}, rotSt={};
 let fbDb=null, fbApp=null, fbAuth=null, tplId=null;
 let isPrev=false;
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 6;
 
 // Optimizar URLs de Cloudinary para reducir bandwidth (~80% menos)
 // Solo aplica a URLs de res.cloudinary.com — no toca blobs, data:, ni URLs externas
 function cdnOpt(url){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
-  const m = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
+  const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
   // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
-  return m[1] + 'q_auto,f_auto,fl_immutable_cache/' + (m[2]||'') + m[3];
+  return m[1] + 'q_auto:eco,f_auto,c_limit,w_2000,fl_immutable_cache/' + (m[2]||'') + m[3];
 }
 
 const cvs=document.getElementById('cvs');
@@ -1832,9 +1835,10 @@ let copiedStyle = null;
 let styleMode = false;
 let styleSourceId = null;
 
-const SNAP_THRESHOLD=2;
+const SNAP_THRESHOLD=3;
 const GRID_SIZE=10;
 const GRID_SNAP_THRESHOLD=1;
+const GRID_SNAP_ENABLED=false;
 
 function ensureSmartGuides(){
   const needsV = !guideV || !guideV.isConnected;
@@ -1870,8 +1874,8 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   const w=layer.w, h=layer.h;
   const cw=parseInt(cvs.style.width)||800, ch=parseInt(cvs.style.height)||800;
   const z = Math.max(zoom_ || 1, 0.35);
-  const snapThreshold = Math.max(3, Math.min(8, 6 / z));
-  const gridThreshold = Math.max(1, Math.min(3, 2 / z));
+  const snapThreshold = Math.max(2, Math.min(5, SNAP_THRESHOLD / z));
+  const gridThreshold = Math.max(1, Math.min(2, GRID_SNAP_THRESHOLD / z));
   let bestX={d:Infinity,val:null,guide:null};
   let bestY={d:Infinity,val:null,guide:null};
 
@@ -1897,9 +1901,11 @@ function applySmartSnapToLayer(layer,movingIds=[]){
     [[oy,oy],[oy+oh/2,oy+oh/2-h/2],[oy+oh,oy+oh-h],[oy,oy-h],[oy+oh,oy+oh]].forEach(([gy,ny])=>considerY(gy,ny));
   });
 
-  const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
-  if(bestX.val===null && gx!==x && Math.abs(gx-x) <= gridThreshold) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
-  if(bestY.val===null && gy!==y && Math.abs(gy-y) <= gridThreshold) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
+  if(GRID_SNAP_ENABLED){
+    const gx=maybeGridSnap(x), gy=maybeGridSnap(y);
+    if(bestX.val===null && gx!==x && Math.abs(gx-x) <= gridThreshold) bestX={d:Math.abs(gx-x),val:gx,guide:gx};
+    if(bestY.val===null && gy!==y && Math.abs(gy-y) <= gridThreshold) bestY={d:Math.abs(gy-y),val:gy,guide:gy};
+  }
 
   if(bestX.val!==null){ x=Math.round(bestX.val); showGuideV(bestX.guide); }
   if(bestY.val!==null){ y=Math.round(bestY.val); showGuideH(bestY.guide); }
@@ -2139,9 +2145,18 @@ function showToast(msg){
 let groups = {};   // { groupId: [layerIds] }
 let gCtr = 0;
 
+function groupIdExists(gid){
+  return !!groups[gid] || layers.some(l=>l.groupId===gid);
+}
+function nextGroupId(){
+  let gid;
+  do{ gid = 'g' + (gCtr++); }while(groupIdExists(gid));
+  return gid;
+}
+
 function groupSelected(){
   if(selIds.length < 2){ showToast('Selecciona 2+ capas para agrupar'); return; }
-  const gid = 'g' + (gCtr++);
+  const gid = nextGroupId();
   selIds.forEach(id=>{ const l=layers.find(x=>x.id===id); if(l) l.groupId=gid; });
   groups[gid] = [...selIds];
   showToast(`✦ Grupo creado (${selIds.length} capas)`);
@@ -2923,13 +2938,12 @@ function addImgLayer(src,name){
     const s=Math.min(1,Math.min(cw*0.95/w,ch*0.95/h));
     w=Math.round(w*s);h=Math.round(h*s);
 
-    // Upload to Cloudinary, use URL instead of base64
+    // Mantener local mientras se edita; se sube a Cloudinary solo si el usuario guarda.
     let finalSrc=src;
-    try{
-      const safeName=name.replace(/[^a-zA-Z0-9._-]/g,'_');
-      finalSrc=await uploadToStorage(src, `layer-images/${Date.now()}_${safeName}`);
-    }catch(e){
-      console.warn('Cloudinary upload failed, usando base64 local:',e.message);
+    const approxKB = typeof src === 'string' && src.startsWith('data:') ? Math.round(src.length * 0.75 / 1024) : 0;
+    if(approxKB > 1800){
+      try{ finalSrc = await compressImage(src, 1800, 1800, 0.86); }
+      catch(e){ console.warn('No se pudo comprimir imagen local:', e.message); }
     }
 
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
@@ -2983,22 +2997,16 @@ async function loadPSDData(data){
     updateControlScale();
   }, 100);
 
-  const totalImgLayers=data.layers.filter(ld=>!ld.isText&&ld.src).length;
-  let uploadedCount=0;
   let l_w_override, l_h_override; // used for text layer dimension correction
 
   for(const ld of data.layers){
     let finalSrc=ld.src||'';
 
-    // Upload base64 PSD layer images to Cloudinary
+    // Mantener capas PSD locales durante la edicion; Cloudinary se usa solo al guardar.
     if(!ld.isText && ld.src && ld.src.startsWith('data:')){
       try{
-        uploadedCount++;
-        setLoad(`Subiendo capa ${uploadedCount}/${totalImgLayers} a Cloudinary...`, 70+Math.round(uploadedCount/Math.max(totalImgLayers,1)*20));
-        const safeName=(ld.name||'layer').replace(/[^a-zA-Z0-9._-]/g,'_');
-        // Compress large images before uploading (Cloudinary free tier has 10MB limit)
-        const compressed = await compressImage(ld.src, 1500, 1500, 0.88);
-        finalSrc=await uploadToStorage(compressed, `layer-images/psd_${Date.now()}_${uploadedCount}_${safeName}.png`);
+        const approxKB = Math.round(ld.src.length * 0.75 / 1024);
+        if(approxKB > 1800) finalSrc = await compressImage(ld.src, 1800, 1800, 0.86);
       }catch(e){
         console.warn('Cloudinary upload para capa PSD falló:',ld.name,e.message);
         finalSrc=ld.src; // keep base64 in memory, will retry on save
@@ -4265,7 +4273,7 @@ function duplicateSelected(sourceId, noOffset=false){
 
   // Map: old groupId → new groupId (so duplicated groups stay grouped among themselves)
   const groupMap = {};
-  srcGroupIds.forEach(gid => { groupMap[gid] = 'g'+(gCtr++); });
+  srcGroupIds.forEach(gid => { groupMap[gid] = nextGroupId(); });
 
   const newIds=[];
   ids.forEach(id=>{
@@ -4449,7 +4457,7 @@ document.addEventListener('mousemove',ev=>{
             dOff.axisLocked=null;
           }
           const ghost={id:-1,x:nextX,y:nextY,w:baseBox.w,h:baseBox.h};
-          const snapped=applySmartSnapToLayer(ghost, ids);
+          const snapped=ev.altKey ? (hideSmartGuides(), {x:ghost.x,y:ghost.y}) : applySmartSnapToLayer(ghost, ids);
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
           multiDragStart.forEach(({id,x,y})=>{
             const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
@@ -4476,7 +4484,7 @@ document.addEventListener('mousemove',ev=>{
       dOff.axisLocked=null;
     }
     l.x=nx; l.y=ny;
-    const snapped=applySmartSnapToLayer(l, selIds);
+    const snapped=ev.altKey ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
     l.x=snapped.x; l.y=snapped.y;
     l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
 
@@ -5622,7 +5630,7 @@ function applyCanvasSize(){
 
 // ZOOM
 function doZoom(d){
-  zoom_=Math.min(3,Math.max(0.05,zoom_+d));
+  zoom_=Math.min(MAX_ZOOM,Math.max(MIN_ZOOM,zoom_+d));
   cvs.style.transform=`scale(${zoom_})`;
   document.getElementById('zlbl').textContent=Math.round(zoom_*100)+'%';
   updateControlScale();
@@ -7500,7 +7508,7 @@ async function pasteLayers(){
       if(nl.groupId){
         if(!pasteLayers._gmap) pasteLayers._gmap = {};
         if(!pasteLayers._gmap[nl.groupId]){
-          pasteLayers._gmap[nl.groupId] = 'g'+(gCtr++);
+          pasteLayers._gmap[nl.groupId] = nextGroupId();
         }
         nl.groupId = pasteLayers._gmap[nl.groupId];
       }
