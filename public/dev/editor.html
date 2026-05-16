@@ -4213,20 +4213,37 @@ function mkEl(l){
       d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState();
     };
     el.appendChild(d);
-    // Single click = select, double click = edit
-    el.ondblclick=ev=>{
-      if(ev.target.classList.contains('rh'))return;
-      ev.stopPropagation();
+    const enterTextEdit=(ev)=>{
+      if(ev?.target?.classList?.contains('rh')) return;
+      if(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
       sel(l.id);
       d.contentEditable='true';
       d.style.pointerEvents='auto';
       d.focus();
-      // Place cursor at end
-      const range=document.createRange();
-      range.selectNodeContents(d);range.collapse(false);
-      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+      const selObj=window.getSelection();
+      selObj.removeAllRanges();
+      let range=null;
+      if(ev && document.caretRangeFromPoint){
+        range=document.caretRangeFromPoint(ev.clientX, ev.clientY);
+      }else if(ev && document.caretPositionFromPoint){
+        const pos=document.caretPositionFromPoint(ev.clientX, ev.clientY);
+        if(pos){ range=document.createRange(); range.setStart(pos.offsetNode,pos.offset); range.collapse(true); }
+      }
+      if(!range || !d.contains(range.commonAncestorContainer)){
+        range=document.createRange();
+        range.selectNodeContents(d);
+        range.collapse(false);
+      }
+      selObj.addRange(range);
       el.style.outline='2px solid var(--accent)';
       syncP();
+    };
+    // Single click = select, double click = edit
+    el.ondblclick=ev=>{
+      enterTextEdit(ev);
     };
   }
   // Size hint display none via CSS
@@ -4256,6 +4273,35 @@ function mkEl(l){
   el.onmousedown=ev=>{
     // Allow clicks on resize handles through
     if(ev.target.classList.contains('rh')) return;
+    if(l.type==='text' && ev.button===0 && ev.detail>=2){
+      const d=document.getElementById('ti-'+l.id);
+      if(d){
+        ev.preventDefault();
+        ev.stopPropagation();
+        sel(l.id);
+        d.contentEditable='true';
+        d.style.pointerEvents='auto';
+        d.focus();
+        const selObj=window.getSelection();
+        selObj.removeAllRanges();
+        let range=null;
+        if(document.caretRangeFromPoint){
+          range=document.caretRangeFromPoint(ev.clientX, ev.clientY);
+        }else if(document.caretPositionFromPoint){
+          const pos=document.caretPositionFromPoint(ev.clientX, ev.clientY);
+          if(pos){ range=document.createRange(); range.setStart(pos.offsetNode,pos.offset); range.collapse(true); }
+        }
+        if(!range || !d.contains(range.commonAncestorContainer)){
+          range=document.createRange();
+          range.selectNodeContents(d);
+          range.collapse(false);
+        }
+        selObj.addRange(range);
+        el.style.outline='2px solid var(--accent)';
+        syncP();
+        return;
+      }
+    }
     if(styleMode){
       ev.preventDefault();
       ev.stopPropagation();
@@ -5482,7 +5528,7 @@ function getRichSelectionTarget(){
   if(selectedTextLayers.length !== 1) return null;
   const layer = selectedTextLayers[0];
   const editable = document.getElementById('ti-'+layer.id);
-  if(!editable || editable.contentEditable !== 'true') return null;
+  if(!editable) return null;
 
   const current = window.getSelection();
   if(current && current.rangeCount && !current.isCollapsed){
