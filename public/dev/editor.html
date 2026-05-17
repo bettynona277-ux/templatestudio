@@ -4127,6 +4127,8 @@ function rebuildShapeSvg(l){
   l.shapeSvg = svgFill;
   const blob = new Blob([svgFill],{type:'image/svg+xml'});
   const url  = URL.createObjectURL(blob);
+  if(l._shapeFillUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeFillUrl);
+  l._shapeFillUrl = url;
   l.src = url;
   const img = l.el?.querySelector('img.shape-fill-img');
   if(img) img.src = url;
@@ -4137,6 +4139,8 @@ function rebuildShapeSvg(l){
     const svgStroke = buildShapeSvgStroke(type, stroke, strokeW, w, h, opts);
     const blobS = new Blob([svgStroke],{type:'image/svg+xml'});
     const urlS  = URL.createObjectURL(blobS);
+    if(l._shapeStrokeUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeStrokeUrl);
+    l._shapeStrokeUrl = urlS;
     if(!strokeImg){
       strokeImg = document.createElement('img');
       strokeImg.className = 'shape-stroke-img';
@@ -4145,6 +4149,8 @@ function rebuildShapeSvg(l){
     }
     strokeImg.src = urlS;
   } else {
+    if(l._shapeStrokeUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeStrokeUrl);
+    l._shapeStrokeUrl = '';
     if(strokeImg) strokeImg.remove();
   }
 
@@ -4186,7 +4192,11 @@ function applyShapeShadow(l){
     const useBoxShadow = (type==='rect'||type==='rect-r'||type==='circle');
 
     if(useBoxShadow){
-      if(ov && ov.tagName==='IMG'){ ov.remove(); ov=null; }
+      if(ov && ov.tagName==='IMG'){
+        if(l._shapeInnerUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeInnerUrl);
+        l._shapeInnerUrl = '';
+        ov.remove(); ov=null;
+      }
       if(!ov){
         ov = document.createElement('div');
         ov.className = 'shape-inner-ov';
@@ -4237,9 +4247,14 @@ function applyShapeShadow(l){
         ov.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:5;';
         l.el.appendChild(ov);
       }
-      ov.src = URL.createObjectURL(new Blob([svgInner],{type:'image/svg+xml'}));
+      const innerUrl = URL.createObjectURL(new Blob([svgInner],{type:'image/svg+xml'}));
+      if(l._shapeInnerUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeInnerUrl);
+      l._shapeInnerUrl = innerUrl;
+      ov.src = innerUrl;
     }
   } else {
+    if(l._shapeInnerUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeInnerUrl);
+    l._shapeInnerUrl = '';
     if(ov) ov.remove();
   }
 }
@@ -4427,7 +4442,10 @@ function mkEl(l){
         strokeImg.className='shape-stroke-img';
         strokeImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:6;isolation:isolate;';
         const svgS=buildShapeSvgStroke(l.shapeType||'rect',l.shapeStrokeColor||'#fff',l.shapeStrokeWidth,l.origW||l.w,l.origH||l.h);
-        strokeImg.src=URL.createObjectURL(new Blob([svgS],{type:'image/svg+xml'}));
+        const strokeUrl = URL.createObjectURL(new Blob([svgS],{type:'image/svg+xml'}));
+        if(l._shapeStrokeUrl?.startsWith('blob:')) URL.revokeObjectURL(l._shapeStrokeUrl);
+        l._shapeStrokeUrl = strokeUrl;
+        strokeImg.src=strokeUrl;
         el.appendChild(strokeImg);
       }
       setTimeout(()=>applyShapeShadow(l),0);
@@ -4585,6 +4603,7 @@ function mkEl(l){
       // Permitir spans de color — solo limpiar si hay HTML no autorizado
       l.tp.text = d.innerText || d.textContent;
       l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      applyTextStyles(l);
       syncP();
     };
     d.addEventListener('mousedown',ev=>{
@@ -4598,6 +4617,9 @@ function mkEl(l){
     });
     d.addEventListener('keyup',()=>{
       rememberRichTextSelection();
+      l.tp.text = d.innerText || d.textContent;
+      l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      applyTextStyles(l);
       syncP();
     });
     d.addEventListener('paste',ev=>{
@@ -4613,6 +4635,7 @@ function mkEl(l){
     d.onblur=()=>{
       l.tp.text = d.innerText || d.textContent;
       l.tp.html = d.innerHTML.includes('<span') ? d.innerHTML : null;
+      applyTextStyles(l);
       d.style.pointerEvents='none'; d.contentEditable='false'; el.style.outline=''; snapshotState();
     };
     el.appendChild(d);
@@ -5128,6 +5151,7 @@ document.addEventListener('mousemove',ev=>{
       const d=document.getElementById('ti-'+l.id);
       if(d){d.style.fontSize=newFs+'px';}
       l.tp.fontSize=newFs;
+      applyTextStyles(l);
     }
     syncP();
   }
@@ -5235,7 +5259,7 @@ document.addEventListener('mouseup',ev=>{
 
   if(isRes && rSt.id !== undefined){
     const l = layers.find(x => x.id === rSt.id);
-    if(l && l.isShape) rebuildShapeSvg(l);
+    if(l) refreshLayerEffects(l);
   }
   if(isDrag || isRes) snapshotState();
   isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff.axisLocked=null;
@@ -5825,6 +5849,8 @@ function updateImageColorizeOverlay(layer){
     mask-repeat:no-repeat;
     -webkit-mask-position:center;
     mask-position:center;
+    transform:scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1});
+    transform-origin:center center;
   `;
 }
 function renderAdjustedImageCanvas(img, dw, dh, layer){
@@ -5862,6 +5888,22 @@ function applyImageVisuals(layer){
   img.style.transformOrigin = 'center center';
   img.style.filter = imageFilterString(layer);
   updateImageColorizeOverlay(layer);
+}
+
+function refreshLayerEffects(layer){
+  if(!layer?.el) return;
+  if(layer.type==='text' && layer.tp) applyTextStyles(layer);
+  if(layer.type==='img' || (layer.type==='frame' && layer.frameImage)) applyImageVisuals(layer);
+  if(layer.type==='frame') applyFrameBorder(layer);
+  if(layer.isShape){
+    rebuildShapeSvg(layer);
+    applyShapeShadow(layer);
+  }
+}
+
+function refreshSelectionEffects(){
+  const ids = selIds.length>1 ? selIds : (selId!==null ? [selId] : []);
+  ids.forEach(id=>refreshLayerEffects(layers.find(x=>x.id===id)));
 }
 function toggleImageFlip(axis){
   const l=layers.find(x=>x.id===selId); if(!l) return;
@@ -6105,6 +6147,7 @@ function updSz(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='w'){l.w=Math.max(1,parseInt(v)||1);l.el.style.width=l.w+'px';}
   else{l.h=Math.max(1,parseInt(v)||1);l.el.style.height=l.h+'px';}
+  refreshLayerEffects(l);
   snapshotState();
 }
 function updOp(v){
@@ -6251,6 +6294,7 @@ function applyRichStyleToSelection(styles){
     savedRichTextSelection = { layerId: layer.id, range: newRange.cloneRange() };
     layer.tp.text = editable.innerText || editable.textContent;
     layer.tp.html = editable.innerHTML.includes('<span') ? editable.innerHTML : null;
+    applyTextStyles(layer);
     syncP();
     snapshotState();
     return true;
@@ -6618,6 +6662,7 @@ function scaleEl(f){
       l.x=Math.round((cw-l.w)/2);l.y=Math.round((ch-l.h)/2);
       l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
       l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
+      refreshLayerEffects(l);
       syncP();return;
     }return;
   }
@@ -6626,6 +6671,7 @@ function scaleEl(f){
   l.x=Math.round(cx-l.w/2);l.y=Math.round(cy-l.h/2);
   l.el.style.width=l.w+'px';l.el.style.height=l.h+'px';
   l.el.style.left=l.x+'px';l.el.style.top=l.y+'px';
+  refreshLayerEffects(l);
   syncP();
 }
 function bringFwd(){
