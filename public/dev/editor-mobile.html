@@ -871,12 +871,31 @@ let zoom_ = 1;
 let currentTab = 'text';
 
 // Optimizar URLs de Cloudinary para reducir bandwidth (~80% menos)
-function cdnOpt(url){
+function cdnOpt(url, opts={}){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
-  const m = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
+  const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
-  return m[1] + 'q_auto,f_auto,fl_immutable_cache/' + (m[2]||'') + m[3];
+  const maxW = Math.max(80, Math.min(3000, parseInt(opts.w || 1200, 10)));
+  const quality = opts.quality || 'eco';
+  return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
+}
+
+function cdnExportOpt(url, targetW){
+  if(!url || typeof url !== 'string') return url;
+  if(url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const w = Math.max(600, Math.min(3000, Math.ceil(Number(targetW || 1600))));
+  return cdnOpt(url, {w, quality:'good'});
+}
+
+function layerPreviewW(l){
+  return Math.max(160, Math.min(1400, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1))));
+}
+
+function layerExportW(l, scale){
+  return Math.max(600, Math.min(3000, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15)));
 }
 
 const cvs = document.getElementById('cvs');
@@ -1542,7 +1561,7 @@ function buildEl(l){
   } else if(l.type === 'img'){
     const img = document.createElement('img');
     img.crossOrigin = 'anonymous';
-    img.src = cdnOpt(l.src||'');
+    img.src = cdnOpt(l.src||'', {w:layerPreviewW(l)});
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
     el.appendChild(img);
     if(!l.locked) makeDraggable(el, l);
@@ -1571,7 +1590,7 @@ function buildEl(l){
       }
       const img = document.createElement('img');
       img.crossOrigin = 'anonymous';
-      img.src = cdnOpt(l.src);
+      img.src = cdnOpt(l.src, {w:layerPreviewW(l)});
       img.className = 'frame-inner';
       img.id = 'fi-'+l.id;
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;';
@@ -1792,7 +1811,7 @@ function applyLogoToFrame(src, name){
       l.el.innerHTML = '';
       l.el.appendChild(img);
     }
-    img.src = cdnOpt(src);
+    img.src = cdnOpt(src, {w:layerPreviewW(l)});
     img.id = 'fi-'+l.id;
     img.crossOrigin = 'anonymous';
     setTimeout(()=>applyImageVisuals(l), 0);
@@ -2144,7 +2163,7 @@ function renderLogos(){
       const card = document.createElement('div');
       card.className='logo-card';
       card.innerHTML=`
-        <img src="${cdnOpt(logo.url||logo.src||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
+        <img src="${cdnOpt(logo.url||logo.src||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
         <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       `;
       grid.appendChild(card);
@@ -2272,7 +2291,7 @@ function renderOwnLogos(){
     const card = document.createElement('div');
     card.className='logo-card personal';
     card.innerHTML=`
-      <img src="${cdnOpt(logo.url||'')}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
+      <img src="${cdnOpt(logo.url||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
       <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       <button class="del-btn" onclick="deleteOwnLogo('${docId}',event)" style="display:flex;">✕</button>
     `;
@@ -2924,13 +2943,13 @@ function stripCloudinaryTransforms(url){
   return base + parts.slice(si).join('/');
 }
 
-function loadImgForExport(src){
+function loadImgForExport(src, targetW){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
     // Buscar en DOM comparando URLs limpias — SOLO si tiene crossOrigin anonymous
-    const optimizedSrc = cdnOpt(src);
+    const optimizedSrc = cdnExportOpt(src, targetW);
     const cleanSrc = stripCloudinaryTransforms(src);
-    const domImgs = document.querySelectorAll('img[src]');
+    const domImgs = optimizedSrc === src ? document.querySelectorAll('img[src]') : [];
     for(const d of domImgs){
       if(!d.complete || !d.naturalWidth) continue;
       if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
@@ -2945,7 +2964,7 @@ function loadImgForExport(src){
     img.onerror=()=>{
       const img2=new Image();
       img2.onload=()=>resolve(img2);img2.onerror=()=>resolve(null);
-      img2.src=src;
+      img2.src=cleanSrc || src;
     };
     img.src=optimizedSrc;
   });
@@ -2981,7 +3000,7 @@ async function renderDesignToCanvas(scale=3){
     if(l.isShape){
       const sx=hasRot?-l.w/2:l.x, sy=hasRot?-l.h/2:l.y;
       if(hasRot){ctx.translate(lCx,lCy);ctx.rotate(rotRad);}
-      let fillImg=await loadImgForExport(l.src);
+      let fillImg=await loadImgForExport(l.src, layerExportW(l, scale));
       if(!fillImg){const d=l.el?.querySelector('img.shape-fill-img');if(d&&d.complete&&d.naturalWidth>0)fillImg=d;}
       const drop=Number(l.shapeShadow||0),inner=Number(l.shapeInnerShadow||0),bw=Number(l.shapeStrokeWidth||0);
       const bc=l.shapeStrokeColor||'#ffffff',shadowHex=l.shapeShadowColor||'#000000',innerHex=l.shapeInnerShadowColor||'#000000';
@@ -3002,7 +3021,7 @@ async function renderDesignToCanvas(scale=3){
       if(hasRot){ctx.translate(lCx,lCy);ctx.rotate(rotRad);}
       const fx=hasRot?-l.w/2:l.x, fy=hasRot?-l.h/2:l.y;
       if(drop>0){ctx.save();const dc=l.frameShadowColor||'#000000';const dop=(l.frameShadowOp??39)/100;const r2=parseInt(dc.slice(1,3),16)||0,g2=parseInt(dc.slice(3,5),16)||0,b2=parseInt(dc.slice(5,7),16)||0;ctx.shadowColor=`rgba(${r2},${g2},${b2},${dop})`;ctx.shadowBlur=drop*2.5;ctx.shadowOffsetX=0;ctx.shadowOffsetY=Math.max(2,Math.round(drop*0.3));roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.fillStyle='#ffffff';ctx.fill();ctx.restore();}
-      if(l.frameImage){let img=await loadImgForExport(l.frameImage);if(!img){const d=document.getElementById('fi-'+l.id);if(d&&d.complete&&d.naturalWidth>0)img=d;}if(img){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const sw=img.naturalWidth||img.width||l.w,sh=img.naturalHeight||img.height||l.h;const sc2=Math.max(l.w/sw,l.h/sh);const dw=sw*sc2,dh=sh*sc2,dx=fx+(l.w-dw)/2,dy=fy+(l.h-dh)/2;const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l);const lx=hasRot?0:lCx,ly=hasRot?0:lCy;ctx.translate(lx,ly);ctx.scale(l.flipX?-1:1,l.flipY?-1:1);ctx.drawImage(adj,dx-lx,dy-ly,dw,dh);ctx.restore();}}
+      if(l.frameImage){let img=await loadImgForExport(l.frameImage, layerExportW(l, scale));if(!img){const d=document.getElementById('fi-'+l.id);if(d&&d.complete&&d.naturalWidth>0)img=d;}if(img){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const sw=img.naturalWidth||img.width||l.w,sh=img.naturalHeight||img.height||l.h;const sc2=Math.max(l.w/sw,l.h/sh);const dw=sw*sc2,dh=sh*sc2,dx=fx+(l.w-dw)/2,dy=fy+(l.h-dh)/2;const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l);const lx=hasRot?0:lCx,ly=hasRot?0:lCy;ctx.translate(lx,ly);ctx.scale(l.flipX?-1:1,l.flipY?-1:1);ctx.drawImage(adj,dx-lx,dy-ly,dw,dh);ctx.restore();}}
       if(inner>0){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const ic=l.frameInnerShadowColor||'#000000';const iop=(l.frameInnerShadowOp??100)/100*0.5;const ri=parseInt(ic.slice(1,3),16),gi=parseInt(ic.slice(3,5),16),bi=parseInt(ic.slice(5,7),16);const d=Math.min(inner*1.5,Math.min(l.w,l.h)*0.4);for(const[x0,y0,x1,y1]of[[fx,fy,fx,fy+d],[fx,fy+l.h,fx,fy+l.h-d],[fx,fy,fx+d,fy],[fx+l.w,fy,fx+l.w-d,fy]]){const gr=ctx.createLinearGradient(x0,y0,x1,y1);gr.addColorStop(0,`rgba(${ri},${gi},${bi},${iop})`);gr.addColorStop(1,`rgba(${ri},${gi},${bi},0)`);ctx.fillStyle=gr;ctx.fillRect(fx,fy,l.w,l.h);}ctx.restore();}
       if(bw>0){ctx.save();const ins=Math.max(0.5,bw/2);roundedRectPath(ctx,fx+ins,fy+ins,l.w-(ins*2),l.h-(ins*2),Math.max(0,radius-ins));ctx.lineWidth=bw;ctx.strokeStyle=bc2;ctx.stroke();ctx.restore();}
       ctx.restore();continue;
@@ -3010,7 +3029,7 @@ async function renderDesignToCanvas(scale=3){
 
     // Image / logo
     if(l.type==='img'&&l.src){
-      const img=await loadImgForExport(l.src);
+      const img=await loadImgForExport(l.src, layerExportW(l, scale));
       if(img){
         const radius2=Number(l.borderRadius||0);
         ctx.filter='none';
@@ -3078,6 +3097,15 @@ async function renderDesignToCanvas(scale=3){
   return out;
 }
 
+function mobileExportScale(canvasW, canvasH){
+  const basePixels = Math.max(1, Number(canvasW||0) * Number(canvasH||0));
+  const ua = navigator.userAgent || '';
+  const isIOSDevice = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const maxPixels = isIOSDevice ? 12000000 : 18000000;
+  const fitScale = Math.sqrt(maxPixels / basePixels);
+  return Math.max(2, Math.min(3, fitScale));
+}
+
 async function downloadPNG(){
   desel();
   const btn = document.querySelector('[onclick="downloadPNG()"]');
@@ -3087,17 +3115,9 @@ async function downloadPNG(){
   const savedTransform = cvs.style.transform;
   let blurPatches = [];
 
-  const rectMap = {};
-  for(const l of layers){
-    if(!(Number(l.blur || 0) > 0)) continue;
-    const img = getImageTargetElement(l);
-    if(img){ const r = img.getBoundingClientRect(); rectMap[l.id] = {width: r.width, height: r.height}; }
-  }
-
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   try{
-    blurPatches = await prepareBlurForExport(rectMap);
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
 
@@ -3121,8 +3141,7 @@ async function downloadPNG(){
     await new Promise(r => setTimeout(r, 100)); // pequeña pausa extra para iOS
 
     // iOS tiene límite de memoria para canvas grandes — usar scale 2 en vez de 3
-    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const exportScale = isIOSDevice ? 2 : 3;
+    const exportScale = mobileExportScale(canvasW, canvasH);
 
     let rendered;
     try{
@@ -3132,6 +3151,13 @@ async function downloadPNG(){
       }
     }catch(renderErr){
       console.warn('Renderer manual falló, usando html2canvas:', renderErr.message);
+      const rectMap = {};
+      for(const l of layers){
+        if(!(Number(l.blur || 0) > 0)) continue;
+        const img = getImageTargetElement(l);
+        if(img){ const r = img.getBoundingClientRect(); rectMap[l.id] = {width: r.width, height: r.height}; }
+      }
+      blurPatches = await prepareBlurForExport(rectMap);
       rendered = await html2canvas(cvs,{
         scale: exportScale,
         useCORS: true,
