@@ -1900,9 +1900,25 @@ function cdnOpt(url, opts={}){
   const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
   // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
-  const maxW = Math.max(40, Math.min(3000, parseInt(opts.w || 2000, 10)));
+  const maxW = Math.max(40, Math.min(3000, parseInt(opts.w || 1200, 10)));
   const quality = opts.quality || 'eco';
   return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
+}
+
+function cdnExportOpt(url, targetW){
+  if(!url || typeof url !== 'string') return url;
+  if(url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const w = Math.max(600, Math.min(3000, Math.ceil(Number(targetW || 1600))));
+  return cdnOpt(url, {w, quality:'good'});
+}
+
+function layerPreviewW(l){
+  return Math.max(160, Math.min(1600, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1))));
+}
+
+function layerExportW(l, scale){
+  return Math.max(600, Math.min(3000, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15)));
 }
 
 const cloudinaryAuditStats = { uploads:0, uploadBytes:0, lastUploadAt:null, lastUploadNames:[] };
@@ -4097,7 +4113,7 @@ function mkEl(l){
        !l.src.includes('firebasestorage'));
     if(!isExternal){
       img.crossOrigin='anonymous';
-      img.src=cdnOpt(l.src);
+      img.src=cdnOpt(l.src,{w:layerPreviewW(l)});
     } else {
       // Proxy público con CORS abierto para URLs externas
       img.crossOrigin='anonymous';
@@ -4139,7 +4155,7 @@ function mkEl(l){
       const img=document.createElement('img');
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
-      img.src=cdnOpt(l.frameImage);
+      img.src=cdnOpt(l.frameImage,{w:layerPreviewW(l)});
       img.onerror=()=>{
         console.warn('No se pudo cargar imagen del marco:', l.name, l.frameImage);
         clip.innerHTML='';
@@ -6631,14 +6647,14 @@ function stripCloudinaryTransforms(url){
   return base + parts.slice(si).join('/');
 }
 
-function loadImgForExport(src){
+function loadImgForExport(src, targetW){
   return new Promise((resolve)=>{
     if(!src) return resolve(null);
     // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
     // IMPORTANTE: solo reutilizar si tiene crossOrigin='anonymous' (de lo contrario tainted canvas)
-    const optimizedSrc = cdnOpt ? cdnOpt(src) : src;
+    const optimizedSrc = typeof cdnExportOpt === 'function' ? cdnExportOpt(src, targetW) : (cdnOpt ? cdnOpt(src) : src);
     const cleanSrc = stripCloudinaryTransforms(src);
-    const domImgs = document.querySelectorAll('img[src]');
+    const domImgs = optimizedSrc === src ? document.querySelectorAll('img[src]') : [];
     for(const d of domImgs){
       if(!d.complete || !d.naturalWidth) continue;
       if(d.crossOrigin !== 'anonymous') continue; // sin CORS = tainted canvas
@@ -6778,7 +6794,7 @@ async function renderDesignToCanvas(scale=2){
         ctx.rotate(rotationRad);
       }
 
-      let fillImg = await loadImgForExport(l.src);
+      let fillImg = await loadImgForExport(l.src, layerExportW(l, scale));
       if(!fillImg){
         const domFill = l.el?.querySelector('img.shape-fill-img');
         if(domFill && domFill.complete && domFill.naturalWidth > 0) fillImg = domFill;
@@ -6922,7 +6938,7 @@ async function renderDesignToCanvas(scale=2){
       // 2. Imagen con clip
       if(l.frameImage){
         // Intentar cargar la imagen — si falla, buscarla en el DOM
-        let img = await loadImgForExport(l.frameImage);
+        let img = await loadImgForExport(l.frameImage, layerExportW(l, scale));
         if(!img){
           // Fallback: usar la imagen ya renderizada en el DOM
           const domImg = document.getElementById('fi-'+l.id);
@@ -6994,7 +7010,7 @@ async function renderDesignToCanvas(scale=2){
 
     // Normal image / logo
     if(l.type === 'img' && l.src){
-      const img = await loadImgForExport(l.src);
+      const img = await loadImgForExport(l.src, layerExportW(l, scale));
       if(img){
         const radius = Number(l.borderRadius || 0);
         ctx.filter = 'none';
