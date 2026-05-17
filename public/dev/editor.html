@@ -2091,7 +2091,7 @@ function cdnExportOpt(url, targetW){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
   if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
-  const w = cloudinaryWidthBucket(targetW || 1600, [600, 900, 1200, 1600, 2000, 2400, 3000]);
+  const w = cloudinaryWidthBucket(targetW || 2000, [900, 1200, 1600, 2000, 2400, 3000]);
   return cdnOpt(url, {w, quality:'good'});
 }
 
@@ -2107,7 +2107,7 @@ function layerPreviewW(l){
 
 function layerExportW(l, scale){
   const raw = Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15;
-  return cloudinaryWidthBucket(raw, [600, 900, 1200, 1600, 2000, 2400, 3000]);
+  return cloudinaryWidthBucket(raw, [900, 1200, 1600, 2000, 2400, 3000]);
 }
 
 const cloudinaryAuditStats = { uploads:0, uploadBytes:0, lastUploadAt:null, lastUploadNames:[] };
@@ -5802,13 +5802,13 @@ function hexToHue(hex){
   h=Math.round(h*60);
   return h<0?h+360:h;
 }
-function imageFilterString(layer){
+function imageFilterString(layer, blurScale=1){
   const blur = Number(layer?.blur || 0);
   const hue = Number(layer?.hue || 0);
   const saturation = Number(layer?.saturation || 0);
   const lightness = Number(layer?.lightness || 0);
   const filters = [];
-  if(blur > 0) filters.push(`blur(${blur}px)`);
+  if(blur > 0) filters.push(`blur(${blur * Math.max(1, Number(blurScale)||1)}px)`);
   if(hue) filters.push(`hue-rotate(${hue}deg)`);
   if(saturation) filters.push(`saturate(${Math.max(0, 100 + saturation)}%)`);
   if(lightness) filters.push(`brightness(${Math.max(0, 100 + lightness)}%)`);
@@ -5833,6 +5833,7 @@ function updateImageColorizeOverlay(layer){
     host.appendChild(ov);
   }
   const fit = layer.type==='frame' ? 'cover' : 'contain';
+  const blur = Math.max(0, Number(layer.blur || 0));
   ov.style.cssText = `
     position:absolute;
     inset:0;
@@ -5851,14 +5852,18 @@ function updateImageColorizeOverlay(layer){
     mask-position:center;
     transform:scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1});
     transform-origin:center center;
+    filter:${blur > 0 ? `blur(${blur}px)` : 'none'};
   `;
 }
-function renderAdjustedImageCanvas(img, dw, dh, layer){
+function renderAdjustedImageCanvas(img, dw, dh, layer, pixelScale=1){
+  const rs = Math.max(1, Number(pixelScale)||1);
   const out=document.createElement('canvas');
-  out.width=Math.max(1,Math.round(dw));
-  out.height=Math.max(1,Math.round(dh));
+  out.width=Math.max(1,Math.round(dw * rs));
+  out.height=Math.max(1,Math.round(dh * rs));
   const octx=out.getContext('2d');
-  octx.filter=imageFilterString(layer);
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = 'high';
+  octx.filter=imageFilterString(layer, rs);
   octx.drawImage(img,0,0,out.width,out.height);
   octx.filter='none';
   const strength=Math.max(0,Math.min(100,Number(layer?.colorizeStrength||0)));
@@ -5872,7 +5877,13 @@ function renderAdjustedImageCanvas(img, dw, dh, layer){
 
     const mask=document.createElement('canvas');
     mask.width=out.width; mask.height=out.height;
-    mask.getContext('2d').drawImage(img,0,0,out.width,out.height);
+    const mctx=mask.getContext('2d');
+    mctx.imageSmoothingEnabled = true;
+    mctx.imageSmoothingQuality = 'high';
+    const blur = Math.max(0, Number(layer?.blur || 0));
+    if(blur > 0) mctx.filter = `blur(${blur * rs}px)`;
+    mctx.drawImage(img,0,0,out.width,out.height);
+    mctx.filter='none';
     octx.globalCompositeOperation='destination-in';
     octx.drawImage(mask,0,0);
     octx.globalCompositeOperation='source-over';
@@ -7426,7 +7437,7 @@ async function renderDesignToCanvas(scale=2){
           const dh = sh * scaleCover;
           const dx = fx + (l.w - dw)/2;
           const dy = fy + (l.h - dh)/2;
-          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l);
+          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l, scale);
           const localCx = hasRotation ? 0 : layerCx;
           const localCy = hasRotation ? 0 : layerCy;
           ctx.translate(localCx, localCy);
@@ -7493,16 +7504,16 @@ async function renderDesignToCanvas(scale=2){
         if(!l.isShape){
           const nw = img.naturalWidth  || img.width  || l.w;
           const nh = img.naturalHeight || img.height || l.h;
-          const scale = Math.min(l.w / nw, l.h / nh);
-          const dw = Math.round(nw * scale);
-          const dh = Math.round(nh * scale);
+          const fitScale = Math.min(l.w / nw, l.h / nh);
+          const dw = Math.round(nw * fitScale);
+          const dh = Math.round(nh * fitScale);
           const dx = Math.round(-dw / 2);
           const dy = Math.round(-dh / 2);
-          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l);
+          const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l, scale);
           ctx.drawImage(adjustedImg, dx, dy, dw, dh);
         } else {
           // Shapes sí se estiran (SVG diseñado para eso)
-          const adjustedImg = renderAdjustedImageCanvas(img, l.w, l.h, l);
+          const adjustedImg = renderAdjustedImageCanvas(img, l.w, l.h, l, scale);
           ctx.drawImage(adjustedImg, -l.w/2, -l.h/2, l.w, l.h);
         }
       }
