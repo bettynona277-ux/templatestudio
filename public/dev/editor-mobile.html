@@ -531,7 +531,7 @@ body.multisel-mode #dots-btn{display:none!important;}
         </div>
         <input type="range" id="img-blur" min="0" max="20" step="0.5" value="0"
           style="width:100%;accent-color:var(--accent);"
-          oninput="updateBlur(this.value)">
+          oninput="updateImageAdjustmentsMobile()">
         <details class="tool-section" id="mob-frame-effects" style="display:none;">
           <summary>Marco <span>borde</span></summary>
           <div class="tool-section-body">
@@ -1519,6 +1519,7 @@ function applyImageVisuals(layer){
   img.style.transformOrigin = 'center center';
   img.style.filter = imageFilterStringMobile(layer);
   updateImageColorizeOverlayMobile(layer);
+  applyFrameBorderMobile(layer);
 }
 
 function buildEl(l){
@@ -2404,26 +2405,35 @@ function toggleFlip(axis){
 }
 
 function updateBlur(val){
-  const l = layers.find(x=>x.id===selId);
-  if(!l) return;
-  l.blur = parseFloat(val);
-  applyImageVisuals(l);
+  const targets = getMobileImageEditTargets();
+  if(!targets.length) return;
+  targets.forEach(l=>{
+    l.blur = parseFloat(val);
+    applyImageVisuals(l);
+  });
   document.getElementById('blur-lbl').textContent = val+'px';
+  if(multiselActive && multiselIds.size>0) updateMultiselBox();
   snapshot();
 }
 
 function updateImageAdjustmentsMobile(){
-  const l = layers.find(x=>x.id===selId);
-  if(!l || !(l.type==='img' || l.type==='frame')) return;
-  l.blur = parseFloat(document.getElementById('img-blur')?.value)||0;
-  l.hue = parseFloat(document.getElementById('mob-img-hue')?.value)||0;
-  l.saturation = parseFloat(document.getElementById('mob-img-saturation')?.value)||0;
-  l.lightness = parseFloat(document.getElementById('mob-img-lightness')?.value)||0;
-  l.colorizeEnabled = !!document.getElementById('mob-colorize-enabled')?.checked;
-  l.colorizeColor = document.getElementById('mob-colorize-color')?.value || '#ff0000';
-  l.colorizeStrength = parseFloat(document.getElementById('mob-colorize-strength')?.value)||0;
-  applyImageVisuals(l);
-  syncImagePanelMobile(l);
+  const targets = getMobileImageEditTargets();
+  if(!targets.length) return;
+  const vals = {
+    blur: parseFloat(document.getElementById('img-blur')?.value)||0,
+    hue: parseFloat(document.getElementById('mob-img-hue')?.value)||0,
+    saturation: parseFloat(document.getElementById('mob-img-saturation')?.value)||0,
+    lightness: parseFloat(document.getElementById('mob-img-lightness')?.value)||0,
+    colorizeEnabled: !!document.getElementById('mob-colorize-enabled')?.checked,
+    colorizeColor: document.getElementById('mob-colorize-color')?.value || '#ff0000',
+    colorizeStrength: parseFloat(document.getElementById('mob-colorize-strength')?.value)||0
+  };
+  targets.forEach(l=>{
+    Object.assign(l, vals);
+    applyImageVisuals(l);
+  });
+  syncImagePanelMobile(targets[0]);
+  if(multiselActive && multiselIds.size>0) updateMultiselBox();
   snapshot();
 }
 
@@ -2436,24 +2446,44 @@ function toggleImageColorizeMobile(enabled){
 }
 
 function applyFrameBorderMobile(l){
-  if(!l?.el || l.type!=='frame') return;
+  if(!l?.el || !(l.type==='frame' || l.type==='img')) return;
   const bw = Number(l.frameBorderWidth || l.borderWidth || 0);
   const bc = l.frameBorderColor || l.borderColor || '#00ffc3';
   l.el.style.boxSizing = 'border-box';
+  if(l.type==='img'){
+    l.el.style.border = bw > 0 ? `${bw}px solid ${bc}` : 'none';
+    l.el.style.borderRadius = (l.borderRadius || 0) + 'px';
+    return;
+  }
   l.el.style.border = bw > 0 ? `${bw}px solid ${bc}` : (l.frameImage || l.src ? 'none' : '2px dashed rgba(21,214,164,0.3)');
 }
 
 function updateFrameBorderMobile(){
-  const l = layers.find(x=>x.id===selId);
-  if(!l || l.type!=='frame') return;
-  l.frameBorderWidth = parseFloat(document.getElementById('mob-frame-border-w')?.value)||0;
-  l.borderWidth = l.frameBorderWidth;
-  l.frameBorderColor = document.getElementById('mob-frame-border-c')?.value || '#00ffc3';
-  l.borderColor = l.frameBorderColor;
-  applyFrameBorderMobile(l);
+  const targets = getMobileImageEditTargets();
+  if(!targets.length) return;
+  const bw = parseFloat(document.getElementById('mob-frame-border-w')?.value)||0;
+  const bc = document.getElementById('mob-frame-border-c')?.value || '#00ffc3';
+  targets.forEach(l=>{
+    l.frameBorderWidth = bw;
+    l.borderWidth = bw;
+    l.frameBorderColor = bc;
+    l.borderColor = bc;
+    applyFrameBorderMobile(l);
+  });
   const lbl = document.getElementById('mob-frame-border-lbl');
-  if(lbl) lbl.textContent = `${l.frameBorderWidth}px`;
+  if(lbl) lbl.textContent = `${bw}px`;
+  if(multiselActive && multiselIds.size>0) updateMultiselBox();
   snapshot();
+}
+
+function getMobileImageEditTargets(){
+  if(multiselActive && multiselIds.size > 0){
+    return [...multiselIds]
+      .map(id=>layers.find(x=>x.id===id))
+      .filter(l=>l && (l.type==='img' || l.type==='frame') && !l.locked);
+  }
+  const l = layers.find(x=>x.id===selId);
+  return (l && (l.type==='img' || l.type==='frame')) ? [l] : [];
 }
 
 function syncImagePanelMobile(layer){
@@ -2475,8 +2505,9 @@ function syncImagePanelMobile(layer){
   if(document.getElementById('mob-colorize-strength')) document.getElementById('mob-colorize-strength').value = strength;
   if(document.getElementById('mob-colorize-lbl')) document.getElementById('mob-colorize-lbl').textContent = strength+'%';
   const frameTools = document.getElementById('mob-frame-effects');
-  if(frameTools) frameTools.style.display = layer?.type === 'frame' ? 'block' : 'none';
-  if(layer?.type === 'frame'){
+  const borderCapable = layer?.type === 'frame' || layer?.type === 'img' || (multiselActive && getMobileImageEditTargets().length > 0);
+  if(frameTools) frameTools.style.display = borderCapable ? 'block' : 'none';
+  if(borderCapable){
     if(frameTools) frameTools.open = false;
     const bw = Number(layer.frameBorderWidth || layer.borderWidth || 0);
     const bc = layer.frameBorderColor || layer.borderColor || '#00ffc3';
@@ -2989,6 +3020,17 @@ async function renderDesignToCanvas(scale=3){
         const sc3=Math.min(l.w/nw,l.h/nh);const dw=Math.round(nw*sc3),dh=Math.round(nh*sc3);
         const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l);
         ctx.drawImage(adj,Math.round(-dw/2),Math.round(-dh/2),dw,dh);
+        const bw=Number(l.frameBorderWidth||l.borderWidth||0);
+        if(bw>0){
+          ctx.save();
+          ctx.lineWidth=bw;
+          ctx.strokeStyle=l.frameBorderColor||l.borderColor||'#00ffc3';
+          const inset=bw/2;
+          if(radius2>0) roundedRectPath(ctx,-l.w/2+inset,-l.h/2+inset,l.w-bw,l.h-bw,Math.max(0,radius2-inset));
+          else ctx.rect(-l.w/2+inset,-l.h/2+inset,l.w-bw,l.h-bw);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
       ctx.restore();continue;
     }
@@ -3411,6 +3453,7 @@ function startMultiSelect(){
     multiselIds.add(preselLayer.id);
     if(preselLayer.el) preselLayer.el.classList.add('multisel-selected');
     updateMultiselBox();
+    openImgPanel(preselLayer);
   } else {
     hideMultiselBox();
   }
@@ -3442,6 +3485,16 @@ function toggleMultiselLayer(layer){
     layer.el.classList.add('multisel-selected');
   }
   updateMultiselBox();
+  syncMultiEditPanel();
+}
+
+function syncMultiEditPanel(){
+  if(!multiselActive) return;
+  const targets = getMobileImageEditTargets();
+  if(targets.length){
+    selId = targets[0].id;
+    openImgPanel(targets[0]);
+  }
 }
 
 // Multi-select touch: handled via global overlay on cvs, not per-layer listeners
