@@ -886,16 +886,23 @@ function cdnExportOpt(url, targetW){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
   if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
-  const w = Math.max(600, Math.min(3000, Math.ceil(Number(targetW || 1600))));
+  const w = cloudinaryWidthBucket(targetW || 1600, [600, 900, 1200, 1600, 2000, 2400, 3000]);
   return cdnOpt(url, {w, quality:'good'});
 }
 
+function cloudinaryWidthBucket(value, buckets){
+  const n = Math.max(1, Number(value || 0));
+  return (buckets || [320,640,960,1200]).find(w => n <= w) || buckets[buckets.length - 1];
+}
+
 function layerPreviewW(l){
-  return Math.max(160, Math.min(1400, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1))));
+  const raw = Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1);
+  return cloudinaryWidthBucket(raw, [160, 320, 480, 640, 960, 1200]);
 }
 
 function layerExportW(l, scale){
-  return Math.max(600, Math.min(3000, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15)));
+  const raw = Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15;
+  return cloudinaryWidthBucket(raw, [600, 900, 1200, 1600, 2000, 2400, 3000]);
 }
 
 const cvs = document.getElementById('cvs');
