@@ -116,7 +116,28 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .cpicker-sheet{background:#ffffff;border-radius:20px 20px 0 0;padding:20px 16px 32px;width:100%;max-width:480px;}
 .cpicker-sheet h4{font-size:0.9rem;font-weight:800;margin-bottom:16px;text-align:center;}
 .cpicker-preview{width:100%;height:44px;border-radius:10px;margin-bottom:16px;border:2px solid rgba(255,255,255,0.1);}
+.cpicker-map-wrap{display:grid;grid-template-columns:1fr 26px;gap:12px;margin-bottom:14px;}
+.cpicker-sv{
+  position:relative;height:230px;border-radius:6px;overflow:hidden;touch-action:none;
+  background:
+    linear-gradient(to top,#000,rgba(0,0,0,0)),
+    linear-gradient(to right,#fff,rgba(255,255,255,0));
+  border:1px solid rgba(0,0,0,0.18);
+}
+.cpicker-sv-handle,.cpicker-hue-handle{
+  position:absolute;width:18px;height:18px;border:2px solid #fff;border-radius:50%;
+  box-shadow:0 1px 4px rgba(0,0,0,0.8);transform:translate(-50%,-50%);pointer-events:none;
+}
+.cpicker-hue{
+  position:relative;border-radius:5px;overflow:hidden;touch-action:none;
+  background:linear-gradient(to bottom,#f00,#f0f,#00f,#0ff,#0f0,#ff0,#f00);
+  border:1px solid rgba(0,0,0,0.18);
+}
+.cpicker-hue-handle{left:50%;width:28px;height:10px;border-radius:3px;}
 .cpicker-row{margin-bottom:12px;}
+.cpicker-map-wrap + .cpicker-row,
+.cpicker-map-wrap + .cpicker-row + .cpicker-row,
+.cpicker-map-wrap + .cpicker-row + .cpicker-row + .cpicker-row{display:none;}
 .cpicker-lbl{font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between;}
 .cpicker-slider{width:100%;height:20px;border-radius:10px;outline:none;cursor:pointer;-webkit-appearance:none;}
 .cpicker-slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer;}
@@ -612,6 +633,14 @@ body.multisel-mode #dots-btn{display:none!important;}
   <div class="cpicker-sheet">
     <h4>Color del texto</h4>
     <div class="cpicker-preview" id="cp-preview"></div>
+    <div class="cpicker-map-wrap">
+      <div class="cpicker-sv" id="cp-sv" onpointerdown="cpStartSV(event)">
+        <div class="cpicker-sv-handle" id="cp-sv-handle"></div>
+      </div>
+      <div class="cpicker-hue" id="cp-hue-map" onpointerdown="cpStartHue(event)">
+        <div class="cpicker-hue-handle" id="cp-hue-handle"></div>
+      </div>
+    </div>
     <div class="cpicker-row">
       <div class="cpicker-lbl"><span>Matiz</span></div>
       <input type="range" class="cpicker-slider" id="cp-hue" min="0" max="360" value="0" oninput="cpUpdate()">
@@ -1719,6 +1748,11 @@ function selectFrame(id){
   selId = l.id;
   if(l.el) l.el.classList.add('active-touch');
   showSelBox(l);
+  document.getElementById('text-empty').style.display = 'none';
+  document.getElementById('text-editor').style.display = 'none';
+  document.getElementById('frame-hint').style.display = 'block';
+  openImgPanel(l);
+  return;
   if(alreadySel){
     // Segundo tap → panel imagen (flip/blur/orientación)
     openImgPanel(l);
@@ -1815,6 +1849,65 @@ function cpUpdate(){
   const valTrack=`linear-gradient(to right, #000, ${hsvToHex(h,s,100)})`;
   document.getElementById('cp-sat').style.background=satTrack;
   document.getElementById('cp-val').style.background=valTrack;
+  const sv = document.getElementById('cp-sv');
+  if(sv){
+    sv.style.background = `linear-gradient(to top,#000,rgba(0,0,0,0)),linear-gradient(to right,#fff,rgba(255,255,255,0)),${hsvToHex(h,100,100)}`;
+  }
+  const svHandle = document.getElementById('cp-sv-handle');
+  if(svHandle){
+    svHandle.style.left = `${s}%`;
+    svHandle.style.top = `${100-v}%`;
+    svHandle.style.background = hex;
+  }
+  const hueHandle = document.getElementById('cp-hue-handle');
+  if(hueHandle){
+    hueHandle.style.top = `${(h/360)*100}%`;
+    hueHandle.style.background = hsvToHex(h,100,100);
+  }
+}
+
+function cpSetSVFromEvent(e){
+  const box = document.getElementById('cp-sv');
+  if(!box) return;
+  const r = box.getBoundingClientRect();
+  const s = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100));
+  const v = Math.max(0, Math.min(100, 100 - ((e.clientY - r.top) / r.height) * 100));
+  document.getElementById('cp-sat').value = Math.round(s);
+  document.getElementById('cp-val').value = Math.round(v);
+  cpUpdate();
+}
+
+function cpSetHueFromEvent(e){
+  const box = document.getElementById('cp-hue-map');
+  if(!box) return;
+  const r = box.getBoundingClientRect();
+  const h = Math.max(0, Math.min(360, ((e.clientY - r.top) / r.height) * 360));
+  document.getElementById('cp-hue').value = Math.round(h);
+  cpUpdate();
+}
+
+function cpStartSV(e){
+  e.preventDefault();
+  const move = ev => cpSetSVFromEvent(ev);
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  cpSetSVFromEvent(e);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up, {once:true});
+}
+
+function cpStartHue(e){
+  e.preventDefault();
+  const move = ev => cpSetHueFromEvent(ev);
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  cpSetHueFromEvent(e);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up, {once:true});
 }
 
 function cpHexInput(val){
@@ -2382,6 +2475,7 @@ function syncImagePanelMobile(layer){
   const frameTools = document.getElementById('mob-frame-effects');
   if(frameTools) frameTools.style.display = layer?.type === 'frame' ? 'block' : 'none';
   if(layer?.type === 'frame'){
+    if(frameTools) frameTools.open = true;
     const bw = Number(layer.frameBorderWidth || layer.borderWidth || 0);
     const bc = layer.frameBorderColor || layer.borderColor || '#00ffc3';
     if(document.getElementById('mob-frame-border-w')) document.getElementById('mob-frame-border-w').value = bw;
