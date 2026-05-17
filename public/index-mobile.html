@@ -717,11 +717,24 @@ const FIREBASE_CONFIG = {
 };
 
 // Optimizar URLs Cloudinary
+function stripCloudinaryTransforms(url){
+  if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const uploadIdx = url.indexOf('/image/upload/');
+  const base = url.substring(0, uploadIdx + '/image/upload/'.length);
+  const parts = url.substring(base.length).split('/');
+  let si = 0;
+  for(let i=0;i<parts.length;i++){
+    if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+    else break;
+  }
+  return base + parts.slice(si).join('/');
+}
 function cdnOpt(url, opts={}){
   if(!url || !url.includes('cloudinary.com')) return url;
-  const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  const cleanUrl = stripCloudinaryTransforms(url);
+  const match = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!match) return url;
-  const t = ['q_auto:eco','f_auto','fl_immutable_cache'];
+  const t = ['q_auto:eco','f_auto','c_limit','fl_immutable_cache'];
   if(opts.w) t.push('w_'+opts.w);
   if(opts.c) t.push('c_'+opts.c);
   return match[1]+t.join(',')+'/'+(match[2]||'')+match[3];
