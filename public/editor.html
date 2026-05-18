@@ -2081,10 +2081,10 @@ function cdnOpt(url, opts={}){
   const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
   const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
-  // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
+  // q_auto:eco + f_webp fijan una sola familia de derivados para bajar créditos.
   const maxW = cloudinaryWidthBucket(opts.w || 1200, [240, 640, 1200, 2000, 3000]);
   const quality = 'eco';
-  return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
+  return m[1] + `q_auto:${quality},f_webp,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
 }
 
 function cdnExportOpt(url, targetW){
@@ -2135,7 +2135,7 @@ const cloudinaryAuditStats = { uploads:0, uploadBytes:0, lastUploadAt:null, last
 function tsCloudinaryAudit(){
   const imgUrls = Array.from(document.images).map(img=>img.currentSrc || img.src).filter(Boolean);
   const cloudinaryImgs = imgUrls.filter(src=>src.includes('res.cloudinary.com/'));
-  const optimizedImgs = cloudinaryImgs.filter(src=>src.includes('q_auto:') && src.includes('f_auto') && src.includes('c_limit,w_'));
+  const optimizedImgs = cloudinaryImgs.filter(src=>src.includes('q_auto:') && (src.includes('f_webp') || src.includes('f_auto')) && src.includes('c_limit,w_'));
   const rawImgs = cloudinaryImgs.filter(src=>!optimizedImgs.includes(src));
   const localAssets = (Array.isArray(layers)?layers:[]).flatMap(l=>[
     {id:l.id,name:l.name,type:l.type,field:'src',src:l.src},
@@ -7127,12 +7127,14 @@ function stripCloudinaryTransforms(url){
   return base + parts.slice(si).join('/');
 }
 
+const exportImageCache = new Map();
 function loadImgForExport(src, targetW){
-  return new Promise((resolve)=>{
-    if(!src) return resolve(null);
+  if(!src) return Promise.resolve(null);
+  const optimizedSrc = typeof cdnExportOpt === 'function' ? cdnExportOpt(src, targetW) : (cdnOpt ? cdnOpt(src) : src);
+  if(exportImageCache.has(optimizedSrc)) return exportImageCache.get(optimizedSrc);
+  const promise = new Promise((resolve)=>{
     // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
     // IMPORTANTE: solo reutilizar si tiene crossOrigin='anonymous' (de lo contrario tainted canvas)
-    const optimizedSrc = typeof cdnExportOpt === 'function' ? cdnExportOpt(src, targetW) : (cdnOpt ? cdnOpt(src) : src);
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = optimizedSrc === src ? document.querySelectorAll('img[src]') : [];
     for(const d of domImgs){
@@ -7169,6 +7171,8 @@ function loadImgForExport(src, targetW){
     };
     img.src = optimizedSrc;
   });
+  exportImageCache.set(optimizedSrc, promise);
+  return promise;
 }
 
 function roundedRectPath(ctx,x,y,w,h,r){

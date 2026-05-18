@@ -879,7 +879,7 @@ function cdnOpt(url, opts={}){
   if(!m) return url;
   const maxW = cloudinaryWidthBucket(opts.w || 1200, [240, 640, 1200, 2000, 3000]);
   const quality = 'eco';
-  return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
+  return m[1] + `q_auto:${quality},f_webp,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
 }
 
 function cdnExportOpt(url, targetW){
@@ -2951,11 +2951,13 @@ function stripCloudinaryTransforms(url){
   return base + parts.slice(si).join('/');
 }
 
+const exportImageCache = new Map();
 function loadImgForExport(src, targetW){
-  return new Promise((resolve)=>{
-    if(!src) return resolve(null);
+  if(!src) return Promise.resolve(null);
+  const optimizedSrc = cdnExportOpt(src, targetW);
+  if(exportImageCache.has(optimizedSrc)) return exportImageCache.get(optimizedSrc);
+  const promise = new Promise((resolve)=>{
     // Buscar en DOM comparando URLs limpias — SOLO si tiene crossOrigin anonymous
-    const optimizedSrc = cdnExportOpt(src, targetW);
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = optimizedSrc === src ? document.querySelectorAll('img[src]') : [];
     for(const d of domImgs){
@@ -2976,6 +2978,8 @@ function loadImgForExport(src, targetW){
     };
     img.src=optimizedSrc;
   });
+  exportImageCache.set(optimizedSrc, promise);
+  return promise;
 }
 
 async function renderDesignToCanvas(scale=3){
