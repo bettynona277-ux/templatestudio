@@ -479,14 +479,26 @@ function doAdminLogout() {
 // ══════════════════════════════════════════
 
 // Optimizar URLs Cloudinary — menos ancho de banda
+function stripCloudinaryTransforms(url){
+  if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const uploadIdx = url.indexOf('/image/upload/');
+  const base = url.substring(0, uploadIdx + '/image/upload/'.length);
+  const parts = url.substring(base.length).split('/');
+  let si = 0;
+  for(let i=0;i<parts.length;i++){
+    if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+    else break;
+  }
+  return base + parts.slice(si).join('/');
+}
 function cdnOpt(url, opts={}){
   if(!url || !url.includes('cloudinary.com')) return url;
-  const match = url.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  const cleanUrl = stripCloudinaryTransforms(url);
+  const match = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!match) return url;
-  const transforms = ['q_auto:eco','f_auto','fl_immutable_cache']; // q_auto:eco = más compresión, fl_immutable_cache = CDN cachea indefinidamente
-  if(opts.w) transforms.push('w_'+opts.w);
-  if(opts.h) transforms.push('h_'+opts.h);
-  if(opts.c) transforms.push('c_'+opts.c);
+  const n = Math.max(1, Number(opts.w || 240));
+  const w = [240, 640, 1200].find(x => n <= x) || 1200;
+  const transforms = ['q_auto:eco','f_auto','c_limit','w_'+w,'fl_immutable_cache'];
   return match[1]+transforms.join(',')+'/'+(match[2]||'')+match[3];
 }
 
