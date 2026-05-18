@@ -84,6 +84,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .status-err{background:rgba(255,107,107,0.12);color:var(--accent2);}
 
 /* TEMPLATES */
+.tpl-tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--panel2);padding:4px;border-radius:10px;width:fit-content;border:1px solid var(--border);}
+.tpl-tab{background:transparent;border:none;color:var(--muted);font-family:inherit;font-size:0.78rem;font-weight:600;padding:7px 16px;border-radius:7px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px;}
+.tpl-tab:hover{color:var(--text);}
+.tpl-tab.active{background:var(--panel);color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,0.3);}
+.tpl-tab-count{font-size:0.68rem;background:rgba(255,255,255,0.06);padding:1px 7px;border-radius:999px;font-weight:700;}
+.tpl-tab.active .tpl-tab-count{background:rgba(0,200,150,0.18);color:var(--accent);}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;}
 .tpl-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color 0.2s;}
 .tpl-card:hover{border-color:rgba(255,255,255,0.15);}
@@ -199,6 +205,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <div class="page-sub">Crea y gestiona las plantillas que verán tus clientes.</div>
         <div style="margin-bottom:22px;display:flex;gap:10px;">
           <a href="editor.html" target="_blank"><button class="btn btn-green">+ Crear Nueva Plantilla</button></a>
+        </div>
+        <div class="tpl-tabs" id="tpl-tabs">
+          <button class="tpl-tab active" data-filter="all" onclick="filterTemplates('all',this)">📦 Todas <span class="tpl-tab-count" id="count-all">0</span></button>
+          <button class="tpl-tab" data-filter="published" onclick="filterTemplates('published',this)">🚀 Publicadas <span class="tpl-tab-count" id="count-published">0</span></button>
+          <button class="tpl-tab" data-filter="draft" onclick="filterTemplates('draft',this)">📁 Borradores <span class="tpl-tab-count" id="count-draft">0</span></button>
         </div>
         <div id="templates-grid" class="tpl-grid"></div>
       </div>
@@ -323,11 +334,19 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 <!-- MODAL VER LINK DE DISEÑO -->
 <div class="modal-overlay" id="link-modal">
   <div class="modal-box">
-    <h3>🔗 Link de acceso del cliente</h3>
-    <p>Comparte este link con tu cliente para que pueda editar su diseño:</p>
-    <div class="link-display" id="link-display-url"></div>
+    <h3>🔗 Link del diseño</h3>
+    <p id="link-modal-sub">Copia y comparte — se adapta automáticamente a celular o PC:</p>
+
+    <div id="link-draft-warn" style="display:none;background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.25);border-radius:8px;padding:9px 12px;font-size:0.75rem;color:var(--yellow);margin-bottom:12px;">
+      ⚠️ Esta plantilla es un <strong>borrador</strong>. El link funciona pero el cliente no la verá en su lista hasta que la publiques.
+    </div>
+
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;">
+      <div class="link-display" id="link-display-url" style="flex:1;margin:0;cursor:pointer;" onclick="copyAndFlash()"></div>
+      <button id="link-copy-btn" class="btn btn-green" style="flex-shrink:0;white-space:nowrap;" onclick="copyAndFlash()">📋 Copiar</button>
+    </div>
+
     <div class="modal-actions">
-      <button class="btn btn-green" onclick="copyDesignLink()">📋 Copiar link</button>
       <button class="btn btn-ghost" onclick="closeLinkModal()">Cerrar</button>
     </div>
   </div>
@@ -458,42 +477,135 @@ function doAdminLogout() {
 // ══════════════════════════════════════════
 // PLANTILLAS
 // ══════════════════════════════════════════
+
+// Optimizar URLs Cloudinary — menos ancho de banda
+function stripCloudinaryTransforms(url){
+  if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  const uploadIdx = url.indexOf('/image/upload/');
+  const base = url.substring(0, uploadIdx + '/image/upload/'.length);
+  const parts = url.substring(base.length).split('/');
+  let si = 0;
+  for(let i=0;i<parts.length;i++){
+    if(parts[i].includes(',') || (parts[i].includes(':') && !parts[i].includes('.'))) si = i + 1;
+    else break;
+  }
+  return base + parts.slice(si).join('/');
+}
+function cdnOpt(url, opts={}){
+  if(!url || !url.includes('cloudinary.com')) return url;
+  const cleanUrl = stripCloudinaryTransforms(url);
+  const match = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  if(!match) return url;
+  const n = Math.max(1, Number(opts.w || 240));
+  const w = [240, 640, 1200].find(x => n <= x) || 1200;
+  const transforms = ['q_auto:eco','f_auto','c_limit','w_'+w,'fl_immutable_cache'];
+  return match[1]+transforms.join(',')+'/'+(match[2]||'')+match[3];
+}
+
+// IntersectionObserver — lazy load real: solo descarga cuando está cerca del viewport
+const __lazyImgObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries, obs) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const img = entry.target;
+      const realSrc = img.getAttribute('data-src');
+      if (realSrc) {
+        img.src = realSrc;
+        img.removeAttribute('data-src');
+      }
+      obs.unobserve(img);
+    }
+  });
+}, { rootMargin: '200px 0px', threshold: 0.01 }) : null;
+
+function observeLazyImages(root) {
+  if (!__lazyImgObserver) {
+    (root || document).querySelectorAll('img.lazy-img[data-src]').forEach(img => {
+      img.src = img.getAttribute('data-src');
+      img.removeAttribute('data-src');
+    });
+    return;
+  }
+  (root || document).querySelectorAll('img.lazy-img[data-src]').forEach(img => __lazyImgObserver.observe(img));
+}
+
+let _allTemplates = [];
+let _currentFilter = 'all';
+
 async function loadTemplates() {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
     const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-    grid.innerHTML = '';
-    if(snap.empty) {
-      grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;">No hay plantillas aún. ¡Crea la primera!</p>';
-      return;
-    }
-    snap.forEach(doc => {
-      const d = doc.data();
-      const isDraft = d.status === 'draft';
-      const card = document.createElement('div');
-      card.className = 'tpl-card';
-      const thumb = d.thumb
-        ? `<img class="tpl-thumb" src="${d.thumb}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tpl-thumb-ph" style="display:none;">🖼</div>`
-        : `<div class="tpl-thumb-ph">🖼</div>`;
-      card.innerHTML = `
-        ${thumb}
-        <div class="tpl-info">
-          <div class="tpl-name" title="${d.name||'Sin nombre'}">${d.name||'Sin nombre'}</div>
-          <span class="tpl-badge ${isDraft?'badge-draft':'badge-pub'}">${isDraft?'Borrador':'Publicada'}</span>
-          <div class="tpl-actions">
-            <button onclick="editTemplate('${doc.id}')">✏️ Editar</button>
-            <button onclick="${isDraft?`publishTemplate('${doc.id}')`:`draftTemplate('${doc.id}')`}">${isDraft?'🚀 Publicar':'📁 Borrador'}</button>
-            <button onclick="deleteTpl('${doc.id}')" style="color:var(--accent2);">🗑️</button>
-          </div>
-        </div>`;
-      grid.appendChild(card);
-    });
+    _allTemplates = [];
+    snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+    updateTemplateCounts();
+    renderTemplates();
   } catch(e) {
     grid.innerHTML = '<p style="color:var(--accent2);">Error al cargar plantillas.</p>';
     console.error(e);
   }
+}
+
+function updateTemplateCounts() {
+  const total = _allTemplates.length;
+  const pub = _allTemplates.filter(t => t.status !== 'draft').length;
+  const drafts = _allTemplates.filter(t => t.status === 'draft').length;
+  const elAll = document.getElementById('count-all');
+  const elPub = document.getElementById('count-published');
+  const elDraft = document.getElementById('count-draft');
+  if(elAll) elAll.textContent = total;
+  if(elPub) elPub.textContent = pub;
+  if(elDraft) elDraft.textContent = drafts;
+}
+
+function filterTemplates(filter, btn) {
+  _currentFilter = filter;
+  document.querySelectorAll('.tpl-tab').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderTemplates();
+}
+
+function renderTemplates() {
+  const grid = document.getElementById('templates-grid');
+  grid.innerHTML = '';
+
+  let list = _allTemplates;
+  if(_currentFilter === 'published') list = _allTemplates.filter(t => t.status !== 'draft');
+  else if(_currentFilter === 'draft') list = _allTemplates.filter(t => t.status === 'draft');
+
+  if(list.length === 0) {
+    const msg = _currentFilter === 'draft'
+      ? 'No tienes borradores. Las plantillas que aún no publiques aparecerán aquí.'
+      : _currentFilter === 'published'
+        ? 'No tienes plantillas publicadas. Publica un borrador para que tus clientes lo vean.'
+        : 'No hay plantillas aún. ¡Crea la primera!';
+    grid.innerHTML = `<p style="color:var(--muted);font-size:0.82rem;">${msg}</p>`;
+    return;
+  }
+
+  list.forEach(d => {
+    const isDraft = d.status === 'draft';
+    const card = document.createElement('div');
+    card.className = 'tpl-card';
+    const thumb = d.thumb
+      ? `<img class="tpl-thumb lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:240,c:'fit'})}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tpl-thumb-ph" style="display:none;">🖼</div>`
+      : `<div class="tpl-thumb-ph">🖼</div>`;
+    card.innerHTML = `
+      ${thumb}
+      <div class="tpl-info">
+        <div class="tpl-name" title="${d.name||'Sin nombre'}">${d.name||'Sin nombre'}</div>
+        <span class="tpl-badge ${isDraft?'badge-draft':'badge-pub'}">${isDraft?'Borrador':'Publicada'}</span>
+        <div class="tpl-actions">
+          <button onclick="editTemplate('${d.id}')">✏️ Editar</button>
+          <button onclick="${isDraft?`publishTemplate('${d.id}')`:`draftTemplate('${d.id}')`}">${isDraft?'🚀 Publicar':'📁 Borrador'}</button>
+          <button onclick="showTemplateLink('${d.id}','${(d.name||'Diseño').replace(/'/g,"\\'")}',${isDraft})" style="${isDraft?'opacity:0.45;':''}color:var(--blue);">🔗 Link</button>
+          <button onclick="deleteTpl('${d.id}')" style="color:var(--accent2);">🗑️</button>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+  observeLazyImages(grid);
 }
 
 function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
@@ -607,11 +719,42 @@ async function deleteUser(id) {
 }
 
 // ══════════════════════════════════════════
-// MODAL LINK
+// MODAL LINK DE PLANTILLA
 // ══════════════════════════════════════════
+function showTemplateLink(id, name, isDraft) {
+  const url = `${location.origin}/editor.html?mode=client&tpl=${id}`;
+  _currentLinkUrl = url;
+  document.getElementById('link-display-url').textContent = url;
+  document.getElementById('link-modal-sub').textContent = `"${name}" — se adapta automáticamente a celular o PC:`;
+  document.getElementById('link-draft-warn').style.display = isDraft ? 'block' : 'none';
+  document.getElementById('link-copy-btn').textContent = '📋 Copiar';
+  document.getElementById('link-copy-btn').style.cssText = '';
+  document.getElementById('link-modal').classList.add('open');
+}
+
+function copyAndFlash() {
+  const url = _currentLinkUrl;
+  const btn = document.getElementById('link-copy-btn');
+  navigator.clipboard.writeText(url).then(() => {
+    btn.textContent = '✓ Copiado!';
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#000';
+    setTimeout(() => {
+      btn.textContent = '📋 Copiar';
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2000);
+    showToast('✓ Link copiado al portapapeles');
+  }).catch(() => { prompt('Copia este link:', url); });
+}
+
 function showLinkModal(url, email) {
   _currentLinkUrl = url;
   document.getElementById('link-display-url').textContent = url;
+  document.getElementById('link-modal-sub').textContent = `Link de acceso para ${email}:`;
+  document.getElementById('link-draft-warn').style.display = 'none';
+  document.getElementById('link-copy-btn').textContent = '📋 Copiar';
+  document.getElementById('link-copy-btn').style.cssText = '';
   document.getElementById('link-modal').classList.add('open');
 }
 
@@ -620,7 +763,7 @@ function closeLinkModal() {
 }
 
 function copyDesignLink() {
-  copyText(_currentLinkUrl);
+  copyAndFlash();
 }
 
 function copyText(text) {
@@ -781,7 +924,7 @@ async function loadAdminLogos(){
         const card = document.createElement('div');
         card.style.cssText = 'position:relative;background:var(--panel2);border:1px solid var(--border);border-radius:10px;aspect-ratio:1;overflow:hidden;';
         card.innerHTML = `
-          <img src="${logo.url}" style="width:100%;height:100%;object-fit:contain;padding:6px;">
+          <img class="lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(logo.url,{w:140,c:'fit'})}" style="width:100%;height:100%;object-fit:contain;padding:6px;">
           <button onclick="deleteAdminLogo('${logo.id}',this)" style="position:absolute;top:3px;right:3px;background:rgba(255,80,80,0.9);color:#fff;border:none;border-radius:4px;width:18px;height:18px;font-size:0.6rem;cursor:pointer;display:none;align-items:center;justify-content:center;font-weight:900;">✕</button>
         `;
         card.addEventListener('mouseover',()=>card.querySelector('button').style.display='flex');
@@ -791,6 +934,7 @@ async function loadAdminLogos(){
       section.appendChild(grid);
       container.appendChild(section);
     });
+    observeLazyImages(container);
   }catch(e){
     container.innerHTML = '<div style="color:#f66;font-size:0.8rem;">Error: '+e.message+'</div>';
   }
@@ -840,53 +984,22 @@ async function refreshDevicesList(uid) {
       list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
       return;
     }
-    const activeCount = snap.docs.filter(d => !d.data().revoked).length;
     let html = '';
     snap.forEach(doc => {
       const d = doc.data();
-      const isRevoked = !!d.revoked;
       const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('es-PE') : '—';
       const registered = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString('es-PE') : '—';
-
-      // Detectar tipo de dispositivo para icono
-      const osLower = (d.os || d.name || '').toLowerCase();
-      const icon = /iphone|android.*móvil|android.*movil/i.test(osLower) ? '📱'
-                 : /ipad|tablet/i.test(osLower) ? '📲'
-                 : /windows|mac|linux/i.test(osLower) ? '💻' : '🖥';
-
-      // Fingerprint: primeros 8 chars del ID si empieza con hw_
-      const devId = doc.id;
-      const hwFp = devId.startsWith('hw_') ? devId.slice(3, 11) : null;
-      const fpBadge = hwFp
-        ? `<span style="font-family:monospace;font-size:0.65rem;background:rgba(91,140,255,0.12);color:#7ba4ff;border:1px solid rgba(91,140,255,0.25);border-radius:4px;padding:1px 6px;" title="Hardware fingerprint — identifica el dispositivo físico">🔑 ${hwFp}</span>`
-        : `<span style="font-size:0.65rem;background:rgba(255,165,0,0.1);color:#ffa64d;border:1px solid rgba(255,165,0,0.2);border-radius:4px;padding:1px 6px;" title="ID antiguo sin fingerprint — podría cambiar si borran datos">⚠ legacy</span>`;
-
-      const screenInfo = d.screen ? `<span style="color:var(--muted);font-size:0.68rem;">🖥 ${d.screen}</span>` : '';
-      const browserInfo = d.browser ? `<span style="font-size:0.68rem;color:var(--muted);">${d.browser}</span>` : '';
-
-      const revokedStyle = isRevoked ? 'opacity:0.45;' : '';
-      const revokedBadge = isRevoked ? '<span style="font-size:0.62rem;background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:4px;padding:1px 6px;margin-left:4px;">revocado</span>' : '';
-
       html += `
-        <div class="device-item" style="${revokedStyle}">
+        <div class="device-item">
           <div class="device-info">
-            <div class="device-name" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-              ${icon} ${d.os || d.name || 'Dispositivo'} ${revokedBadge}
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:3px;">
-              ${fpBadge}
-              ${browserInfo}
-              ${screenInfo}
-            </div>
-            <div class="device-date" style="margin-top:3px;">Registrado: ${registered} · Última vez: ${lastSeen}</div>
+            <div class="device-name">📱 ${d.name || 'Dispositivo'}</div>
+            <div class="device-date">Registrado: ${registered} · Última vez: ${lastSeen}</div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
-            <button class="btn-del-device" onclick="deleteDevice('${uid}','${doc.id}')" title="Eliminar permanentemente">🗑</button>
-          </div>
+          <button class="btn-del-device" onclick="deleteDevice('${uid}','${doc.id}')">🗑 Quitar</button>
         </div>`;
     });
-    const total = snap.size;
-    list.innerHTML = `<p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">${activeCount} activo${activeCount!==1?'s':''} · ${total} total · máximo 5</p>` + html;
+    const count = snap.size;
+    list.innerHTML = `<p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">${count}/5 dispositivos usados</p>` + html;
   } catch(e) {
     list.innerHTML = '<p style="color:var(--accent2);">Error al cargar dispositivos.</p>';
   }
@@ -909,10 +1022,6 @@ function closeDevicesModal() {
   <div class="devices-modal">
     <h3>📱 Dispositivos registrados</h3>
     <p class="subtitle" id="devices-modal-subtitle"></p>
-    <div style="background:rgba(91,140,255,0.06);border:1px solid rgba(91,140,255,0.15);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:0.72rem;color:var(--muted);line-height:1.5;">
-      <strong style="color:#7ba4ff;">🔑 Fingerprint</strong> — identifica el hardware físico (pantalla, CPU, GPU). Persiste aunque borren datos del navegador o cambien de navegador en el mismo celular.<br>
-      <strong style="color:#ffa64d;">⚠ legacy</strong> — ID antiguo sin fingerprint. Si el cliente borra datos, generará un nuevo slot.
-    </div>
     <div id="devices-list"></div>
     <button class="btn" style="width:100%;margin-top:16px;" onclick="closeDevicesModal()">Cerrar</button>
   </div>

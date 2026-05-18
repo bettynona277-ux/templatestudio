@@ -877,8 +877,8 @@ function cdnOpt(url, opts={}){
   const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
   const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
-  const maxW = Math.max(80, Math.min(3000, parseInt(opts.w || 1200, 10)));
-  const quality = opts.quality || 'eco';
+  const maxW = cloudinaryWidthBucket(opts.w || 1200, [240, 640, 1200, 2000, 3000]);
+  const quality = 'eco';
   return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
 }
 
@@ -886,16 +886,24 @@ function cdnExportOpt(url, targetW){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
   if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
-  const w = Math.max(600, Math.min(3000, Math.ceil(Number(targetW || 1600))));
-  return cdnOpt(url, {w, quality:'good'});
+  const w = cloudinaryWidthBucket(targetW || 2000, [1200, 2000, 3000]);
+  return cdnOpt(url, {w});
+}
+
+function cloudinaryWidthBucket(value, buckets){
+  const n = Math.max(1, Number(value || 0));
+  const list = buckets || [240, 640, 1200, 2000, 3000];
+  return list.find(w => n <= w) || list[list.length - 1];
 }
 
 function layerPreviewW(l){
-  return Math.max(160, Math.min(1400, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1))));
+  const raw = Math.max(Number(l?.w||0), Number(l?.h||0)) * Math.min(2, window.devicePixelRatio || 1);
+  return cloudinaryWidthBucket(raw, [240, 640, 1200]);
 }
 
 function layerExportW(l, scale){
-  return Math.max(600, Math.min(3000, Math.ceil(Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15)));
+  const raw = Math.max(Number(l?.w||0), Number(l?.h||0)) * Number(scale || 2) * 1.15;
+  return cloudinaryWidthBucket(raw, [1200, 2000, 3000]);
 }
 
 const cvs = document.getElementById('cvs');
@@ -3099,11 +3107,13 @@ async function renderDesignToCanvas(scale=3){
 
 function mobileExportScale(canvasW, canvasH){
   const basePixels = Math.max(1, Number(canvasW||0) * Number(canvasH||0));
+  const longEdge = Math.max(1, Number(canvasW||0), Number(canvasH||0));
   const ua = navigator.userAgent || '';
   const isIOSDevice = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-  const maxPixels = isIOSDevice ? 12000000 : 18000000;
+  const maxPixels = isIOSDevice ? 24000000 : 42000000;
   const fitScale = Math.sqrt(maxPixels / basePixels);
-  return Math.max(2, Math.min(3, fitScale));
+  const minScaleForSharpLongEdge = 3240 / longEdge;
+  return Math.max(2, Math.min(6, fitScale, minScaleForSharpLongEdge));
 }
 
 async function downloadPNG(){
