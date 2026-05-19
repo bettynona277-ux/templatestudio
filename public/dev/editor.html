@@ -369,7 +369,7 @@ body.theme-light .text-context-toolbar{
 .right.toolbar-driven #pp-txt .panel-title{margin-bottom:0;}
 .right.toolbar-driven #pp-txt .panel-chip{display:none;}
 .right.toolbar-driven #pp-txt{padding-top:14px !important;}
-.right.toolbar-driven #pp-group-wrap{display:none;}
+.right.toolbar-driven:not([data-context-mode$="-position"]) #pp-group-wrap{display:none;}
 .right[data-context-mode="frame-frame"] #pp-frame .frame-panel-effects{display:none;}
 .right[data-context-mode="frame-effects"] #pp-frame .frame-panel-core{display:none;}
 .right[data-context-mode="shape-shape"] #pp-shape .shape-panel-effects{display:none;}
@@ -1403,6 +1403,7 @@ input[type=range]{filter:none !important;}
       <button type="button" class="tb-btn tb-mode" data-tb-kind="text" title="Centro" onclick="updTS('textAlign','center')">↔</button>
       <button type="button" class="tb-btn tb-mode" data-tb-kind="text" title="Derecha" onclick="updTS('textAlign','right')">➡</button>
       <span class="tb-divider tb-mode" data-tb-kind="text"></span>
+      <button type="button" class="tb-btn wide tb-mode" data-tb-kind="text" title="Contenido y variable" onclick="openContextToolbarPanel('text','text')">Texto</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="text" title="Bordes y sombras" onclick="openContextToolbarPanel('text','effects')">Efectos</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="text" title="Ordenar y alinear" onclick="openContextToolbarPanel('text','position')">Posición</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Voltear imagen" onclick="openContextToolbarPanel('image','transform')">Transformar</button>
@@ -1592,6 +1593,32 @@ input[type=range]{filter:none !important;}
             <div style="display:flex;align-items:center;gap:8px;">
               <input type="range" id="pp-colorize-strength" min="0" max="100" step="1" value="0" style="flex:1;" oninput="updImageAdjustments()">
               <span id="pp-colorize-strength-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">0%</span>
+            </div>
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">
+              <label class="mini-lbl" style="margin:0 0 8px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="pp-color-replace-enabled" onchange="toggleImageColorReplace(this.checked)">
+                Reemplazar color
+              </label>
+              <div class="panel-grid2" style="margin-bottom:8px;">
+                <div>
+                  <div class="mini-lbl">Color a cambiar</div>
+                  <input type="color" id="pp-color-replace-from" value="#004cff" oninput="updImageAdjustments()" style="width:100%;height:30px;border:none;border-radius:6px;cursor:pointer;">
+                </div>
+                <div>
+                  <div class="mini-lbl">Nuevo color</div>
+                  <input type="color" id="pp-color-replace-to" value="#ff005c" oninput="updImageAdjustments()" style="width:100%;height:30px;border:none;border-radius:6px;cursor:pointer;">
+                </div>
+              </div>
+              <div class="mini-lbl">Tolerancia</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <input type="range" id="pp-color-replace-tolerance" min="1" max="100" step="1" value="35" style="flex:1;" oninput="updImageAdjustments()">
+                <span id="pp-color-replace-tolerance-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">35%</span>
+              </div>
+              <div class="mini-lbl">Intensidad reemplazo</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="pp-color-replace-strength" min="0" max="100" step="1" value="100" style="flex:1;" oninput="updImageAdjustments()">
+                <span id="pp-color-replace-strength-lbl" style="font-size:0.72rem;color:var(--muted);min-width:42px;">100%</span>
+              </div>
             </div>
           </div>
         </details>
@@ -2081,18 +2108,20 @@ function cdnOpt(url, opts={}){
   const cleanUrl = typeof stripCloudinaryTransforms === 'function' ? stripCloudinaryTransforms(url) : url;
   const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
   if(!m) return url;
-  // q_auto = compresión automática, f_auto = formato óptimo, fl_immutable_cache = CDN cache largo
+  // q_auto:eco + f_webp fijan una sola familia de derivados para bajar créditos.
   const maxW = cloudinaryWidthBucket(opts.w || 1200, [240, 640, 1200, 2000, 3000]);
   const quality = 'eco';
-  return m[1] + `q_auto:${quality},f_auto,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
+  return m[1] + `q_auto:${quality},f_webp,c_limit,w_${maxW},fl_immutable_cache/` + (m[2]||'') + m[3];
 }
 
 function cdnExportOpt(url, targetW){
   if(!url || typeof url !== 'string') return url;
   if(url.startsWith('data:') || url.startsWith('blob:')) return url;
   if(!url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
-  const w = cloudinaryWidthBucket(targetW || 2000, [1200, 2000, 3000]);
-  return cdnOpt(url, {w});
+  const cleanUrl = stripCloudinaryTransforms(url);
+  const m = cleanUrl.match(/(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(v\d+\/)?(.+)/);
+  if(!m) return cleanUrl;
+  return m[1] + `fl_original/` + (m[2]||'') + m[3];
 }
 
 function cloudinaryWidthBucket(value, buckets){
@@ -2135,7 +2164,7 @@ const cloudinaryAuditStats = { uploads:0, uploadBytes:0, lastUploadAt:null, last
 function tsCloudinaryAudit(){
   const imgUrls = Array.from(document.images).map(img=>img.currentSrc || img.src).filter(Boolean);
   const cloudinaryImgs = imgUrls.filter(src=>src.includes('res.cloudinary.com/'));
-  const optimizedImgs = cloudinaryImgs.filter(src=>src.includes('q_auto:') && src.includes('f_auto') && src.includes('c_limit,w_'));
+  const optimizedImgs = cloudinaryImgs.filter(src=>src.includes('q_auto:') && (src.includes('f_webp') || src.includes('f_auto')) && src.includes('c_limit,w_'));
   const rawImgs = cloudinaryImgs.filter(src=>!optimizedImgs.includes(src));
   const localAssets = (Array.isArray(layers)?layers:[]).flatMap(l=>[
     {id:l.id,name:l.name,type:l.type,field:'src',src:l.src},
@@ -3108,9 +3137,7 @@ function applyEditorTheme(theme){
   try{ localStorage.setItem('ts_editor_theme', mode); }catch(_){}
 }
 function initEditorTheme(){
-  let saved = 'dark';
-  try{ saved = localStorage.getItem('ts_editor_theme') || 'dark'; }catch(_){}
-  applyEditorTheme(saved);
+  applyEditorTheme('light');
 }
 function toggleEditorTheme(){
   const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
@@ -3319,7 +3346,7 @@ function addImgLayer(src,name){
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height,
-      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
+      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0,colorReplaceEnabled:false,colorReplaceFrom:'#004cff',colorReplaceTo:'#ff005c',colorReplaceTolerance:35,colorReplaceStrength:100};
     layers.push(l);mkEl(l);renderList();sel(l.id);
   };img.src=src;
 }
@@ -3829,7 +3856,7 @@ function addLogoToCanvas(src, name){
     const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height,
-      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
+      blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0,colorReplaceEnabled:false,colorReplaceFrom:'#004cff',colorReplaceTo:'#ff005c',colorReplaceTolerance:35,colorReplaceStrength:100};
     layers.push(l); mkEl(l); renderList(); sel(l.id);
     snapshotState();
     showToast('✓ Logo agregado al canvas');
@@ -3967,7 +3994,7 @@ function syncTextContextToolbar(){
   bar.querySelectorAll('.tb-btn').forEach(btn=>{
     const title=(btn.getAttribute('title')||'').toLowerCase();
     btn.classList.toggle('active',
-      (kind==='text' && ((activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
+      (kind==='text' && ((activeTextPanelTab==='text' && title.includes('contenido')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
       (kind==='image' && ((activeTextPanelTab==='transform' && title.includes('voltear')) || (activeTextPanelTab==='adjust' && title.includes('tono')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
       (kind==='frame' && ((activeTextPanelTab==='frame' && title.includes('radio')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='adjust' && title.includes('ajustes')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
       (kind==='shape' && ((activeTextPanelTab==='shape' && title.includes('relleno')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='position' && title.includes('ordenar'))))
@@ -4065,7 +4092,7 @@ function addShape(type){
   const l={id:lCtr++,type:'img',name:'Forma',src:url,
     x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
     opacity,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:w,origH:h,isShape:true,shapeType:type,shapeFill:fill,shapeStrokeColor:stroke,shapeStrokeWidth:strokeW,shapeSvg:svg,
-    blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0};
+    blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0,colorReplaceEnabled:false,colorReplaceFrom:'#004cff',colorReplaceTo:'#ff005c',colorReplaceTolerance:35,colorReplaceStrength:100};
   layers.push(l);mkEl(l);renderList();sel(l.id);snapshotState();
 }
 
@@ -5314,6 +5341,11 @@ function copyStyleFromLayer(layer){
         colorizeEnabled: !!layer.colorizeEnabled,
         colorizeColor: layer.colorizeColor||'#ff005c',
         colorizeStrength: layer.colorizeStrength||0,
+        colorReplaceEnabled: !!layer.colorReplaceEnabled,
+        colorReplaceFrom: layer.colorReplaceFrom||'#004cff',
+        colorReplaceTo: layer.colorReplaceTo||'#ff005c',
+        colorReplaceTolerance: layer.colorReplaceTolerance??35,
+        colorReplaceStrength: layer.colorReplaceStrength??100,
         flipX: !!layer.flipX,
         flipY: !!layer.flipY,
         rotation: getLayerRotation(layer)
@@ -5331,6 +5363,11 @@ function copyStyleFromLayer(layer){
         colorizeEnabled: !!layer.colorizeEnabled,
         colorizeColor: layer.colorizeColor||'#ff005c',
         colorizeStrength: layer.colorizeStrength||0,
+        colorReplaceEnabled: !!layer.colorReplaceEnabled,
+        colorReplaceFrom: layer.colorReplaceFrom||'#004cff',
+        colorReplaceTo: layer.colorReplaceTo||'#ff005c',
+        colorReplaceTolerance: layer.colorReplaceTolerance??35,
+        colorReplaceStrength: layer.colorReplaceStrength??100,
         flipX: !!layer.flipX,
         flipY: !!layer.flipY,
         rotation: getLayerRotation(layer)
@@ -5649,7 +5686,10 @@ function updatePropertyPanelState(targetLayer=null){
 
   const txt=document.getElementById('pp-txt');
   if(txt) txt.classList.toggle('panel-hidden', !(isText || multiAllText));
-  if(txt && !txt.classList.contains('panel-hidden')) switchTextPanelTab(activeTextPanelTab);
+  if(txt && !txt.classList.contains('panel-hidden')){
+    if(isText && !isMulti && activeContextKind !== 'text') activeTextPanelTab = 'text';
+    switchTextPanelTab(activeTextPanelTab);
+  }
   syncTextContextToolbar();
 
   const frame=document.getElementById('pp-frame');
@@ -5803,6 +5843,77 @@ function hexToHue(hex){
   h=Math.round(h*60);
   return h<0?h+360:h;
 }
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  let h=0, s=0;
+  const l=(max+min)/2;
+  const d=max-min;
+  if(d!==0){
+    s=l>0.5 ? d/(2-max-min) : d/(max+min);
+    if(max===r) h=(g-b)/d+(g<b?6:0);
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60;
+  }
+  return {h,s,l};
+}
+function hslToRgb(h,s,l){
+  h=((h%360)+360)%360/360;
+  const hue2rgb=(p,q,t)=>{
+    if(t<0) t+=1; if(t>1) t-=1;
+    if(t<1/6) return p+(q-p)*6*t;
+    if(t<1/2) return q;
+    if(t<2/3) return p+(q-p)*(2/3-t)*6;
+    return p;
+  };
+  let r,g,b;
+  if(s===0){ r=g=b=l; }
+  else{
+    const q=l<0.5 ? l*(1+s) : l+s-l*s;
+    const p=2*l-q;
+    r=hue2rgb(p,q,h+1/3);
+    g=hue2rgb(p,q,h);
+    b=hue2rgb(p,q,h-1/3);
+  }
+  return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};
+}
+function hueDistance(a,b){
+  const d=Math.abs((((a-b)%360)+540)%360-180);
+  return Math.min(180,d);
+}
+function applySelectiveColorReplaceToCanvas(canvas, layer){
+  if(!layer?.colorReplaceEnabled || layer?.isShape) return;
+  const strength=Math.max(0,Math.min(1,Number(layer.colorReplaceStrength ?? 100)/100));
+  if(strength<=0) return;
+  const ctx=canvas.getContext('2d');
+  let data;
+  try{ data=ctx.getImageData(0,0,canvas.width,canvas.height); }
+  catch(_){ return; }
+  const src=hexToRgb(layer.colorReplaceFrom || '#004cff');
+  const dst=hexToRgb(layer.colorReplaceTo || '#ff005c');
+  const srcHsl=rgbToHsl(src.r,src.g,src.b);
+  const dstHsl=rgbToHsl(dst.r,dst.g,dst.b);
+  const tolerance=Math.max(1,Math.min(100,Number(layer.colorReplaceTolerance ?? 35)));
+  const hueTol=8 + tolerance * 1.25;
+  const satTol=0.12 + tolerance / 140;
+  const arr=data.data;
+  for(let i=0;i<arr.length;i+=4){
+    if(arr[i+3]===0) continue;
+    const hsl=rgbToHsl(arr[i],arr[i+1],arr[i+2]);
+    if(hsl.s < 0.06) continue;
+    const hScore=hueDistance(hsl.h, srcHsl.h) / hueTol;
+    const sScore=Math.abs(hsl.s - srcHsl.s) / satTol;
+    const score=Math.max(hScore, sScore * 0.55);
+    if(score>=1) continue;
+    const alpha=(1-score) * strength;
+    const repl=hslToRgb(dstHsl.h, Math.max(0,Math.min(1,dstHsl.s)), hsl.l);
+    arr[i]   = Math.round(arr[i]   * (1-alpha) + repl.r * alpha);
+    arr[i+1] = Math.round(arr[i+1] * (1-alpha) + repl.g * alpha);
+    arr[i+2] = Math.round(arr[i+2] * (1-alpha) + repl.b * alpha);
+  }
+  ctx.putImageData(data,0,0);
+}
 function imageFilterString(layer, blurScale=1){
   const blur = Number(layer?.blur || 0);
   const hue = Number(layer?.hue || 0);
@@ -5821,7 +5932,7 @@ function updateImageColorizeOverlay(layer){
   if(!host) return;
   let ov = host.querySelector(':scope > .image-colorize-ov');
   const strength = Math.max(0, Math.min(100, Number(layer.colorizeStrength||0)));
-  if(!layer.colorizeEnabled || strength <= 0 || layer.isShape){
+  if(layer.colorReplaceEnabled || !layer.colorizeEnabled || strength <= 0 || layer.isShape){
     if(ov) ov.remove();
     return;
   }
@@ -5867,6 +5978,7 @@ function renderAdjustedImageCanvas(img, dw, dh, layer, pixelScale=1){
   octx.filter=imageFilterString(layer, rs);
   octx.drawImage(img,0,0,out.width,out.height);
   octx.filter='none';
+  applySelectiveColorReplaceToCanvas(out, layer);
   const strength=Math.max(0,Math.min(100,Number(layer?.colorizeStrength||0)));
   if(layer?.colorizeEnabled && strength>0 && !layer?.isShape){
     octx.save();
@@ -5900,6 +6012,55 @@ function applyImageVisuals(layer){
   img.style.transformOrigin = 'center center';
   img.style.filter = imageFilterString(layer);
   updateImageColorizeOverlay(layer);
+  updateImageReplacePreview(layer);
+}
+
+function updateImageReplacePreview(layer){
+  if(!layer?.el) return;
+  const host = layer.type==='frame' ? document.getElementById('fc-'+layer.id) : layer.el;
+  const img = getImageTargetElement(layer);
+  if(!host || !img) return;
+  let ov = host.querySelector(':scope > .image-replace-ov');
+  if(!layer.colorReplaceEnabled || layer.isShape){
+    if(ov) ov.remove();
+    img.style.opacity = '';
+    return;
+  }
+  if(!ov){
+    ov=document.createElement('img');
+    ov.className='image-replace-ov';
+    ov.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8;';
+    host.appendChild(ov);
+  }
+  ov.style.objectFit = layer.type==='frame' ? 'cover' : 'contain';
+  ov.style.transform = `scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`;
+  ov.style.transformOrigin = 'center center';
+  img.style.opacity = '0';
+  const token = (layer._replacePreviewToken || 0) + 1;
+  layer._replacePreviewToken = token;
+  const src = img.currentSrc || img.src || (layer.type==='frame' ? layer.frameImage : layer.src);
+  if(!src) return;
+  const srcImg = new Image();
+  srcImg.crossOrigin='anonymous';
+  srcImg.onload=()=>{
+    if(layer._replacePreviewToken !== token) return;
+    const boxW = Math.max(1, layer.w || img.clientWidth || srcImg.naturalWidth || 1);
+    const boxH = Math.max(1, layer.h || img.clientHeight || srcImg.naturalHeight || 1);
+    const sw = srcImg.naturalWidth || srcImg.width || boxW;
+    const sh = srcImg.naturalHeight || srcImg.height || boxH;
+    const fitScale = layer.type==='frame' ? Math.max(boxW/sw, boxH/sh) : Math.min(boxW/sw, boxH/sh);
+    const dw = sw * fitScale;
+    const dh = sh * fitScale;
+    const canvas = renderAdjustedImageCanvas(srcImg, dw, dh, layer, Math.min(2, window.devicePixelRatio || 1));
+    ov.src = canvas.toDataURL('image/png');
+  };
+  srcImg.onerror=()=>{
+    if(layer._replacePreviewToken === token){
+      if(ov) ov.remove();
+      img.style.opacity='';
+    }
+  };
+  srcImg.src=src;
 }
 
 function refreshLayerEffects(layer){
@@ -5937,6 +6098,10 @@ function syncImageAdjustmentLabels(layer){
   if(lightLbl) lightLbl.textContent = `${Number(layer?.lightness||0)}%`;
   const colorizeLbl = document.getElementById('pp-colorize-strength-lbl');
   if(colorizeLbl) colorizeLbl.textContent = `${Number(layer?.colorizeStrength||0)}%`;
+  const replaceTolLbl = document.getElementById('pp-color-replace-tolerance-lbl');
+  if(replaceTolLbl) replaceTolLbl.textContent = `${Number(layer?.colorReplaceTolerance ?? 35)}%`;
+  const replaceStrengthLbl = document.getElementById('pp-color-replace-strength-lbl');
+  if(replaceStrengthLbl) replaceStrengthLbl.textContent = `${Number(layer?.colorReplaceStrength ?? 100)}%`;
 }
 function updImageAdjustments(){
   const blur = parseFloat(document.getElementById('pp-blur')?.value)||0;
@@ -5946,6 +6111,11 @@ function updImageAdjustments(){
   const colorizeEnabled = !!document.getElementById('pp-colorize-enabled')?.checked;
   const colorizeColor = document.getElementById('pp-colorize-color')?.value || '#ff005c';
   const colorizeStrength = parseFloat(document.getElementById('pp-colorize-strength')?.value)||0;
+  const colorReplaceEnabled = !!document.getElementById('pp-color-replace-enabled')?.checked;
+  const colorReplaceFrom = document.getElementById('pp-color-replace-from')?.value || '#004cff';
+  const colorReplaceTo = document.getElementById('pp-color-replace-to')?.value || '#ff005c';
+  const colorReplaceTolerance = parseFloat(document.getElementById('pp-color-replace-tolerance')?.value)||35;
+  const colorReplaceStrength = parseFloat(document.getElementById('pp-color-replace-strength')?.value)||100;
   const ids = selIds.length>1 ? selIds : (selId!==null?[selId]:[]);
   if(!ids.length) return;
   let applied=false;
@@ -5959,14 +6129,26 @@ function updImageAdjustments(){
     l.colorizeEnabled = colorizeEnabled;
     l.colorizeColor = colorizeColor;
     l.colorizeStrength = colorizeStrength;
+    l.colorReplaceEnabled = colorReplaceEnabled;
+    l.colorReplaceFrom = colorReplaceFrom;
+    l.colorReplaceTo = colorReplaceTo;
+    l.colorReplaceTolerance = colorReplaceTolerance;
+    l.colorReplaceStrength = colorReplaceStrength;
     applyImageVisuals(l);
     applied=true;
   });
-  syncImageAdjustmentLabels({blur,hue,saturation,lightness,colorizeStrength});
+  syncImageAdjustmentLabels({blur,hue,saturation,lightness,colorizeStrength,colorReplaceTolerance,colorReplaceStrength});
   if(applied) snapshotState();
 }
 function toggleImageColorize(enabled){
   const strengthEl=document.getElementById('pp-colorize-strength');
+  if(enabled && strengthEl && Number(strengthEl.value||0) <= 0){
+    strengthEl.value = 100;
+  }
+  updImageAdjustments();
+}
+function toggleImageColorReplace(enabled){
+  const strengthEl=document.getElementById('pp-color-replace-strength');
   if(enabled && strengthEl && Number(strengthEl.value||0) <= 0){
     strengthEl.value = 100;
   }
@@ -6095,11 +6277,16 @@ function syncP(){
     const ice=document.getElementById('pp-colorize-enabled'); if(ice) ice.checked=!!l.colorizeEnabled;
     const icc=document.getElementById('pp-colorize-color'); if(icc) icc.value=(l.colorizeColor||'#ff005c').startsWith('#')?l.colorizeColor:'#ff005c';
     const ics=document.getElementById('pp-colorize-strength'); if(ics) ics.value=Number(l.colorizeStrength||0);
+    const cre=document.getElementById('pp-color-replace-enabled'); if(cre) cre.checked=!!l.colorReplaceEnabled;
+    const crf=document.getElementById('pp-color-replace-from'); if(crf) crf.value=(l.colorReplaceFrom||'#004cff').startsWith('#')?l.colorReplaceFrom:'#004cff';
+    const crt=document.getElementById('pp-color-replace-to'); if(crt) crt.value=(l.colorReplaceTo||'#ff005c').startsWith('#')?l.colorReplaceTo:'#ff005c';
+    const crtol=document.getElementById('pp-color-replace-tolerance'); if(crtol) crtol.value=Number(l.colorReplaceTolerance??35);
+    const crs=document.getElementById('pp-color-replace-strength'); if(crs) crs.value=Number(l.colorReplaceStrength??100);
     document.getElementById('pp-flipx')?.classList.toggle('active',!!l.flipX);
     document.getElementById('pp-flipy')?.classList.toggle('active',!!l.flipY);
     syncImageAdjustmentLabels(l);
     const iadj=document.getElementById('pp-img-adjust');
-    if(iadj) iadj.open = !!(Number(l.blur||0) || Number(l.hue||0) || Number(l.saturation||0) || Number(l.lightness||0) || (l.colorizeEnabled && Number(l.colorizeStrength||0)));
+    if(iadj) iadj.open = !!(Number(l.blur||0) || Number(l.hue||0) || Number(l.saturation||0) || Number(l.lightness||0) || (l.colorizeEnabled && Number(l.colorizeStrength||0)) || l.colorReplaceEnabled);
     const itr=document.getElementById('pp-img-transform');
     if(itr) itr.open = !!(l.flipX || l.flipY);
   }
@@ -7127,12 +7314,14 @@ function stripCloudinaryTransforms(url){
   return base + parts.slice(si).join('/');
 }
 
+const exportImageCache = new Map();
 function loadImgForExport(src, targetW){
-  return new Promise((resolve)=>{
-    if(!src) return resolve(null);
+  if(!src) return Promise.resolve(null);
+  const optimizedSrc = typeof cdnExportOpt === 'function' ? cdnExportOpt(src, targetW) : (cdnOpt ? cdnOpt(src) : src);
+  if(exportImageCache.has(optimizedSrc)) return exportImageCache.get(optimizedSrc);
+  const promise = new Promise((resolve)=>{
     // Buscar en DOM comparando también URLs limpias (sin q_auto,f_auto)
     // IMPORTANTE: solo reutilizar si tiene crossOrigin='anonymous' (de lo contrario tainted canvas)
-    const optimizedSrc = typeof cdnExportOpt === 'function' ? cdnExportOpt(src, targetW) : (cdnOpt ? cdnOpt(src) : src);
     const cleanSrc = stripCloudinaryTransforms(src);
     const domImgs = optimizedSrc === src ? document.querySelectorAll('img[src]') : [];
     for(const d of domImgs){
@@ -7169,6 +7358,8 @@ function loadImgForExport(src, targetW){
     };
     img.src = optimizedSrc;
   });
+  exportImageCache.set(optimizedSrc, promise);
+  return promise;
 }
 
 function roundedRectPath(ctx,x,y,w,h,r){
@@ -8090,6 +8281,11 @@ async function buildLayerData(){
     obj.colorizeEnabled = !!l.colorizeEnabled;
     obj.colorizeColor = l.colorizeColor || '#ff005c';
     obj.colorizeStrength = Number(l.colorizeStrength||0);
+    obj.colorReplaceEnabled = !!l.colorReplaceEnabled;
+    obj.colorReplaceFrom = l.colorReplaceFrom || '#004cff';
+    obj.colorReplaceTo = l.colorReplaceTo || '#ff005c';
+    obj.colorReplaceTolerance = Number(l.colorReplaceTolerance??35);
+    obj.colorReplaceStrength = Number(l.colorReplaceStrength??100);
     obj.flipX = !!l.flipX;
     obj.flipY = !!l.flipY;
     if(l.tp) obj.tp = {
@@ -8436,6 +8632,11 @@ function loadData(tpl){
         colorizeEnabled: false,
         colorizeColor: '#ff005c',
         colorizeStrength: 0,
+        colorReplaceEnabled: false,
+        colorReplaceFrom: '#004cff',
+        colorReplaceTo: '#ff005c',
+        colorReplaceTolerance: 35,
+        colorReplaceStrength: 100,
         recoveredFromThumb: true
       };
       layers.push(fallbackLayer);
@@ -8598,7 +8799,7 @@ function addImageLayerFromUrl(url){
         x: Math.round((cw-w)/2), y: Math.round((ch-h)/2),
         w, h,
         opacity:1, visible:true, zIndex:layers.length,
-        flipX:false, flipY:false, blur:0, hue:0, saturation:0, lightness:0, colorizeEnabled:false, colorizeColor:'#ff005c', colorizeStrength:0, rotation:0
+        flipX:false, flipY:false, blur:0, hue:0, saturation:0, lightness:0, colorizeEnabled:false, colorizeColor:'#ff005c', colorizeStrength:0, colorReplaceEnabled:false, colorReplaceFrom:'#004cff', colorReplaceTo:'#ff005c', colorReplaceTolerance:35, colorReplaceStrength:100, rotation:0
       };
       layers.push(l); mkEl(l); renderList(); sel(l.id); snapshotState();
       showToast('🖼 Imagen pegada');
