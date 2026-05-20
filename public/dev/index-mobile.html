@@ -736,7 +736,7 @@ function cdnOpt(url, opts={}){
   if(!match) return url;
   const n = Math.max(1, Number(opts.w || 240));
   const w = [240, 640, 1200].find(x => n <= x) || 1200;
-  const t = ['q_auto:eco','f_auto','c_limit','w_'+w,'fl_immutable_cache'];
+  const t = ['q_auto:eco','f_webp','c_limit','w_'+w,'fl_immutable_cache'];
   return match[1]+t.join(',')+'/'+(match[2]||'')+match[3];
 }
 
@@ -945,7 +945,16 @@ window.addEventListener('load', async()=>{
             const doc = await fbDb.collection('users').doc(user.uid).get();
             if(doc.exists && doc.data().active !== false){
               const devResult = await registerDevice(user.uid);
-              if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
+              if(!devResult.ok){
+                fbAuth.signOut();
+                localStorage.removeItem('ts_session');
+                showScreen('login');
+                const loginErr = document.getElementById('login-err');
+                if(loginErr) loginErr.textContent = devResult.revoked
+                  ? 'Este dispositivo fue revocado por el administrador.'
+                  : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
+                return;
+              }
               currentUser = {uid:user.uid, ...doc.data()};
               localStorage.setItem('ts_session', JSON.stringify(currentUser));
               try{
@@ -999,7 +1008,9 @@ window.addEventListener('load', async()=>{
             fbAuth.signOut();
             document.getElementById('app-loading').style.display = 'none';
             showScreen('login');
-            document.getElementById('login-err').textContent = '✗ Límite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
+            document.getElementById('login-err').textContent = devResult.revoked
+              ? 'Este dispositivo fue revocado por el administrador.'
+              : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
             return;
           }
           currentUser = {uid:user.uid, ...doc.data()};
@@ -1044,6 +1055,7 @@ window.addEventListener('load', async()=>{
 });
 
 const MAX_DEVICES = 5;
+const DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getDeviceId(){
   let id = localStorage.getItem('ts_device_id');
@@ -1070,20 +1082,154 @@ function getDeviceName(){
   return name;
 }
 
+function detectBrowserName(ua = navigator.userAgent) {
+  if (/Edg/i.test(ua)) return 'Edge';
+  if (/OPR|Opera/i.test(ua)) return 'Opera';
+  if (/Firefox/i.test(ua)) return 'Firefox';
+  if (/Chrome|CriOS/i.test(ua) && !/Edg/i.test(ua)) return 'Chrome';
+  if (/Safari/i.test(ua) && !/Chrome|CriOS/i.test(ua)) return 'Safari';
+  return 'Navegador';
+}
+
+function detectOSName(ua = navigator.userAgent) {
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return ua.includes('Mobile') ? 'Android movil' : 'Android tablet';
+  if (/Windows/i.test(ua)) return 'Windows PC';
+  if (/Mac/i.test(ua)) return 'Mac';
+  if (/Linux/i.test(ua)) return 'Linux PC';
+  return 'Dispositivo';
+}
+
+function shortGpuName(renderer) {
+  return String(renderer || '').replace(/^ANGLE\s*\(|\)$/gi, '').replace(/\s*\(.*?\)\s*/g, ' ').replace(/Direct3D.*|OpenGL.*|Vulkan.*/gi, '').replace(/\s+/g, ' ').trim().slice(0, 48);
+}
+
+function getWebGLInfo() {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return { vendor:'', renderer:'' };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor: String((dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)) || ''),
+      renderer: String((dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '')
+    };
+  } catch(e) { return { vendor:'', renderer:'' }; }
+}
+
+function simpleHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ('00000000' + (h >>> 0).toString(16)).slice(-8);
+}
+
+async function hashText(str) {
+  try {
+    if (window.crypto?.subtle) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+  } catch(e) {}
+  return simpleHash(str);
+}
+
+async function buildDeviceFingerprint() {
+  const ua = navigator.userAgent;
+  const webgl = getWebGLInfo();
+  const screenInfo = `${screen.width || 0}x${screen.height || 0}`;
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const signals = {
+    userAgent: ua, platform: navigator.platform || '', language: navigator.language || '',
+    languages: Array.from(navigator.languages || []).join(','), timezone, screen: screenInfo,
+    pixelRatio: window.devicePixelRatio || 1, hardwareConcurrency: navigator.hardwareConcurrency || 0,
+    deviceMemory: navigator.deviceMemory || 0, touch: ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0,
+    maxTouchPoints: navigator.maxTouchPoints || 0, webglVendor: webgl.vendor, webglRenderer: webgl.renderer,
+    browser: detectBrowserName(ua), os: detectOSName(ua)
+  };
+  const hash = await hashText(JSON.stringify({
+    platform: signals.platform, language: signals.language, languages: signals.languages, timezone: signals.timezone,
+    screen: signals.screen, pixelRatio: signals.pixelRatio, hardwareConcurrency: signals.hardwareConcurrency,
+    deviceMemory: signals.deviceMemory, touch: signals.touch, maxTouchPoints: signals.maxTouchPoints,
+    webglVendor: signals.webglVendor, webglRenderer: signals.webglRenderer, browser: signals.browser, os: signals.os
+  }));
+  const gpu = shortGpuName(webgl.renderer);
+  const label = [signals.os, signals.browser, screenInfo, timezone.split('/').pop(), gpu ? 'GPU ' + gpu : ''].filter(Boolean).join(' · ');
+  return { hash, label, summary:{ os:signals.os, browser:signals.browser, screen:screenInfo, timezone, gpu, platform:signals.platform }, confidenceSignals:signals };
+}
+
+function getDeviceSeenAt(d) { return Number(d?.lastSeen || d?.registeredAt || 0); }
+function isDeviceExpired(d, now = Date.now()) {
+  const seen = getDeviceSeenAt(d);
+  return !!seen && (now - seen) > DEVICE_TTL_MS;
+}
+
+function deviceFingerprintScore(oldSignals = {}, nextSignals = {}) {
+  let score = 0;
+  if (oldSignals.platform && nextSignals.platform && oldSignals.platform !== nextSignals.platform) score += 2;
+  if (oldSignals.timezone && nextSignals.timezone && oldSignals.timezone !== nextSignals.timezone) score += 1;
+  if (oldSignals.screen && nextSignals.screen && oldSignals.screen !== nextSignals.screen) score += 1;
+  if (oldSignals.browser && nextSignals.browser && oldSignals.browser !== nextSignals.browser) score += 1;
+  if (oldSignals.webglRenderer && nextSignals.webglRenderer && oldSignals.webglRenderer !== nextSignals.webglRenderer) score += 2;
+  if (oldSignals.maxTouchPoints !== undefined && nextSignals.maxTouchPoints !== undefined && oldSignals.maxTouchPoints !== nextSignals.maxTouchPoints) score += 1;
+  return score;
+}
+
+function detectDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice) {
+  const now = Date.now();
+  if (existing?.confidenceSignals && deviceFingerprintScore(existing.confidenceSignals, fingerprint.confidenceSignals) >= 3) return true;
+  const distinctHashes = new Set(activeDevices.map(d=>d.fingerprintHash).filter(Boolean));
+  if (isNewDevice && distinctHashes.size >= 3 && !distinctHashes.has(fingerprint.hash)) return true;
+  const recentNew = activeDevices.filter(d => Number(d.registeredAt || 0) && (now - Number(d.registeredAt)) < 24 * 60 * 60 * 1000);
+  return isNewDevice && recentNew.length >= 3;
+}
+
 async function registerDevice(uid){
   const deviceId = getDeviceId();
   const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
   const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
   const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
+  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
+  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
+  const fingerprint = await buildDeviceFingerprint();
   const existing = devices.find(d=>d.id === deviceId);
   if(existing){
-    await devRef.update({lastSeen: Date.now(), name: getDeviceName()});
+    if(existing.revoked === true) return {ok:false, revoked:true};
+    const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
+    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    await devRef.set({
+      name: fingerprint.label || getDeviceName(),
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: Date.now(),
+      lastLoginAt: Date.now(),
+      loginCount: firebase.firestore.FieldValue.increment(1),
+      suspicious,
+      revoked: false
+    }, {merge:true});
     return {ok:true};
   }
-  if(devices.length >= MAX_DEVICES){
-    return {ok:false, count:devices.length};
+  const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
+  if(activeDevices.length >= MAX_DEVICES){
+    return {ok:false, count:activeDevices.length};
   }
-  await devRef.set({name:getDeviceName(), registeredAt:Date.now(), lastSeen:Date.now()});
+  const suspicious = detectDeviceSuspicion(null, fingerprint, activeDevices, true);
+  await devRef.set({
+    name: fingerprint.label || getDeviceName(),
+    deviceLabel: fingerprint.label,
+    fingerprintHash: fingerprint.hash,
+    fingerprintSummary: fingerprint.summary,
+    confidenceSignals: fingerprint.confidenceSignals,
+    registeredAt: Date.now(),
+    lastSeen: Date.now(),
+    lastLoginAt: Date.now(),
+    loginCount: 1,
+    suspicious,
+    revoked: false
+  });
   return {ok:true};
 }
 

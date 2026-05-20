@@ -28,13 +28,21 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .btn-devices:hover{background:rgba(21,214,164,0.2);}
 .devices-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;display:none;align-items:center;justify-content:center;}
 .devices-modal-overlay.open{display:flex;}
-.devices-modal{background:#1a1f2e;border-radius:16px;padding:28px;width:min(480px,92vw);max-height:80vh;overflow-y:auto;}
+.devices-modal{background:#1a1f2e;border-radius:16px;padding:28px;width:min(680px,94vw);max-height:80vh;overflow-y:auto;}
 .devices-modal h3{margin:0 0 6px;font-size:1rem;}
 .devices-modal .subtitle{color:var(--muted);font-size:0.8rem;margin-bottom:18px;}
-.device-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;margin-bottom:8px;}
+.device-item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-bottom:9px;}
 .device-info{font-size:0.82rem;}
 .device-name{font-weight:600;margin-bottom:2px;}
-.device-date{color:var(--muted);font-size:0.75rem;}
+.device-date{color:var(--muted);font-size:0.75rem;line-height:1.55;}
+.device-meta{margin-top:6px;color:#9aa4bd;font-size:0.72rem;line-height:1.55;}
+.device-fp{margin-top:5px;color:#65708c;font-size:0.68rem;font-family:monospace;}
+.device-status{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:0.66rem;font-weight:800;margin-left:6px;text-transform:uppercase;letter-spacing:0.04em;}
+.device-status.activo{background:rgba(0,200,150,0.14);color:var(--accent);}
+.device-status.inactivo{background:rgba(79,142,247,0.13);color:#8db5ff;}
+.device-status.expirado{background:rgba(245,200,66,0.14);color:var(--yellow);}
+.device-status.sospechoso{background:rgba(255,107,107,0.16);color:#ff7f8e;}
+.device-status.revocado{background:rgba(140,145,160,0.18);color:#aab0c0;}
 .device-this{color:var(--accent);font-size:0.7rem;margin-top:2px;}
 .btn-del-device{background:rgba(220,53,69,0.15);color:#ff6b7a;border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;}
 .btn-del-device:hover{background:rgba(220,53,69,0.3);}
@@ -498,7 +506,7 @@ function cdnOpt(url, opts={}){
   if(!match) return url;
   const n = Math.max(1, Number(opts.w || 240));
   const w = [240, 640, 1200].find(x => n <= x) || 1200;
-  const transforms = ['q_auto:eco','f_auto','c_limit','w_'+w,'fl_immutable_cache'];
+  const transforms = ['q_auto:eco','f_webp','c_limit','w_'+w,'fl_immutable_cache'];
   return match[1]+transforms.join(',')+'/'+(match[2]||'')+match[3];
 }
 
@@ -967,6 +975,30 @@ document.getElementById('link-modal').addEventListener('click', function(e) {
 // GESTIÓN DE DISPOSITIVOS
 // ══════════════════════════════════════════
 let _devicesUserId = null;
+const DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function escHtml(v){
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function getDeviceSeenAt(d){ return Number(d?.lastSeen || d?.registeredAt || 0); }
+function isDeviceExpiredAdmin(d, now = Date.now()){
+  const seen = getDeviceSeenAt(d);
+  return !!seen && (now - seen) > DEVICE_TTL_MS;
+}
+
+function getDeviceStatus(d){
+  if(d.revoked) return 'Revocado';
+  if(d.suspicious) return 'Sospechoso';
+  if(isDeviceExpiredAdmin(d)) return 'Expirado';
+  const seen = getDeviceSeenAt(d);
+  if(seen && Date.now() - seen > 24 * 60 * 60 * 1000) return 'Inactivo';
+  return 'Activo';
+}
+
+function deviceStatusClass(status){
+  return String(status || '').toLowerCase();
+}
 
 async function showDevices(uid, name) {
   _devicesUserId = uid;
@@ -976,7 +1008,7 @@ async function showDevices(uid, name) {
   await refreshDevicesList(uid);
 }
 
-async function refreshDevicesList(uid) {
+async function refreshDevicesListLegacy(uid) {
   const list = document.getElementById('devices-list');
   try {
     const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
@@ -1003,6 +1035,60 @@ async function refreshDevicesList(uid) {
   } catch(e) {
     list.innerHTML = '<p style="color:var(--accent2);">Error al cargar dispositivos.</p>';
   }
+}
+
+async function refreshDevicesList(uid) {
+  const list = document.getElementById('devices-list');
+  try {
+    const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
+    if(snap.empty){
+      list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
+      return;
+    }
+    const docs = snap.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
+    const activeCount = docs.filter(d => !d.revoked && !isDeviceExpiredAdmin(d)).length;
+    const expiredCount = docs.filter(d => !d.revoked && isDeviceExpiredAdmin(d)).length;
+    let html = '';
+    docs.forEach(d => {
+      const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('es-PE') : '-';
+      const registered = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString('es-PE') : '-';
+      const status = getDeviceStatus(d);
+      const summary = d.fingerprintSummary || {};
+      const signals = d.confidenceSignals || {};
+      const hash = d.fingerprintHash ? String(d.fingerprintHash).slice(0,12) : 'sin-huella';
+      html += `
+        <div class="device-item">
+          <div class="device-info">
+            <div class="device-name">${escHtml(d.name || d.deviceLabel || 'Dispositivo')} <span class="device-status ${deviceStatusClass(status)}">${status}</span></div>
+            <div class="device-date">Registrado: ${registered} · Ultima vez: ${lastSeen} · Ingresos: ${Number(d.loginCount || 1)}</div>
+            <div class="device-meta">
+              ${escHtml(summary.os || signals.os || 'Sistema')} · ${escHtml(summary.browser || signals.browser || 'Navegador')} · ${escHtml(summary.screen || signals.screen || 'pantalla ?')}<br>
+              Zona: ${escHtml(summary.timezone || signals.timezone || '-')} · GPU: ${escHtml(summary.gpu || signals.webglRenderer || '-')}
+            </div>
+            <div class="device-fp">Huella: ${escHtml(hash)}</div>
+          </div>
+          <button class="btn-del-device" onclick="deleteDevice('${uid}','${d.id}')">Quitar</button>
+        </div>`;
+    });
+    list.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <p style="color:var(--muted);font-size:0.78rem;margin:0;">${activeCount}/5 dispositivos activos · ${expiredCount} expirados</p>
+        <button class="btn btn-ghost" style="font-size:0.72rem;padding:6px 10px;" onclick="cleanExpiredDevices('${uid}')">Limpiar expirados</button>
+      </div>` + html;
+  } catch(e) {
+    console.warn('devices modal error:', e);
+    list.innerHTML = '<p style="color:var(--accent2);">Error al cargar dispositivos.</p>';
+  }
+}
+
+async function cleanExpiredDevices(uid){
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const expired = snap.docs.filter(doc => {
+    const d = doc.data();
+    return !d.revoked && isDeviceExpiredAdmin(d);
+  });
+  await Promise.all(expired.map(doc => doc.ref.delete()));
+  await refreshDevicesList(uid);
 }
 
 async function deleteDevice(uid, deviceId) {
