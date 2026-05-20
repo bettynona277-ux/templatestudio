@@ -1545,10 +1545,12 @@ input[type=range]{filter:none !important;}
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Voltear imagen" onclick="openContextToolbarPanel('image','transform')">Transformar</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Tono, color y desenfoque" onclick="openContextToolbarPanel('image','adjust')">Ajustes</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Ordenar y alinear" onclick="openContextToolbarPanel('image','position')">Posición</button>
+      <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Eliminar fondo inteligente" onclick="removeSelectedImageBackground()">Eliminar fondo</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Radio, opacidad e imagen del marco" onclick="openContextToolbarPanel('frame','frame')">Marco</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Borde y sombras del marco" onclick="openContextToolbarPanel('frame','effects')">Efectos</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Ajustes de imagen dentro del marco" onclick="openContextToolbarPanel('frame','adjust')">Ajustes</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Ordenar y alinear" onclick="openContextToolbarPanel('frame','position')">Posición</button>
+      <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Eliminar fondo de la imagen" onclick="removeSelectedImageBackground()">Eliminar fondo</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="shape" title="Relleno y forma" onclick="openContextToolbarPanel('shape','shape')">Forma</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="shape" title="Borde y sombras" onclick="openContextToolbarPanel('shape','effects')">Efectos</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="shape" title="Ordenar y alinear" onclick="openContextToolbarPanel('shape','position')">Posición</button>
@@ -1689,6 +1691,12 @@ input[type=range]{filter:none !important;}
           <div class="panel-grid2" style="margin-top:10px;">
             <button class="toggle-chip" id="pp-flipx" onclick="toggleImageFlip('x')">↔ Horizontal</button>
             <button class="toggle-chip" id="pp-flipy" onclick="toggleImageFlip('y')">↕ Vertical</button>
+          </div>
+          <button class="pp-btn" id="pp-remove-bg-btn" style="width:100%;margin-top:10px;font-size:0.74rem;" onclick="removeSelectedImageBackground()">
+            Eliminar fondo
+          </button>
+          <div id="pp-remove-bg-status" style="display:none;margin-top:8px;font-size:0.68rem;color:var(--muted);line-height:1.35;">
+            Procesando imagen...
           </div>
         </details>
 
@@ -8951,6 +8959,147 @@ function addImageLayerFromUrl(url){
     showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
   };
   img.src = proxyUrl;
+}
+
+let bgRemovalModulePromise = null;
+let bgRemovalBusy = false;
+
+function getSelectedImageLayerForBgRemoval(){
+  const ids = selIds.length > 1 ? selIds : (selId !== null ? [selId] : []);
+  if(!ids.length) return null;
+  return ids.map(id=>layers.find(x=>x.id===id)).find(l=>
+    (l?.type === 'img' && !l.isShape && !!l.src) ||
+    (l?.type === 'frame' && !!(l.frameImage || l.src))
+  ) || null;
+}
+
+function setBgRemovalUIBusy(busy, msg){
+  bgRemovalBusy = busy;
+  const btn = document.getElementById('pp-remove-bg-btn');
+  const status = document.getElementById('pp-remove-bg-status');
+  if(btn){
+    btn.disabled = busy;
+    btn.style.opacity = busy ? '0.65' : '';
+    btn.textContent = busy ? 'Eliminando fondo...' : 'Eliminar fondo';
+  }
+  if(status){
+    status.style.display = busy ? 'block' : 'none';
+    status.textContent = msg || 'Procesando imagen...';
+  }
+}
+
+async function loadBackgroundRemovalModule(){
+  if(!bgRemovalModulePromise){
+    bgRemovalModulePromise = import('https://esm.sh/@imgly/background-removal@1.7.0?bundle')
+      .catch(err=>{
+        bgRemovalModulePromise = null;
+        throw err;
+      });
+  }
+  return bgRemovalModulePromise;
+}
+
+async function sourceToBlobForBackgroundRemoval(src){
+  if(!src) throw new Error('Imagen vacia');
+  if(src.startsWith('data:') || src.startsWith('blob:')){
+    const res = await fetch(src);
+    if(!res.ok) throw new Error('No se pudo leer la imagen local');
+    return await res.blob();
+  }
+  const url = (typeof cdnExportOpt === 'function' && src.includes('res.cloudinary.com/'))
+    ? cdnExportOpt(stripCloudinaryTransforms(src), 2000)
+    : src;
+  const res = await fetch(url, {mode:'cors'});
+  if(!res.ok) throw new Error('No se pudo descargar la imagen');
+  return await res.blob();
+}
+
+function blobToDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>resolve(reader.result);
+    reader.onerror = ()=>reject(reader.error || new Error('No se pudo convertir la imagen'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function imageSizeFromSrc(src){
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>resolve({w:img.naturalWidth||img.width||0,h:img.naturalHeight||img.height||0});
+    img.onerror = ()=>resolve({w:0,h:0});
+    img.src = src;
+  });
+}
+
+function clearImagePreviewOverlays(layer){
+  const host = layer?.el;
+  if(!host) return;
+  host.querySelectorAll(':scope > .image-colorize-ov, :scope > .image-replace-ov').forEach(el=>el.remove());
+  const img = host.querySelector(':scope > img:not(.shape-stroke-img):not(.shape-fill-img)');
+  if(img) img.style.opacity = '';
+}
+
+async function applyBackgroundRemovedSource(layer, dataUrl){
+  const size = await imageSizeFromSrc(dataUrl);
+  if(size.w && size.h){
+    layer.origW = size.w;
+    layer.origH = size.h;
+  }
+  layer.externalUrl = false;
+  if(layer.type === 'frame'){
+    layer.frameImage = dataUrl;
+    const img = document.getElementById('fi-'+layer.id);
+    if(img){
+      img.crossOrigin = 'anonymous';
+      img.src = dataUrl;
+    } else {
+      layer.el?.remove();
+      mkEl(layer);
+    }
+  } else {
+    layer.src = dataUrl;
+    const img = layer.el?.querySelector(':scope > img:not(.image-colorize-ov):not(.image-replace-ov):not(.shape-stroke-img)');
+    if(img){
+      img.crossOrigin = 'anonymous';
+      img.src = dataUrl;
+    }
+  }
+  clearImagePreviewOverlays(layer);
+  applyImageVisuals(layer);
+  renderList();
+  syncP();
+}
+
+async function removeSelectedImageBackground(){
+  const layer = getSelectedImageLayerForBgRemoval();
+  if(!layer){
+    showToast('Selecciona una imagen para eliminar el fondo');
+    return;
+  }
+  if(bgRemovalBusy) return;
+  try{
+    setBgRemovalUIBusy(true, 'Cargando IA de recorte...');
+    showToast('Cargando eliminador de fondo...');
+    const src = layer.type === 'frame' ? (layer.frameImage || layer.src) : layer.src;
+    const inputBlob = await sourceToBlobForBackgroundRemoval(src);
+    const mod = await loadBackgroundRemovalModule();
+    const removeBackground = mod.removeBackground || mod.default;
+    if(typeof removeBackground !== 'function') throw new Error('Libreria de fondo no disponible');
+    setBgRemovalUIBusy(true, 'Separando personaje del fondo...');
+    const outputBlob = await removeBackground(inputBlob, {
+      output: {format:'image/png', quality:1}
+    });
+    const dataUrl = await blobToDataUrl(outputBlob);
+    await applyBackgroundRemovedSource(layer, dataUrl);
+    snapshotState();
+    showToast('Fondo eliminado');
+  }catch(err){
+    console.warn('Background removal failed:', err);
+    showToast('No se pudo eliminar el fondo');
+  }finally{
+    setBgRemovalUIBusy(false);
+  }
 }
 
 function getCanvasDims(){
