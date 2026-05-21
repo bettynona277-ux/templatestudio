@@ -195,6 +195,37 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 .rot-handle{left:50%;top:-42px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:#ffffff;border:2px solid var(--accent);cursor:grab;pointer-events:auto;z-index:32;box-shadow:0 2px 10px rgba(0,0,0,.22);}
 .rot-handle:active{cursor:grabbing;}
 
+#selection-controls-layer{
+  position:absolute;
+  inset:0;
+  z-index:8500;
+  pointer-events:none;
+  display:none;
+}
+.selection-control-box{
+  position:absolute;
+  box-sizing:border-box;
+  pointer-events:none;
+  border:1px solid rgba(21,214,164,0.72);
+  transform-origin:center center;
+}
+.selection-control-box .rh,
+.selection-control-box .rot-line,
+.selection-control-box .rot-handle{
+  display:block;
+}
+.selection-control-box .rh{
+  pointer-events:auto;
+  z-index:8502;
+}
+.selection-control-box .rot-line{z-index:8501;}
+.selection-control-box .rot-handle{z-index:8503;}
+#cvs.selection-overlay-active .cel.sel .rh,
+#cvs.selection-overlay-active .cel.sel .rot-line,
+#cvs.selection-overlay-active .cel.sel .rot-handle{
+  display:none !important;
+}
+
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
 
 .zoom-bar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;background:var(--panel);border:1px solid var(--border);padding:6px 16px;border-radius:30px;align-items:center;z-index:50;box-shadow:var(--shadow);}
@@ -1557,6 +1588,7 @@ input[type=range]{filter:none !important;}
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="shape" title="Ordenar y alinear" onclick="openContextToolbarPanel('shape','position')">Posición</button>
     </div>
     <div id="cvs" style="width:800px;height:800px;background:#0a0a1a;">
+      <div id="selection-controls-layer"></div>
       <div id="multi-box">
         <div class="m-label" id="multi-label"></div>
         <div class="mrh tl" id="mrh-tl"></div>
@@ -2449,6 +2481,74 @@ function applySmartSnapToLayer(layer,movingIds=[]){
 
 function getSelLayer(){ return layers.find(x=>x.id===selId); }
 
+function ensureSelectionControlsLayer(){
+  let layer=document.getElementById('selection-controls-layer');
+  if(!layer){
+    layer=document.createElement('div');
+    layer.id='selection-controls-layer';
+    cvs.prepend(layer);
+  }
+  let box=layer.querySelector('.selection-control-box');
+  if(!box){
+    box=document.createElement('div');
+    box.className='selection-control-box';
+    ['tl','tr','bl','br','tm','bm','ml','mr'].forEach(corner=>{
+      const h=document.createElement('div');
+      h.className='rh '+corner;
+      h.addEventListener('mousedown',ev=>{
+        ev.stopPropagation();
+        ev.preventDefault();
+        const id=parseInt(box.dataset.layerId,10);
+        if(!Number.isNaN(id)) startRes(ev,id,corner);
+      });
+      box.appendChild(h);
+    });
+    const rotLine=document.createElement('div');
+    rotLine.className='rot-line';
+    box.appendChild(rotLine);
+    const rotHandle=document.createElement('div');
+    rotHandle.className='rot-handle';
+    rotHandle.title='Rotar';
+    rotHandle.addEventListener('mousedown',ev=>{
+      ev.stopPropagation();
+      ev.preventDefault();
+      const id=parseInt(box.dataset.layerId,10);
+      if(!Number.isNaN(id)) startRotate(ev,id);
+    });
+    box.appendChild(rotHandle);
+    layer.appendChild(box);
+  }
+  return {layer,box};
+}
+
+function hideSelectionControls(){
+  const layer=document.getElementById('selection-controls-layer');
+  if(layer) layer.style.display='none';
+  cvs.classList.remove('selection-overlay-active');
+}
+
+function syncSelectionControls(layerArg){
+  const l=layerArg || getSelLayer();
+  if(selIds.length!==1 || !l?.el || !l.visible || l.locked){
+    hideSelectionControls();
+    return;
+  }
+  const {layer,box}=ensureSelectionControlsLayer();
+  layer.style.display='block';
+  cvs.classList.add('selection-overlay-active');
+  box.dataset.layerId=String(l.id);
+  box.style.left=l.x+'px';
+  box.style.top=l.y+'px';
+  box.style.width=l.w+'px';
+  box.style.height=l.h+'px';
+  box.style.transform=`rotate(${getLayerRotation(l)}deg)`;
+  const hideEdgeHandles = l.type==='img' && !l.isShape;
+  box.querySelectorAll('.rh').forEach(h=>{
+    const isEdge = h.classList.contains('tm') || h.classList.contains('bm') || h.classList.contains('ml') || h.classList.contains('mr');
+    h.style.display = hideEdgeHandles && isEdge ? 'none' : 'block';
+  });
+}
+
 function selMulti(ids){
   document.querySelectorAll('.cel').forEach(e=>e.classList.remove('sel'));
   document.querySelectorAll('.layer-item').forEach(li=>li.classList.remove('selected'));
@@ -2480,9 +2580,11 @@ function selMulti(ids){
     hideMultiBox();
   } else if(ids.length>1){
     updatePropertyPanelState(null);
+    hideSelectionControls();
     updateMultiBox();
   } else {
     updatePropertyPanelState(null);
+    hideSelectionControls();
     hideMultiBox();
   }
   updateGroupBtns();
@@ -2575,6 +2677,7 @@ function updateControlScale(){
   cvsEl.style.setProperty('--ds-rotate-handle-top', `${(-42 / z).toFixed(3)}px`);
   cvsEl.style.setProperty('--ds-multi-handle-size', `${(multiPx / z).toFixed(3)}px`);
   cvsEl.style.setProperty('--ds-multi-handle-offset', `${(-(multiPx / 2) / z).toFixed(3)}px`);
+  if(typeof syncSelectionControls === 'function') syncSelectionControls();
 }
 
 // Set initial zoom
@@ -2610,7 +2713,8 @@ function restoreSnapshot(snap){
   _suppressHistory = true;
 
   const data = JSON.parse(snap);
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  hideSelectionControls();
   layers = [];
   groups = {};
   gCtr = 0;
@@ -3519,7 +3623,8 @@ async function processPSD(file){
 
 async function loadPSDData(data){
   // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  hideSelectionControls();
   layers=[]; lCtr=0;
   // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
   cvs.style.background = document.body.classList.contains('theme-light') ? '#ffffff' : '#1a1f2e';
@@ -4550,6 +4655,7 @@ function applyLayerTransform(layer){
   layer.rotation = r;
   layer.el.style.transformOrigin = 'center center';
   layer.el.style.transform = `rotate(${r}deg)`;
+  if(typeof syncSelectionControls === 'function') syncSelectionControls(layer);
 }
 function ensureRotationTooltip(){
   if(rotTipEl && rotTipEl.isConnected) return rotTipEl;
@@ -5698,6 +5804,7 @@ function desel(){
   hideRotationTooltip();
   updatePropertyPanelState(null);
   syncTextContextToolbar();
+  hideSelectionControls();
   hideMultiBox();
 }
 
@@ -6452,6 +6559,7 @@ function syncP(){
     const itr=document.getElementById('pp-img-transform');
     if(itr) itr.open = !!(l.flipX || l.flipY);
   }
+  syncSelectionControls(l);
 }
 
 function updFrameRadiusFromPanel(v){
@@ -6502,6 +6610,7 @@ function updPos(a,v){
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   if(a==='x'){l.x=parseInt(v)||0;l.el.style.left=l.x+'px';}
   else{l.y=parseInt(v)||0;l.el.style.top=l.y+'px';}
+  syncSelectionControls(l);
   snapshotState();
 }
 function updSz(a,v){
@@ -6509,6 +6618,7 @@ function updSz(a,v){
   if(a==='w'){l.w=Math.max(1,parseInt(v)||1);l.el.style.width=l.w+'px';}
   else{l.h=Math.max(1,parseInt(v)||1);l.el.style.height=l.h+'px';}
   refreshLayerEffects(l);
+  syncSelectionControls(l);
   snapshotState();
 }
 function updOp(v){
@@ -8761,8 +8871,9 @@ function loadData(tpl){
 
   // Remove all .cel elements but keep multi-box and marquee
   Array.from(cvs.children).forEach(el=>{
-    if(el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove();
+    if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove();
   });
+  hideSelectionControls();
   layers=[]; lCtr=0;
 
   cvs.style.width=(tpl.canvasW||800)+'px';
