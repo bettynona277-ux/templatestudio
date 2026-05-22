@@ -189,6 +189,16 @@ async function fetchCollection(name){
   snap.forEach(doc=>docs.push({ id: doc.id, ...doc.data() }));
   return docs;
 }
+async function fetchCollectionSafe(name, permissionErrors){
+  try{
+    return await fetchCollection(name);
+  }catch(e){
+    const msg = e?.message || String(e);
+    permissionErrors.push({ collection: name, error: msg });
+    log('  BLOQUEADO por reglas: ' + msg);
+    return null;
+  }
+}
 async function fetchUserDevices(users){
   const devices = {};
   let total = 0;
@@ -241,7 +251,7 @@ function downloadJSON(data, filename){
 function today(){
   return new Date().toISOString().slice(0,10);
 }
-function backupBase(collections, subcollections={}){
+function backupBase(collections, subcollections={}, permissionErrors=[]){
   return {
     exportedAt: new Date().toISOString(),
     version: '2.0',
@@ -249,6 +259,8 @@ function backupBase(collections, subcollections={}){
     mode: 'firestore-safe-backup',
     collections,
     subcollections,
+    permissionErrors,
+    complete: permissionErrors.length === 0,
     cloudinaryManifest: buildCloudinaryManifest(collections),
     restoreNotes: [
       'Importacion segura: crea documentos faltantes y omite los existentes.',
@@ -260,24 +272,35 @@ function backupBase(collections, subcollections={}){
 
 async function loadStats(){
   try{
+    const safeSize = async (name)=>{
+      try{ return (await fbDb.collection(name).get()).size; }
+      catch(_){ return 'sin permiso'; }
+    };
     const [templates, logos, designs, userLogos, users] = await Promise.all([
-      fbDb.collection('templates').get(),
-      fbDb.collection('logos').get(),
-      fbDb.collection('user_designs').get(),
-      fbDb.collection('user_logos').get(),
-      fbDb.collection('users').get()
+      safeSize('templates'),
+      safeSize('logos'),
+      safeSize('user_designs'),
+      safeSize('user_logos'),
+      safeSize('users')
     ]);
     let deviceTotal = 0;
-    for(const doc of users.docs){
-      const d = await fbDb.collection('users').doc(doc.id).collection('devices').get();
-      deviceTotal += d.size;
+    if(typeof users === 'number'){
+      try{
+        const userSnap = await fbDb.collection('users').get();
+        for(const doc of userSnap.docs){
+          try{
+            const d = await fbDb.collection('users').doc(doc.id).collection('devices').get();
+            deviceTotal += d.size;
+          }catch(_){}
+        }
+      }catch(_){}
     }
-    document.getElementById('stat-tpl').textContent = templates.size;
-    document.getElementById('stat-logos').textContent = logos.size;
-    document.getElementById('stat-designs').textContent = designs.size;
-    document.getElementById('stat-user-logos').textContent = userLogos.size;
-    document.getElementById('stat-users').textContent = users.size;
-    document.getElementById('stat-devices').textContent = deviceTotal;
+    document.getElementById('stat-tpl').textContent = templates;
+    document.getElementById('stat-logos').textContent = logos;
+    document.getElementById('stat-designs').textContent = designs;
+    document.getElementById('stat-user-logos').textContent = userLogos;
+    document.getElementById('stat-users').textContent = users;
+    document.getElementById('stat-devices').textContent = typeof users === 'number' ? deviceTotal : 'sin permiso';
   }catch(e){
     log('Error cargando stats: ' + e.message);
   }
@@ -289,22 +312,30 @@ async function exportAll(){
   log('Backup completo: leyendo Firestore. No se solicitan imagenes de Cloudinary.');
   try{
     const collections = {};
+    const permissionErrors = [];
     for(const name of CORE_COLLECTIONS){
       log('Leyendo ' + name + '...');
-      collections[name] = await fetchCollection(name);
-      log('  OK ' + collections[name].length + ' docs');
+      const docs = await fetchCollectionSafe(name, permissionErrors);
+      if(docs){
+        collections[name] = docs;
+        log('  OK ' + docs.length + ' docs');
+      }
     }
-    const devicePack = await fetchUserDevices(collections.users || []);
+    const devicePack = collections.users ? await fetchUserDevices(collections.users) : {devices:{}, total:0};
     const subcollections = {
       users: {
         devices: devicePack.devices
       }
     };
     log('  OK ' + devicePack.total + ' dispositivos');
-    const backup = backupBase(collections, subcollections);
+    const backup = backupBase(collections, subcollections, permissionErrors);
     const filename = `backup_emergencia_disenosstreaming_${today()}.json`;
     downloadJSON(backup, filename);
     log('\nBackup descargado: ' + filename);
+    if(permissionErrors.length){
+      log('ATENCION: backup parcial. Colecciones bloqueadas: ' + permissionErrors.map(e=>e.collection).join(', '));
+      log('Para incluirlas, hay que ajustar reglas de Firestore o usar un export administrado desde Firebase/GCP.');
+    }
     log('Cloudinary manifest: ' + backup.cloudinaryManifest.count + ' URLs registradas, 0 descargadas.');
   }catch(e){
     log('Error: ' + e.message);
