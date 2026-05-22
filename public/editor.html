@@ -1728,6 +1728,13 @@ input[type=range]{filter:none !important;}
             <button class="toggle-chip" id="pp-flipx" onclick="toggleImageFlip('x')">↔ Horizontal</button>
             <button class="toggle-chip" id="pp-flipy" onclick="toggleImageFlip('y')">↕ Vertical</button>
           </div>
+          <div id="pp-transform-blur-wrap" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">
+            <div class="mini-lbl">Desenfoque suave</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="pp-transform-blur" min="0" max="20" step="0.25" style="flex:1;" oninput="updImageAdjustments('transform')">
+              <span id="pp-transform-blur-lbl" style="font-size:0.72rem;color:var(--muted);min-width:40px;">0px</span>
+            </div>
+          </div>
           <button class="pp-btn" id="pp-remove-bg-btn" style="width:100%;margin-top:10px;font-size:0.74rem;" onclick="removeSelectedImageBackground()">
             Eliminar fondo
           </button>
@@ -1742,10 +1749,12 @@ input[type=range]{filter:none !important;}
             <span style="color:var(--muted);font-size:0.68rem;text-transform:none;letter-spacing:0;">tono y color</span>
           </summary>
           <div style="margin-top:10px;">
-            <div class="mini-lbl">Desenfoque</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-              <input type="range" id="pp-blur" min="0" max="20" step="0.5" style="flex:1;" oninput="updImageAdjustments()">
-              <span id="pp-blur-lbl" style="font-size:0.72rem;color:var(--muted);min-width:40px;">0px</span>
+            <div id="pp-img-blur-wrap">
+              <div class="mini-lbl">Desenfoque suave</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <input type="range" id="pp-blur" min="0" max="20" step="0.25" style="flex:1;" oninput="updImageAdjustments('adjust')">
+                <span id="pp-blur-lbl" style="font-size:0.72rem;color:var(--muted);min-width:40px;">0px</span>
+              </div>
             </div>
             <div class="mini-lbl">Tono</div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -5887,8 +5896,12 @@ function applyRightPanelContextMode(){
     img.classList.toggle('panel-hidden', mode === 'position');
     const adj=document.getElementById('pp-img-adjust');
     const tr=document.getElementById('pp-img-transform');
+    const transformBlur=document.getElementById('pp-transform-blur-wrap');
+    const adjustBlur=document.getElementById('pp-img-blur-wrap');
     if(adj) adj.style.display = mode === 'adjust' ? 'block' : 'none';
     if(tr) tr.style.display = mode === 'transform' ? 'block' : 'none';
+    if(transformBlur) transformBlur.style.display = 'none';
+    if(adjustBlur) adjustBlur.style.display = 'block';
     if(adj) adj.open = mode === 'adjust';
     if(tr) tr.open = mode === 'transform';
   }
@@ -5897,10 +5910,14 @@ function applyRightPanelContextMode(){
       img.classList.remove('panel-hidden');
       const adj=document.getElementById('pp-img-adjust');
       const tr=document.getElementById('pp-img-transform');
+      const transformBlur=document.getElementById('pp-transform-blur-wrap');
+      const adjustBlur=document.getElementById('pp-img-blur-wrap');
       const title=img.querySelector('.panel-title');
       if(title) title.childNodes[0].nodeValue = mode==='transform' ? 'Transformar marco ' : 'Ajustes del marco ';
       if(adj) adj.style.display = mode === 'adjust' ? 'block' : 'none';
       if(tr) tr.style.display = mode === 'transform' ? 'block' : 'none';
+      if(transformBlur) transformBlur.style.display = mode === 'transform' ? 'block' : 'none';
+      if(adjustBlur) adjustBlur.style.display = 'none';
       if(adj) adj.open = mode === 'adjust';
       if(tr) tr.open = mode === 'transform';
     } else if(mode!=='position' && frame){
@@ -6184,13 +6201,25 @@ function applySelectiveColorReplaceToCanvas(canvas, layer){
   }
   ctx.putImageData(data,0,0);
 }
+function imageBlurPx(layer, blurScale=1){
+  const raw = Math.max(0, Number(layer?.blur || 0));
+  if(raw <= 0) return 0;
+  const normalized = Math.min(1, raw / 20);
+  const eased = Math.pow(normalized, 1.45) * 8;
+  return eased * Math.max(1, Number(blurScale)||1);
+}
+function formatBlurLabel(layer){
+  const px = imageBlurPx(layer, 1);
+  if(px <= 0) return '0px';
+  return `${px < 1 ? px.toFixed(2) : px.toFixed(1)}px`;
+}
 function imageFilterString(layer, blurScale=1){
-  const blur = Number(layer?.blur || 0);
+  const blurPx = imageBlurPx(layer, blurScale);
   const hue = Number(layer?.hue || 0);
   const saturation = Number(layer?.saturation || 0);
   const lightness = Number(layer?.lightness || 0);
   const filters = [];
-  if(blur > 0) filters.push(`blur(${blur * Math.max(1, Number(blurScale)||1)}px)`);
+  if(blurPx > 0) filters.push(`blur(${blurPx}px)`);
   if(hue) filters.push(`hue-rotate(${hue}deg)`);
   if(saturation) filters.push(`saturate(${Math.max(0, 100 + saturation)}%)`);
   if(lightness) filters.push(`brightness(${Math.max(0, 100 + lightness)}%)`);
@@ -6215,7 +6244,7 @@ function updateImageColorizeOverlay(layer){
     host.appendChild(ov);
   }
   const fit = layer.type==='frame' ? 'cover' : 'contain';
-  const blur = Math.max(0, Number(layer.blur || 0));
+  const blurPx = imageBlurPx(layer, 1);
   ov.style.cssText = `
     position:absolute;
     inset:0;
@@ -6234,7 +6263,7 @@ function updateImageColorizeOverlay(layer){
     mask-position:center;
     transform:scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1});
     transform-origin:center center;
-    filter:${blur > 0 ? `blur(${blur}px)` : 'none'};
+    filter:${blurPx > 0 ? `blur(${blurPx}px)` : 'none'};
   `;
 }
 function renderAdjustedImageCanvas(img, dw, dh, layer, pixelScale=1){
@@ -6263,8 +6292,8 @@ function renderAdjustedImageCanvas(img, dw, dh, layer, pixelScale=1){
     const mctx=mask.getContext('2d');
     mctx.imageSmoothingEnabled = true;
     mctx.imageSmoothingQuality = 'high';
-    const blur = Math.max(0, Number(layer?.blur || 0));
-    if(blur > 0) mctx.filter = `blur(${blur * rs}px)`;
+    const maskBlurPx = imageBlurPx(layer, rs);
+    if(maskBlurPx > 0) mctx.filter = `blur(${maskBlurPx}px)`;
     mctx.drawImage(img,0,0,out.width,out.height);
     mctx.filter='none';
     octx.globalCompositeOperation='destination-in';
@@ -6349,17 +6378,26 @@ function refreshSelectionEffects(){
   ids.forEach(id=>refreshLayerEffects(layers.find(x=>x.id===id)));
 }
 function toggleImageFlip(axis){
-  const l=layers.find(x=>x.id===selId); if(!l) return;
-  if(!(l.type==='img' || (l.type==='frame' && l.frameImage))) return;
-  if(axis==='x') l.flipX = !l.flipX;
-  if(axis==='y') l.flipY = !l.flipY;
-  applyImageVisuals(l);
+  const prop = axis === 'x' ? 'flipX' : axis === 'y' ? 'flipY' : null;
+  if(!prop) return;
+  const ids = selIds.length>1 ? selIds : (selId!==null ? [selId] : []);
+  const targets = ids
+    .map(id=>layers.find(x=>x.id===id))
+    .filter(l=>l && (l.type==='img' || (l.type==='frame' && l.frameImage)));
+  if(!targets.length) return;
+  const nextValue = !targets[0][prop];
+  targets.forEach(l=>{
+    l[prop] = nextValue;
+    applyImageVisuals(l);
+  });
   syncP();
   snapshotState();
 }
 function syncImageAdjustmentLabels(layer){
   const lbl = document.getElementById('pp-blur-lbl');
-  if(lbl) lbl.textContent = `${Number(layer?.blur||0)}px`;
+  if(lbl) lbl.textContent = formatBlurLabel(layer);
+  const transformBlurLbl = document.getElementById('pp-transform-blur-lbl');
+  if(transformBlurLbl) transformBlurLbl.textContent = formatBlurLabel(layer);
   const hueLbl = document.getElementById('pp-hue-lbl');
   if(hueLbl) hueLbl.textContent = `${Number(layer?.hue||0)}°`;
   const satLbl = document.getElementById('pp-saturation-lbl');
@@ -6373,8 +6411,13 @@ function syncImageAdjustmentLabels(layer){
   const replaceStrengthLbl = document.getElementById('pp-color-replace-strength-lbl');
   if(replaceStrengthLbl) replaceStrengthLbl.textContent = `${Number(layer?.colorReplaceStrength ?? 100)}%`;
 }
-function updImageAdjustments(){
-  const blur = parseFloat(document.getElementById('pp-blur')?.value)||0;
+function updImageAdjustments(source){
+  const blurEl = document.getElementById('pp-blur');
+  const transformBlurEl = document.getElementById('pp-transform-blur');
+  const activeBlurEl = source === 'transform' ? transformBlurEl : blurEl;
+  const blur = parseFloat(activeBlurEl?.value ?? blurEl?.value ?? transformBlurEl?.value)||0;
+  if(blurEl) blurEl.value = blur;
+  if(transformBlurEl) transformBlurEl.value = blur;
   const hue = parseFloat(document.getElementById('pp-hue')?.value)||0;
   const saturation = parseFloat(document.getElementById('pp-saturation')?.value)||0;
   const lightness = parseFloat(document.getElementById('pp-lightness')?.value)||0;
@@ -6431,6 +6474,8 @@ function toggleImageColorReplace(enabled){
 function updImageBlur(value){
   const el=document.getElementById('pp-blur');
   if(el && value!==undefined) el.value=value;
+  const transformEl=document.getElementById('pp-transform-blur');
+  if(transformEl && value!==undefined) transformEl.value=value;
   updImageAdjustments();
 }
 
@@ -6545,6 +6590,7 @@ function syncP(){
   }
   if(l.type==='img' || (l.type==='frame' && l.frameImage)){
     const ib=document.getElementById('pp-blur'); if(ib) ib.value=Number(l.blur||0);
+    const itb=document.getElementById('pp-transform-blur'); if(itb) itb.value=Number(l.blur||0);
     const ih=document.getElementById('pp-hue'); if(ih) ih.value=Number(l.hue||0);
     const isat=document.getElementById('pp-saturation'); if(isat) isat.value=Number(l.saturation||0);
     const il=document.getElementById('pp-lightness'); if(il) il.value=Number(l.lightness||0);
