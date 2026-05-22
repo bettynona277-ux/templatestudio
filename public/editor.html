@@ -403,6 +403,8 @@ body.theme-light .text-context-toolbar{
 .right.toolbar-driven:not([data-context-mode$="-position"]) #pp-group-wrap{display:none;}
 .right[data-context-mode="frame-frame"] #pp-frame .frame-panel-effects{display:none;}
 .right[data-context-mode="frame-effects"] #pp-frame .frame-panel-core{display:none;}
+.right[data-context-mode="frame-transform"] #pp-frame,
+.right[data-context-mode="frame-adjust"] #pp-frame{display:none;}
 .right[data-context-mode="shape-shape"] #pp-shape .shape-panel-effects{display:none;}
 .right[data-context-mode="shape-effects"] #pp-shape .shape-panel-core{display:none;}
 @media (max-width:1180px){
@@ -1579,6 +1581,7 @@ input[type=range]{filter:none !important;}
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Ordenar y alinear" onclick="openContextToolbarPanel('image','position')">Posición</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="image" title="Eliminar fondo inteligente" onclick="removeSelectedImageBackground()">Eliminar fondo</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Radio, opacidad e imagen del marco" onclick="openContextToolbarPanel('frame','frame')">Marco</button>
+      <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Voltear imagen del marco" onclick="openContextToolbarPanel('frame','transform')">Transformar</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Borde y sombras del marco" onclick="openContextToolbarPanel('frame','effects')">Efectos</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Ajustes de imagen dentro del marco" onclick="openContextToolbarPanel('frame','adjust')">Ajustes</button>
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="frame" title="Ordenar y alinear" onclick="openContextToolbarPanel('frame','position')">Posición</button>
@@ -4252,7 +4255,7 @@ function syncTextContextToolbar(){
     btn.classList.toggle('active',
       (kind==='text' && ((activeTextPanelTab==='text' && title.includes('contenido')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
       (kind==='image' && ((activeTextPanelTab==='transform' && title.includes('voltear')) || (activeTextPanelTab==='adjust' && title.includes('tono')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
-      (kind==='frame' && ((activeTextPanelTab==='frame' && title.includes('radio')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='adjust' && title.includes('ajustes')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
+      (kind==='frame' && ((activeTextPanelTab==='frame' && title.includes('radio')) || (activeTextPanelTab==='transform' && title.includes('voltear')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='adjust' && title.includes('ajustes')) || (activeTextPanelTab==='position' && title.includes('ordenar')))) ||
       (kind==='shape' && ((activeTextPanelTab==='shape' && title.includes('relleno')) || (activeTextPanelTab==='effects' && title.includes('borde')) || (activeTextPanelTab==='position' && title.includes('ordenar'))))
     );
   });
@@ -5834,7 +5837,7 @@ function openContextToolbarPanel(kind, mode){
   syncTextContextToolbar();
   const target = activeTextPanelTab === 'position' ? document.getElementById('pp-arrange')
     : activeContextKind === 'image' ? document.getElementById('pp-img')
-    : activeContextKind === 'frame' && activeTextPanelTab === 'adjust' ? document.getElementById('pp-img')
+    : activeContextKind === 'frame' && (activeTextPanelTab === 'adjust' || activeTextPanelTab === 'transform') ? document.getElementById('pp-img')
     : activeContextKind === 'frame' ? document.getElementById('pp-frame')
     : activeContextKind === 'shape' ? document.getElementById('pp-shape')
     : document.getElementById('pp-txt');
@@ -5890,14 +5893,16 @@ function applyRightPanelContextMode(){
     if(tr) tr.open = mode === 'transform';
   }
   if(kind==='frame'){
-    if(mode==='adjust' && img){
+    if((mode==='adjust' || mode==='transform') && img){
       img.classList.remove('panel-hidden');
       const adj=document.getElementById('pp-img-adjust');
       const tr=document.getElementById('pp-img-transform');
-      if(adj) adj.style.display = 'block';
-      if(tr) tr.style.display = 'none';
-      if(adj) adj.open = true;
-      if(tr) tr.open = false;
+      const title=img.querySelector('.panel-title');
+      if(title) title.childNodes[0].nodeValue = mode==='transform' ? 'Transformar marco ' : 'Ajustes del marco ';
+      if(adj) adj.style.display = mode === 'adjust' ? 'block' : 'none';
+      if(tr) tr.style.display = mode === 'transform' ? 'block' : 'none';
+      if(adj) adj.open = mode === 'adjust';
+      if(tr) tr.open = mode === 'transform';
     } else if(mode!=='position' && frame){
       frame.classList.remove('panel-hidden');
       const title=frame.querySelector('.panel-title');
