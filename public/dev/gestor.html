@@ -38,13 +38,7 @@ function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'sett
 
 // ── Migración: si hay datos en el doc raíz los mueve a subcolecciones ──────
 async function migrateIfNeeded(uid) {
-  try {
-    const metaSnap = await getDoc(managerMetaRef(uid));
-    if (metaSnap.exists() && metaSnap.data()?._ready) return;
-    await setDoc(managerMetaRef(uid), { _ready: true, uid, updatedAt: Date.now() }, { merge: true });
-  } catch (err) {
-    console.warn('No se pudo marcar gestor_config/meta. El gestor seguira funcionando si las cuentas tienen permisos.', err);
-  }
+  return;
 }
 
 // ── Cargar datos desde subcolecciones ─────────────────────────────────────
@@ -137,6 +131,19 @@ function friendlySaveError(err) {
     return 'Firestore rechazo el guardado. Publica las reglas del gestor o revisa que este usuario este activo.';
   }
   return msg;
+}
+
+async function permissionDebugMessage(uid, colName) {
+  const path = `users/${uid}/${colName === 'accounts' ? 'gestor_accounts' : 'gestor_clients'}`;
+  try {
+    const snap = await getDoc(userRef(uid));
+    const data = snap.exists() ? snap.data() : {};
+    const active = data.active === false ? 'false' : 'true/no definido';
+    const status = data.subscriptionStatus || data.status || 'sin estado';
+    return `Ruta bloqueada: ${path}. UID: ${uid}. active: ${active}. status: ${status}.`;
+  } catch (e) {
+    return `Ruta bloqueada: ${path}. UID: ${uid}. No se pudo leer el estado del usuario.`;
+  }
 }
 
 // ── Auth listener ──────────────────────────────────────────────────────────
@@ -284,7 +291,10 @@ window.__persistSingleDoc = async function(colName, docData) {
     return true;
   } catch (err) {
     console.error('❌ Error guardando doc:', err);
-    notifySaveStatus('error', friendlySaveError(err));
+    const detail = /permission|permissions|insufficient/i.test(err?.message || '')
+      ? await permissionDebugMessage(user.uid, colName)
+      : friendlySaveError(err);
+    notifySaveStatus('error', detail);
     return false;
   }
 };
