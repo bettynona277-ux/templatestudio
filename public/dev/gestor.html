@@ -38,9 +38,13 @@ function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'sett
 
 // ── Migración: si hay datos en el doc raíz los mueve a subcolecciones ──────
 async function migrateIfNeeded(uid) {
-  const metaSnap = await getDoc(managerMetaRef(uid));
-  if (metaSnap.exists() && metaSnap.data()?._ready) return;
-  await setDoc(managerMetaRef(uid), { _ready: true, uid, updatedAt: Date.now() }, { merge: true });
+  try {
+    const metaSnap = await getDoc(managerMetaRef(uid));
+    if (metaSnap.exists() && metaSnap.data()?._ready) return;
+    await setDoc(managerMetaRef(uid), { _ready: true, uid, updatedAt: Date.now() }, { merge: true });
+  } catch (err) {
+    console.warn('No se pudo marcar gestor_config/meta. El gestor seguira funcionando si las cuentas tienen permisos.', err);
+  }
 }
 
 // ── Cargar datos desde subcolecciones ─────────────────────────────────────
@@ -130,7 +134,7 @@ function notifySaveStatus(type, message) {
 function friendlySaveError(err) {
   const msg = err?.message || 'Verifica tu conexión.';
   if (/permission|permissions|insufficient/i.test(msg)) {
-    return 'No tienes permiso para guardar. Hay que actualizar las reglas de Firestore del gestor.';
+    return 'Firestore rechazo el guardado. Publica las reglas del gestor o revisa que este usuario este activo.';
   }
   return msg;
 }
