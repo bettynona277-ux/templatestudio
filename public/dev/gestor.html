@@ -75,6 +75,66 @@ function showExpiredAccess(user) {
   if (warning && window.__expiredLoadError) warning.style.display = '';
 }
 
+function notifySaveStatus(type, message) {
+  const palette = {
+    saving: ['Guardando', '#fde68a', 'rgba(245,158,11,.14)', 'rgba(245,158,11,.28)'],
+    success: ['Guardado', '#bbf7d0', 'rgba(34,197,94,.16)', 'rgba(34,197,94,.30)'],
+    error: ['No guardado', '#fecdd3', 'rgba(251,113,133,.16)', 'rgba(251,113,133,.30)']
+  };
+  const [title, color, bg, border] = palette[type] || palette.saving;
+  let toast = document.getElementById('gestorSaveToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'gestorSaveToast';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+  Object.assign(toast.style, {
+    position: 'fixed',
+    right: '18px',
+    bottom: '18px',
+    zIndex: '999999',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+    maxWidth: 'min(360px, calc(100vw - 28px))',
+    padding: '12px 14px',
+    borderRadius: '16px',
+    color,
+    background: bg,
+    border: `1px solid ${border}`,
+    boxShadow: '0 18px 46px rgba(0,0,0,.34)',
+    backdropFilter: 'blur(14px)',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: '13px',
+    fontWeight: '800',
+    opacity: '1',
+    transform: 'translateY(0)',
+    transition: 'opacity .22s ease, transform .22s ease'
+  });
+  const span = toast.querySelector('span');
+  if (span) {
+    span.style.color = 'rgba(244,247,255,.82)';
+    span.style.fontWeight = '700';
+  }
+  clearTimeout(window.__gestorSaveToastTimer);
+  window.__gestorSaveToastTimer = setTimeout(() => {
+    if (type === 'saving') return;
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+  }, type === 'error' ? 6500 : 2600);
+}
+
+function friendlySaveError(err) {
+  const msg = err?.message || 'Verifica tu conexión.';
+  if (/permission|permissions|insufficient/i.test(msg)) {
+    return 'No tienes permiso para guardar. Hay que actualizar las reglas de Firestore del gestor.';
+  }
+  return msg;
+}
+
 // ── Auth listener ──────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
   if (!user) { window.location.href = 'gestor-login.html'; return; }
@@ -137,6 +197,7 @@ window.__persistToFirestore = async function(stateData) {
   window.__persistDebounceTimer = setTimeout(async () => {
     window.__persistDebounceTimer = null;
     try {
+      notifySaveStatus('saving', 'Sincronizando cambios del gestor...');
       const uid = user.uid;
 
       // Leer IDs existentes en Firestore
@@ -190,9 +251,10 @@ window.__persistToFirestore = async function(stateData) {
       }
 
       console.log('✅ Datos guardados en Firebase (' + ops.length + ' ops)');
+      notifySaveStatus('success', 'Cambios sincronizados correctamente.');
     } catch (err) {
       console.error('❌ Error guardando en Firebase:', err);
-      alert('⚠️ Error al guardar: ' + (err.message || 'Verifica tu conexión.'));
+      notifySaveStatus('error', friendlySaveError(err));
     } finally {
       setTimeout(() => { window.__saving = false; }, 2000);
     }
@@ -211,11 +273,13 @@ window.__persistSingleDoc = async function(colName, docData) {
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
+    notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, docData.id), docData);
     console.log('✅ Doc guardado:', colName, docData.id);
+    notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
   } catch (err) {
     console.error('❌ Error guardando doc:', err);
-    alert('⚠️ Error al guardar: ' + (err.message || 'Verifica tu conexión.'));
+    notifySaveStatus('error', friendlySaveError(err));
   }
 };
 
@@ -225,10 +289,13 @@ window.__persistDeleteDoc = async function(colName, docId) {
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
+    notifySaveStatus('saving', 'Eliminando dato...');
     await deleteDoc(doc(colRef, docId));
     console.log('✅ Doc eliminado:', colName, docId);
+    notifySaveStatus('success', 'Dato eliminado correctamente.');
   } catch (err) {
     console.error('❌ Error eliminando doc:', err);
+    notifySaveStatus('error', friendlySaveError(err));
   }
 };
 
@@ -236,10 +303,13 @@ window.__persistSettingsDoc = async function(settingsData) {
   const user = auth.currentUser;
   if (!user) return;
   try {
+    notifySaveStatus('saving', 'Guardando ajustes...');
     await setDoc(settingsRef(user.uid), settingsData || {});
     console.log('✅ Settings guardados');
+    notifySaveStatus('success', 'Ajustes guardados.');
   } catch (err) {
     console.error('❌ Error guardando settings:', err);
+    notifySaveStatus('error', friendlySaveError(err));
   }
 };
 </script>
