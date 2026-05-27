@@ -269,7 +269,7 @@ window.firebaseSignOut = async function() {
 // ── Escritura de documento individual (1 op) ─────────────────────────────
 window.__persistSingleDoc = async function(colName, docData) {
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user) return false;
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
@@ -277,9 +277,11 @@ window.__persistSingleDoc = async function(colName, docData) {
     await setDoc(doc(colRef, docData.id), docData);
     console.log('✅ Doc guardado:', colName, docData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
+    return true;
   } catch (err) {
     console.error('❌ Error guardando doc:', err);
     notifySaveStatus('error', friendlySaveError(err));
+    return false;
   }
 };
 
@@ -3598,7 +3600,8 @@ function persist(){
 // ── Guardar UN solo documento (1-2 ops en vez de 468) ──
 function persistDoc(colName, docData){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-  if(window.__persistSingleDoc) window.__persistSingleDoc(colName, docData);
+  if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
+  return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
@@ -4842,7 +4845,7 @@ document.addEventListener('change',e=>{
 });
 
 
-$('#saveAccountBtn').onclick=()=>{
+$('#saveAccountBtn').onclick=async ()=>{
   const platform=$('#aPlatformSelect').value==='Otro' ? $('#aPlatformCustom').value.trim() : $('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
@@ -4853,8 +4856,11 @@ $('#saveAccountBtn').onclick=()=>{
   };
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
+  const ok = await persistDoc('accounts', data);
+  if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
-  closeModal('accountModalWrap'); clearAccountForm(); persistDoc('accounts', data); refreshUI();
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  closeModal('accountModalWrap'); clearAccountForm(); refreshUI();
   if(credentialsChanged && accountClientsForNotify(data.id).length && (shouldNotify || pendingNotifyAfterSave)){
     setTimeout(()=>openAccountClientsModal(data.id),120);
   }else if(credentialsChanged && accountClientsForNotify(data.id).length && !shouldNotify){
@@ -4864,7 +4870,7 @@ $('#saveAccountBtn').onclick=()=>{
   }
   pendingNotifyAfterSave=false;
 };
-$('#saveClientBtn').onclick=()=>{
+$('#saveClientBtn').onclick=async ()=>{
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
   if(!name || !accountId){ alert('Completa nombre y cuenta madre'); return; }
   const account=state.accounts.find(a=>a.id===accountId);
@@ -4874,8 +4880,11 @@ $('#saveClientBtn').onclick=()=>{
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
   };
+  const ok = await persistDoc('clients', data);
+  if(!ok) return;
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
-  closeModal('clientModalWrap'); clearClientForm(); persistDoc('clients', data); refreshUI();
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  closeModal('clientModalWrap'); clearClientForm(); refreshUI();
 };
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
