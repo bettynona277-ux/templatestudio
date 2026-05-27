@@ -3643,11 +3643,62 @@ function excelCell(value){
     .replace(/"/g,'&quot;')
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');
 }
-function excelWorksheet(name, headers, rows){
+function excelColumnXml(widths, count){
+  const cols=[];
+  for(let i=0;i<count;i++) cols.push(`<Column ss:AutoFitWidth="0" ss:Width="${widths[i] || 130}"/>`);
+  return cols.join('');
+}
+function excelWorksheetOptions(){
+  return `<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+    <FreezePanes/><FrozenNoSplit/><SplitHorizontal>5</SplitHorizontal><TopRowBottomPane>5</TopRowBottomPane><ActivePane>2</ActivePane>
+    <ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios>
+  </WorksheetOptions>`;
+}
+function excelWorksheet(name, headers, rows, options={}){
   const safeName=excelCell(name).slice(0,31);
-  const headerRow=headers.map(h=>`<Cell><Data ss:Type="String">${excelCell(h)}</Data></Cell>`).join('');
-  const bodyRows=rows.map(row=>`<Row>${headers.map(h=>`<Cell><Data ss:Type="String">${excelCell(row[h])}</Data></Cell>`).join('')}</Row>`).join('');
-  return `<Worksheet ss:Name="${safeName}"><Table><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet>`;
+  const merge=Math.max(headers.length-1,0);
+  const headerRow=headers.map(h=>`<Cell ss:StyleID="Header"><Data ss:Type="String">${excelCell(h)}</Data></Cell>`).join('');
+  const bodyRows=rows.map((row,idx)=>`<Row ss:AutoFitHeight="1">${headers.map(h=>`<Cell ss:StyleID="${idx % 2 ? 'BodyAlt' : 'Body'}"><Data ss:Type="String">${excelCell(row[h])}</Data></Cell>`).join('')}</Row>`).join('');
+  const emptyText=rows.length ? '' : `<Row><Cell ss:MergeAcross="${merge}" ss:StyleID="Empty"><Data ss:Type="String">Sin datos registrados en esta seccion.</Data></Cell></Row>`;
+  return `<Worksheet ss:Name="${safeName}">
+    <Table>
+      ${excelColumnXml(options.widths || [], headers.length)}
+      <Row ss:Height="30"><Cell ss:MergeAcross="${merge}" ss:StyleID="BrandTitle"><Data ss:Type="String">Disenos Streaming</Data></Cell></Row>
+      <Row ss:Height="24"><Cell ss:MergeAcross="${merge}" ss:StyleID="SheetTitle"><Data ss:Type="String">${excelCell(name)}</Data></Cell></Row>
+      <Row ss:Height="20"><Cell ss:MergeAcross="${merge}" ss:StyleID="SheetSub"><Data ss:Type="String">${excelCell(options.subtitle || '')}</Data></Cell></Row>
+      <Row ss:Height="16"><Cell ss:MergeAcross="${merge}" ss:StyleID="Love"><Data ss:Type="String">Excel con amor hecho por Disenos Streaming. WhatsApp: +51974834197</Data></Cell></Row>
+      <Row/>
+      <Row ss:AutoFitHeight="1">${headerRow}</Row>
+      ${bodyRows}
+      ${emptyText}
+    </Table>
+    ${excelWorksheetOptions()}
+  </Worksheet>`;
+}
+function excelSummaryWorksheet(accountRows, clientRows){
+  const generatedAt=new Date().toLocaleString('es-PE');
+  const activeClients=clientRows.filter(c=>String(c.Estado || '').toLowerCase() === 'activo').length;
+  const expiredClients=clientRows.length-activeClients;
+  const platformCounts={};
+  clientRows.forEach(c=>{ const p=c.Plataforma || 'Sin plataforma'; platformCounts[p]=(platformCounts[p] || 0)+1; });
+  const platformRows=Object.entries(platformCounts).sort((a,b)=>b[1]-a[1]).map(([name,count])=>`<Row><Cell ss:StyleID="Body"><Data ss:Type="String">${excelCell(name)}</Data></Cell><Cell ss:StyleID="Body"><Data ss:Type="Number">${count}</Data></Cell></Row>`).join('');
+  return `<Worksheet ss:Name="Resumen">
+    <Table>
+      ${excelColumnXml([190,130,170,170],4)}
+      <Row ss:Height="34"><Cell ss:MergeAcross="3" ss:StyleID="BrandTitle"><Data ss:Type="String">Disenos Streaming</Data></Cell></Row>
+      <Row ss:Height="28"><Cell ss:MergeAcross="3" ss:StyleID="Hero"><Data ss:Type="String">Backup personal de cuentas</Data></Cell></Row>
+      <Row ss:Height="22"><Cell ss:MergeAcross="3" ss:StyleID="SheetSub"><Data ss:Type="String">Excel con amor hecho por Disenos Streaming. WhatsApp: +51974834197</Data></Cell></Row>
+      <Row/>
+      <Row><Cell ss:StyleID="MetricLabel"><Data ss:Type="String">Cuentas madre</Data></Cell><Cell ss:StyleID="MetricValue"><Data ss:Type="Number">${accountRows.length}</Data></Cell><Cell ss:StyleID="MetricLabel"><Data ss:Type="String">Clientes</Data></Cell><Cell ss:StyleID="MetricValue"><Data ss:Type="Number">${clientRows.length}</Data></Cell></Row>
+      <Row><Cell ss:StyleID="MetricLabel"><Data ss:Type="String">Clientes activos</Data></Cell><Cell ss:StyleID="MetricValueOk"><Data ss:Type="Number">${activeClients}</Data></Cell><Cell ss:StyleID="MetricLabel"><Data ss:Type="String">Clientes por revisar</Data></Cell><Cell ss:StyleID="MetricValueWarn"><Data ss:Type="Number">${expiredClients}</Data></Cell></Row>
+      <Row/>
+      <Row><Cell ss:MergeAcross="3" ss:StyleID="Section"><Data ss:Type="String">Clientes por plataforma</Data></Cell></Row>
+      <Row><Cell ss:StyleID="Header"><Data ss:Type="String">Plataforma</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Cantidad</Data></Cell></Row>
+      ${platformRows || '<Row><Cell ss:StyleID="Empty"><Data ss:Type="String">Sin datos</Data></Cell></Row>'}
+      <Row/>
+      <Row><Cell ss:MergeAcross="3" ss:StyleID="Footer"><Data ss:Type="String">Generado: ${excelCell(generatedAt)}. Guarda este archivo en un lugar seguro.</Data></Cell></Row>
+    </Table>
+  </Worksheet>`;
 }
 function downloadGestorExcel(){
   const accountsById=new Map(state.accounts.map(a=>[a.id,a]));
@@ -3684,8 +3735,32 @@ function downloadGestorExcel(){
  xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-${excelWorksheet('Cuentas madre', accountHeaders, accountRows)}
-${excelWorksheet('Clientes', clientHeaders, clientRows)}
+<DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Disenos Streaming</Author>
+  <Company>Disenos Streaming</Company>
+  <Subject>Backup personal de cuentas</Subject>
+</DocumentProperties>
+<Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1F2937"/></Style>
+  <Style ss:ID="BrandTitle"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#0B1020" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="18" ss:Bold="1" ss:Color="#22D3EE"/></Style>
+  <Style ss:ID="Hero"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#6D5DF6" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#FFFFFF"/></Style>
+  <Style ss:ID="SheetTitle"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#151B33" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="15" ss:Bold="1" ss:Color="#FFFFFF"/></Style>
+  <Style ss:ID="SheetSub"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#EAF2FF" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="10" ss:Color="#475569"/></Style>
+  <Style ss:ID="Love"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#ECFEFF" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="10" ss:Italic="1" ss:Color="#0F766E"/></Style>
+  <Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Interior ss:Color="#1E293B" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#22D3EE"/></Borders></Style>
+  <Style ss:ID="Body"><Alignment ss:Vertical="Top" ss:WrapText="1"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders></Style>
+  <Style ss:ID="BodyAlt"><Alignment ss:Vertical="Top" ss:WrapText="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders></Style>
+  <Style ss:ID="Empty"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Interior ss:Color="#FFF7ED" ss:Pattern="Solid"/><Font ss:Italic="1" ss:Color="#9A3412"/></Style>
+  <Style ss:ID="MetricLabel"><Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="#3730A3"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#C7D2FE"/></Borders></Style>
+  <Style ss:ID="MetricValue"><Alignment ss:Horizontal="Center"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Size="14" ss:Color="#111827"/></Style>
+  <Style ss:ID="MetricValueOk"><Alignment ss:Horizontal="Center"/><Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Size="14" ss:Color="#166534"/></Style>
+  <Style ss:ID="MetricValueWarn"><Alignment ss:Horizontal="Center"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Size="14" ss:Color="#92400E"/></Style>
+  <Style ss:ID="Section"><Alignment ss:Horizontal="Left"/><Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="#1D4ED8"/></Style>
+  <Style ss:ID="Footer"><Alignment ss:Horizontal="Center"/><Font ss:Italic="1" ss:Color="#64748B"/></Style>
+</Styles>
+${excelSummaryWorksheet(accountRows, clientRows)}
+${excelWorksheet('Cuentas madre', accountHeaders, accountRows, { subtitle:'Tus cuentas principales ordenadas para recuperacion o respaldo.', widths:[120,150,130,190,150,80,110,260] })}
+${excelWorksheet('Clientes', clientHeaders, clientRows, { subtitle:'Clientes, accesos asignados y vencimientos.', widths:[170,120,120,190,150,90,80,110,100,260] })}
 </Workbook>`;
   const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'});
   const a=document.createElement('a');
