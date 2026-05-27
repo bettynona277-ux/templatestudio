@@ -57,14 +57,43 @@ async function loadFromSubcollections(uid) {
   window.__loadFromFirestore({ accounts, clients, settings });
 }
 
+function isExpiredUser(data) {
+  const status = String(data?.subscriptionStatus || data?.status || '').toLowerCase();
+  return data?.active === false || ['expired', 'vencido', 'inactive', 'inactivo', 'blocked', 'bloqueado'].includes(status);
+}
+
+function showExpiredAccess(user) {
+  const loader = document.getElementById('authLoader');
+  const root = document.getElementById('appRoot');
+  const expired = document.getElementById('expiredRoot');
+  if (loader) loader.style.display = 'none';
+  if (root) root.style.display = 'none';
+  if (expired) expired.style.display = '';
+  const email = document.getElementById('expiredUserEmail');
+  if (email) email.textContent = user?.email || 'Tu cuenta';
+  const warning = document.getElementById('expiredLoadWarning');
+  if (warning && window.__expiredLoadError) warning.style.display = '';
+}
+
 // ── Auth listener ──────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
   if (!user) { window.location.href = 'gestor-login.html'; return; }
 
   const userSnap = await getDoc(userRef(user.uid));
-  if (!userSnap.exists() || userSnap.data()?.active === false) {
+  if (!userSnap.exists()) {
     await signOut(auth);
     window.location.href = 'gestor-login.html';
+    return;
+  }
+
+  if (isExpiredUser(userSnap.data())) {
+    try {
+      await loadFromSubcollections(user.uid);
+    } catch (err) {
+      console.error('No se pudieron cargar los datos del gestor vencido:', err);
+      window.__expiredLoadError = true;
+    }
+    showExpiredAccess(user);
     return;
   }
 
@@ -2566,6 +2595,438 @@ body.modal-open{overflow:hidden}
 .bulk-email-cell{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
 .bulk-counter{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:rgba(45,212,191,.10);border:1px solid rgba(45,212,191,.22);color:#ccfbf1;font-size:12px;font-weight:900}
 
+/* ===== Gestor movil: app compacta, mismas funciones ===== */
+@media(max-width:720px){
+  html,body{
+    min-height:100%;
+    background:
+      radial-gradient(circle at 10% 0%,rgba(124,92,255,.20),transparent 34%),
+      radial-gradient(circle at 90% 14%,rgba(45,212,191,.14),transparent 32%),
+      #060c16!important;
+    overflow-x:hidden;
+  }
+  .app{
+    display:block!important;
+    min-height:100vh;
+    padding-bottom:82px;
+  }
+  .sidebar{
+    position:sticky!important;
+    top:0!important;
+    z-index:70!important;
+    height:auto!important;
+    padding:10px 12px 8px!important;
+    border-right:0!important;
+    border-bottom:1px solid rgba(173,190,255,.12)!important;
+    background:linear-gradient(180deg,rgba(8,14,26,.96),rgba(8,14,26,.88))!important;
+    backdrop-filter:blur(18px)!important;
+  }
+  .brand{
+    padding:2px 2px 8px!important;
+    gap:9px!important;
+  }
+  .logo{
+    width:34px!important;
+    height:34px!important;
+    border-radius:12px!important;
+    font-size:14px!important;
+  }
+  .brand h1{
+    font-size:17px!important;
+    letter-spacing:-.04em!important;
+  }
+  .brand small{display:none!important}
+  .menu{
+    position:fixed!important;
+    left:10px!important;
+    right:10px!important;
+    bottom:10px!important;
+    z-index:90!important;
+    display:grid!important;
+    grid-template-columns:repeat(5,minmax(0,1fr))!important;
+    gap:6px!important;
+    margin:0!important;
+    padding:8px!important;
+    border:1px solid rgba(173,190,255,.16)!important;
+    border-radius:22px!important;
+    background:rgba(6,12,23,.92)!important;
+    box-shadow:0 18px 50px rgba(0,0,0,.42)!important;
+    backdrop-filter:blur(18px)!important;
+  }
+  .nav-btn{
+    position:relative!important;
+    min-height:50px!important;
+    justify-content:center!important;
+    text-align:center!important;
+    padding:7px 4px!important;
+    border-radius:16px!important;
+    gap:2px!important;
+    font-size:0!important;
+    white-space:nowrap!important;
+  }
+  .nav-btn::first-letter{font-size:18px!important}
+  .nav-btn[data-view="inicioView"]::after{content:"Inicio"}
+  .nav-btn[data-view="clientesView"]::after{content:"Clientes"}
+  .nav-btn[data-view="cuentasView"]::after{content:"Cuentas"}
+  .nav-btn[data-view="libresView"]::after{content:"Libres"}
+  .nav-btn[data-view="renovacionesView"]::after{content:"Vence"}
+  .nav-btn::after{
+    display:block;
+    margin-top:3px;
+    font-size:10px;
+    font-weight:900;
+    color:inherit;
+  }
+  .count{
+    position:absolute!important;
+    top:3px!important;
+    right:4px!important;
+    margin:0!important;
+    min-width:18px!important;
+    padding:1px 5px!important;
+    font-size:9px!important;
+    background:rgba(255,255,255,.10)!important;
+  }
+  .sidebar-bottom{
+    position:static!important;
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:7px!important;
+    margin-top:0!important;
+  }
+  .sidebar-bottom>div{
+    grid-column:1/-1!important;
+    padding:8px 10px!important;
+    border-radius:14px!important;
+    font-size:11px!important;
+  }
+  .ghost-btn,.sidebar-bottom label.ghost-btn{
+    min-height:38px!important;
+    justify-content:center!important;
+    padding:8px 9px!important;
+    border-radius:14px!important;
+    font-size:12px!important;
+    text-align:center!important;
+    background:rgba(255,255,255,.035)!important;
+    border-color:rgba(173,190,255,.11)!important;
+  }
+  .main{
+    padding:14px 10px 20px!important;
+  }
+  .topbar{
+    margin:0 0 12px!important;
+    padding:12px!important;
+    border:1px solid rgba(173,190,255,.10)!important;
+    border-radius:22px!important;
+    background:rgba(255,255,255,.025)!important;
+    box-shadow:0 14px 34px rgba(0,0,0,.20)!important;
+  }
+  .title-wrap h2{
+    font-size:22px!important;
+    line-height:1.05!important;
+  }
+  .title-wrap p{font-size:12px!important}
+  .actions{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+    width:100%!important;
+    gap:8px!important;
+  }
+  .actions .btn{
+    width:100%!important;
+    min-height:42px!important;
+    padding:10px 9px!important;
+    justify-content:center!important;
+    border-radius:14px!important;
+    font-size:12px!important;
+  }
+  #openBulkAccountBtn{
+    grid-column:1/-1!important;
+  }
+  .hero-stats,.stats{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:8px!important;
+  }
+  .hero-pill,.card{
+    padding:12px!important;
+    border-radius:18px!important;
+  }
+  .hero-number,.card .value{
+    font-size:26px!important;
+  }
+  .hero-text,.card .label,.card .meta{
+    font-size:11px!important;
+  }
+  .panel,.mini-panel,.quick-sale-panel,.clients-panel,.platform-panel,.account-section{
+    padding:14px!important;
+    border-radius:22px!important;
+  }
+  .panel-head,.clients-panel-header,.quick-sale-head,.client-panel-top{
+    align-items:stretch!important;
+    flex-direction:column!important;
+    gap:10px!important;
+  }
+  .panel-head h3,.clients-panel-header h3,.quick-sale-head h3{
+    font-size:20px!important;
+  }
+  .client-tools,.tools{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    width:100%!important;
+    gap:8px!important;
+  }
+  .input,.select,textarea{
+    width:100%!important;
+    min-height:44px!important;
+    border-radius:14px!important;
+    font-size:14px!important;
+  }
+  .search{min-width:0!important}
+  .platform-filters,.free-platform-tabs{
+    position:sticky!important;
+    top:122px!important;
+    z-index:40!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    overflow-x:auto!important;
+    gap:8px!important;
+    margin:0 -14px 10px!important;
+    padding:9px 14px!important;
+    scrollbar-width:none;
+  }
+  .platform-filters::-webkit-scrollbar,.free-platform-tabs::-webkit-scrollbar{display:none}
+  .filter-chip,.free-platform-tab{
+    flex:0 0 auto!important;
+    min-height:38px!important;
+    border-radius:999px!important;
+    font-size:12px!important;
+  }
+  .table-wrap{
+    overflow:visible!important;
+    border:0!important;
+    box-shadow:none!important;
+    background:transparent!important;
+  }
+  table,thead,tbody,tr,td{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+  }
+  thead{display:none!important}
+  #clientsTable{
+    display:flex!important;
+    flex-direction:column!important;
+    gap:10px!important;
+  }
+  #clientsTable tr{
+    padding:13px!important;
+    border:1px solid rgba(173,190,255,.12)!important;
+    border-radius:20px!important;
+    background:linear-gradient(180deg,rgba(16,28,48,.94),rgba(8,14,25,.98))!important;
+    box-shadow:0 14px 32px rgba(0,0,0,.20)!important;
+  }
+  #clientsTable td{
+    display:grid!important;
+    grid-template-columns:88px minmax(0,1fr)!important;
+    gap:9px!important;
+    align-items:center!important;
+    padding:8px 0!important;
+    border:0!important;
+    background:transparent!important;
+    font-size:13px!important;
+    word-break:break-word!important;
+  }
+  #clientsTable td::before{
+    color:#8fa0c6;
+    font-size:10px;
+    font-weight:900;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+  }
+  #clientsTable td:nth-child(1)::before{content:"Cliente"}
+  #clientsTable td:nth-child(2)::before{content:"WhatsApp"}
+  #clientsTable td:nth-child(3)::before{content:"Plataforma"}
+  #clientsTable td:nth-child(4)::before{content:"Cuenta"}
+  #clientsTable td:nth-child(5)::before{content:"Perfil"}
+  #clientsTable td:nth-child(6)::before{content:"PIN"}
+  #clientsTable td:nth-child(7)::before{content:"Vence"}
+  #clientsTable td:nth-child(8)::before{content:"Estado"}
+  #clientsTable td:nth-child(9){
+    display:block!important;
+    padding-top:10px!important;
+    border-top:1px solid rgba(173,190,255,.10)!important;
+  }
+  #clientsTable td:nth-child(9)::before{content:none}
+  .row-actions,.account-primary-actions,.client-notify-actions,.item .right{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+    width:100%!important;
+    gap:7px!important;
+  }
+  .row-actions>.mini,.row-actions>.action-more,.account-primary-actions>.mini,.account-primary-actions>.action-more{
+    width:100%!important;
+  }
+  .mini,.action-more summary{
+    min-height:38px!important;
+    justify-content:center!important;
+    text-align:center!important;
+    border-radius:13px!important;
+    font-size:12px!important;
+  }
+  .action-more-menu{
+    left:auto!important;
+    right:0!important;
+    min-width:min(230px,calc(100vw - 34px))!important;
+  }
+  .accounts-sections,.account-grid-compact,.free-account-grid,.quick-platforms{
+    grid-template-columns:1fr!important;
+    gap:10px!important;
+  }
+  .account-section{
+    margin-bottom:12px!important;
+  }
+  .account-section-head{
+    gap:8px!important;
+  }
+  .account-card.compact-v2,.free-account{
+    border-radius:20px!important;
+    padding:13px!important;
+  }
+  .account-topline,.free-account-top,.item,.client-notify-card{
+    align-items:stretch!important;
+    flex-direction:column!important;
+  }
+  .account-topline-left{
+    display:flex!important;
+    flex-wrap:wrap!important;
+    gap:6px!important;
+  }
+  .account-main-title,.free-account-name{
+    font-size:14px!important;
+    line-height:1.3!important;
+  }
+  .account-summary-line,.free-account-detail,.sub{
+    font-size:12px!important;
+  }
+  .account-detail-row{
+    gap:7px!important;
+    align-items:flex-start!important;
+  }
+  .account-inline-actions{
+    width:100%!important;
+    justify-content:space-between!important;
+  }
+  .modal-backdrop.show{
+    align-items:flex-end!important;
+    padding:0!important;
+  }
+  .modal{
+    width:100vw!important;
+    max-height:90vh!important;
+    border-radius:24px 24px 0 0!important;
+    padding:16px!important;
+    border-left:0!important;
+    border-right:0!important;
+    border-bottom:0!important;
+  }
+  .modal-head{
+    margin:-16px -16px 14px!important;
+    padding:14px 16px!important;
+  }
+  .modal-head h3{font-size:19px!important}
+  .form,.payment-row{
+    grid-template-columns:1fr!important;
+  }
+  .modal-actions{
+    position:sticky!important;
+    bottom:-16px!important;
+    z-index:4!important;
+    margin:14px -16px -16px!important;
+    padding:12px 16px 16px!important;
+    background:linear-gradient(180deg,rgba(10,18,33,.86),rgba(10,18,33,.98))!important;
+    border-top:1px solid rgba(173,190,255,.10)!important;
+  }
+  .modal-actions .btn{
+    flex:1 1 130px!important;
+    min-height:44px!important;
+  }
+  .flatpickr-calendar{
+    width:calc(100vw - 20px)!important;
+    max-width:360px!important;
+    left:10px!important;
+    right:10px!important;
+  }
+  .empty{
+    padding:22px 14px!important;
+    border-radius:18px!important;
+  }
+}
+
+.expired-shell{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:
+    radial-gradient(circle at 15% 10%,rgba(124,92,255,.22),transparent 34%),
+    radial-gradient(circle at 85% 20%,rgba(45,212,191,.15),transparent 30%),
+    #07101c;
+  color:var(--text);
+  font-family:Inter,sans-serif;
+}
+.expired-card{
+  width:min(760px,100%);
+  border:1px solid rgba(173,190,255,.14);
+  border-radius:28px;
+  background:linear-gradient(180deg,rgba(17,27,48,.96),rgba(8,14,27,.98));
+  box-shadow:0 34px 90px rgba(0,0,0,.42);
+  padding:28px;
+}
+.expired-badge{
+  display:inline-flex;
+  padding:7px 11px;
+  border-radius:999px;
+  background:rgba(251,113,133,.12);
+  border:1px solid rgba(251,113,133,.22);
+  color:#fecdd3;
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.expired-card h2{
+  margin:16px 0 10px;
+  font-size:clamp(28px,4vw,44px);
+  line-height:1.02;
+  letter-spacing:-.06em;
+}
+.expired-card p{
+  margin:0;
+  color:#a8b5d6;
+  line-height:1.65;
+}
+.expired-data{
+  margin:22px 0;
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.expired-stat{
+  padding:14px;
+  border:1px solid rgba(173,190,255,.10);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+}
+.expired-stat strong{display:block;font-size:22px;color:#fff;margin-bottom:3px}
+.expired-stat span{font-size:12px;color:#8fa0c6;font-weight:800}
+.expired-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.expired-actions .btn{min-height:46px}
+@media(max-width:620px){
+  .expired-card{padding:22px;border-radius:22px}
+  .expired-data{grid-template-columns:1fr}
+  .expired-actions .btn{width:100%;justify-content:center}
+}
+
 </style>
 <body>
 <!-- Loader mientras verifica sesión -->
@@ -2576,6 +3037,39 @@ body.modal-open{overflow:hidden}
     <div style="width:32px;height:2px;background:linear-gradient(90deg,#8aa1ff,#7c5cff);margin:0 auto;border-radius:999px;animation:pulse 1.2s ease-in-out infinite" id="loaderBar"></div>
     <style>@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}</style>
   </div>
+</div>
+
+<div id="expiredRoot" class="expired-shell" style="display:none">
+  <section class="expired-card">
+    <span class="expired-badge">Acceso vencido</span>
+    <h2>Tu gestor está protegido hasta que renueves.</h2>
+    <p>
+      La edición y visualización completa quedan bloqueadas, pero puedes descargar una copia de tus datos en formato Excel.
+      Tus cuentas no se borran; si renuevas, recuperas el acceso normal.
+    </p>
+    <p id="expiredLoadWarning" style="display:none;margin-top:10px;color:#fecdd3">
+      No se pudieron leer tus datos. El administrador debe permitir lectura de exportaciÃ³n para cuentas vencidas.
+    </p>
+    <div class="expired-data">
+      <div class="expired-stat">
+        <strong id="expiredAccountsCount">0</strong>
+        <span>Cuentas madre</span>
+      </div>
+      <div class="expired-stat">
+        <strong id="expiredClientsCount">0</strong>
+        <span>Clientes</span>
+      </div>
+      <div class="expired-stat">
+        <strong id="expiredUserEmail">-</strong>
+        <span>Cuenta</span>
+      </div>
+    </div>
+    <div class="expired-actions">
+      <button class="btn primary" type="button" onclick="downloadGestorExcel()">Descargar mis datos en Excel</button>
+      <a class="btn soft" href="https://wa.me/51974834197?text=Hola%2C%20quiero%20renovar%20mi%20acceso%20a%20Dise%C3%B1os%20Streaming." target="_blank" rel="noopener">Renovar por WhatsApp</a>
+      <button class="btn" type="button" onclick="firebaseSignOut()">Cerrar sesión</button>
+    </div>
+  </section>
 </div>
 
 <div id="appRoot" style="display:none">
@@ -3019,6 +3513,7 @@ window.__loadFromFirestore = function(data){
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
   // Actualizar localStorage como respaldo
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
 };
@@ -3043,6 +3538,73 @@ function persistSettings(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
+function updateExpiredSummary(){
+  const acc=$('#expiredAccountsCount');
+  const cli=$('#expiredClientsCount');
+  if(acc) acc.textContent=state.accounts.length;
+  if(cli) cli.textContent=state.clients.length;
+}
+function excelCell(value){
+  return String(value ?? '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');
+}
+function excelWorksheet(name, headers, rows){
+  const safeName=excelCell(name).slice(0,31);
+  const headerRow=headers.map(h=>`<Cell><Data ss:Type="String">${excelCell(h)}</Data></Cell>`).join('');
+  const bodyRows=rows.map(row=>`<Row>${headers.map(h=>`<Cell><Data ss:Type="String">${excelCell(row[h])}</Data></Cell>`).join('')}</Row>`).join('');
+  return `<Worksheet ss:Name="${safeName}"><Table><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet>`;
+}
+function downloadGestorExcel(){
+  const accountsById=new Map(state.accounts.map(a=>[a.id,a]));
+  const accountHeaders=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contraseña','Capacidad','Vencimiento','Notas'];
+  const clientHeaders=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Cuenta madre contraseña','Perfil','PIN','Vencimiento','Estado','Notas'];
+  const accountRows=state.accounts.map(a=>({
+    'Plataforma':a.platform,
+    'Proveedor':a.provider,
+    'WhatsApp proveedor':a.providerWhatsapp,
+    'Correo':a.email,
+    'Contraseña':a.password,
+    'Capacidad':a.capacity,
+    'Vencimiento':a.dueDate,
+    'Notas':a.notes
+  }));
+  const clientRows=state.clients.map(c=>{
+    const a=accountsById.get(c.accountId) || {};
+    return {
+      'Cliente':c.name,
+      'WhatsApp':c.whatsapp,
+      'Plataforma':c.platform || a.platform,
+      'Cuenta madre correo':a.email,
+      'Cuenta madre contraseña':a.password,
+      'Perfil':c.profile,
+      'PIN':c.pin,
+      'Vencimiento':c.dueDate,
+      'Estado':effectiveClientState(c),
+      'Notas':c.notes
+    };
+  });
+  const xml=`<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${excelWorksheet('Cuentas madre', accountHeaders, accountRows)}
+${excelWorksheet('Clientes', clientHeaders, clientRows)}
+</Workbook>`;
+  const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const a=document.createElement('a');
+  const date=new Date().toISOString().slice(0,10);
+  a.href=URL.createObjectURL(blob);
+  a.download=`mis-datos-gestor-${date}.xls`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+window.downloadGestorExcel=downloadGestorExcel;
 // ── Refresh sin persistir (cuando ya se guardó el doc individual) ──
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
