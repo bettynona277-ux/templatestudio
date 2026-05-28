@@ -318,12 +318,17 @@ function empty(text){ return `<div class="empty">${esc(text)}</div>`; }
 function clientCard(c){
   const ds = dueState(c.dueDate);
   const acc = state.accounts.find(a => a.id === c.accountId);
+  const dueActions = state.view === 'due' && ds.days <= 7;
   return `<article class="card" data-client="${esc(c.id)}">
     <div class="card-row"><div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
         <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span><span class="pill brand">Perfil ${esc(c.profile || '-')}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button></div>
+    <div class="card-actions">
+      ${dueActions
+        ? `<button class="mini" data-renew="${esc(c.id)}">${icon('calendar')}<span>Renovar</span></button><button class="mini" data-no-renew="${esc(c.id)}">${icon('x')}<span>No renovo</span></button><button class="mini" data-wa-renew="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`
+        : `<button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
+    </div>
   </article>`;
 }
 function accountCard(a){
@@ -335,7 +340,7 @@ function accountCard(a){
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
         <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-copy="${esc(a.id)}">${icon('copy')}<span>Copiar</span></button></div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender perfil</span></button></div>
   </article>`;
 }
 function bindSearch(){
@@ -346,11 +351,14 @@ function bindSearch(){
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
-  document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa)));
-  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
-    const a = state.accounts.find(x => x.id === b.dataset.copy);
-    await navigator.clipboard?.writeText?.(`${a.email || ''} ${a.password || ''}`);
-    toast('Clave copiada');
+  document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa), 'delivery'));
+  document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.waRenew), 'renewal'));
+  document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
+  document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
+  document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
+    const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
+    if(!a) return;
+    openClientSheet({ accountId:a.id, platform:a.platform, dueDate:a.dueDate || todayISO(), state:'Activo' });
   });
 }
 
@@ -480,20 +488,54 @@ function normalizePhone(phone){
   if(p.length === 9) p = '51'+p;
   return p;
 }
-function openWhatsApp(c){
+function addDaysISO(date, days){
+  const d = new Date((date || todayISO()) + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+async function renewClient(c){
+  if(!c) return;
+  const base = dueState(c.dueDate).days > 0 ? c.dueDate : todayISO();
+  const nextDate = addDaysISO(base, 30);
+  try{
+    await setDoc(clientRef(c.id), { ...c, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
+    toast('Cliente renovado por 30 dias');
+  }catch(err){
+    console.error(err);
+    toast('No se pudo renovar.','bad');
+  }
+}
+async function markNoRenew(c){
+  if(!c) return;
+  if(!confirm('Marcar como no renovado?')) return;
+  try{
+    await setDoc(clientRef(c.id), { ...c, state:'No renovo', updatedAt:new Date().toISOString() }, { merge:true });
+    toast('Marcado como no renovado');
+  }catch(err){
+    console.error(err);
+    toast('No se pudo actualizar.','bad');
+  }
+}
+function openWhatsApp(c, mode='delivery'){
   if(!c) return;
   const phone = normalizePhone(c.whatsapp);
   if(!phone) return toast('Ese cliente no tiene WhatsApp.','bad');
   const acc = state.accounts.find(a => a.id === c.accountId);
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
-  let statusText = `te escribo por tu cuenta de ${service}.`;
-  if(ds.days < 0) statusText = `tu cuenta de ${service} ya vencio el ${c.dueDate || 'dia indicado'}.`;
-  else if(ds.days === 0) statusText = `tu cuenta de ${service} vence hoy.`;
-  else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
-  const pay = clean(state.settings.paymentMethods) ? `\n\nMedios de pago:\n${state.settings.paymentMethods}` : '';
-  const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
-  const text = `Hola ${clientName(c)}, ${statusText}${pay}${final}`;
+  let text = '';
+  if(mode === 'renewal'){
+    let statusText = `tu cuenta de ${service} esta proxima a vencer.`;
+    if(ds.days < 0) statusText = `tu cuenta de ${service} ya vencio el ${c.dueDate || 'dia indicado'}.`;
+    else if(ds.days === 0) statusText = `tu cuenta de ${service} vence hoy.`;
+    else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
+    const pay = clean(state.settings.paymentMethods) ? `\n\nMedios de pago:\n${state.settings.paymentMethods}` : '';
+    text = `Hola ${clientName(c)}, ${statusText}${pay}`;
+  }else{
+    const pay = clean(state.settings.paymentMethods) ? `\n\nMedios de pago:\n${state.settings.paymentMethods}` : '';
+    const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
+    text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${pay}${final}`;
+  }
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,'_blank','noopener');
 }
 function exportExcel(){
