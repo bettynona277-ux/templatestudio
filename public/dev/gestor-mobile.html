@@ -397,15 +397,22 @@ function openClientSheet(item={}){
         ${['Activo','Por vencer','Vencido','Pausado'].map(s=>`<option ${clean(c.state||'Activo')===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
       <div class="field"><label>Notas</label><textarea name="notes">${esc(c.notes)}</textarea></div>
-      <div class="form-actions"><button type="button" class="btn ${c.id?'bad':''}" id="deleteClient">${c.id?'Eliminar':'Cancelar'}</button><button class="btn primary">Guardar</button></div>
+      <div class="form-actions"><button type="button" class="btn ${c.id?'bad':''}" id="deleteClient">${c.id?'Eliminar':'Cancelar'}</button><button id="clientSubmitBtn" class="btn ${c.id?'primary':'ok'}">${c.id?'Guardar':'Entregar cuenta'}</button></div>
     </form>`);
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
+    const submitBtn = $('#clientSubmitBtn');
+    const isNewSale = !c.id;
+    const deliveryWindow = isNewSale ? window.open('about:blank', '_blank') : null;
+    submitBtn.disabled = true;
+    submitBtn.textContent = isNewSale ? 'Guardando...' : 'Guardando...';
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
     const account = state.accounts.find(a => a.id === fd.accountId);
     const data = {...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || '', updatedAt:new Date().toISOString()};
     if(!c.id) data.createdAt = data.updatedAt;
-    await saveItem('client', data, { newSale:!c.id });
+    await saveItem('client', data, { newSale:isNewSale, deliverAfterSave:isNewSale, deliveryWindow });
+    submitBtn.disabled = false;
+    submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
   };
   $('#deleteClient').onclick = async () => c.id ? removeItem('client', c.id) : closeSheet();
 }
@@ -447,10 +454,15 @@ async function saveItem(kind,data,opts={}){
       state.query = data.whatsapp || clientName(data);
       document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'clients'));
       render();
-      setTimeout(() => openSaleDeliverySheet(data), 80);
+      if(opts.deliverAfterSave){
+        setTimeout(() => openWhatsApp(data, 'delivery', opts.deliveryWindow), 60);
+      }else{
+        setTimeout(() => openSaleDeliverySheet(data), 80);
+      }
     }
   }catch(err){
     console.error(err);
+    if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
     toast('No se pudo guardar. Revisa permisos o conexion.','bad');
   }
 }
@@ -541,10 +553,13 @@ async function markNoRenew(c){
     toast('No se pudo actualizar.','bad');
   }
 }
-function openWhatsApp(c, mode='delivery'){
+function openWhatsApp(c, mode='delivery', targetWindow=null){
   if(!c) return;
   const phone = normalizePhone(c.whatsapp);
-  if(!phone) return toast('Ese cliente no tiene WhatsApp.','bad');
+  if(!phone){
+    if(targetWindow && !targetWindow.closed) targetWindow.close();
+    return toast('Ese cliente no tiene WhatsApp.','bad');
+  }
   const acc = state.accounts.find(a => a.id === c.accountId);
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
@@ -561,7 +576,12 @@ function openWhatsApp(c, mode='delivery'){
     const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
     text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${pay}${final}`;
   }
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,'_blank','noopener');
+  const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  if(targetWindow && !targetWindow.closed){
+    targetWindow.location.href = url;
+  }else{
+    window.open(url,'_blank','noopener');
+  }
 }
 function exportExcel(){
   const rows = [];

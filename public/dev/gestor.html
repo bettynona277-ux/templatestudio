@@ -136,6 +136,50 @@ function notifySaveStatus(type, message) {
   }, type === 'error' ? 6500 : 2600);
 }
 
+function showDeliveryPrompt(client) {
+  if (!client) return;
+  let prompt = document.getElementById('saleDeliveryPrompt');
+  if (!prompt) {
+    prompt = document.createElement('div');
+    prompt.id = 'saleDeliveryPrompt';
+    document.body.appendChild(prompt);
+  }
+  prompt.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div>
+        <strong style="display:block;color:#f8fbff;font-size:14px;margin-bottom:3px">Venta registrada</strong>
+        <span style="display:block;color:#9fb0d7;font-size:12px;line-height:1.35">${escapeHtml(client.name || 'Cliente')} quedo listo para entregar.</span>
+      </div>
+      <button id="closeSaleDeliveryPrompt" style="width:32px;height:32px;border-radius:11px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#cbd5e1;cursor:pointer;font-weight:900">x</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+      <button id="deliverSaleAccountBtn" style="min-height:42px;border-radius:13px;border:0;background:linear-gradient(135deg,#22c55e,#14b8a6);color:#04130e;font-weight:950;cursor:pointer">Entregar cuenta</button>
+      <button id="viewSaleClientBtn" style="min-height:42px;border-radius:13px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#f8fbff;font-weight:850;cursor:pointer">Ver cliente</button>
+    </div>`;
+  Object.assign(prompt.style, {
+    position:'fixed', right:'18px', bottom:'18px', zIndex:'999999',
+    width:'min(380px, calc(100vw - 28px))', padding:'14px',
+    borderRadius:'18px', background:'linear-gradient(180deg,rgba(13,24,42,.98),rgba(8,14,26,.98))',
+    border:'1px solid rgba(45,212,191,.22)', boxShadow:'0 22px 60px rgba(0,0,0,.42)',
+    fontFamily:'Inter, system-ui, sans-serif'
+  });
+  document.getElementById('deliverSaleAccountBtn').onclick = () => window.sendWhatsapp(client.id, 'delivery');
+  document.getElementById('viewSaleClientBtn').onclick = () => focusClientAfterSale(client);
+  document.getElementById('closeSaleDeliveryPrompt').onclick = () => prompt.remove();
+}
+
+function focusClientAfterSale(client) {
+  switchView('clientesView');
+  const search = document.getElementById('clientSearch');
+  const status = document.getElementById('clientStatusFilter');
+  const account = document.getElementById('clientAccountFilter');
+  if (status) status.value = '';
+  if (account) account.value = '';
+  if (search) search.value = client?.whatsapp || client?.name || '';
+  renderClients();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
 function friendlySaveError(err) {
   const msg = err?.message || 'Verifica tu conexión.';
   if (/permission|permissions|insufficient/i.test(msg)) {
@@ -404,6 +448,7 @@ a{color:inherit}
 .btn:hover{transform:translateY(-1px)}
 .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));border-color:transparent;box-shadow:var(--shadow)}
 .btn.green{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.2);color:#dcfce7}
+.btn.ok{background:linear-gradient(135deg,#22c55e,#14b8a6);border-color:transparent;color:#04130e;box-shadow:0 12px 30px rgba(20,184,166,.18)}
 .btn.danger{background:rgba(251,113,133,.1);border-color:rgba(251,113,133,.18);color:#ffd6df}
 .btn.soft{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.03))}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
@@ -4870,7 +4915,14 @@ function refresh(){
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); }
 function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap') renewingClientId=null; if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function setClientSubmitMode(isNewSale){
+  const btn=$('#saveClientBtn');
+  if(!btn) return;
+  btn.textContent=isNewSale?'Entregar cuenta':'Guardar';
+  btn.classList.toggle('ok', !!isNewSale);
+  btn.classList.toggle('primary', !isNewSale);
+}
+function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(){ const sel=$('#aPlatformSelect'); const cur=sel.value; sel.innerHTML=PLATFORM_OPTIONS.map(p=>`<option value="${p}">${p}</option>`).join(''); if(cur) sel.value=cur; }
 function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value='Netflix'; $('#aPlatformCustom').classList.add('hidden'); $('#aPlatformCustom').value=''; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
@@ -4902,7 +4954,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password);}catch(e){} };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; renderAccountOptions(c.accountId);
+  editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
   openModal('clientModalWrap'); initDatepickers();
 };
@@ -5033,11 +5085,19 @@ window.applyExactRenewClient=()=>{
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
-window.sendWhatsapp=(id,context='')=>{
+window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
-  const phone=normalizePhone(client.whatsapp); if(!phone){ alert('Este cliente no tiene WhatsApp registrado.'); return; }
-  const text=whatsappText(client);
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,'_blank');
+  const phone=normalizePhone(client.whatsapp);
+  if(!phone){
+    if(targetWindow && !targetWindow.closed) targetWindow.close();
+    alert('Este cliente no tiene WhatsApp registrado.');
+    return;
+  }
+  const account=state.accounts.find(a=>a.id===client.accountId);
+  const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
+  const url=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  if(targetWindow && !targetWindow.closed) targetWindow.location.href=url;
+  else window.open(url,'_blank');
   if(context==='renewal'){
     client.lastRenewalWhatsAppNoticeDate=todayStr();
     persistDoc('clients', client);
@@ -5268,8 +5328,19 @@ $('#saveAccountBtn').onclick=async ()=>{
   pendingNotifyAfterSave=false;
 };
 $('#saveClientBtn').onclick=async ()=>{
+  const wasNewSale=!editingClientId;
+  const deliveryWindow=wasNewSale ? window.open('about:blank','_blank') : null;
+  const saveBtn=$('#saveClientBtn');
+  saveBtn.disabled=true;
+  saveBtn.textContent='Guardando...';
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
-  if(!name || !accountId){ alert('Completa nombre y cuenta madre'); return; }
+  if(!name || !accountId){
+    if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
+    alert('Completa nombre y cuenta madre');
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
   const account=state.accounts.find(a=>a.id===accountId);
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
@@ -5278,10 +5349,21 @@ $('#saveClientBtn').onclick=async ()=>{
     lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
   };
   const ok = await persistDoc('clients', data);
-  if(!ok) return;
+  if(!ok){
+    if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
+  if(wasNewSale){
+    focusClientAfterSale(data);
+    setTimeout(()=>window.sendWhatsapp(data.id,'delivery',deliveryWindow),80);
+  }
+  saveBtn.disabled=false;
+  setClientSubmitMode(false);
 };
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
