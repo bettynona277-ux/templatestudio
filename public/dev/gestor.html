@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GestiÃ³n Streaming â€” DiseÃ±os Streaming</title>
+<title>Gestión Streaming — Diseños Streaming</title>
 <script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script type="module">
@@ -39,19 +39,19 @@ const db   = getFirestore(app);
 window.__db   = db;
 window.__auth = auth;
 
-// â”€â”€ Helpers de ruta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers de ruta ────────────────────────────────────────────────────────
 function userRef(uid)      { return doc(db, 'users', uid); }
 function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'meta'); }
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
 
-// â”€â”€ MigraciÃ³n: si hay datos en el doc raÃ­z los mueve a subcolecciones â”€â”€â”€â”€â”€â”€
+// ── Migración: si hay datos en el doc raíz los mueve a subcolecciones ──────
 async function migrateIfNeeded(uid) {
   return;
 }
 
-// â”€â”€ Cargar datos desde subcolecciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Cargar datos desde subcolecciones ─────────────────────────────────────
 async function loadFromSubcollections(uid) {
   const [accSnap, cliSnap, setSnap] = await Promise.all([
     getDocs(accountsCol(uid)),
@@ -136,7 +136,7 @@ function notifySaveStatus(type, message) {
 }
 
 function friendlySaveError(err) {
-  const msg = err?.message || 'Verifica tu conexiÃ³n.';
+  const msg = err?.message || 'Verifica tu conexión.';
   if (/permission|permissions|insufficient/i.test(msg)) {
     return 'Firestore rechazo el guardado. Publica las reglas del gestor o revisa que este usuario este activo.';
   }
@@ -156,7 +156,7 @@ async function permissionDebugMessage(uid, colName) {
   }
 }
 
-// â”€â”€ Auth listener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Auth listener ──────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
   if (!user) {
     const next = location.pathname.includes('/dev/') ? '/dev/gestor.html' : '/gestor.html';
@@ -195,7 +195,7 @@ onAuthStateChanged(auth, async user => {
   await loadFromSubcollections(user.uid);
 
   // Escuchar cambios en tiempo real sin volver a leer ambas colecciones completas.
-  // Solo recargar si el cambio viene de otra sesiÃ³n (no de nuestras propias escrituras)
+  // Solo recargar si el cambio viene de otra sesión (no de nuestras propias escrituras)
   onSnapshot(accountsCol(user.uid), (snap) => {
     if (!window.__saving && !window.__loadingFromFirestore) {
       const fromServer = snap.metadata.hasPendingWrites === false;
@@ -218,13 +218,13 @@ onAuthStateChanged(auth, async user => {
   });
 });
 
-// â”€â”€ Persistir: escribe solo lo que cambiÃ³ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Persistir: escribe solo lo que cambió ────────────────────────────────
 window.__persistDebounceTimer = null;
 window.__persistToFirestore = async function(stateData) {
   const user = auth.currentUser;
   if (!user) { window.__saving = false; return; }
 
-  // Debounce: cancelar escritura pendiente y usar la mÃ¡s reciente
+  // Debounce: cancelar escritura pendiente y usar la más reciente
   if (window.__persistDebounceTimer) clearTimeout(window.__persistDebounceTimer);
 
   window.__persistDebounceTimer = setTimeout(async () => {
@@ -247,14 +247,14 @@ window.__persistToFirestore = async function(stateData) {
       // Armar lista de operaciones
       const ops = [];
 
-      // Settings â€” siempre escribir
+      // Settings — siempre escribir
       ops.push({ type: 'set', ref: settingsRef(uid), data: stateData.settings || {} });
 
       // Accounts: setDoc para cada uno (crea o sobreescribe)
       for (const a of (stateData.accounts || [])) {
         ops.push({ type: 'set', ref: doc(accountsCol(uid), a.id), data: a });
       }
-      // Accounts que ya no existen â†’ borrar
+      // Accounts que ya no existen → borrar
       for (const id of existingAccIds) {
         if (!currentAccIds.has(id)) {
           ops.push({ type: 'delete', ref: doc(accountsCol(uid), id) });
@@ -265,14 +265,14 @@ window.__persistToFirestore = async function(stateData) {
       for (const c of (stateData.clients || [])) {
         ops.push({ type: 'set', ref: doc(clientsCol(uid), c.id), data: c });
       }
-      // Clients que ya no existen â†’ borrar
+      // Clients que ya no existen → borrar
       for (const id of existingCliIds) {
         if (!currentCliIds.has(id)) {
           ops.push({ type: 'delete', ref: doc(clientsCol(uid), id) });
         }
       }
 
-      // Ejecutar en batches de 450 (lÃ­mite Firestore = 500)
+      // Ejecutar en batches de 450 (límite Firestore = 500)
       for (let i = 0; i < ops.length; i += 450) {
         const chunk = ops.slice(i, i + 450);
         const batch = writeBatch(db);
@@ -283,10 +283,10 @@ window.__persistToFirestore = async function(stateData) {
         await batch.commit();
       }
 
-      console.log('âœ… Datos guardados en Firebase (' + ops.length + ' ops)');
+      console.log('✅ Datos guardados en Firebase (' + ops.length + ' ops)');
       notifySaveStatus('success', 'Cambios sincronizados correctamente.');
     } catch (err) {
-      console.error('âŒ Error guardando en Firebase:', err);
+      console.error('❌ Error guardando en Firebase:', err);
       notifySaveStatus('error', friendlySaveError(err));
     } finally {
       setTimeout(() => { window.__saving = false; }, 2000);
@@ -299,7 +299,7 @@ window.firebaseSignOut = async function() {
   window.location.href = 'gestor-login.html';
 };
 
-// â”€â”€ Escritura de documento individual (1 op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Escritura de documento individual (1 op) ─────────────────────────────
 window.__persistSingleDoc = async function(colName, docData) {
   const user = auth.currentUser;
   if (!user) return false;
@@ -308,11 +308,11 @@ window.__persistSingleDoc = async function(colName, docData) {
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, docData.id), docData);
-    console.log('âœ… Doc guardado:', colName, docData.id);
+    console.log('✅ Doc guardado:', colName, docData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
-    console.error('âŒ Error guardando doc:', err);
+    console.error('❌ Error guardando doc:', err);
     const detail = /permission|permissions|insufficient/i.test(err?.message || '')
       ? await permissionDebugMessage(user.uid, colName)
       : friendlySaveError(err);
@@ -329,10 +329,10 @@ window.__persistDeleteDoc = async function(colName, docId) {
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     notifySaveStatus('saving', 'Eliminando dato...');
     await deleteDoc(doc(colRef, docId));
-    console.log('âœ… Doc eliminado:', colName, docId);
+    console.log('✅ Doc eliminado:', colName, docId);
     notifySaveStatus('success', 'Dato eliminado correctamente.');
   } catch (err) {
-    console.error('âŒ Error eliminando doc:', err);
+    console.error('❌ Error eliminando doc:', err);
     notifySaveStatus('error', friendlySaveError(err));
   }
 };
@@ -343,10 +343,10 @@ window.__persistSettingsDoc = async function(settingsData) {
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
     await setDoc(settingsRef(user.uid), settingsData || {});
-    console.log('âœ… Settings guardados');
+    console.log('✅ Settings guardados');
     notifySaveStatus('success', 'Ajustes guardados.');
   } catch (err) {
-    console.error('âŒ Error guardando settings:', err);
+    console.error('❌ Error guardando settings:', err);
     notifySaveStatus('error', friendlySaveError(err));
   }
 };
@@ -700,7 +700,7 @@ input[type=file]{display:none}
 }
 
 
-/* ===== GestiÃ³n Streaming v13: orden y flujo rÃ¡pido ===== */
+/* ===== Gestión Streaming v13: orden y flujo rápido ===== */
 .top-search{min-width:320px;max-width:420px}
 
 .home-grid{
@@ -1072,7 +1072,7 @@ input[type=file]{display:none}
 }
 
 
-/* ===== Fix navegaciÃ³n + UX 2027 v16 ===== */
+/* ===== Fix navegación + UX 2027 v16 ===== */
 .view{display:none!important}
 .view.active{display:block!important}
 .view.inicio-layout:not(.active){display:none!important}
@@ -1279,7 +1279,7 @@ tbody tr:hover td{
 }
 
 
-/* ===== RediseÃ±o limpio v17 ===== */
+/* ===== Rediseño limpio v17 ===== */
 :root{
   --bg:#070d18;
   --bg-2:#0b1220;
@@ -1930,7 +1930,7 @@ tbody td{padding:13px 14px}
 }
 
 
-/* ===== Reemplazo fÃ¡cil v20 ===== */
+/* ===== Reemplazo fácil v20 ===== */
 .account-primary-actions{
   align-items:center;
 }
@@ -1991,7 +1991,7 @@ tbody td{padding:13px 14px}
 }
 
 
-/* ===== Libres compacto + capitalizaciÃ³n v21 ===== */
+/* ===== Libres compacto + capitalización v21 ===== */
 .nav-btn,
 .btn,
 .mini,
@@ -2153,7 +2153,7 @@ tbody td{padding:13px 14px}
 }
 
 
-/* ===== Fix botÃ³n Acciones v22 ===== */
+/* ===== Fix botón Acciones v22 ===== */
 .action-more{
   position:relative;
   display:inline-block;
@@ -2177,12 +2177,12 @@ tbody td{padding:13px 14px}
   white-space:nowrap;
 }
 .action-more summary::after{
-  content:"â–¾";
+  content:"▾";
   font-size:11px;
   opacity:.8;
 }
 .action-more[open] summary::after{
-  content:"â–´";
+  content:"▴";
 }
 .action-more summary::-webkit-details-marker{display:none}
 .free-actions .action-more summary,
@@ -2385,7 +2385,7 @@ tbody td{padding:13px 14px}
 }
 
 
-/* ===== RenovaciÃ³n flexible v26 ===== */
+/* ===== Renovación flexible v26 ===== */
 .renew-modal{
   max-width:720px;
 }
@@ -3162,11 +3162,11 @@ body.modal-open{overflow:hidden}
 
 </style>
 <body>
-<!-- Loader mientras verifica sesiÃ³n -->
+<!-- Loader mientras verifica sesión -->
 <div id="authLoader" style="position:fixed;inset:0;background:#07101c;display:grid;place-items:center;z-index:9999">
   <div style="text-align:center">
-    <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#8aa1ff,#7c5cff);display:grid;place-items:center;font-size:24px;font-weight:900;margin:0 auto 16px;box-shadow:0 8px 24px rgba(124,92,255,.4)">â–¶</div>
-    <div style="color:#95a5cb;font-size:14px;font-family:Inter,sans-serif;margin-bottom:8px">Cargando tu gestiÃ³n...</div>
+    <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#8aa1ff,#7c5cff);display:grid;place-items:center;font-size:24px;font-weight:900;margin:0 auto 16px;box-shadow:0 8px 24px rgba(124,92,255,.4)">▶</div>
+    <div style="color:#95a5cb;font-size:14px;font-family:Inter,sans-serif;margin-bottom:8px">Cargando tu gestión...</div>
     <div style="width:32px;height:2px;background:linear-gradient(90deg,#8aa1ff,#7c5cff);margin:0 auto;border-radius:999px;animation:pulse 1.2s ease-in-out infinite" id="loaderBar"></div>
     <style>@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}</style>
   </div>
@@ -3175,13 +3175,13 @@ body.modal-open{overflow:hidden}
 <div id="expiredRoot" class="expired-shell" style="display:none">
   <section class="expired-card">
     <span class="expired-badge">Acceso vencido</span>
-    <h2>Tu gestor estÃ¡ protegido hasta que renueves.</h2>
+    <h2>Tu gestor está protegido hasta que renueves.</h2>
     <p>
-      La ediciÃ³n y visualizaciÃ³n completa quedan bloqueadas, pero puedes descargar una copia de tus datos en formato Excel.
+      La edición y visualización completa quedan bloqueadas, pero puedes descargar una copia de tus datos en formato Excel.
       Tus cuentas no se borran; si renuevas, recuperas el acceso normal.
     </p>
     <p id="expiredLoadWarning" style="display:none;margin-top:10px;color:#fecdd3">
-      No se pudieron leer tus datos. El administrador debe permitir lectura de exportaciÃƒÂ³n para cuentas vencidas.
+      No se pudieron leer tus datos. El administrador debe permitir lectura de exportación para cuentas vencidas.
     </p>
     <div class="expired-data">
       <div class="expired-stat">
@@ -3200,7 +3200,7 @@ body.modal-open{overflow:hidden}
     <div class="expired-actions">
       <button class="btn primary" type="button" onclick="downloadGestorExcel()">Descargar mis datos en Excel</button>
       <a class="btn whatsapp-renew" href="https://wa.me/51974834197?text=Hola%2C%20quiero%20renovar%20mi%20acceso%20a%20Dise%C3%B1os%20Streaming." target="_blank" rel="noopener">Renovar por WhatsApp</a>
-      <button class="btn" type="button" onclick="firebaseSignOut()">Cerrar sesiÃ³n</button>
+      <button class="btn" type="button" onclick="firebaseSignOut()">Cerrar sesión</button>
     </div>
   </section>
 </div>
@@ -3211,28 +3211,28 @@ body.modal-open{overflow:hidden}
     <div class="brand">
       <div class="logo">S</div>
       <div>
-        <h1>GestiÃ³n</h1>
+        <h1>Gestión</h1>
         <small>Streaming</small>
       </div>
     </div>
 
     <nav class="menu">
-      <button class="nav-btn active" data-view="inicioView">ðŸ  Inicio</button>
-      <button class="nav-btn" data-view="clientesView">ðŸ‘¤ Clientes <span class="count" id="navClientes">0</span></button>
-      <button class="nav-btn" data-view="cuentasView">ðŸ—‚ï¸ Cuentas <span class="count" id="navCuentas">0</span></button>
-      <button class="nav-btn" data-view="libresView">ðŸŸ¢ Libres <span class="count" id="navLibres">0</span></button>
-      <button class="nav-btn" data-view="renovacionesView">â° Renovaciones <span class="count" id="navRenovaciones">0</span></button>
+      <button class="nav-btn active" data-view="inicioView">🏠 Inicio</button>
+      <button class="nav-btn" data-view="clientesView">👤 Clientes <span class="count" id="navClientes">0</span></button>
+      <button class="nav-btn" data-view="cuentasView">🗂️ Cuentas <span class="count" id="navCuentas">0</span></button>
+      <button class="nav-btn" data-view="libresView">🟢 Libres <span class="count" id="navLibres">0</span></button>
+      <button class="nav-btn" data-view="renovacionesView">⏰ Renovaciones <span class="count" id="navRenovaciones">0</span></button>
     </nav>
 
     <div class="sidebar-bottom">
       <div style="padding:10px 14px;border-radius:14px;background:rgba(138,161,255,.06);border:1px solid rgba(138,161,255,.12);font-size:12px;color:#95a5cb;word-break:break-all">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;color:#5a6a8a">SesiÃ³n activa</div>
-        <span id="userEmail">â€”</span>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;color:#5a6a8a">Sesión activa</div>
+        <span id="userEmail">—</span>
       </div>
-      <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)">ðŸ”’ Cerrar sesiÃ³n</button>
-      <button class="ghost-btn" id="openSettingsBtn">âš™ Ajustes</button>
-      <button class="ghost-btn" id="exportBtn">â¬‡ Exportar</button>
-      <label class="ghost-btn" for="importFile">â¬† Importar</label>
+      <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)">🔒 Cerrar sesión</button>
+      <button class="ghost-btn" id="openSettingsBtn">⚙ Ajustes</button>
+      <button class="ghost-btn" id="exportBtn">⬇ Exportar</button>
+      <label class="ghost-btn" for="importFile">⬆ Importar</label>
       <input id="importFile" type="file" accept="application/json" />
     </div>
   </aside>
@@ -3240,13 +3240,13 @@ body.modal-open{overflow:hidden}
   <main class="main">
     <div class="topbar">
       <div class="title-wrap">
-        <h2>GestiÃ³n Streaming</h2>
+        <h2>Gestión Streaming</h2>
         <p id="todayLabel"></p>
       </div>
       <div class="actions">
         <button class="btn primary" id="openClientBtn">+ Cliente</button>
         <button class="btn soft" id="openAccountBtn">+ Cuenta Madre</button>
-        <button class="btn soft" id="openBulkAccountBtn" style="background:rgba(45,212,191,.10);border-color:rgba(45,212,191,.22);color:#ccfbf1">âš¡ Carga Masiva</button>
+        <button class="btn soft" id="openBulkAccountBtn" style="background:rgba(45,212,191,.10);border-color:rgba(45,212,191,.22);color:#ccfbf1">⚡ Carga Masiva</button>
       </div>
     </div>
 
@@ -3262,14 +3262,14 @@ body.modal-open{overflow:hidden}
         </div>
         <div class="hero-pill ok">
           <div class="hero-number" id="homeTomorrowCount">0</div>
-          <div class="hero-text">Vencen maÃ±ana</div>
+          <div class="hero-text">Vencen mañana</div>
         </div>
       </div>
 
       <section class="quick-sale-panel">
         <div class="quick-sale-head">
           <div>
-            <h3>Venta rÃ¡pida</h3>
+            <h3>Venta rápida</h3>
             <p>Elige plataforma y entra al flujo de registro sin perder tiempo.</p>
           </div>
         </div>
@@ -3280,7 +3280,7 @@ body.modal-open{overflow:hidden}
         <div class="panel-head compact">
           <div>
             <h3>Por cobrar</h3>
-            <div class="sub">Clientes vencidos, de hoy y de maÃ±ana.</div>
+            <div class="sub">Clientes vencidos, de hoy y de mañana.</div>
           </div>
           <button class="btn soft small" onclick="switchView('renovacionesView')">Ver Renovaciones</button>
         </div>
@@ -3293,7 +3293,7 @@ body.modal-open{overflow:hidden}
         <div class="clients-panel-header">
           <div>
             <h3>Clientes</h3>
-            <p>Control rÃ¡pido de vencimientos, accesos y seguimiento.</p>
+            <p>Control rápido de vencimientos, accesos y seguimiento.</p>
           </div>
           <button class="new-sale-btn" onclick="document.getElementById('openClientBtn').click()">+ nueva venta</button>
         </div>
@@ -3305,7 +3305,7 @@ body.modal-open{overflow:hidden}
               <option value="Activo">Activo</option>
               <option value="Por vencer">Por vencer</option>
               <option value="Vencido">Vencido</option>
-              <option value="No renovÃ³">No renovÃ³</option>
+              <option value="No renovó">No renovó</option>
             </select>
             <select class="select" id="clientAccountFilter"><option value="">Todas las cuentas</option></select>
           </div>
@@ -3351,7 +3351,7 @@ body.modal-open{overflow:hidden}
         <div class="tools">
           <select class="select" id="freeSort">
             <option value="platform">Por plataforma</option>
-            <option value="free">MÃ¡s disponibles primero</option>
+            <option value="free">Más disponibles primero</option>
           </select>
         </div>
       </div>
@@ -3363,7 +3363,7 @@ body.modal-open{overflow:hidden}
       <div class="panel-head">
         <h3>Renovaciones</h3>
         <div class="tools">
-          <input class="input search" id="renewalSearch" placeholder="Buscar nombre o nÃºmero" />
+          <input class="input search" id="renewalSearch" placeholder="Buscar nombre o número" />
           <select class="select" id="renewalAccountFilter">
             <option value="">Todas las plataformas</option>
           </select>
@@ -3378,7 +3378,7 @@ body.modal-open{overflow:hidden}
   <div class="modal">
     <div class="modal-head">
       <h3 id="clientModalTitle">Nuevo cliente</h3>
-      <button class="x" data-close="clientModalWrap">Ã—</button>
+      <button class="x" data-close="clientModalWrap">×</button>
     </div>
     <div class="form">
       <label>Nombre<input class="input" id="cName" placeholder="Jose" /></label>
@@ -3388,7 +3388,7 @@ body.modal-open{overflow:hidden}
       <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
       <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
       <label>Vencimiento<input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></label>
-      <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovÃ³</option></select></label>
+      <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></label>
       <label class="full">Notas<textarea id="cNotes" placeholder="Opcional"></textarea></label>
     </div>
     <div class="modal-actions">
@@ -3402,7 +3402,7 @@ body.modal-open{overflow:hidden}
   <div class="modal">
     <div class="modal-head">
       <h3 id="accountModalTitle">Nueva cuenta madre</h3>
-      <button class="x" data-close="accountModalWrap">Ã—</button>
+      <button class="x" data-close="accountModalWrap">×</button>
     </div>
     <div class="form">
       <label>Plataforma
@@ -3412,7 +3412,7 @@ body.modal-open{overflow:hidden}
       <label>Proveedor<input class="input" id="aProvider" placeholder="Bertha / cuenta propia" /></label>
       <label>WhatsApp proveedor<input class="input" id="aProviderWhatsapp" placeholder="939401721" /></label>
       <label>Correo<input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></label>
-      <label>ContraseÃ±a<input class="input" id="aPassword" placeholder="contraseÃ±a de la cuenta" /></label>
+      <label>Contraseña<input class="input" id="aPassword" placeholder="contraseña de la cuenta" /></label>
       <label>Capacidad<input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></label>
       <label>Vencimiento<input class="input date-input" id="aDueDisplay" placeholder="Elige una fecha" /></label>
       <label class="full">Notas<textarea id="aNotes" placeholder="Opcional"></textarea></label>
@@ -3429,14 +3429,14 @@ body.modal-open{overflow:hidden}
 <div class="modal-backdrop" id="bulkAccountModalWrap">
   <div class="modal" style="width:min(900px,100%);max-height:min(90vh,860px)">
     <div class="modal-head">
-      <h3>âš¡ Carga masiva de cuentas madre</h3>
-      <button class="x" data-close="bulkAccountModalWrap">Ã—</button>
+      <h3>⚡ Carga masiva de cuentas madre</h3>
+      <button class="x" data-close="bulkAccountModalWrap">×</button>
     </div>
 
     <div id="bulkStep1" class="bulk-step">
-      <p style="color:var(--muted);margin:0 0 12px;font-size:14px">Pega todos los correos que quieras registrar, uno por lÃ­nea. Luego elige los campos comunes para todas las cuentas.</p>
+      <p style="color:var(--muted);margin:0 0 12px;font-size:14px">Pega todos los correos que quieras registrar, uno por línea. Luego elige los campos comunes para todas las cuentas.</p>
       <label style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--muted);font-weight:800">
-        Correos electrÃ³nicos (uno por lÃ­nea)
+        Correos electrónicos (uno por línea)
         <textarea class="input" id="bulkEmails" placeholder="correo1@gmail.com&#10;correo2@gmail.com&#10;correo3@hotmail.com&#10;..." style="min-height:140px;height:140px;font-family:ui-monospace,monospace;font-size:13px"></textarea>
       </label>
 
@@ -3445,7 +3445,7 @@ body.modal-open{overflow:hidden}
           <select class="select" id="bulkPlatform"></select>
           <input class="input hidden" id="bulkPlatformCustom" placeholder="Otra plataforma" style="margin-top:8px" />
         </label>
-        <label>ContraseÃ±a comÃºn<input class="input" id="bulkPassword" placeholder="misma contraseÃ±a para todas" /></label>
+        <label>Contraseña común<input class="input" id="bulkPassword" placeholder="misma contraseña para todas" /></label>
         <label>Proveedor<input class="input" id="bulkProvider" placeholder="Bertha / cuenta propia" /></label>
         <label>WhatsApp proveedor<input class="input" id="bulkProviderWhatsapp" placeholder="939401721" /></label>
         <label>Capacidad (perfiles)<input class="input" type="number" min="1" id="bulkCapacity" placeholder="5" value="5" /></label>
@@ -3461,8 +3461,8 @@ body.modal-open{overflow:hidden}
           <div style="font-size:13px;color:var(--muted);margin-top:3px" id="bulkPreviewSubtitle"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn soft" id="bulkBackBtn">â† AtrÃ¡s</button>
-          <button class="btn primary" id="bulkConfirmBtn">âœ“ Guardar todas</button>
+          <button class="btn soft" id="bulkBackBtn">← Atrás</button>
+          <button class="btn primary" id="bulkConfirmBtn">✓ Guardar todas</button>
         </div>
       </div>
       <div style="max-height:400px;overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.07)">
@@ -3472,7 +3472,7 @@ body.modal-open{overflow:hidden}
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">#</th>
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">Correo</th>
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">Plataforma</th>
-              <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">ContraseÃ±a</th>
+              <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">Contraseña</th>
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">Perfiles</th>
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em">Vence</th>
               <th style="padding:10px 12px;font-size:11px;color:var(--muted);background:rgba(7,18,34,.92);text-align:left;border-bottom:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.06em"></th>
@@ -3485,7 +3485,7 @@ body.modal-open{overflow:hidden}
 
     <div class="modal-actions" id="bulkStep1Actions">
       <button class="btn" data-close="bulkAccountModalWrap">Cancelar</button>
-      <button class="btn primary" id="bulkPreviewBtn">Ver vista previa â†’</button>
+      <button class="btn primary" id="bulkPreviewBtn">Ver vista previa →</button>
     </div>
   </div>
 </div>
@@ -3494,7 +3494,7 @@ body.modal-open{overflow:hidden}
   <div class="modal renew-modal">
     <div class="modal-head">
       <h3 id="renewModalTitle">Renovar cliente</h3>
-      <button class="x" data-close="renewModalWrap">Ã—</button>
+      <button class="x" data-close="renewModalWrap">×</button>
     </div>
 
     <div id="renewClientSummary" class="empty renew-summary"></div>
@@ -3502,14 +3502,14 @@ body.modal-open{overflow:hidden}
     <div class="renew-options">
       <button class="renew-option" type="button" onclick="applyRenewClientDuration(1,'months')">
         Renovar 1 mes
-        <span>Extiende desde su vencimiento si aÃºn estÃ¡ activo.</span>
+        <span>Extiende desde su vencimiento si aún está activo.</span>
       </button>
       <button class="renew-option" type="button" onclick="applyRenewClientDuration(3,'months')">
         Renovar 3 meses
         <span>Para clientes que pagan varios meses juntos.</span>
       </button>
       <button class="renew-option" type="button" onclick="applyRenewClientDuration(1,'years')">
-        Renovar 1 aÃ±o
+        Renovar 1 año
         <span>Ideal para planes anuales.</span>
       </button>
     </div>
@@ -3520,9 +3520,9 @@ body.modal-open{overflow:hidden}
       </label>
       <label>Unidad
         <select class="select" id="renewCustomUnit">
-          <option value="days">DÃ­as</option>
+          <option value="days">Días</option>
           <option value="months" selected>Meses</option>
-          <option value="years">AÃ±os</option>
+          <option value="years">Años</option>
         </select>
       </label>
       <button class="btn primary" type="button" onclick="applyCustomRenewClient()">Aplicar personalizado</button>
@@ -3547,16 +3547,16 @@ body.modal-open{overflow:hidden}
   <div class="modal">
     <div class="modal-head">
       <h3>Ajustes</h3>
-      <button class="x" data-close="settingsModalWrap">Ã—</button>
+      <button class="x" data-close="settingsModalWrap">×</button>
     </div>
     <div class="form">
-      <label>CÃ³digo WhatsApp por defecto<input class="input" id="waPrefix" placeholder="51" /></label>
-      <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por mÃ¡s libres</option></select></label>
+      <label>Código WhatsApp por defecto<input class="input" id="waPrefix" placeholder="51" /></label>
+      <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por más libres</option></select></label>
       <div class="full">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
           <div>
             <div style="font-weight:800">Medios de pago</div>
-            <div style="color:var(--muted);font-size:13px">Se agregan solos al mensaje de renovaciÃ³n</div>
+            <div style="color:var(--muted);font-size:13px">Se agregan solos al mensaje de renovación</div>
           </div>
           <button class="btn soft" type="button" id="addPaymentBtn">+ Medio</button>
         </div>
@@ -3575,7 +3575,7 @@ body.modal-open{overflow:hidden}
   <div class="modal">
     <div class="modal-head">
       <h3 id="accountClientsModalTitle">Clientes de la cuenta</h3>
-      <button class="x" data-close="accountClientsModalWrap">Ã—</button>
+      <button class="x" data-close="accountClientsModalWrap">×</button>
     </div>
     <div id="accountClientsSummary" class="empty" style="text-align:left;padding:14px 16px;margin-bottom:12px"></div>
     <div class="notify-toolbar" id="accountClientsToolbar"></div>
@@ -3617,7 +3617,7 @@ let flatpickrInstances=[];
 let renewingClientId=null;
 
 function load(){
-  // Intentar cargar desde localStorage como respaldo (Firebase lo sobreescribirÃ¡ al cargar)
+  // Intentar cargar desde localStorage como respaldo (Firebase lo sobreescribirá al cargar)
   try{
     const raw=localStorage.getItem(KEY);
     if(raw){
@@ -3660,7 +3660,7 @@ function persist(){
   window.__saving = true;
   if(window.__persistToFirestore) window.__persistToFirestore(JSON.parse(JSON.stringify(state)));
 }
-// â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
+// ── Guardar UN solo documento (1-2 ops en vez de 468) ──
 function persistDoc(colName, docData){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
@@ -3747,14 +3747,14 @@ function excelSummaryWorksheet(accountRows, clientRows){
 }
 function downloadGestorExcel(){
   const accountsById=new Map(state.accounts.map(a=>[a.id,a]));
-  const accountHeaders=['Plataforma','Proveedor','WhatsApp proveedor','Correo','ContraseÃ±a','Capacidad','Vencimiento','Notas'];
-  const clientHeaders=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Cuenta madre contraseÃ±a','Perfil','PIN','Vencimiento','Estado','Notas'];
+  const accountHeaders=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contraseña','Capacidad','Vencimiento','Notas'];
+  const clientHeaders=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Cuenta madre contraseña','Perfil','PIN','Vencimiento','Estado','Notas'];
   const accountRows=state.accounts.map(a=>({
     'Plataforma':a.platform,
     'Proveedor':a.provider,
     'WhatsApp proveedor':a.providerWhatsapp,
     'Correo':a.email,
-    'ContraseÃ±a':a.password,
+    'Contraseña':a.password,
     'Capacidad':a.capacity,
     'Vencimiento':a.dueDate,
     'Notas':a.notes
@@ -3766,7 +3766,7 @@ function downloadGestorExcel(){
       'WhatsApp':c.whatsapp,
       'Plataforma':c.platform || a.platform,
       'Cuenta madre correo':a.email,
-      'Cuenta madre contraseÃ±a':a.password,
+      'Cuenta madre contraseña':a.password,
       'Perfil':c.profile,
       'PIN':c.pin,
       'Vencimiento':c.dueDate,
@@ -3816,7 +3816,7 @@ ${excelWorksheet('Clientes', clientHeaders, clientRows, { subtitle:'Clientes, ac
   URL.revokeObjectURL(a.href);
 }
 window.downloadGestorExcel=downloadGestorExcel;
-// â”€â”€ Refresh sin persistir (cuando ya se guardÃ³ el doc individual) â”€â”€
+// ── Refresh sin persistir (cuando ya se guardó el doc individual) ──
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
   renderStats();
@@ -3836,7 +3836,7 @@ function localDateString(d=new Date()){
 }
 function todayStr(){ return localDateString(); }
 function todayPlus(days){ const d=new Date(); d.setDate(d.getDate()+days); return localDateString(d); }
-function fmtDate(d){ if(!d) return 'â€”'; const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('es-PE',{day:'2-digit',month:'short'}); }
+function fmtDate(d){ if(!d) return '—'; const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('es-PE',{day:'2-digit',month:'short'}); }
 function fmtDateLong(d){ if(!d) return ''; const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'}); }
 function daysUntil(d){ if(!d) return null; const now=new Date(); now.setHours(0,0,0,0); const x=new Date(d+'T00:00:00'); return Math.round((x-now)/86400000); }
 function renewalAlertDays(dd){ return dd!==null && dd<=1; }
@@ -3852,15 +3852,15 @@ function normalizePhone(v){
   if(prefix && digits.length<=10) return prefix+digits;
   return digits;
 }
-function secretMask(v){ return v ? 'â€¢'.repeat(Math.max(6,String(v).length)) : 'â€”'; }
+function secretMask(v){ return v ? '•'.repeat(Math.max(6,String(v).length)) : '—'; }
 function escapeHtml(str){ return String(str??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escapeAttr(str){ return String(str??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escapeJs(str){ return String(str??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function accountLabel(a){
-  return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' Â· ');
+  return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' · ');
 }
 function effectiveClientState(c){
-  if(c.state==='No renovÃ³') return 'No renovÃ³';
+  if(c.state==='No renovó') return 'No renovó';
   const dd=daysUntil(c.dueDate);
   if(dd===null) return c.state||'Activo';
   if(dd<0) return 'Vencido';
@@ -3882,19 +3882,19 @@ function accountStateChip(a){
   if(dd===null) return '<span class="chip platform">Sin fecha</span>';
   if(dd<0) return '<span class="chip danger">Cuenta vencida</span>';
   if(dd<=3) return '<span class="chip warn">Vence pronto</span>';
-  return '<span class="chip ok">Al dÃ­a</span>';
+  return '<span class="chip ok">Al día</span>';
 }
 function platformIcon(name){
   const p=(name||'').toLowerCase();
-  if(p.includes('netflix')) return 'ðŸŽ¬';
-  if(p.includes('disney')) return 'âœ¨';
-  if(p.includes('max')) return 'ðŸŽžï¸';
-  if(p.includes('prime')) return 'ðŸ“¦';
-  if(p.includes('crunchy')) return 'ðŸ¥';
-  if(p.includes('spotify')) return 'ðŸŽµ';
-  if(p.includes('youtube')) return 'â–¶ï¸';
-  if(p.includes('vix')) return 'ðŸ“º';
-  return 'ðŸ“º';
+  if(p.includes('netflix')) return '🎬';
+  if(p.includes('disney')) return '✨';
+  if(p.includes('max')) return '🎞️';
+  if(p.includes('prime')) return '📦';
+  if(p.includes('crunchy')) return '🍥';
+  if(p.includes('spotify')) return '🎵';
+  if(p.includes('youtube')) return '▶️';
+  if(p.includes('vix')) return '📺';
+  return '📺';
 }
 function platformColor(name){
   const p=(name||'').toLowerCase();
@@ -3919,9 +3919,9 @@ function openPlatform(platform){
 
 function renderStats(){
   const accounts=state.accounts.length;
-  const clients=state.clients.filter(c=>effectiveClientState(c)!=='No renovÃ³').length;
+  const clients=state.clients.filter(c=>effectiveClientState(c)!=='No renovó').length;
   const free=state.accounts.reduce((n,a)=>n+accountAvailability(a).free,0);
-  const dueSoon=state.clients.filter(c=>effectiveClientState(c)!=='No renovÃ³' && renewalAlertDays(daysUntil(c.dueDate))).length;
+  const dueSoon=state.clients.filter(c=>effectiveClientState(c)!=='No renovó' && renewalAlertDays(daysUntil(c.dueDate))).length;
   const setText=(sel,val)=>{ const el=$(sel); if(el) el.textContent=val; };
   setText('#statActivos',clients);
   setText('#statCuentas',accounts);
@@ -3953,7 +3953,7 @@ function compactClientItem(client, label){
     <div class="home-item-top">
       <div>
         <strong>${escapeHtml(client.name||'Sin nombre')}</strong>
-        <div class="sub">${platformIcon(platform)} ${escapeHtml(platform||'â€”')} Â· Perfil ${escapeHtml(client.profile||'â€”')} Â· ${escapeHtml(label||'')}</div>
+        <div class="sub">${platformIcon(platform)} ${escapeHtml(platform||'—')} · Perfil ${escapeHtml(client.profile||'—')} · ${escapeHtml(label||'')}</div>
       </div>
       ${chipForState(effectiveClientState(client))}
     </div>
@@ -3966,9 +3966,9 @@ function compactClientItem(client, label){
 }
 
 function renderHome(){
-  const expired=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovÃ³' && d!==null && d<0;});
-  const today=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovÃ³' && d===0;});
-  const tomorrow=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovÃ³' && d===1;});
+  const expired=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovó' && d!==null && d<0;});
+  const today=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovó' && d===0;});
+  const tomorrow=state.clients.filter(c=>{const d=daysUntil(c.dueDate);return effectiveClientState(c)!=='No renovó' && d===1;});
 
   const setTxt=(id,n)=>{const el=$(id); if(el) el.textContent=n;};
   setTxt('#homeExpiredCount',expired.length);
@@ -3992,7 +3992,7 @@ function renderHome(){
       return `<button class="platform-tile" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(p)}';switchView('libresView');">
         <div class="big">${platformIcon(p)}</div>
         <strong>${escapeHtml(p)}</strong>
-        <span>${data.free} Perfiles Libres Â· ${data.accounts} Cuentas</span>
+        <span>${data.free} Perfiles Libres · ${data.accounts} Cuentas</span>
       </button>`;
     }).join('');
 
@@ -4010,11 +4010,11 @@ function renderHome(){
   if(dueEl) dueEl.innerHTML=dueRows.length ? dueRows.map(c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const dd=daysUntil(c.dueDate);
-    const when=dd<0?`venciÃ³ hace ${Math.abs(dd)} dÃ­a${Math.abs(dd)===1?'':'s'}`:dd===0?'Vence hoy':'Vence maÃ±ana';
+    const when=dd<0?`venció hace ${Math.abs(dd)} día${Math.abs(dd)===1?'':'s'}`:dd===0?'Vence hoy':'Vence mañana';
     return `<div class="mini-item">
       <div>
         <strong>${escapeHtml(c.name||'Sin nombre')}</strong>
-        <div class="sub">${platformIcon(c.platform||account?.platform)} ${escapeHtml(c.platform||account?.platform||'')} Â· Perfil ${escapeHtml(c.profile||'â€”')} Â· ${when}</div>
+        <div class="sub">${platformIcon(c.platform||account?.platform)} ${escapeHtml(c.platform||account?.platform||'')} · Perfil ${escapeHtml(c.profile||'—')} · ${when}</div>
       </div>
       <div class="row-actions">
         <button class="mini wa" onclick="sendWhatsapp('${c.id}')">WhatsApp</button>
@@ -4034,7 +4034,7 @@ function sortedAccountsForPick(){
 function renderAccountOptions(selectedId=''){
   const options=sortedAccountsForPick().map(a=>{
     const av=accountAvailability(a);
-    return `<option value="${a.id}" ${selectedId===a.id?'selected':''}>${escapeHtml(accountLabel(a))} Â· ${av.free} Libre${av.free===1?'':'s'}</option>`;
+    return `<option value="${a.id}" ${selectedId===a.id?'selected':''}>${escapeHtml(accountLabel(a))} · ${av.free} Libre${av.free===1?'':'s'}</option>`;
   }).join('');
   $('#cAccount').innerHTML=`<option value="">Elige una cuenta</option>${options}`;
 }
@@ -4069,19 +4069,19 @@ function renderClients(){
       <td><div class="name">${escapeHtml(c.name||'')}</div>${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}</td>
       <td>${escapeHtml(c.whatsapp||'')}</td>
       <td><span class="chip platform">${platformIcon(c.platform || account?.platform)} ${escapeHtml(c.platform || account?.platform || '')}</span></td>
-      <td>${escapeHtml(account ? accountLabel(account) : 'â€”')}</td>
+      <td>${escapeHtml(account ? accountLabel(account) : '—')}</td>
       <td>${escapeHtml(c.profile||'')}</td>
-      <td>${escapeHtml(c.pin||'â€”')}</td>
+      <td>${escapeHtml(c.pin||'—')}</td>
       <td>${fmtDate(c.dueDate)}</td>
       <td>${chipForState(st)}</td>
       <td><div class="row-actions">
         <button class="mini wa" onclick="sendWhatsapp('${c.id}')">WhatsApp</button>
         <details class="action-more">
-          <summary>MÃ¡s</summary>
+          <summary>Más</summary>
           <div class="action-more-menu">
             <button class="mini" onclick="editClient('${c.id}')">Editar</button>
             <button class="mini" onclick="renewClient('${c.id}')">Renovar</button>
-            <button class="mini" onclick="setNoRenew('${c.id}')">No renovÃ³</button>
+            <button class="mini" onclick="setNoRenew('${c.id}')">No renovó</button>
             <button class="mini" onclick="deleteClient('${c.id}')">Borrar</button>
           </div>
         </details>
@@ -4160,8 +4160,8 @@ function accountStatusNote(a){
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 'Cuenta vencida';
   if(dd===0) return 'Vence hoy';
-  if(dd===1) return 'Vence maÃ±ana';
-  if(dd!==null && dd<=3) return `Vence en ${dd} dÃ­as`;
+  if(dd===1) return 'Vence mañana';
+  if(dd!==null && dd<=3) return `Vence en ${dd} días`;
   if(av.free===0) return 'Cuenta llena';
   return `${av.free} Perfil${av.free===1?'':'es'} Libre${av.free===1?'':'s'}`;
 }
@@ -4175,7 +4175,7 @@ function accountSectionKey(a){
   return 'full';
 }
 function accountSectionLabel(key){
-  if(key==='attention') return ['Requieren atenciÃ³n','Vencidas o por vencer'];
+  if(key==='attention') return ['Requieren atención','Vencidas o por vencer'];
   if(key==='available') return ['Disponibles','Con espacio para asignar'];
   return ['Llenas','Sin espacios libres'];
 }
@@ -4222,7 +4222,7 @@ function renderAccounts(){
           const url=PLATFORM_URLS[a.platform]||'';
           const mainTitle=a.email || `${a.platform||'Cuenta'} sin correo`;
           const dd=daysUntil(a.dueDate);
-          const dueText=dd===null?'Sin fecha':dd<0?`VenciÃ³ ${Math.abs(dd)}d`:dd===0?'Vence hoy':dd===1?'Vence maÃ±ana':`Vence ${fmtDate(a.dueDate)}`;
+          const dueText=dd===null?'Sin fecha':dd<0?`Venció ${Math.abs(dd)}d`:dd===0?'Vence hoy':dd===1?'Vence mañana':`Vence ${fmtDate(a.dueDate)}`;
           return `<div class="account-card compact-v2 ${cardClass}">
             <div class="account-topline">
               <div class="account-topline-left">
@@ -4235,7 +4235,7 @@ function renderAccounts(){
             <div>
               <div class="account-main-title">${escapeHtml(mainTitle)}</div>
               <div class="account-summary-line">
-                ${av.used}/${a.capacity||0} Ocupados Â· ${dueText} Â· ${a.provider ? `Prov: ${escapeHtml(a.provider)}` : 'Propia'}
+                ${av.used}/${a.capacity||0} Ocupados · ${dueText} · ${a.provider ? `Prov: ${escapeHtml(a.provider)}` : 'Propia'}
               </div>
             </div>
 
@@ -4244,7 +4244,7 @@ function renderAccounts(){
               <button class="mini" onclick="viewAccountClients('${a.id}')">Clientes</button>
               <button class="mini replace" onclick="editAccount('${a.id}', true)">Reemplazar acceso</button>
               <details class="action-more">
-                <summary>MÃ¡s</summary>
+                <summary>Más</summary>
                 <div class="action-more-menu">
                   ${url?`<button class="mini link" onclick="openPlatform('${url}')">Abrir plataforma</button>`:''}
                   <button class="mini provider" onclick="sendProviderWhatsapp('${a.id}')">WhatsApp proveedor</button>
@@ -4261,14 +4261,14 @@ function renderAccounts(){
                 <div class="account-detail-row">
                   <span class="k">Correo</span>
                   <div class="account-inline-actions">
-                    <span class="v">${escapeHtml(a.email||'â€”')}</span>
+                    <span class="v">${escapeHtml(a.email||'—')}</span>
                     ${a.email?`<button class="mini" onclick="copyAccountEmail('${a.id}')">Copiar</button>`:''}
                   </div>
                 </div>
                 <div class="account-detail-row">
-                  <span class="k">ContraseÃ±a</span>
+                  <span class="k">Contraseña</span>
                   <div class="account-inline-actions">
-                    <span class="v">${escapeHtml(a.password||'â€”')}</span>
+                    <span class="v">${escapeHtml(a.password||'—')}</span>
                     ${a.password?`<button class="mini" onclick="copyAccountPassword('${a.id}')">Copiar</button>`:''}
                   </div>
                 </div>
@@ -4331,11 +4331,11 @@ function renderFree(){
   const tabs=$('#freeTabs');
   if(tabs){
     tabs.innerHTML=[
-      `<button class="free-platform-tab ${selectedFreePlatform==='all'?'active':''}" style="--pcolor:#8aa1ff" onclick="selectedFreePlatform='all';renderFree()">Todas Â· ${allTotal}</button>`,
+      `<button class="free-platform-tab ${selectedFreePlatform==='all'?'active':''}" style="--pcolor:#8aa1ff" onclick="selectedFreePlatform='all';renderFree()">Todas · ${allTotal}</button>`,
       ...totals.map(([platform,total])=>{
         const color=platformColor(platform);
         const active=selectedFreePlatform===platform?'active':'';
-        return `<button class="free-platform-tab ${active}" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(platform)}';renderFree()">${platformIcon(platform)} ${escapeHtml(platform)} Â· ${total}</button>`;
+        return `<button class="free-platform-tab ${active}" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(platform)}';renderFree()">${platformIcon(platform)} ${escapeHtml(platform)} · ${total}</button>`;
       })
     ].join('');
   }
@@ -4384,19 +4384,19 @@ function renderFree(){
             <div class="free-account-top">
               <div class="free-account-main">
                 <div class="free-account-name">${escapeHtml(label)}</div>
-                <div class="free-account-detail">${a._av.free} Libre${a._av.free===1?'':'s'} Â· ${a._av.used}/${a.capacity} Ocupados</div>
+                <div class="free-account-detail">${a._av.free} Libre${a._av.free===1?'':'s'} · ${a._av.used}/${a.capacity} Ocupados</div>
               </div>
               <div class="free-account-badges">
                 ${isRecommended?`<span class="free-badge suggested">Sugerida</span>`:''}
                 ${noClients?`<span class="free-badge cold">Sin clientes</span>`:''}
-                ${almostFull?`<span class="free-badge warn">Ãšltimo perfil</span>`:`<span class="free-badge free">${a._av.free} Libres</span>`}
+                ${almostFull?`<span class="free-badge warn">Último perfil</span>`:`<span class="free-badge free">${a._av.free} Libres</span>`}
               </div>
             </div>
 
             <div class="free-actions">
               <button class="mini quick-use" onclick="prefillClientFromAccount('${a.id}')">Usar siguiente</button>
               <details class="action-more">
-                <summary>MÃ¡s</summary>
+                <summary>Más</summary>
                 <div class="action-more-menu compact-action-menu">
                   <button class="mini" onclick="viewAccountClients('${a.id}')">Ver clientes</button>
                   <button class="mini link" onclick="openPlatform('${escapeJs(a.platform)}')">Abrir plataforma</button>
@@ -4428,38 +4428,38 @@ function renderRenewals(){
       const phone=String(x.client.whatsapp||'');
       const phoneDigits=phone.replace(/\D+/g,'');
       const blob=[x.client.name,phone,x.platform,x.client.profile].join(' ').toLowerCase();
-      return x.st!=='No renovÃ³'
+      return x.st!=='No renovó'
         && renewalAlertDays(x.dd)
         && (!currentFilter || x.platform===currentFilter)
         && (!q || blob.includes(q) || (qDigits && phoneDigits.includes(qDigits)));
     })
     .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
   $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
-    let msg='PrÃ³ximo';
-    if(dd<0) msg=`VenciÃ³ hace ${Math.abs(dd)} dÃ­a${Math.abs(dd)===1?'':'s'}`;
+    let msg='Próximo';
+    if(dd<0) msg=`Venció hace ${Math.abs(dd)} día${Math.abs(dd)===1?'':'s'}`;
     else if(dd===0) msg='Vence hoy';
-    else if(dd===1) msg='Vence maÃ±ana';
+    else if(dd===1) msg='Vence mañana';
     const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
     const whatsappClass=alreadyNotified?'mini notified':'mini wa';
     const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
     return `<div class="item">
       <div>
         <strong>${escapeHtml(client.name)}</strong>
-        <div class="sub">${escapeHtml(friendlyPlatform(platform))} Â· Perfil ${escapeHtml(client.profile||'â€”')}</div>
+        <div class="sub">${escapeHtml(friendlyPlatform(platform))} · Perfil ${escapeHtml(client.profile||'—')}</div>
       </div>
       <div class="right">
         ${chipForState(st)}
         <span class="chip platform">${msg}</span>
         <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
         <button class="mini" onclick="renewClient('${client.id}')">Renovar</button>
-        <button class="mini" onclick="setNoRenew('${client.id}')">No renovÃ³</button>
+        <button class="mini" onclick="setNoRenew('${client.id}')">No renovó</button>
       </div>
     </div>`;
   }).join(''):`<div class="empty">Sin renovaciones cercanas para esta plataforma</div>`;
 }
 
 function paymentTextBlock(){
-  const lines=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder).map(p=>`${p.method||'Pago'} ${p.number?`â€¢ ${p.number}`:''} ${p.holder?`A nombre de ${p.holder}`:''}`.trim());
+  const lines=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder).map(p=>`${p.method||'Pago'} ${p.number?`" ${p.number}`:''} ${p.holder?`A nombre de ${p.holder}`:''}`.trim());
   return lines.length?`\n\nNuestros medios de pago son:\n${lines.join('\n')}`:'';
 }
 function credentialsText(client, account){
@@ -4467,11 +4467,11 @@ function credentialsText(client, account){
   return [
     `Hola ${client.name || ''}, te paso tus datos de ${platform}:`,
     '',
-    `Perfil: ${client.profile || 'â€”'}`,
-    `Correo: ${account?.email || 'â€”'}`,
-    `ContraseÃ±a: ${account?.password || 'â€”'}`,
+    `Perfil: ${client.profile || '—'}`,
+    `Correo: ${account?.email || '—'}`,
+    `Contraseña: ${account?.password || '—'}`,
     ...(client.pin ? [`Pin: ${client.pin}`] : []),
-    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || 'â€”'}`
+    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '—'}`
   ].join('\n');
 }
 function whatsappText(client){
@@ -4479,55 +4479,55 @@ function whatsappText(client){
   const platform=friendlyPlatform(client.platform||account?.platform);
   const dd=daysUntil(client.dueDate);
   const payment=paymentTextBlock();
-  if(client.state==='No renovÃ³' || (dd!==null && dd<0)){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} acaba de vencer y ha sido cortada.\n\nSi mÃ¡s adelante deseas volver a activarla, me escribes con confianza y te ayudo sin problema.`;
+  if(client.state==='No renovó' || (dd!==null && dd<0)){
+    return `Hola ${client.name || ''}, tu cuenta de ${platform} acaba de vencer y ha sido cortada.\n\nSi más adelante deseas volver a activarla, me escribes con confianza y te ayudo sin problema.`;
   }
   if(dd===0){
     return `Hola ${client.name || ''}, tu cuenta de ${platform} vence hoy.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${payment}`;
   }
   if(dd===1){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el dÃ­a de maÃ±ana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${payment}`;
+    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el día de mañana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${payment}`;
   }
   return credentialsText(client, account);
 }
 
 
 function accountClientsForNotify(accountId){
-  return state.clients.filter(c=>c.accountId===accountId && effectiveClientState(c)!=='No renovÃ³');
+  return state.clients.filter(c=>c.accountId===accountId && effectiveClientState(c)!=='No renovó');
 }
 function accountClientUpdateText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
   return [
     `Hola ${client.name || ''}, tuvimos que actualizar los datos de tu ${platform}. Te paso los nuevos accesos:`,
     '',
-    `Perfil: ${client.profile || 'â€”'}`,
-    `Correo: ${account?.email || 'â€”'}`,
-    `ContraseÃ±a: ${account?.password || 'â€”'}`,
+    `Perfil: ${client.profile || '—'}`,
+    `Correo: ${account?.email || '—'}`,
+    `Contraseña: ${account?.password || '—'}`,
     ...(client.pin ? [`Pin: ${client.pin}`] : []),
-    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || 'â€”'}`,
+    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '—'}`,
     '',
-    'Por favor ingresa con estos datos desde ahora. Gracias por tu paciencia ðŸ™Œ'
+    'Por favor ingresa con estos datos desde ahora. Gracias por tu paciencia 🙌'
   ].join('\n');
 }
 function renderAccountClientsModal(accountId){
   const acc=state.accounts.find(a=>a.id===accountId);
   if(!acc) return;
   const clients=accountClientsForNotify(accountId).sort((a,b)=>(a.profile||'').localeCompare(b.profile||'',undefined,{numeric:true}));
-  $('#accountClientsModalTitle').textContent=`Clientes Â· ${acc.platform || 'Cuenta madre'}`;
-  $('#accountClientsSummary').innerHTML=`<strong>${escapeHtml(acc.email||'Sin correo')}</strong><div class="sub">${escapeHtml(clients.length)} cliente${clients.length===1?'':'s'} activo${clients.length===1?'':'s'} Â· nuevos accesos listos para enviar</div>`;
+  $('#accountClientsModalTitle').textContent=`Clientes · ${acc.platform || 'Cuenta madre'}`;
+  $('#accountClientsSummary').innerHTML=`<strong>${escapeHtml(acc.email||'Sin correo')}</strong><div class="sub">${escapeHtml(clients.length)} cliente${clients.length===1?'':'s'} activo${clients.length===1?'':'s'} · nuevos accesos listos para enviar</div>`;
   const toolbar=$('#accountClientsToolbar');
   if(toolbar){
     toolbar.innerHTML=clients.length ? `
       <button class="mini wa" onclick="notifyAllAccountClients('${acc.id}')">WhatsApp a todos</button>
       <button class="mini" onclick="copyAllAccountClientUpdates('${acc.id}')">Copiar todos</button>
-      <div class="notify-hint">Si el navegador bloquea varias pestaÃ±as, usa â€œCopiar todosâ€ o envÃ­a uno por uno.</div>
+      <div class="notify-hint">Si el navegador bloquea varias pestañas, usa “Copiar todos” o envía uno por uno.</div>
     ` : '';
   }
   $('#accountClientsList').innerHTML=clients.length?clients.map(c=>`
     <div class="client-notify-card">
       <div class="left">
         <strong>${escapeHtml(c.name||'Cliente')}</strong>
-        <div class="sub">Perfil ${escapeHtml(c.profile||'â€”')} ${c.pin?`Â· PIN ${escapeHtml(c.pin)}`:''} Â· vence ${fmtDate(c.dueDate)}</div>
+        <div class="sub">Perfil ${escapeHtml(c.profile||'—')} ${c.pin?`· PIN ${escapeHtml(c.pin)}`:''} · vence ${fmtDate(c.dueDate)}</div>
       </div>
       <div class="client-notify-actions">
         <button class="mini wa" onclick="sendClientAccountUpdate('${c.id}','${acc.id}')">WhatsApp</button>
@@ -4575,11 +4575,11 @@ function providerRenewText(account){
   return [
     `Hola, quisiera renovar mi cuenta de ${platform}.`,
     '',
-    `Correo: ${account.email || 'â€”'}`,
-    `ContraseÃ±a: ${account.password || 'â€”'}`,
+    `Correo: ${account.email || '—'}`,
+    `Contraseña: ${account.password || '—'}`,
     account.dueDate ? `Vencimiento: ${fmtDateLong(account.dueDate)}` : '',
     '',
-    'Â¿Me confirmas si estÃ¡ disponible para renovar y cuÃ¡les son tus medios de pago?'
+    '¿Me confirmas si está disponible para renovar y cuáles son tus medios de pago?'
   ].filter(Boolean).join('\n');
 }
 window.sendProviderWhatsapp=(id)=>{
@@ -4593,7 +4593,7 @@ function renderPaymentRows(){
   $('#paymentList').innerHTML=(state.settings.paymentMethods||[]).length ? state.settings.paymentMethods.map((p,i)=>`
     <div class="payment-row">
       <label>Medio<input class="input" data-pay="method" data-index="${i}" value="${escapeAttr(p.method||'')}" placeholder="Yape" /></label>
-      <label>NÃºmero<input class="input" data-pay="number" data-index="${i}" value="${escapeAttr(p.number||'')}" placeholder="939401721" /></label>
+      <label>Número<input class="input" data-pay="number" data-index="${i}" value="${escapeAttr(p.number||'')}" placeholder="939401721" /></label>
       <label>Nombre<input class="input" data-pay="holder" data-index="${i}" value="${escapeAttr(p.holder||'')}" placeholder="Bertha D. Nonajulca M." /></label>
       <button class="mini" type="button" onclick="removePayment(${i})">Borrar</button>
     </div>`).join('') : `<div class="empty">Sin medios de pago</div>`;
@@ -4625,8 +4625,8 @@ function initDatepickers(){
       locale:'es',
       disableMobile:true,
       monthSelectorType:'static',
-      nextArrow:'â€º',
-      prevArrow:'â€¹'
+      nextArrow:'›',
+      prevArrow:'‹'
     }));
   });
 }
@@ -4637,7 +4637,7 @@ window.togglePassword=(id)=>{
   const acc=state.accounts.find(a=>a.id===id); if(!acc) return;
   const el=document.getElementById('pwd_'+id); if(!el) return;
   const showing=el.dataset.show==='1';
-  el.textContent=showing?secretMask(acc.password):(acc.password||'â€”');
+  el.textContent=showing?secretMask(acc.password):(acc.password||'');
   el.dataset.show=showing?'0':'1';
 };
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password);}catch(e){} };
@@ -4658,10 +4658,10 @@ window.editAccount=(id, forceNotify=false)=>{
   else { $('#aPlatformSelect').value='Otro'; $('#aPlatformCustom').classList.remove('hidden'); $('#aPlatformCustom').value=a.platform||''; }
   openModal('accountModalWrap'); initDatepickers();
 };
-window.deleteClient=(id)=>{ if(!confirm('Â¿Borrar cliente?')) return; state.clients=state.clients.filter(c=>c.id!==id); persistDeleteDoc('clients', id); refreshUI(); switchView('inicioView'); };
+window.deleteClient=(id)=>{ if(!confirm('¿Borrar cliente?')) return; state.clients=state.clients.filter(c=>c.id!==id); persistDeleteDoc('clients', id); refreshUI(); switchView('inicioView'); };
 window.deleteAccount=(id)=>{
-  if(state.clients.some(c=>c.accountId===id && effectiveClientState(c)!=='No renovÃ³')){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
-  if(!confirm('Â¿Borrar cuenta madre?')) return;
+  if(state.clients.some(c=>c.accountId===id && effectiveClientState(c)!=='No renovó')){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
+  if(!confirm('¿Borrar cuenta madre?')) return;
   const orphanClients=state.clients.filter(c=>c.accountId===id);
   state.accounts=state.accounts.filter(a=>a.id!==id);
   state.clients=state.clients.filter(c=>c.accountId!==id);
@@ -4704,7 +4704,7 @@ function applyRenewalDate(clientId, newDate){
   const c=state.clients.find(x=>x.id===clientId);
   if(!c) return;
   if(!safeDateFromYMD(newDate)){
-    alert('Elige una fecha vÃ¡lida para renovar.');
+    alert('Elige una fecha válida para renovar.');
     return;
   }
   c.dueDate=newDate;
@@ -4715,8 +4715,8 @@ function applyRenewalDate(clientId, newDate){
 }
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;
-  if(unit==='days') return qty===1?'dÃ­a':'dÃ­as';
-  if(unit==='years') return qty===1?'aÃ±o':'aÃ±os';
+  if(unit==='days') return qty===1?'día':'días';
+  if(unit==='years') return qty===1?'año':'años';
   return qty===1?'mes':'meses';
 }
 function updateRenewPreview(){
@@ -4726,7 +4726,7 @@ function updateRenewPreview(){
   const amount=Number($('#renewCustomAmount')?.value||1);
   const unit=$('#renewCustomUnit')?.value||'months';
   const next=renewalDateFor(c,amount,unit);
-  preview.textContent=`Personalizado: ${amount} ${renewUnitLabel(unit,amount)} dejarÃ­a el vencimiento en ${fmtDateLong(next)}.`;
+  preview.textContent=`Personalizado: ${amount} ${renewUnitLabel(unit,amount)} dejaría el vencimiento en ${fmtDateLong(next)}.`;
 }
 function openRenewModal(id){
   const c=state.clients.find(x=>x.id===id);
@@ -4739,9 +4739,9 @@ function openRenewModal(id){
   $('#renewModalTitle').textContent=`Renovar ${c.name || 'cliente'}`;
   $('#renewClientSummary').innerHTML=`
     <strong>${escapeHtml(c.name || 'Sin nombre')}</strong><br>
-    ${platformIcon(platform)} ${escapeHtml(platform)} Â· Perfil ${escapeHtml(c.profile || 'â€”')}<br>
+    ${platformIcon(platform)} ${escapeHtml(platform)} · Perfil ${escapeHtml(c.profile || '—')}<br>
     Vence actualmente: <strong>${fmtDateLong(c.dueDate) || 'Sin fecha'}</strong><br>
-    La renovaciÃ³n se calcularÃ¡ desde: <strong>${fmtDateLong(dateToLocalString(base))}</strong>`;
+    La renovación se calculará desde: <strong>${fmtDateLong(dateToLocalString(base))}</strong>`;
   const amountEl=$('#renewCustomAmount');
   const unitEl=$('#renewCustomUnit');
   const exactEl=$('#renewExactDate');
@@ -4763,7 +4763,7 @@ window.applyCustomRenewClient=()=>{
   if(!c) return;
   const amount=Number($('#renewCustomAmount')?.value||0);
   const unit=$('#renewCustomUnit')?.value||'months';
-  if(!amount || amount<1){ alert('Ingresa una cantidad vÃ¡lida.'); return; }
+  if(!amount || amount<1){ alert('Ingresa una cantidad válida.'); return; }
   applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
 };
 window.applyExactRenewClient=()=>{
@@ -4771,7 +4771,7 @@ window.applyExactRenewClient=()=>{
   if(!c) return;
   applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
 };
-window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovÃ³'; persistDoc('clients', c); refreshUI(); };
+window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 window.sendWhatsapp=(id,context='')=>{
@@ -5003,7 +5003,7 @@ $('#saveAccountBtn').onclick=async ()=>{
     setTimeout(()=>openAccountClientsModal(data.id),120);
   }else if(credentialsChanged && accountClientsForNotify(data.id).length && !shouldNotify){
     setTimeout(()=>{
-      if(confirm('Actualizaste los accesos. Â¿Quieres avisar a los clientes ahora?')) openAccountClientsModal(data.id);
+      if(confirm('Actualizaste los accesos. ¿Quieres avisar a los clientes ahora?')) openAccountClientsModal(data.id);
     },120);
   }
   pendingNotifyAfterSave=false;
@@ -5027,7 +5027,7 @@ $('#saveClientBtn').onclick=async ()=>{
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='gestion-streaming-backup.json'; a.click(); URL.revokeObjectURL(a.href); };
-$('#importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ state=loadImported(JSON.parse(reader.result)); persist(); refresh(); alert('âœ… Datos importados y guardados en la nube'); } catch(err){ alert(err?.message || 'Archivo invalido'); } e.target.value=''; }; reader.readAsText(f); };
+$('#importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ state=loadImported(JSON.parse(reader.result)); persist(); refresh(); alert('✅ Datos importados y guardados en la nube'); } catch(err){ alert(err?.message || 'Archivo invalido'); } e.target.value=''; }; reader.readAsText(f); };
 function loadImported(data){
   const imported={accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform'}};
   if((data.accounts||[]).length > MAX_ACCOUNTS_PER_IMPORT || (data.clients||[]).length > MAX_CLIENTS_PER_IMPORT){
@@ -5116,17 +5116,17 @@ function buildBulkPreview(){
 
 function renderBulkPreview(){
   $('#bulkPreviewTitle').textContent = 'Vista previa';
-  $('#bulkPreviewSubtitle').innerHTML = `<span class="bulk-counter">âœ“ ${bulkPreviewData.length} cuenta${bulkPreviewData.length!==1?'s':''} listas para guardar</span>`;
+  $('#bulkPreviewSubtitle').innerHTML = `<span class="bulk-counter">✓ ${bulkPreviewData.length} cuenta${bulkPreviewData.length!==1?'s':''} listas para guardar</span>`;
   const tbody = $('#bulkPreviewTable');
   tbody.innerHTML = bulkPreviewData.map((acc, i) => `
     <tr>
       <td style="color:var(--muted);font-weight:900">${i+1}</td>
       <td class="bulk-email-cell">${escapeHtml(acc.email)}</td>
       <td><span class="chip platform">${escapeHtml(acc.platform)}</span></td>
-      <td style="font-family:ui-monospace,monospace;font-size:12px">${acc.password ? 'â€¢'.repeat(Math.min(10,acc.password.length)) : '<span style="color:var(--muted)">â€”</span>'}</td>
+      <td style="font-family:ui-monospace,monospace;font-size:12px">${acc.password ? '•'.repeat(Math.min(10,acc.password.length)) : '<span style="color:var(--muted)">—</span>'}</td>
       <td style="font-weight:900">${acc.capacity}</td>
-      <td style="color:var(--muted)">${acc.dueDate ? fmtDate(acc.dueDate) : 'â€”'}</td>
-      <td><button class="bulk-remove" onclick="bulkRemoveRow(${i})">âœ•</button></td>
+      <td style="color:var(--muted)">${acc.dueDate ? fmtDate(acc.dueDate) : '—'}</td>
+      <td><button class="bulk-remove" onclick="bulkRemoveRow(${i})">✕</button></td>
     </tr>
   `).join('');
 }
@@ -5150,9 +5150,9 @@ function bulkSaveAll(){
   bulkPreviewData = [];
   closeModal('bulkAccountModalWrap');
   refresh();
-  // Toast de confirmaciÃ³n
+  // Toast de confirmación
   const t = document.createElement('div');
-  t.textContent = `âœ… ${total} cuenta${total!==1?'s madre':'  madre'} agregada${total!==1?'s':''}`;
+  t.textContent = `✅ ${total} cuenta${total!==1?'s madre':'  madre'} agregada${total!==1?'s':''}`;
   Object.assign(t.style, {
     position:'fixed', bottom:'28px', left:'50%', transform:'translateX(-50%)',
     background:'linear-gradient(180deg,#1b3a20,#0f2314)', border:'1px solid rgba(74,222,128,.28)',
