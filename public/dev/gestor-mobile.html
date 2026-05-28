@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#18d5a2" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Gestor" />
+<link rel="manifest" href="/manifest-gestor.json" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
@@ -30,7 +35,7 @@ button,input,select,textarea{font:inherit}
 button{border:0;cursor:pointer}
 .app{min-height:100vh;background:radial-gradient(circle at 0 0,rgba(118,92,255,.16),transparent 34%),linear-gradient(180deg,#091120 0%,#060b14 100%)}
 .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(7,13,24,.92);border-bottom:1px solid var(--line)}
-.logo{width:38px;height:38px;border-radius:14px;background:linear-gradient(135deg,var(--brand),#31c7ff);display:grid;place-items:center;font-weight:950;box-shadow:0 10px 26px rgba(118,92,255,.25)}
+.logo{width:38px;height:38px;border-radius:14px;background:#07101d;border:1px solid var(--line);object-fit:cover;box-shadow:0 10px 26px rgba(118,92,255,.18);flex:0 0 auto}
 .title{min-width:0;flex:1}.title b{display:flex;align-items:center;gap:7px;font-size:15px}.title span{display:block;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.beta-badge{display:inline-flex;align-items:center;min-height:20px;border-radius:999px;padding:0 7px;background:rgba(45,212,191,.10);border:1px solid rgba(45,212,191,.22);color:#a7f3d0;font-size:10px;font-weight:950;letter-spacing:.02em;text-transform:uppercase}.beta-note{color:var(--muted);font-size:11px}
 .i{width:18px;height:18px;display:inline-block;vertical-align:middle;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
 .iconbtn{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--line);display:grid;place-items:center;font-weight:900}
@@ -101,7 +106,7 @@ button{border:0;cursor:pointer}
 </svg>
 <div id="app" class="app">
   <header class="top">
-    <div class="logo">DS</div>
+    <img class="logo" src="/icons/icon-192.png" alt="Disenos Streaming">
     <div class="title"><b>Gestor <span class="beta-badge">Beta</span></b><span id="userLine">Version en mejora</span></div>
     <button class="iconbtn" id="exportTop" title="Exportar Excel" aria-label="Exportar Excel"><svg class="i"><use href="#i-download"></use></svg></button>
     <button class="iconbtn" id="logoutBtn" title="Cerrar sesion" aria-label="Cerrar sesion"><svg class="i"><use href="#i-log-out"></use></svg></button>
@@ -400,7 +405,7 @@ function openClientSheet(item={}){
     const account = state.accounts.find(a => a.id === fd.accountId);
     const data = {...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || '', updatedAt:new Date().toISOString()};
     if(!c.id) data.createdAt = data.updatedAt;
-    await saveItem('client', data);
+    await saveItem('client', data, { newSale:!c.id });
   };
   $('#deleteClient').onclick = async () => c.id ? removeItem('client', c.id) : closeSheet();
 }
@@ -432,15 +437,35 @@ function openAccountSheet(item={}){
   };
   $('#deleteAccount').onclick = async () => a.id ? removeItem('account', a.id) : closeSheet();
 }
-async function saveItem(kind,data){
+async function saveItem(kind,data,opts={}){
   try{
     await setDoc(kind === 'account' ? accountRef(data.id) : clientRef(data.id), data, { merge:true });
     toast('Guardado correctamente');
     closeSheet();
+    if(kind === 'client' && opts.newSale){
+      state.view = 'clients';
+      state.query = data.whatsapp || clientName(data);
+      document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'clients'));
+      render();
+      setTimeout(() => openSaleDeliverySheet(data), 80);
+    }
   }catch(err){
     console.error(err);
     toast('No se pudo guardar. Revisa permisos o conexion.','bad');
   }
+}
+function openSaleDeliverySheet(client){
+  openSheet(`<div class="sheet-head"><h3>Venta registrada</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>${esc(clientName(client))}</strong>
+        <span class="beta-note">Cliente listo para entregar. La lista quedo filtrada solo con esta venta.</span>
+      </div>
+      <button class="btn ok" id="deliverMobileSale">${icon('message')}<span>Entregar cuenta</span></button>
+      <button class="btn" id="viewMobileSale">${icon('users')}<span>Ver cliente</span></button>
+    </div>`);
+  $('#deliverMobileSale').onclick = () => openWhatsApp(client, 'delivery');
+  $('#viewMobileSale').onclick = closeSheet;
 }
 async function removeItem(kind,itemId){
   if(!confirm('Eliminar este registro?')) return;
