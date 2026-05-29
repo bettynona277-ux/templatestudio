@@ -263,6 +263,83 @@ onAuthStateChanged(auth, async user => {
   });
 });
 
+// ── Sanitizadores Firestore ───────────────────────────────────────────────
+// Evitan "Missing or insufficient permissions" cuando el formulario/localStorage
+// trae campos extra o tipos incorrectos que no pasan las reglas de seguridad.
+function fsString(value, maxLen, fallback = '') {
+  return String(value ?? fallback).trim().slice(0, maxLen);
+}
+function fsOptionalString(value, maxLen) {
+  const text = String(value ?? '').trim().slice(0, maxLen);
+  return text || null;
+}
+function fsValidId(value) {
+  let text = String(value ?? '').trim().slice(0, 80);
+  if (!text && typeof crypto !== 'undefined' && crypto.randomUUID) text = crypto.randomUUID();
+  if (!text) text = 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return text;
+}
+function sanitizeGestorAccountForFirestore(data = {}) {
+  const id = fsValidId(data.id);
+  let capacity = Number(data.capacity);
+  if (!Number.isFinite(capacity)) capacity = 1;
+  capacity = Math.max(1, Math.min(500, Math.round(capacity)));
+  return {
+    id,
+    platform: fsString(data.platform, 120, 'Cuenta'),
+    provider: fsOptionalString(data.provider, 120),
+    providerWhatsapp: fsOptionalString(data.providerWhatsapp, 64),
+    email: fsOptionalString(data.email, 240),
+    password: fsOptionalString(data.password, 240),
+    capacity,
+    dueDate: fsOptionalString(data.dueDate, 20),
+    notes: fsOptionalString(data.notes, 1000),
+    category: fsOptionalString(data.category, 120),
+    createdAt: fsOptionalString(data.createdAt, 40),
+    updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
+  };
+}
+function sanitizeGestorClientForFirestore(data = {}) {
+  const id = fsValidId(data.id);
+  return {
+    id,
+    name: fsString(data.name, 120, 'Cliente'),
+    whatsapp: fsOptionalString(data.whatsapp, 32),
+    accountId: fsValidId(data.accountId),
+    platform: fsOptionalString(data.platform, 80),
+    profile: fsOptionalString(data.profile, 50),
+    pin: fsOptionalString(data.pin, 50),
+    dueDate: fsOptionalString(data.dueDate, 20),
+    state: fsOptionalString(data.state, 30),
+    notes: fsOptionalString(data.notes, 1000),
+    lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
+    createdAt: fsOptionalString(data.createdAt, 40),
+    updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
+  };
+}
+function sanitizeGestorSettingsForFirestore(settings = {}) {
+  const paymentMethods = Array.isArray(settings.paymentMethods)
+    ? settings.paymentMethods.slice(0, 30)
+    : (typeof settings.paymentMethods === 'string' && settings.paymentMethods.trim()
+      ? settings.paymentMethods.slice(0, 2000)
+      : []);
+  const categories = Array.isArray(settings.categories)
+    ? settings.categories.map(c => String(c ?? '').trim()).filter(Boolean).slice(0, 50)
+    : [];
+  return {
+    paymentMethods,
+    whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
+    freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
+    categories,
+    finalMessage: fsOptionalString(settings.finalMessage, 500)
+  };
+}
+function sanitizeGestorDocForFirestore(colName, data) {
+  return colName === 'accounts'
+    ? sanitizeGestorAccountForFirestore(data)
+    : sanitizeGestorClientForFirestore(data);
+}
+
 // ── Persistir: escribe solo lo que cambió ────────────────────────────────
 window.__persistDebounceTimer = null;
 window.__persistToFirestore = async function(stateData) {
@@ -293,11 +370,12 @@ window.__persistToFirestore = async function(stateData) {
       const ops = [];
 
       // Settings — siempre escribir
-      ops.push({ type: 'set', ref: settingsRef(uid), data: stateData.settings || {} });
+      ops.push({ type: 'set', ref: settingsRef(uid), data: sanitizeGestorSettingsForFirestore(stateData.settings || {}) });
 
       // Accounts: setDoc para cada uno (crea o sobreescribe)
       for (const a of (stateData.accounts || [])) {
-        ops.push({ type: 'set', ref: doc(accountsCol(uid), a.id), data: a });
+        const safeAccount = sanitizeGestorAccountForFirestore(a);
+        ops.push({ type: 'set', ref: doc(accountsCol(uid), safeAccount.id), data: safeAccount });
       }
       // Accounts que ya no existen → borrar
       for (const id of existingAccIds) {
@@ -308,7 +386,8 @@ window.__persistToFirestore = async function(stateData) {
 
       // Clients: setDoc para cada uno
       for (const c of (stateData.clients || [])) {
-        ops.push({ type: 'set', ref: doc(clientsCol(uid), c.id), data: c });
+        const safeClient = sanitizeGestorClientForFirestore(c);
+        ops.push({ type: 'set', ref: doc(clientsCol(uid), safeClient.id), data: safeClient });
       }
       // Clients que ya no existen → borrar
       for (const id of existingCliIds) {
@@ -351,9 +430,11 @@ window.__persistSingleDoc = async function(colName, docData) {
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
+    const safeData = sanitizeGestorDocForFirestore(colName, docData);
+    console.log('DOC LIMPIO PARA FIRESTORE:', colName, JSON.stringify(safeData, null, 2));
     notifySaveStatus('saving', 'Guardando dato...');
-    await setDoc(doc(colRef, docData.id), docData);
-    console.log('✅ Doc guardado:', colName, docData.id);
+    await setDoc(doc(colRef, safeData.id), safeData);
+    console.log('✅ Doc guardado:', colName, safeData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
@@ -387,7 +468,7 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
-    await setDoc(settingsRef(user.uid), settingsData || {});
+    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}));
     console.log('✅ Settings guardados');
     notifySaveStatus('success', 'Ajustes guardados.');
   } catch (err) {
