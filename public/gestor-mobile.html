@@ -215,7 +215,8 @@ function normalizeSettings(data={}){
   return {
     paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
-    categories: [...new Set(categories)]
+    categories: [...new Set(categories)],
+    defaultCountryCode: clean(data.defaultCountryCode) || '51'
   };
 }
 function normalizePaymentMethods(value){
@@ -377,6 +378,7 @@ function renderSettings(){
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Ajustes</h2><span>entrega y categorias</span></div>
     <form class="settings-card" id="settingsForm">
+      <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
@@ -581,12 +583,7 @@ function openClientSheet(item={}){
   openSheet(`<div class="sheet-head"><h3>${c.id?'Editar cliente':'Nuevo cliente'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="clientForm" class="grid">
       <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" placeholder="Deros Rafael" required></div>
-      <div class="field"><label>WhatsApp</label>
-        <div class="phone-row">
-          <select name="countryCode" class="country-select">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(c.whatsapp||'').startsWith(cc.code)?'selected':cc.code==='51'&&!(c.whatsapp||'').match(/^\d{10,}|^\+/)?'selected':''}>+${cc.code} ${cc.flag}</option>`).join('')}</select>
-          <input name="whatsappNum" value="${esc(stripCountryCode(c.whatsapp))}" inputmode="tel" placeholder="999 999 999" class="phone-input">
-        </div>
-      </div>
+      <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel" placeholder="999 999 999"></div>
       <div class="grid two">
         <div class="field"><label>Plataforma</label><input name="platform" value="${esc(c.platform)}"></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
@@ -697,7 +694,7 @@ function sanitizeClientForSave(data={}){
   return {
     id: clean(data.id) || id(),
     name: clean(data.name),
-    whatsapp: (clean(data.countryCode) && clean(data.whatsappNum) ? clean(data.countryCode)+clean(data.whatsappNum).replace(/\D/g,'') : clean(data.whatsapp)).slice(0,32),
+    whatsapp: clean(data.whatsapp).slice(0,32),
     accountId: clean(data.accountId),
     platform: clean(data.platform),
     profile: clean(data.profile),
@@ -762,18 +759,18 @@ async function removeCategory(category){
   await saveSettings({ ...state.settings, categories });
 }
 const COUNTRY_CODES = [
-  {code:'51',flag:'🇵🇪',digits:9},   // Peru
-  {code:'57',flag:'🇨🇴',digits:10},  // Colombia
-  {code:'56',flag:'🇨🇱',digits:9},   // Chile
-  {code:'54',flag:'🇦🇷',digits:10},  // Argentina
-  {code:'52',flag:'🇲🇽',digits:10},  // Mexico
-  {code:'593',flag:'🇪🇨',digits:9},  // Ecuador
-  {code:'591',flag:'🇧🇴',digits:8},  // Bolivia
-  {code:'595',flag:'🇵🇾',digits:9},  // Paraguay
-  {code:'598',flag:'🇺🇾',digits:9},  // Uruguay
-  {code:'58',flag:'🇻🇪',digits:10},  // Venezuela
-  {code:'1',flag:'🇺🇸',digits:10},   // USA/Canada
-  {code:'34',flag:'🇪🇸',digits:9},   // Spain
+  {code:'51',flag:'🇵🇪',name:'Peru',digits:9},
+  {code:'57',flag:'🇨🇴',name:'Colombia',digits:10},
+  {code:'56',flag:'🇨🇱',name:'Chile',digits:9},
+  {code:'54',flag:'🇦🇷',name:'Argentina',digits:10},
+  {code:'52',flag:'🇲🇽',name:'Mexico',digits:10},
+  {code:'593',flag:'🇪🇨',name:'Ecuador',digits:9},
+  {code:'591',flag:'🇧🇴',name:'Bolivia',digits:8},
+  {code:'595',flag:'🇵🇾',name:'Paraguay',digits:9},
+  {code:'598',flag:'🇺🇾',name:'Uruguay',digits:9},
+  {code:'58',flag:'🇻🇪',name:'Venezuela',digits:10},
+  {code:'1',flag:'🇺🇸',name:'USA / Canada',digits:10},
+  {code:'34',flag:'🇪🇸',name:'Espana',digits:9},
 ];
 function stripCountryCode(phone){
   if(!phone) return '';
@@ -792,9 +789,9 @@ function normalizePhone(phone){
   for(const cc of COUNTRY_CODES){
     if(p.startsWith(cc.code) && p.length > cc.code.length) return p;
   }
-  // Fallback: Peru 9-digit
-  if(p.length === 9) p = '51'+p;
-  return p;
+  // Apply configured default country code
+  const defaultCode = clean(state?.settings?.defaultCountryCode) || '51';
+  return defaultCode + p;
 }
 function addDaysISO(date, days){
   const d = new Date((date || todayISO()) + 'T00:00:00');
