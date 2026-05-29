@@ -3990,7 +3990,26 @@ function persistDeleteDoc(colName, docId){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistDeleteDoc) window.__persistDeleteDoc(colName, docId);
 }
+function sanitizeSettingsForSave(settings={}){
+  return {
+    paymentMethods: Array.isArray(settings.paymentMethods)
+      ? settings.paymentMethods
+          .filter(p => p && (p.method || p.number || p.holder))
+          .slice(0, 30)
+          .map(p => ({
+            method: String(p.method || '').slice(0, 40),
+            number: String(p.number || '').slice(0, 40),
+            holder: String(p.holder || '').slice(0, 120)
+          }))
+      : [],
+    whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
+    freeSort: String(settings.freeSort || 'platform').slice(0, 30),
+    categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
+    finalMessage: String(settings.finalMessage || '').slice(0, 500)
+  };
+}
 function persistSettings(){
+  state.settings = sanitizeSettingsForSave(state.settings);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
