@@ -397,15 +397,26 @@ function closeSheet(){
   $('#sheet').classList.remove('show');
 }
 let deferredInstallPrompt = null;
-function registerGestorServiceWorker(){
+async function registerGestorServiceWorker(){
   if(!IS_WEB_CONTEXT || !('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js').catch(err => console.warn('Service worker no disponible:', err));
+  try{
+    await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    if(!navigator.serviceWorker.controller && !sessionStorage.getItem('gestor_sw_reload_done')){
+      sessionStorage.setItem('gestor_sw_reload_done', '1');
+      location.reload();
+    }
+  }catch(err){
+    console.warn('Service worker no disponible:', err);
+  }
 }
 function isStandaloneMode(){
   return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
 }
 function updateInstallButton(){
   $('#installBtn')?.classList.toggle('hidden', isStandaloneMode());
+  const bannerBtn = $('#installBannerBtn');
+  if(bannerBtn) bannerBtn.textContent = deferredInstallPrompt ? 'Instalar' : 'Como instalar';
 }
 function shouldShowInstallBanner(){
   const dismissed = Number(localStorage.getItem('pwa_gestor_dismissed') || 0);
@@ -413,7 +424,10 @@ function shouldShowInstallBanner(){
 }
 function showInstallBanner(delay=0){
   if(!shouldShowInstallBanner()) return;
-  setTimeout(()=> $('#installBanner')?.classList.add('show'), delay);
+  setTimeout(()=> {
+    updateInstallButton();
+    $('#installBanner')?.classList.add('show');
+  }, delay);
 }
 function hideInstallBanner(){
   $('#installBanner')?.classList.remove('show');
@@ -437,8 +451,8 @@ function showInstallHelp(){
   openSheet(`<div class="sheet-head"><h3>Instalar gestor</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <div class="grid">
       <div class="settings-card">
-        <strong>Android</strong>
-        <span class="beta-note">${deferredInstallPrompt ? 'Tu navegador ya permite instalar el gestor como app.' : 'Si no sale el instalador automatico, abre el menu de Chrome y toca Instalar app o Agregar a pantalla principal.'}</span>
+        <strong>${deferredInstallPrompt ? 'Instalacion lista' : 'Android / Chrome'}</strong>
+        <span class="beta-note">${deferredInstallPrompt ? 'Tu navegador ya permite instalar el gestor como app.' : 'Aun no hay instalador automatico disponible. Abre esta pagina en Chrome, toca el menu de 3 puntos y elige Instalar app o Agregar a pantalla principal.'}</span>
         ${deferredInstallPrompt ? `<button class="btn ok" id="nativeInstallBtn">${icon('install')}<span>Instalar app ahora</span></button>` : `<button class="btn" id="androidManualBtn">${icon('install')}<span>Ver pasos Android</span></button>`}
       </div>
       <div class="settings-card">
@@ -448,7 +462,7 @@ function showInstallHelp(){
       <button class="btn" id="installHelpClose">Entendido</button>
     </div>`);
   $('#nativeInstallBtn')?.addEventListener('click', runInstallPrompt);
-  $('#androidManualBtn')?.addEventListener('click', () => toast('En Chrome: menu de 3 puntos > Instalar app.', 'ok'));
+  $('#androidManualBtn')?.addEventListener('click', () => toast('Chrome: 3 puntos > Instalar app.', 'ok'));
   $('#installHelpClose')?.addEventListener('click', closeSheet);
 }
 function installGestorApp(){
