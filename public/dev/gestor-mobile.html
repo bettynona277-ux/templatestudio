@@ -635,7 +635,7 @@ function openAccountClientsSheet(account){
       <div class="list">${rows || empty('Esta cuenta todavia no tiene clientes asignados.')}</div>
     </div>`);
   document.querySelectorAll('[data-account-client-deliver]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientDeliver), 'delivery'));
-  document.querySelectorAll('[data-account-client-notice]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientNotice), 'renewal'));
+  document.querySelectorAll('[data-account-client-notice]').forEach(b => b.onclick = () => openSmartAccountClientWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientNotice)));
   document.querySelectorAll('[data-account-client-edit]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.accountClientEdit)));
 }
 function openClientSheet(item={}){
@@ -908,6 +908,12 @@ async function markNoRenew(c){
     toast('No se pudo actualizar.','bad');
   }
 }
+function openSmartAccountClientWhatsApp(c){
+  if(!c) return;
+  // Desde la vista de cuenta madre, el boton Avisar solo reenvia los datos de acceso.
+  // Los avisos de vencimiento se mantienen en su flujo original de vencidos / por vencer.
+  openWhatsApp(c, 'delivery');
+}
 function openWhatsApp(c, mode='delivery', targetWindow=null){
   const url = whatsappUrlForClient(c, mode);
   if(!url) return toast('Ese cliente no tiene WhatsApp.','bad');
@@ -928,12 +934,12 @@ function whatsappUrlForClient(c, mode='delivery'){
     else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
     const payText = paymentMethodsText();
     const pay = payText ? `\n\nMedios de pago:\n${payText}` : '';
-    text = `Hola ${clientName(c)}, ${statusText}${pay}`;
+    text = `Hola ${clientName(c)} 👋\n\nTe aviso que ${statusText}${pay}\n\nCuando realices el pago, enviame la captura para renovarte el servicio. Gracias 🙌`;
   }else{
-    const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
+    const final = clean(state.settings.finalMessage) ? `\n\n📌 ${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
     const password = clean(acc?.password);
-    text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nCorreo: ${email || '-'}\nContrasena: ${password || '-'}\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${final}`;
+    text = `Hola ${clientName(c)} 👋\n\nTe envio nuevamente los datos de tu cuenta de ${service}:\n\n📧 Correo: ${email || '-'}\n🔑 Contrasena: ${password || '-'}\n👤 Perfil: ${clean(c.profile) || '-'}\n🔐 PIN: ${clean(c.pin) || '-'}\n📅 Vence: ${clean(c.dueDate) || '-'}${final}`;
   }
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
