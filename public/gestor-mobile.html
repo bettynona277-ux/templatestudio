@@ -589,6 +589,12 @@ function openClientSheet(item={}){
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
     const account = state.accounts.find(a => a.id === fd.accountId);
     const data = sanitizeClientForSave({...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || ''});
+    if(!data.accountId){
+      toast('Selecciona una cuenta madre para guardar la venta.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
+      return;
+    }
     const deliveryUrl = isNewSale ? whatsappUrlForClient(data, 'delivery') : '';
     if(isNewSale && !deliveryUrl){
       toast('Agrega el WhatsApp del cliente para entregar.','bad');
@@ -646,7 +652,10 @@ async function saveItem(kind,data,opts={}){
   }catch(err){
     console.error(err);
     if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
-    toast('No se pudo guardar. Revisa permisos o conexion.','bad');
+    const msg = /permission|permissions|insufficient/i.test(err?.message || '')
+      ? 'No se pudo guardar. Actualiza la app o revisa que el usuario este activo.'
+      : 'No se pudo guardar. Revisa la conexion.';
+    toast(msg,'bad');
   }
 }
 function sanitizeAccountForSave(data={}){
