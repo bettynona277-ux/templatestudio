@@ -3777,8 +3777,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
     </div>
     <div class="form">
       <label>Plataforma
-        <select class="select" id="aPlatformSelect"><option value="Netflix">Netflix</option><option value="Disney+">Disney+</option><option value="Max">Max</option><option value="Prime Video">Prime Video</option><option value="Crunchyroll">Crunchyroll</option><option value="Spotify">Spotify</option><option value="Paramount+">Paramount+</option><option value="YouTube Premium">YouTube Premium</option><option value="Viki">Viki</option><option value="ViX">ViX</option><option value="Otro">Otro</option></select>
-        <input class="input hidden" id="aPlatformCustom" placeholder="Otra plataforma" style="margin-top:8px" />
+        <select class="select" id="aPlatformSelect"></select>
       </label>
       <label>Proveedor<input class="input" id="aProvider" placeholder="Bertha / cuenta propia" /></label>
       <label>WhatsApp proveedor<input class="input" id="aProviderWhatsapp" placeholder="939401721" /></label>
@@ -3866,6 +3865,19 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
         </div>
         <div class="payment-list" id="paymentList"></div>
       </div>
+      <div class="full">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:800">Categorias de cuentas</div>
+            <div style="color:var(--muted);font-size:13px">Aparecen al crear cuentas madre y en los filtros.</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-bottom:10px">
+          <input class="input" id="categoryInput" placeholder="Ej. Apple TV" />
+          <button class="btn soft" type="button" id="addCategoryBtn">+ Categoria</button>
+        </div>
+        <div class="payment-list" id="categoryList"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="settingsModalWrap">Cancelar</button>
@@ -3896,7 +3908,8 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
 const KEY='gestion_streaming_v5';
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
-const PLATFORM_OPTIONS=['Netflix','Disney+','Max','Prime Video','Crunchyroll','Spotify','Paramount+','YouTube Premium','Viki','ViX','Otro'];
+const DEFAULT_CATEGORIES=['Netflix','Disney+','Max','Prime Video','Crunchyroll','Spotify','Paramount+','YouTube Premium','Viki','ViX'];
+const PLATFORM_OPTIONS=DEFAULT_CATEGORIES;
 const PLATFORM_URLS={
   'Netflix':'https://www.netflix.com/login',
   'Disney+':'https://www.disneyplus.com/login',
@@ -3928,7 +3941,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform'}};
+  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES]}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -3944,7 +3957,10 @@ function normalizeLoaded(data){
   let paymentMethods=[];
   if(Array.isArray(data.settings?.paymentMethods)) paymentMethods=data.settings.paymentMethods;
   else if(typeof data.settings?.paymentMethods==='string' && data.settings.paymentMethods.trim()) paymentMethods=[{method:'Pago',number:data.settings.paymentMethods.trim(),holder:''}];
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform'};
+  const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
+  const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
+  const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -3991,6 +4007,15 @@ function excelCell(value){
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');
+}
+function uniqueClean(values){
+  const seen=new Set();
+  return (values||[]).map(v=>String(v||'').trim()).filter(v=>{
+    const key=v.toLowerCase();
+    if(!v || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 function excelColumnXml(widths, count){
   const cols=[];
@@ -4902,6 +4927,44 @@ function renderPaymentRows(){
       <button class="mini" type="button" onclick="removePayment(${i})">Borrar</button>
     </div>`).join('') : `<div class="empty">Sin medios de pago</div>`;
 }
+function categoryOptions(){
+  const saved=Array.isArray(state.settings?.categories) ? state.settings.categories : [];
+  const accountCategories=state.accounts.map(a=>a.platform).filter(Boolean);
+  return uniqueClean([...DEFAULT_CATEGORIES,...saved,...accountCategories]);
+}
+function renderCategoryRows(){
+  const list=$('#categoryList');
+  if(!list) return;
+  const categories=categoryOptions();
+  list.innerHTML=categories.length ? categories.map(cat=>{
+    const isDefault=DEFAULT_CATEGORIES.some(d=>d.toLowerCase()===cat.toLowerCase());
+    return `<div class="payment-row" style="grid-template-columns:minmax(0,1fr) auto">
+      <label>Categoria<input class="input" value="${escapeAttr(cat)}" readonly /></label>
+      <button class="mini" type="button" ${isDefault?'disabled':''} onclick="removeCategory('${escapeJs(cat)}')">${isDefault?'Base':'Borrar'}</button>
+    </div>`;
+  }).join('') : `<div class="empty">Sin categorias</div>`;
+}
+function addCategory(value){
+  const category=String(value||'').trim();
+  if(!category) return '';
+  state.settings.categories=uniqueClean([...(state.settings.categories||DEFAULT_CATEGORIES), category]);
+  persistSettings();
+  renderCategoryRows();
+  syncAccountPlatformOptions(category);
+  renderAccounts();
+  renderFree();
+  return category;
+}
+window.removeCategory=(category)=>{
+  const key=String(category||'').trim().toLowerCase();
+  if(!key || DEFAULT_CATEGORIES.some(d=>d.toLowerCase()===key)) return;
+  state.settings.categories=(state.settings.categories||[]).filter(c=>String(c||'').trim().toLowerCase()!==key);
+  persistSettings();
+  renderCategoryRows();
+  syncAccountPlatformOptions();
+  renderAccounts();
+  renderFree();
+};
 
 function refresh(){
   cleanupFloatingActionMenusBeforeRender();
@@ -4923,8 +4986,15 @@ function setClientSubmitMode(isNewSale){
   btn.classList.toggle('primary', !isNewSale);
 }
 function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
-function syncAccountPlatformOptions(){ const sel=$('#aPlatformSelect'); const cur=sel.value; sel.innerHTML=PLATFORM_OPTIONS.map(p=>`<option value="${p}">${p}</option>`).join(''); if(cur) sel.value=cur; }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value='Netflix'; $('#aPlatformCustom').classList.add('hidden'); $('#aPlatformCustom').value=''; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function syncAccountPlatformOptions(selected=''){
+  const sel=$('#aPlatformSelect');
+  if(!sel) return;
+  const cur=selected || sel.value;
+  const categories=categoryOptions();
+  sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
+  if(cur && categories.includes(cur)) sel.value=cur;
+}
+function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -4965,8 +5035,8 @@ window.editAccount=(id, forceNotify=false)=>{
   syncAccountPlatformOptions();
   $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
   const notifyEl=$('#aNotifyClients'); if(notifyEl) notifyEl.checked=true;
-  if(PLATFORM_OPTIONS.includes(a.platform)){ $('#aPlatformSelect').value=a.platform; $('#aPlatformCustom').classList.add('hidden'); $('#aPlatformCustom').value=''; }
-  else { $('#aPlatformSelect').value='Otro'; $('#aPlatformCustom').classList.remove('hidden'); $('#aPlatformCustom').value=a.platform||''; }
+  if(a.platform && !categoryOptions().includes(a.platform)) addCategory(a.platform);
+  syncAccountPlatformOptions(a.platform);
   openModal('accountModalWrap'); initDatepickers();
 };
 window.deleteClient=(id)=>{ if(!confirm('¿Borrar cliente?')) return; state.clients=state.clients.filter(c=>c.id!==id); persistDeleteDoc('clients', id); refreshUI(); switchView('inicioView'); };
@@ -5085,6 +5155,29 @@ window.applyExactRenewClient=()=>{
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
+function openDeliveryPendingWindow(){
+  const win=window.open('', '_blank');
+  if(!win) return null;
+  try{
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Preparando WhatsApp</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>Preparando WhatsApp</h1><p>Estamos guardando la venta y armando el mensaje de entrega.</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
+    win.document.close();
+  }catch(err){}
+  return win;
+}
+function navigatePreparedWhatsapp(targetWindow,url){
+  if(targetWindow && !targetWindow.closed){
+    try{
+      const link=targetWindow.document.getElementById('openWa');
+      if(link){ link.href=url; link.style.display='inline-flex'; }
+    }catch(err){}
+    try{ targetWindow.location.replace(url); return; }
+    catch(err){
+      try{ targetWindow.location.href=url; return; }catch(e){}
+    }
+  }
+  window.open(url,'_blank');
+}
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
   const phone=normalizePhone(client.whatsapp);
@@ -5096,8 +5189,7 @@ window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const account=state.accounts.find(a=>a.id===client.accountId);
   const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
   const url=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-  if(targetWindow && !targetWindow.closed) targetWindow.location.href=url;
-  else window.open(url,'_blank');
+  navigatePreparedWhatsapp(targetWindow,url);
   if(context==='renewal'){
     client.lastRenewalWhatsAppNoticeDate=todayStr();
     persistDoc('clients', client);
@@ -5287,11 +5379,17 @@ $('#accountSearch').oninput=renderAccounts;
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; };
 $('#aPlatformSelect').onchange=()=>{ 
-  const platform=$('#aPlatformSelect').value;
-  $('#aPlatformCustom').classList.toggle('hidden',platform!=='Otro');
+  let platform=$('#aPlatformSelect').value;
+  if(platform==='__new__'){
+    const next=prompt('Nombre de la nueva categoria');
+    platform=addCategory(next);
+    if(platform) $('#aPlatformSelect').value=platform;
+    else syncAccountPlatformOptions();
+  }
   if(platform==='ViX' && !$('#aCapacity').value) $('#aCapacity').value='5';
 };
 $('#addPaymentBtn').onclick=()=>{ state.settings.paymentMethods.push({method:'',number:'',holder:''}); renderPaymentRows(); };
+$('#addCategoryBtn').onclick=()=>{ const input=$('#categoryInput'); const category=addCategory(input?.value); if(input && category) input.value=''; };
 document.addEventListener('input',e=>{ const payField=e.target.dataset.pay; if(payField){ const idx=Number(e.target.dataset.index); state.settings.paymentMethods[idx][payField]=e.target.value; } });
 
 document.addEventListener('input',e=>{
@@ -5303,7 +5401,7 @@ document.addEventListener('change',e=>{
 
 
 $('#saveAccountBtn').onclick=async ()=>{
-  const platform=$('#aPlatformSelect').value==='Otro' ? $('#aPlatformCustom').value.trim() : $('#aPlatformSelect').value;
+  const platform=$('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
@@ -5329,7 +5427,7 @@ $('#saveAccountBtn').onclick=async ()=>{
 };
 $('#saveClientBtn').onclick=async ()=>{
   const wasNewSale=!editingClientId;
-  const deliveryWindow=wasNewSale ? window.open('about:blank','_blank') : null;
+  const deliveryWindow=wasNewSale ? openDeliveryPendingWindow() : null;
   const saveBtn=$('#saveClientBtn');
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
@@ -5360,17 +5458,17 @@ $('#saveClientBtn').onclick=async ()=>{
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){
     focusClientAfterSale(data);
-    setTimeout(()=>window.sendWhatsapp(data.id,'delivery',deliveryWindow),80);
+    window.sendWhatsapp(data.id,'delivery',deliveryWindow);
   }
   saveBtn.disabled=false;
   setClientSubmitMode(false);
 };
-$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); openModal('settingsModalWrap'); };
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
+$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='gestion-streaming-backup.json'; a.click(); URL.revokeObjectURL(a.href); };
 $('#importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ state=loadImported(JSON.parse(reader.result)); persist(); refresh(); alert('✅ Datos importados y guardados en la nube'); } catch(err){ alert(err?.message || 'Archivo invalido'); } e.target.value=''; }; reader.readAsText(f); };
 function loadImported(data){
-  const imported={accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform'}};
+  const imported={accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES]}};
   if((data.accounts||[]).length > MAX_ACCOUNTS_PER_IMPORT || (data.clients||[]).length > MAX_CLIENTS_PER_IMPORT){
     throw new Error(`Importacion demasiado grande. Maximo ${MAX_ACCOUNTS_PER_IMPORT} cuentas madre y ${MAX_CLIENTS_PER_IMPORT} clientes.`);
   }
@@ -5381,6 +5479,7 @@ function loadImported(data){
   else if(typeof pm==='string' && pm.trim()) imported.settings.paymentMethods=[{method:'Pago',number:pm.trim(),holder:''}];
   imported.settings.whatsappPrefix=String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,'');
   imported.settings.freeSort=data.settings?.freeSort||'platform';
+  imported.settings.categories=uniqueClean([...DEFAULT_CATEGORIES,...(Array.isArray(data.settings?.categories)?data.settings.categories:[])]);
   return imported;
 }
 
