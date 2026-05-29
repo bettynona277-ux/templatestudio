@@ -345,7 +345,7 @@ function renderHome(){
 function searchBlock(title,count){
   return `<div class="section-head"><h2>${title}</h2><span>${count}</span></div><div class="search"><input id="q" value="${esc(state.query)}" placeholder="Buscar..." /></div>`;
 }
-function renderClients(){
+function renderClients(listOnly=false){
   const active = state.clients.filter(c => c.state !== 'No renovo' && matches(c,state.query)).sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
   const archived = state.clients.filter(c => c.state === 'No renovo' && matches(c,state.query));
   const archivedSection = archived.length ? `
@@ -353,18 +353,26 @@ function renderClients(){
       <summary>No renovaron <span class="pill">${archived.length}</span></summary>
       <div class="list archived-list">${archived.map(c => clientCardArchived(c)).join('')}</div>
     </details>` : '';
-  $('#view').innerHTML = searchBlock('Clientes', active.length) + `<div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}`;
+  if(listOnly){
+    const listEl = $('#clients-list');
+    if(listEl) { listEl.innerHTML = `<div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}`; bindCards(); return; }
+  }
+  $('#view').innerHTML = searchBlock('Clientes', active.length) + `<div id="clients-list"><div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}</div>`;
   bindSearch(); bindCards();
 }
-function renderAccounts(){
+function renderAccounts(listOnly=false){
   const categories = ['Todas', ...state.settings.categories];
   const list = state.accounts
     .filter(a => state.accountCategory === 'Todas' || accountCategory(a) === state.accountCategory)
     .filter(a => matches(a,state.query))
     .sort((a,b)=>accountName(a).localeCompare(accountName(b)));
+  if(listOnly){
+    const listEl = $('#accounts-list');
+    if(listEl){ listEl.innerHTML = `<div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div>`; bindCards(); return; }
+  }
   $('#view').innerHTML = searchBlock('Cuentas madre', list.length) + `
-    <div class="chips">${categories.map(cat => `<button class="chip ${state.accountCategory===cat?'active':''}" data-cat="${esc(cat)}">${cat==='Todas'?icon('stack'):icon('tag')}<span>${esc(cat)}</span></button>`).join('')}</div>
-    <div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div>`;
+    <div id="accounts-list-wrap"><div class="chips">${categories.map(cat => `<button class="chip ${state.accountCategory===cat?'active':''}" data-cat="${esc(cat)}">${cat==='Todas'?icon('stack'):icon('tag')}<span>${esc(cat)}</span></button>`).join('')}</div>
+    <div id="accounts-list"><div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div></div></div>`;
   bindSearch(); bindCards();
   document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { state.accountCategory = b.dataset.cat; renderAccounts(); });
 }
@@ -451,8 +459,17 @@ function accountCard(a){
 }
 function bindSearch(){
   const q = $('#q');
-  q?.addEventListener('input', e => { state.query = e.target.value; render(); });
-  q?.focus();
+  if(!q) return;
+  q.addEventListener('input', e => {
+    state.query = e.target.value;
+    if(state.view === 'clients') renderClients(true);
+    else if(state.view === 'accounts') renderAccounts(true);
+    else render();
+  });
+  // Restore cursor to end and focus without moving caret
+  const len = q.value.length;
+  q.focus();
+  q.setSelectionRange(len, len);
 }
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
