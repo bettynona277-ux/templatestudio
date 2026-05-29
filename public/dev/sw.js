@@ -1,10 +1,12 @@
-const CACHE_NAME = 'disenos-streaming-v30';
+const CACHE_NAME = 'disenos-streaming-v33';
 const ASSETS = [
   '/index-mobile.html',
   '/editor-mobile.html',
   '/manifest.json',
   '/gestor-mobile.html',
   '/manifest-gestor.json',
+  '/dev/gestor-mobile.html',
+  '/dev/manifest-gestor.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
 ];
@@ -32,9 +34,6 @@ self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // Nunca cachear /dev/ ? siempre ir a la red
-  if(url.pathname.startsWith('/dev/')) return;
-
   // Skip Firebase, Firestore, Cloudinary
   if(url.hostname.includes('firebase') ||
      url.hostname.includes('firestore') ||
@@ -44,8 +43,8 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        // Cache solo archivos de producci?n (no /dev/)
-        if(res.ok && (e.request.url.endsWith('.html') || e.request.url.endsWith('.json'))) {
+        // Cache solo archivos de produccion. /dev/ se maneja para PWA, pero siempre fresco.
+        if(res.ok && !url.pathname.startsWith('/dev/') && (e.request.url.endsWith('.html') || e.request.url.endsWith('.json'))) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
         }

@@ -6,10 +6,10 @@
 <meta name="theme-color" content="#18d5a2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Gestor" />
-<link rel="manifest" href="/dev/manifest-gestor.json?v=30" />
+<link rel="manifest" href="/manifest-gestor.json?v=30" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
-<script src="../app-check-config.js"></script>
+<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
@@ -186,7 +186,20 @@ const state = {
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES] }
 };
 const icon = name => `<svg class="i"><use href="#i-${name}"></use></svg>`;
-const todayISO = () => new Date().toISOString().slice(0,10);
+const localISO = date => {
+  const pad = n => String(n).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`;
+};
+const todayISO = () => localISO(new Date());
+function addMonthsISO(value, months=1){
+  const base = value ? new Date(value + 'T00:00:00') : new Date();
+  if(Number.isNaN(base.getTime())) return todayISO();
+  const day = base.getDate();
+  const target = new Date(base.getFullYear(), base.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return localISO(target);
+}
 const clean = v => String(v ?? '').trim();
 const esc = v => clean(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = () => (crypto?.randomUUID?.() || ('id_'+Date.now()+'_'+Math.random().toString(16).slice(2)));
@@ -199,10 +212,25 @@ const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 function normalizeSettings(data={}){
   const categories = Array.isArray(data.categories) ? data.categories.map(clean).filter(Boolean) : DEFAULT_CATEGORIES;
   return {
-    paymentMethods: clean(data.paymentMethods) || DEFAULT_PAYMENT_METHODS,
+    paymentMethods: data.paymentMethods || DEFAULT_PAYMENT_METHODS,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
     categories: [...new Set(categories)]
   };
+}
+function paymentMethodsText(value=state.settings.paymentMethods){
+  if(Array.isArray(value)){
+    return value
+      .filter(p => clean(p?.method) || clean(p?.number) || clean(p?.holder))
+      .map(p => `${clean(p.method) || 'Pago'}${clean(p.number) ? ': ' + clean(p.number) : ''}${clean(p.holder) ? ' - ' + clean(p.holder) : ''}`)
+      .join('\n');
+  }
+  if(value && typeof value === 'object'){
+    return Object.entries(value)
+      .map(([k,v]) => `${k}: ${clean(v)}`)
+      .filter(line => !line.endsWith(':'))
+      .join('\n');
+  }
+  return clean(value);
 }
 function accountCategory(a={}){
   if(clean(a.category)) return clean(a.category);
@@ -315,7 +343,7 @@ function renderSettings(){
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Ajustes</h2><span>entrega y categorias</span></div>
     <form class="settings-card" id="settingsForm">
-      <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 999 999 999&#10;Plin: 999 999 999&#10;BCP: ...">${esc(s.paymentMethods)}</textarea></div>
+      <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 999 999 999&#10;Plin: 999 999 999&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
@@ -390,7 +418,7 @@ function bindCards(){
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
     if(!a) return;
-    openClientSheet({ accountId:a.id, platform:a.platform, dueDate:a.dueDate || todayISO(), state:'Activo' });
+    openClientSheet({ accountId:a.id, platform:a.platform, dueDate:addMonthsISO(todayISO(), 1), state:'Activo' });
   });
 }
 
@@ -482,7 +510,7 @@ function installGestorApp(){
   return deferredInstallPrompt ? runInstallPrompt() : showInstallHelp();
 }
 function installUrl(){
-  return new URL('/dev/gestor-mobile.html', location.origin).href;
+  return new URL('/gestor-mobile.html', location.origin).href;
 }
 function openInChrome(){
   const url = installUrl();
@@ -511,7 +539,7 @@ function openClientSheet(item={}){
       <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel"></div>
       <div class="grid two">
         <div class="field"><label>Plataforma</label><input name="platform" value="${esc(c.platform)}"></div>
-        <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || todayISO())}"></div>
+        <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
       <div class="field"><label>Cuenta madre</label><select name="accountId"><option value="">Sin cuenta</option>${state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===c.accountId?'selected':''}>${esc(accountName(a))}</option>`).join('')}</select></div>
       <div class="grid two">
@@ -699,12 +727,16 @@ function whatsappUrlForClient(c, mode='delivery'){
     if(ds.days < 0) statusText = `tu cuenta de ${service} ya vencio el ${c.dueDate || 'dia indicado'}.`;
     else if(ds.days === 0) statusText = `tu cuenta de ${service} vence hoy.`;
     else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
-    const pay = clean(state.settings.paymentMethods) ? `\n\nMedios de pago:\n${state.settings.paymentMethods}` : '';
+    const payText = paymentMethodsText();
+    const pay = payText ? `\n\nMedios de pago:\n${payText}` : '';
     text = `Hola ${clientName(c)}, ${statusText}${pay}`;
   }else{
-    const pay = clean(state.settings.paymentMethods) ? `\n\nMedios de pago:\n${state.settings.paymentMethods}` : '';
+    const payText = paymentMethodsText();
+    const pay = payText ? `\n\nMedios de pago:\n${payText}` : '';
     const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
-    text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${pay}${final}`;
+    const email = clean(acc?.email);
+    const password = clean(acc?.password);
+    text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nCorreo: ${email || '-'}\nContrasena: ${password || '-'}\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${pay}${final}`;
   }
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
@@ -801,7 +833,7 @@ showInstallBanner(3000);
 
 onAuthStateChanged(auth, async user => {
   if(!user){
-    window.location.href = `/gestor-login.html?next=${encodeURIComponent('/dev/gestor-mobile.html')}`;
+    window.location.href = `gestor-login.html?next=${encodeURIComponent('/gestor-mobile.html')}`;
     return;
   }
   state.uid = user.uid;
