@@ -450,12 +450,13 @@ function accountCard(a){
   const used = accountUsed(a.id), cap = Number(a.capacity || 0), free = Math.max(0, cap-used);
   const ds = dueState(a.dueDate);
   const cat = accountCategory(a);
+  const assigned = state.clients.filter(c => c.accountId === a.id && c.state !== 'No renovo').length;
   return `<article class="card" data-account="${esc(a.id)}">
     <div class="card-row"><div class="avatar green">${esc(platformShort(a.platform).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
-        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
+        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender perfil</span></button></div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button></div>
   </article>`;
 }
 function bindSearch(){
@@ -475,6 +476,7 @@ function bindSearch(){
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
+  document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
   document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa), 'delivery'));
   document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.waRenew), 'renewal'));
   document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
@@ -596,6 +598,46 @@ async function copyInstallLink(){
     toast(url, 'ok');
   }
 }
+
+function openAccountClientsSheet(account){
+  if(!account) return;
+  const assigned = state.clients
+    .filter(c => c.accountId === account.id && c.state !== 'No renovo')
+    .sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
+  const rows = assigned.map(c => {
+    const ds = dueState(c.dueDate);
+    return `<article class="card">
+      <div class="card-row">
+        <div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
+        <div class="info">
+          <b>${esc(clientName(c))}</b>
+          <div class="meta">
+            <span class="pill ${ds.cls}">${esc(ds.label)}</span>
+            <span class="pill brand">Perfil ${esc(c.profile || '-')}</span>
+            ${c.pin ? `<span class="pill">PIN ${esc(c.pin)}</span>` : ''}
+            ${c.whatsapp ? `<span class="pill">${esc(c.whatsapp)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="mini" data-account-client-deliver="${esc(c.id)}">${icon('message')}<span>Datos</span></button>
+        <button class="mini" data-account-client-notice="${esc(c.id)}">${icon('calendar')}<span>Avisar</span></button>
+        <button class="mini" data-account-client-edit="${esc(c.id)}">${icon('edit')}<span>Editar</span></button>
+      </div>
+    </article>`;
+  }).join('');
+  openSheet(`<div class="sheet-head"><h3>Clientes de la cuenta</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>${esc(accountName(account))}</strong>
+        <span class="beta-note">${assigned.length} cliente${assigned.length === 1 ? '' : 's'} usando esta cuenta. Puedes reenviar datos o avisar por WhatsApp.</span>
+      </div>
+      <div class="list">${rows || empty('Esta cuenta todavia no tiene clientes asignados.')}</div>
+    </div>`);
+  document.querySelectorAll('[data-account-client-deliver]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientDeliver), 'delivery'));
+  document.querySelectorAll('[data-account-client-notice]').forEach(b => b.onclick = () => openSmartAccountClientWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientNotice)));
+  document.querySelectorAll('[data-account-client-edit]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.accountClientEdit)));
+}
 function openClientSheet(item={}){
   const c = item || {};
   openSheet(`<div class="sheet-head"><h3>${c.id?'Editar cliente':'Nuevo cliente'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
@@ -639,8 +681,8 @@ function openClientSheet(item={}){
       submitBtn.textContent = 'Entregar cuenta';
       return;
     }
-    if(isNewSale) window.open(deliveryUrl, '_blank', 'noopener');
     await saveItem('client', data, { newSale:isNewSale, skipDeliverySheet:isNewSale });
+    if(isNewSale) openWhatsApp(data, 'delivery');
     submitBtn.disabled = false;
     submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
   };
@@ -866,15 +908,25 @@ async function markNoRenew(c){
     toast('No se pudo actualizar.','bad');
   }
 }
+function openSmartAccountClientWhatsApp(c){
+  if(!c) return;
+  // Desde la vista de cuenta madre, el boton Avisar solo reenvia los datos de acceso.
+  // Los avisos de vencimiento se mantienen en su flujo original de vencidos / por vencer.
+  openWhatsApp(c, 'delivery');
+}
 function openWhatsApp(c, mode='delivery', targetWindow=null){
-  const url = whatsappUrlForClient(c, mode);
-  if(!url) return toast('Ese cliente no tiene WhatsApp.','bad');
-  navigatePreparedWhatsapp(targetWindow, url);
+  const payload = whatsappPayloadForClient(c, mode);
+  if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
+  openWhatsAppAppSelector(payload, targetWindow);
 }
 function whatsappUrlForClient(c, mode='delivery'){
-  if(!c) return '';
+  const payload = whatsappPayloadForClient(c, mode);
+  return payload?.webUrl || '';
+}
+function whatsappPayloadForClient(c, mode='delivery'){
+  if(!c) return null;
   const phone = normalizePhone(c.whatsapp);
-  if(!phone) return '';
+  if(!phone) return null;
   const acc = state.accounts.find(a => a.id === c.accountId);
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
@@ -886,14 +938,48 @@ function whatsappUrlForClient(c, mode='delivery'){
     else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
     const payText = paymentMethodsText();
     const pay = payText ? `\n\nMedios de pago:\n${payText}` : '';
-    text = `Hola ${clientName(c)}, ${statusText}${pay}`;
+    text = `Hola ${clientName(c)} 👋\n\nTe aviso que ${statusText}${pay}\n\nCuando realices el pago, enviame la captura para renovarte el servicio. Gracias 🙌`;
   }else{
-    const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
+    const emoji = {
+      saludo:'✨',
+      brillo:'⭐',
+      correo:'✉️',
+      clave:'🔐',
+      perfil:'👤',
+      pin:'🔢',
+      vence:'📅',
+      nota:'✅'
+    };
+    const final = clean(state.settings.finalMessage) ? `\n\n${emoji.nota} ${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
     const password = clean(acc?.password);
-    text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nCorreo: ${email || '-'}\nContrasena: ${password || '-'}\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${final}`;
+    text = `Hola ${clientName(c)} ${emoji.saludo}\n\n${emoji.brillo} Te envio nuevamente los datos de tu cuenta de ${service}:\n\n${emoji.correo} Correo: ${email || '-'}\n${emoji.clave} Contrasena: ${password || '-'}\n${emoji.perfil} Perfil: ${clean(c.profile) || '-'}\n${emoji.pin} PIN: ${clean(c.pin) || '-'}\n${emoji.vence} Vence: ${clean(c.dueDate) || '-'}${final}`;
   }
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  const encodedText = encodeURIComponent(text);
+  const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
+  const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
+  return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
+}
+function openWhatsAppAppSelector(payload, targetWindow=null){
+  const isAndroid = /Android/i.test(navigator.userAgent || '');
+  const go = url => {
+    closeSheet();
+    navigatePreparedWhatsapp(targetWindow, url);
+  };
+  openSheet(`<div class="sheet-head"><h3>Enviar por WhatsApp</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>Elige que WhatsApp usar</strong>
+        <span class="beta-note">Selecciona si quieres enviar este mensaje desde WhatsApp normal o WhatsApp Business.</span>
+      </div>
+      <button class="btn ok" id="sendWaNormal">${icon('message')}<span>WhatsApp normal</span></button>
+      <button class="btn primary" id="sendWaBusiness">${icon('message')}<span>WhatsApp Business</span></button>
+      <span class="beta-note">Elige una de las dos aplicaciones instaladas en tu celular.</span>
+    </div>`);
+  $('#sendWaNormal')?.addEventListener('click', () => go(isAndroid ? payload.normalUrl : payload.webUrl));
+  $('#sendWaBusiness')?.addEventListener('click', () => go(isAndroid ? payload.businessUrl : payload.webUrl));
 }
 function openDeliveryPendingWindow(){
   const win = window.open('', '_blank');
