@@ -6,11 +6,20 @@
 <meta name="theme-color" content="#18d5a2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Gestor" />
-<link rel="manifest" href="/manifest-gestor.json" />
+<link rel="manifest" href="/manifest-gestor.json?v=30" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
+<script>
+if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js').catch(function(err){
+      console.warn('Service worker no disponible:', err);
+    });
+  });
+}
+</script>
 <style>
 :root{
   color-scheme:dark;
@@ -452,8 +461,9 @@ function showInstallHelp(){
     <div class="grid">
       <div class="settings-card">
         <strong>${deferredInstallPrompt ? 'Instalacion lista' : 'Android / Chrome'}</strong>
-        <span class="beta-note">${deferredInstallPrompt ? 'Tu navegador ya permite instalar el gestor como app.' : 'Aun no hay instalador automatico disponible. Abre esta pagina en Chrome, toca el menu de 3 puntos y elige Instalar app o Agregar a pantalla principal.'}</span>
+        <span class="beta-note">${deferredInstallPrompt ? 'Tu navegador ya permite instalar el gestor como app.' : 'Android todavia no habilito el instalador automatico. Abre esta pagina en Chrome normal, espera que cargue, y vuelve a tocar Instalar. Si usas navegador Xiaomi, Samsung, Instagram o Facebook, primero abre en Chrome.'}</span>
         ${deferredInstallPrompt ? `<button class="btn ok" id="nativeInstallBtn">${icon('install')}<span>Instalar app ahora</span></button>` : `<button class="btn" id="androidManualBtn">${icon('install')}<span>Ver pasos Android</span></button>`}
+        ${!deferredInstallPrompt ? `<button class="btn ok" id="openChromeBtn">${icon('install')}<span>Abrir en Chrome</span></button><button class="btn" id="copyInstallLinkBtn">${icon('copy')}<span>Copiar enlace</span></button>` : ''}
       </div>
       <div class="settings-card">
         <strong>iPhone</strong>
@@ -463,11 +473,35 @@ function showInstallHelp(){
     </div>`);
   $('#nativeInstallBtn')?.addEventListener('click', runInstallPrompt);
   $('#androidManualBtn')?.addEventListener('click', () => toast('Chrome: 3 puntos > Instalar app.', 'ok'));
+  $('#openChromeBtn')?.addEventListener('click', openInChrome);
+  $('#copyInstallLinkBtn')?.addEventListener('click', copyInstallLink);
   $('#installHelpClose')?.addEventListener('click', closeSheet);
 }
 function installGestorApp(){
   if(isStandaloneMode()) return toast('El gestor ya esta instalado.');
   return deferredInstallPrompt ? runInstallPrompt() : showInstallHelp();
+}
+function installUrl(){
+  return new URL('/gestor-mobile.html', location.origin).href;
+}
+function openInChrome(){
+  const url = installUrl();
+  if(/Android/i.test(navigator.userAgent || '')){
+    const stripped = url.replace(/^https?:\/\//, '');
+    location.href = `intent://${stripped}#Intent;scheme=https;package=com.android.chrome;end`;
+    setTimeout(() => { location.href = url; }, 900);
+    return;
+  }
+  location.href = url;
+}
+async function copyInstallLink(){
+  const url = installUrl();
+  try{
+    await navigator.clipboard.writeText(url);
+    toast('Enlace copiado. Abrelo en Chrome.');
+  }catch(_){
+    toast(url, 'ok');
+  }
 }
 function openClientSheet(item={}){
   const c = item || {};
