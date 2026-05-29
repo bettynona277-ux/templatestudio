@@ -86,7 +86,7 @@ button{border:0;cursor:pointer}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
 .category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
 .card-actions{display:flex;gap:8px;margin-top:11px}.mini{height:38px;border-radius:13px;padding:0 11px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);font-weight:850;flex:1;display:flex;align-items:center;justify-content:center;gap:7px}.mini .i{width:16px;height:16px}
-.empty{padding:24px 16px;text-align:center;border:1px dashed rgba(158,177,214,.22);border-radius:20px;color:var(--muted);background:rgba(255,255,255,.03)}
+.empty{padding:24px 16px;text-align:center;border:1px dashed rgba(158,177,214,.22);border-radius:20px;color:var(--muted);background:rgba(255,255,255,.03)}.renew-opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;background:rgba(7,13,24,.94);border-top:1px solid var(--line)}
 .navbtn{height:54px;border-radius:17px;background:transparent;color:var(--muted);font-weight:850;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.navbtn .i{width:20px;height:20px}.navbtn small{font-size:11px}.navbtn.active{background:rgba(118,92,255,.18);color:#fff}
 .fab{position:fixed;right:16px;bottom:calc(86px + env(safe-area-inset-bottom));z-index:28;width:58px;height:58px;border-radius:21px;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-size:28px;font-weight:900;box-shadow:0 16px 35px rgba(0,0,0,.36);display:grid;place-items:center}.fab .i{width:26px;height:26px;stroke-width:2.4}
@@ -441,7 +441,7 @@ function bindCards(){
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
   document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa), 'delivery'));
   document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.waRenew), 'renewal'));
-  document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
+  document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => openRenewSheet(state.clients.find(c => c.id === b.dataset.renew)));
   document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
@@ -613,8 +613,11 @@ function openAccountSheet(item={}){
   const a = item || {};
   openSheet(`<div class="sheet-head"><h3>${a.id?'Editar cuenta':'Nueva cuenta'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="accountForm" class="grid">
-      <div class="field"><label>Proveedor</label><input name="provider" value="${esc(a.provider)}" placeholder="Deros Rafael / cuenta propia"></div>
-      <div class="field"><label>Plataforma</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${accountCategory(a)===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
+      <div class="grid two">
+        <div class="field"><label>Plataforma</label><input name="platform" value="${esc(a.platform)}" required></div>
+        <div class="field"><label>Proveedor</label><input name="provider" value="${esc(a.provider)}" placeholder="Deros Rafael / cuenta propia"></div>
+      </div>
+      <div class="field"><label>Categoria</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${accountCategory(a)===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
       <div class="field"><label>WhatsApp proveedor</label><input name="providerWhatsapp" value="${esc(a.providerWhatsapp)}" inputmode="tel"></div>
       <div class="field"><label>Correo</label><input name="email" value="${esc(a.email)}" inputmode="email"></div>
       <div class="grid two">
@@ -628,7 +631,7 @@ function openAccountSheet(item={}){
   $('#accountForm').onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
-    const data = sanitizeAccountForSave({...a, ...fd, platform: fd.category || fd.platform || clean(a.platform), capacity:Number(fd.capacity || 0), id:a.id || id()});
+    const data = sanitizeAccountForSave({...a, ...fd, capacity:Number(fd.capacity || 0), id:a.id || id()});
     await saveItem('account', data);
   };
   $('#deleteAccount').onclick = async () => a.id ? removeItem('account', a.id) : closeSheet();
@@ -747,17 +750,40 @@ function addDaysISO(date, days){
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0,10);
 }
-async function renewClient(c){
+function openRenewSheet(c){
   if(!c) return;
   const base = dueState(c.dueDate).days > 0 ? c.dueDate : todayISO();
-  const nextDate = addDaysISO(base, 30);
-  try{
-    await setDoc(clientRef(c.id), { ...c, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
-    toast('Cliente renovado por 30 dias');
-  }catch(err){
-    console.error(err);
-    toast('No se pudo renovar.','bad');
-  }
+  const defaultDate = addMonthsISO(base, 1);
+  openSheet(`<div class="sheet-head"><h3>Renovar cliente</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <p style="margin:0;color:var(--muted);font-size:13px">Elige cuanto tiempo renovar a <b style="color:var(--text)">${esc(clientName(c))}</b>:</p>
+      <div class="renew-opts">
+        <button class="btn ok" id="renew1m">${icon('calendar')}<span>+1 mes</span></button>
+        <button class="btn" id="renew2m">${icon('calendar')}<span>+2 meses</span></button>
+        <button class="btn" id="renew3m">${icon('calendar')}<span>+3 meses</span></button>
+      </div>
+      <div class="field"><label>O elegir fecha exacta de vencimiento</label><input type="date" id="renewDate" value="${esc(defaultDate)}"></div>
+      <div class="form-actions">
+        <button class="btn" id="cancelRenew">Cancelar</button>
+        <button class="btn primary" id="confirmRenew">${icon('check')}<span>Confirmar</span></button>
+      </div>
+    </div>`);
+  const getDate = () => $('#renewDate').value || defaultDate;
+  $('#renew1m').onclick = () => { $('#renewDate').value = addMonthsISO(base, 1); };
+  $('#renew2m').onclick = () => { $('#renewDate').value = addMonthsISO(base, 2); };
+  $('#renew3m').onclick = () => { $('#renewDate').value = addMonthsISO(base, 3); };
+  $('#cancelRenew').onclick = () => closeSheet();
+  $('#confirmRenew').onclick = async () => {
+    const newDate = getDate();
+    try{
+      await setDoc(clientRef(c.id), { ...c, dueDate:newDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
+      closeSheet();
+      toast('Cliente renovado hasta ' + newDate);
+    }catch(err){
+      console.error(err);
+      toast('No se pudo renovar.','bad');
+    }
+  };
 }
 async function markNoRenew(c){
   if(!c) return;
@@ -789,8 +815,19 @@ function whatsappUrlForClient(c, mode='delivery'){
     else if(ds.days === 0) statusText = `tu cuenta de ${service} vence hoy.`;
     else if(ds.days <= 7) statusText = `tu cuenta de ${service} esta por vencer el ${c.dueDate || 'dia indicado'}.`;
     const payText = paymentMethodsText();
-    const pay = payText ? `\n\nMedios de pago:\n${payText}` : '';
-    text = `Hola ${clientName(c)}, ${statusText}${pay}`;
+    const pay = payText ? `\n\n💳 Medios de pago:\n${payText}` : '';
+    const email = clean(acc?.email);
+    const password = clean(acc?.password);
+    const profile = clean(c.profile);
+    const pin = clean(c.pin);
+    const accountDetails = [
+      email ? `📧 Correo: ${email}` : '',
+      password ? `🔑 Contrasena: ${password}` : '',
+      profile ? `👤 Perfil: ${profile}` : '',
+      pin ? `🔒 PIN: ${pin}` : '',
+      `📅 Vence: ${c.dueDate || '-'}`
+    ].filter(Boolean).join('\n');
+    text = `Hola ${clientName(c)}, ${statusText}\n\n📋 Datos de tu cuenta:\n${accountDetails}${pay}`;
   }else{
     const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
