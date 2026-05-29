@@ -3604,8 +3604,6 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
       <button class="ghost-btn" id="openSettingsBtn"><i data-lucide="settings"></i><span>Ajustes</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
-      <label class="ghost-btn" for="importFile"><i data-lucide="upload"></i><span>Importar</span></label>
-      <input id="importFile" type="file" accept="application/json" />
     </div>
   </aside>
 
@@ -5499,22 +5497,6 @@ $('#saveClientBtn').onclick=async ()=>{
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='gestion-streaming-backup.json'; a.click(); URL.revokeObjectURL(a.href); };
-$('#importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ state=loadImported(JSON.parse(reader.result)); persist(); refresh(); alert('✅ Datos importados y guardados en la nube'); } catch(err){ alert(err?.message || 'Archivo invalido'); } e.target.value=''; }; reader.readAsText(f); };
-function loadImported(data){
-  const imported={accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES]}};
-  if((data.accounts||[]).length > MAX_ACCOUNTS_PER_IMPORT || (data.clients||[]).length > MAX_CLIENTS_PER_IMPORT){
-    throw new Error(`Importacion demasiado grande. Maximo ${MAX_ACCOUNTS_PER_IMPORT} cuentas madre y ${MAX_CLIENTS_PER_IMPORT} clientes.`);
-  }
-  imported.accounts=(data.accounts||[]).map(a=>({ id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'', capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'', notes:a.notes||'' }));
-  imported.clients=(data.clients||[]).map(c=>({ id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'', profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'', lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||'' }));
-  const pm=data.settings?.paymentMethods;
-  if(Array.isArray(pm)) imported.settings.paymentMethods=pm.map(p=>({method:p.method||'',number:p.number||'',holder:p.holder||''}));
-  else if(typeof pm==='string' && pm.trim()) imported.settings.paymentMethods=[{method:'Pago',number:pm.trim(),holder:''}];
-  imported.settings.whatsappPrefix=String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,'');
-  imported.settings.freeSort=data.settings?.freeSort||'platform';
-  imported.settings.categories=uniqueClean([...DEFAULT_CATEGORIES,...(Array.isArray(data.settings?.categories)?data.settings.categories:[])]);
-  return imported;
-}
 
 
 // ===== CARGA MASIVA DE CUENTAS MADRE =====

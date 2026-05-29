@@ -178,7 +178,7 @@ const db = getFirestore(app);
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
-const DEFAULT_PAYMENT_METHODS = 'Yape / Plin: +51974834197';
+const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas',
@@ -211,14 +211,39 @@ const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 
 function normalizeSettings(data={}){
   const categories = Array.isArray(data.categories) ? data.categories.map(clean).filter(Boolean) : DEFAULT_CATEGORIES;
-  const paymentMethods = Array.isArray(data.paymentMethods)
-    ? data.paymentMethods.map(p => ({...p, number: clean(p?.number) === '939401721' ? '974834197' : p?.number}))
-    : (typeof data.paymentMethods === 'string' ? data.paymentMethods.replace(/939401721/g,'974834197').replace(/999 999 999/g,'974834197') : data.paymentMethods);
+  const paymentMethods = normalizePaymentMethods(data.paymentMethods);
   return {
-    paymentMethods: paymentMethods || DEFAULT_PAYMENT_METHODS,
+    paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
     categories: [...new Set(categories)]
   };
+}
+function normalizePaymentMethods(value){
+  const source = Array.isArray(value)
+    ? value
+    : parsePaymentMethodsText(typeof value === 'string' ? value : '');
+  return source
+    .map(p => ({
+      method: clean(p?.method || 'Pago').slice(0,40),
+      number: clean(p?.number).replace(/^939401721$/,'974834197').slice(0,40),
+      holder: clean(p?.holder).slice(0,120)
+    }))
+    .filter(p => p.method || p.number || p.holder)
+    .slice(0,30);
+}
+function parsePaymentMethodsText(text=''){
+  return clean(text)
+    .replace(/939401721/g,'974834197')
+    .replace(/999 999 999/g,'974834197')
+    .split(/\r?\n/)
+    .map(line => clean(line))
+    .filter(Boolean)
+    .map(line => {
+      const [main, holder=''] = line.split(/\s+-\s+/, 2);
+      const parts = main.split(':');
+      if(parts.length > 1) return { method: parts.shift(), number: parts.join(':').trim(), holder };
+      return { method: 'Pago', number: main, holder };
+    });
 }
 function paymentMethodsText(value=state.settings.paymentMethods){
   if(Array.isArray(value)){
