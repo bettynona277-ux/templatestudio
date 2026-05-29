@@ -813,13 +813,41 @@ function addDaysISO(date, days){
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0,10);
 }
-async function renewClient(c){
+function renewClient(c){
   if(!c) return;
-  const base = dueState(c.dueDate).days > 0 ? c.dueDate : todayISO();
-  const nextDate = addDaysISO(base, 30);
+  const currentDue = clean(c.dueDate) || todayISO();
+  const base = dueState(currentDue).days > 0 ? currentDue : todayISO();
+  const oneMonth = addMonthsISO(base, 1);
+  const threeMonths = addMonthsISO(base, 3);
+  openSheet(`<div class="sheet-head"><h3>Renovar cliente</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>${esc(clientName(c))}</strong>
+        <span class="beta-note">Vence actual: ${esc(currentDue || 'Sin fecha')}. Elige cuanto tiempo aumentar antes de guardar.</span>
+      </div>
+      <button class="btn ok" id="renewOneMonth">${icon('calendar')}<span>Renovar 1 mes</span></button>
+      <button class="btn primary" id="renewThreeMonths">${icon('calendar')}<span>Renovar 3 meses</span></button>
+      <form id="renewCustomForm" class="grid">
+        <div class="field"><label>Seleccionar fecha</label><input type="date" name="dueDate" value="${esc(oneMonth)}" required></div>
+        <button class="btn">${icon('save')}<span>Guardar fecha personalizada</span></button>
+      </form>
+    </div>`);
+  $('#renewOneMonth')?.addEventListener('click', () => applyClientRenewal(c, oneMonth, 'Cliente renovado por 1 mes'));
+  $('#renewThreeMonths')?.addEventListener('click', () => applyClientRenewal(c, threeMonths, 'Cliente renovado por 3 meses'));
+  $('#renewCustomForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const customDate = clean(fd.get('dueDate'));
+    if(!customDate) return toast('Selecciona una fecha valida.','bad');
+    applyClientRenewal(c, customDate, 'Cliente renovado hasta ' + customDate);
+  });
+}
+async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'){
+  if(!c || !nextDate) return;
   try{
     await setDoc(clientRef(c.id), { ...c, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
-    toast('Cliente renovado por 30 dias');
+    toast(successMessage);
+    closeSheet();
   }catch(err){
     console.error(err);
     toast('No se pudo renovar.','bad');
