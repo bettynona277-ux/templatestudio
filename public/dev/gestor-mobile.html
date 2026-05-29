@@ -681,8 +681,8 @@ function openClientSheet(item={}){
       submitBtn.textContent = 'Entregar cuenta';
       return;
     }
-    if(isNewSale) window.open(deliveryUrl, '_blank', 'noopener');
     await saveItem('client', data, { newSale:isNewSale, skipDeliverySheet:isNewSale });
+    if(isNewSale) openWhatsApp(data, 'delivery');
     submitBtn.disabled = false;
     submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
   };
@@ -915,14 +915,18 @@ function openSmartAccountClientWhatsApp(c){
   openWhatsApp(c, 'delivery');
 }
 function openWhatsApp(c, mode='delivery', targetWindow=null){
-  const url = whatsappUrlForClient(c, mode);
-  if(!url) return toast('Ese cliente no tiene WhatsApp.','bad');
-  navigatePreparedWhatsapp(targetWindow, url);
+  const payload = whatsappPayloadForClient(c, mode);
+  if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
+  openWhatsAppAppSelector(payload, targetWindow);
 }
 function whatsappUrlForClient(c, mode='delivery'){
-  if(!c) return '';
+  const payload = whatsappPayloadForClient(c, mode);
+  return payload?.webUrl || '';
+}
+function whatsappPayloadForClient(c, mode='delivery'){
+  if(!c) return null;
   const phone = normalizePhone(c.whatsapp);
-  if(!phone) return '';
+  if(!phone) return null;
   const acc = state.accounts.find(a => a.id === c.accountId);
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
@@ -937,21 +941,58 @@ function whatsappUrlForClient(c, mode='delivery'){
     text = `Hola ${clientName(c)} 👋\n\nTe aviso que ${statusText}${pay}\n\nCuando realices el pago, enviame la captura para renovarte el servicio. Gracias 🙌`;
   }else{
     const emoji = {
-      saludo:'\u2728',
-      brillo:'\u2B50',
-      correo:'\u2709',
-      clave:'\u25C6',
-      perfil:'\u25CF',
-      pin:'\u25C7',
-      vence:'\u2611',
-      nota:'\u2714'
+      saludo:'✨',
+      brillo:'⭐',
+      correo:'✉️',
+      clave:'🔐',
+      perfil:'👤',
+      pin:'🔢',
+      vence:'📅',
+      nota:'✅'
     };
     const final = clean(state.settings.finalMessage) ? `\n\n${emoji.nota} ${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
     const password = clean(acc?.password);
     text = `Hola ${clientName(c)} ${emoji.saludo}\n\n${emoji.brillo} Te envio nuevamente los datos de tu cuenta de ${service}:\n\n${emoji.correo} Correo: ${email || '-'}\n${emoji.clave} Contrasena: ${password || '-'}\n${emoji.perfil} Perfil: ${clean(c.profile) || '-'}\n${emoji.pin} PIN: ${clean(c.pin) || '-'}\n${emoji.vence} Vence: ${clean(c.dueDate) || '-'}${final}`;
   }
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  const encodedText = encodeURIComponent(text);
+  const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
+  const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
+  return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
+}
+function openWhatsAppAppSelector(payload, targetWindow=null){
+  const isAndroid = /Android/i.test(navigator.userAgent || '');
+  const go = url => {
+    closeSheet();
+    navigatePreparedWhatsapp(targetWindow, url);
+  };
+  openSheet(`<div class="sheet-head"><h3>Enviar por WhatsApp</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>Elige que WhatsApp usar</strong>
+        <span class="beta-note">Selecciona si quieres enviar este mensaje desde WhatsApp normal o WhatsApp Business.</span>
+      </div>
+      <button class="btn ok" id="sendWaNormal">${icon('message')}<span>WhatsApp normal</span></button>
+      <button class="btn primary" id="sendWaBusiness">${icon('message')}<span>WhatsApp Business</span></button>
+      <button class="btn" id="sendWaChooser">${icon('message')}<span>${isAndroid ? 'Abrir selector del celular' : 'Abrir WhatsApp'}</span></button>
+      <button class="btn" id="sendWaWeb">${icon('copy')}<span>Abrir por navegador</span></button>
+      <button class="btn" id="copyWaText">${icon('copy')}<span>Copiar mensaje</span></button>
+      <span class="beta-note">Si una opcion no abre, probablemente esa app no esta instalada. Usa la otra opcion o abre por navegador.</span>
+    </div>`);
+  $('#sendWaNormal')?.addEventListener('click', () => go(isAndroid ? payload.normalUrl : payload.webUrl));
+  $('#sendWaBusiness')?.addEventListener('click', () => go(isAndroid ? payload.businessUrl : payload.webUrl));
+  $('#sendWaChooser')?.addEventListener('click', () => go(isAndroid ? payload.chooserUrl : payload.webUrl));
+  $('#sendWaWeb')?.addEventListener('click', () => go(payload.webUrl));
+  $('#copyWaText')?.addEventListener('click', async () => {
+    try{
+      await navigator.clipboard.writeText(payload.text);
+      toast('Mensaje copiado.');
+    }catch(_){
+      toast('No se pudo copiar el mensaje.','bad');
+    }
+  });
 }
 function openDeliveryPendingWindow(){
   const win = window.open('', '_blank');
