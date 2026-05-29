@@ -22,7 +22,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot,
+  getFirestore, doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -69,12 +69,14 @@ async function loadFromSubcollections(uid) {
     getDocs(clientsCol(uid)),
     getDoc(settingsRef(uid))
   ]);
-  const accounts  = accSnap.docs.map(d => d.data());
-  const clients   = cliSnap.docs.map(d => d.data());
+  const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const settings  = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform' };
   window.__loadFromFirestore({ accounts, clients, settings });
 }
+
+// Carga solo al abrir o al recargar la página para reducir lecturas de Firestore.
 
 function isExpiredUser(data) {
   const status = String(data?.subscriptionStatus || data?.status || '').toLowerCase();
@@ -246,31 +248,9 @@ onAuthStateChanged(auth, async user => {
   // Migrar si es necesario
   await migrateIfNeeded(user.uid);
 
-  // Cargar datos
+  // Cargar datos una sola vez al iniciar.
+  // Se quitaron las escuchas en tiempo real para reducir lecturas de Firestore.
   await loadFromSubcollections(user.uid);
-
-  // Escuchar cambios en tiempo real sin volver a leer ambas colecciones completas.
-  // Solo recargar si el cambio viene de otra sesión (no de nuestras propias escrituras)
-  onSnapshot(accountsCol(user.uid), (snap) => {
-    if (!window.__saving && !window.__loadingFromFirestore) {
-      const fromServer = snap.metadata.hasPendingWrites === false;
-      if (fromServer) {
-        state.accounts = snap.docs.map(d => d.data());
-        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-        refreshUI();
-      }
-    }
-  });
-  onSnapshot(clientsCol(user.uid), (snap) => {
-    if (!window.__saving && !window.__loadingFromFirestore) {
-      const fromServer = snap.metadata.hasPendingWrites === false;
-      if (fromServer) {
-        state.clients = snap.docs.map(d => d.data());
-        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-        refreshUI();
-      }
-    }
-  });
 });
 
 // ── Sanitizadores Firestore ───────────────────────────────────────────────
