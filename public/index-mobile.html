@@ -8,6 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diseños">
 <title>Diseños Streaming</title>
+<script src="app-check-config.js"></script>
+<script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -289,15 +291,16 @@ a{text-decoration:none;color:inherit;}
 
 .dash-tabs{
   position:sticky;top:64px;z-index:110;
-  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
   padding:12px 14px 10px;
   background:linear-gradient(180deg, rgba(7,11,22,0.96) 0%, rgba(7,11,22,0.82) 100%);
   backdrop-filter:blur(18px);
 }
 .dash-tab{
-  min-height:46px;border:none;border-radius:14px;
+  min-height:46px;border:none;border-radius:14px;padding:7px 6px;
   background:rgba(255,255,255,0.04);color:var(--muted);
-  font-size:0.84rem;font-weight:800;letter-spacing:-0.01em;
+  font-size:0.76rem;font-weight:800;letter-spacing:-0.01em;
+  white-space:nowrap;
 }
 .dash-tab.active{
   color:#fff;background:linear-gradient(135deg, rgba(124,92,252,0.22), rgba(95,215,255,0.16));
@@ -504,6 +507,7 @@ a{text-decoration:none;color:inherit;}
   <div class="dash-tabs">
     <button class="dash-tab active" id="tab-mis" onclick="switchTab('mis')">Mis diseños</button>
     <button class="dash-tab" id="tab-tpl" onclick="switchTab('tpl')">Plantillas</button>
+    <button class="dash-tab" type="button" onclick="openGestorMobile()">Gestor</button>
     <button class="dash-tab" id="tab-perfil" onclick="switchTab('perfil')">👤 Perfil</button>
   </div>
 
@@ -810,6 +814,10 @@ function switchTab(tab){
   });
 }
 
+function openGestorMobile(){
+  window.location.href = '/gestor-mobile.html';
+}
+
 // ═══════════════════════════════════
 // PERFIL USUARIO — índex móvil
 // ═══════════════════════════════════
@@ -873,11 +881,19 @@ function loadScript(src){
 
 async function initFirebase(){
   await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
+  await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check-compat.js');
   await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js');
   await loadScript('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js');
   try{
     try{ fbApp = firebase.app('ts-client'); }
     catch(e){ fbApp = firebase.initializeApp(FIREBASE_CONFIG, 'ts-client'); }
+    try{
+      const appCheckKey = window.FIREBASE_APPCHECK_SITE_KEY || '';
+      if(appCheckKey && firebase.appCheck && !window.__firebaseAppCheckReady){
+        firebase.appCheck(fbApp).activate(appCheckKey, true);
+        window.__firebaseAppCheckReady = true;
+      }
+    }catch(e){ console.warn('App Check no se pudo activar:', e.message); }
     fbDb = firebase.firestore(fbApp);
     fbAuth = firebase.auth(fbApp);
     try{ await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}

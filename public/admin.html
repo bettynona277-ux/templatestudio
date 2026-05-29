@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diseños Streaming — Admin</title>
+<script src="app-check-config.js"></script>
+<script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -52,6 +54,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .btn-ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
 .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
 .btn-full{width:100%;margin-top:6px;}
+.client-status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 10px;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;}
+.client-status.active{background:rgba(0,200,150,0.14);color:var(--accent);border:1px solid rgba(0,200,150,0.22);}
+.client-status.inactive{background:rgba(255,107,107,0.14);color:var(--accent2);border:1px solid rgba(255,107,107,0.24);}
 
 /* LAYOUT */
 .layout{display:flex;flex:1;overflow:hidden;}
@@ -364,6 +369,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app-check.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
 
@@ -390,6 +396,13 @@ async function initFB(cfg) {
   try {
     if (!firebase.apps.length) fbApp = firebase.initializeApp(cfg);
     else fbApp = firebase.app();
+    try{
+      const appCheckKey = window.FIREBASE_APPCHECK_SITE_KEY || '';
+      if(appCheckKey && firebase.appCheck && !window.__firebaseAppCheckReady){
+        firebase.appCheck(fbApp).activate(appCheckKey, true);
+        window.__firebaseAppCheckReady = true;
+      }
+    }catch(e){ console.warn('App Check no se pudo activar:', e.message); }
     fbAuth = firebase.auth();
     fbDb = firebase.firestore();
     fbConnected = true;
@@ -467,9 +480,9 @@ async function doAdminLogin() {
       btn.textContent = 'Entrar al Panel'; btn.disabled = false;
       return;
     }
-    // Guardar credenciales para auto-login del editor
+    // Guardar solo configuracion no sensible. Nunca guardar contrasena admin en el navegador.
     localStorage.setItem('ts_admin_email', email);
-    localStorage.setItem('ts_admin_pass', pass);
+    localStorage.removeItem('ts_admin_pass');
     localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG));
     btn.textContent = 'Entrar al Panel'; btn.disabled = false;
   } catch(e) {
@@ -666,6 +679,9 @@ async function createUser() {
       uid: data.localId,
       email: email,
       name: name || email.split('@')[0],
+      active: true,
+      status: 'active',
+      subscriptionStatus: 'active',
       createdAt: Date.now()
     });
 
@@ -681,7 +697,7 @@ async function createUser() {
   btn.textContent = 'Crear Cuenta';
 }
 
-async function loadUsers() {
+async function legacyLoadUsers() {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
@@ -723,7 +739,7 @@ async function loadUsers() {
   }
 }
 
-async function deleteUser(id) {
+async function hardDeleteUser(id) {
   if(!confirm('¿Borrar este cliente? Solo se elimina de Firestore, no de Firebase Auth.')) return;
   await fbDb.collection('users').doc(id).delete();
   loadUsers();
@@ -732,6 +748,84 @@ async function deleteUser(id) {
 // ══════════════════════════════════════════
 // MODAL LINK DE PLANTILLA
 // ══════════════════════════════════════════
+async function loadUsers() {
+  if(!fbConnected) return;
+  const wrap = document.getElementById('users-table-wrap');
+  try {
+    const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
+    if(snap.empty) {
+      wrap.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">No hay clientes registrados aun.</p>';
+      return;
+    }
+    const inactiveStatuses = ['expired','Expired','vencido','Vencido','inactive','Inactive','inactivo','Inactivo','blocked','Blocked','bloqueado','Bloqueado'];
+    let rows = '';
+    snap.forEach(doc => {
+      const d = doc.data() || {};
+      const fecha = d.createdAt ? new Date(d.createdAt).toLocaleDateString('es-PE') : '-';
+      const loginUrl = `${location.origin}/index.html`;
+      const currentStatus = d.subscriptionStatus != null ? d.subscriptionStatus : d.status;
+      const isInactive = d.active === false || inactiveStatuses.includes(currentStatus);
+      const statusLabel = isInactive ? 'Inactivo' : 'Activo';
+      const statusClass = isInactive ? 'inactive' : 'active';
+      const name = escHtml(d.name || '-');
+      const email = escHtml(d.email || '');
+      rows += `
+        <tr>
+          <td><strong style="font-size:0.82rem;">${name}</strong></td>
+          <td style="color:var(--muted);font-size:0.78rem;">${email}</td>
+          <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
+          <td><span class="client-status ${statusClass}">${statusLabel}</span></td>
+          <td>
+            <button class="user-link" onclick="showLinkModal('${loginUrl}','${email}')">Ver link</button>
+            <button class="copy-link" onclick="copyText('${loginUrl}')">Copiar</button>
+          </td>
+          <td>
+            <button class="btn-devices" onclick="showDevices('${doc.id}', '${name || email}')">Dispositivos</button>
+            ${isInactive
+              ? `<button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px;" onclick="reactivateUser('${doc.id}')">Reactivar</button>`
+              : `<button class="btn btn-red" onclick="deactivateUser('${doc.id}')">Inhabilitar</button>`}
+          </td>
+        </tr>`;
+    });
+    wrap.innerHTML = `
+      <table class="users-table">
+        <thead><tr>
+          <th>Nombre</th><th>Email</th><th>Registro</th><th>Estado</th><th>Link acceso</th><th>Accion</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch(e) {
+    wrap.innerHTML = '<p style="color:var(--accent2);">Error al cargar clientes.</p>';
+    console.error(e);
+  }
+}
+
+async function deactivateUser(id) {
+  if(!confirm('Inhabilitar este cliente? Podra iniciar sesion solo para exportar sus datos, pero no podra usar el editor ni guardar cuentas.')) return;
+  await fbDb.collection('users').doc(id).set({
+    active: false,
+    status: 'vencido',
+    subscriptionStatus: 'vencido',
+    disabledAt: Date.now(),
+    disabledBy: fbAuth.currentUser ? fbAuth.currentUser.uid : null,
+    updatedAt: Date.now()
+  }, { merge: true });
+  showToast('Cliente inhabilitado. Firebase Auth queda activo para exportar Excel.');
+  loadUsers();
+}
+
+async function reactivateUser(id) {
+  await fbDb.collection('users').doc(id).set({
+    active: true,
+    status: 'active',
+    subscriptionStatus: 'active',
+    reactivatedAt: Date.now(),
+    updatedAt: Date.now()
+  }, { merge: true });
+  showToast('Cliente reactivado.');
+  loadUsers();
+}
+
 function showTemplateLink(id, name, isDraft) {
   const url = `${location.origin}/editor.html?mode=client&tpl=${id}`;
   _currentLinkUrl = url;
