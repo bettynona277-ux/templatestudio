@@ -403,14 +403,21 @@ function openClientSheet(item={}){
     e.preventDefault();
     const submitBtn = $('#clientSubmitBtn');
     const isNewSale = !c.id;
-    const deliveryWindow = isNewSale ? openDeliveryPendingWindow() : null;
     submitBtn.disabled = true;
     submitBtn.textContent = isNewSale ? 'Guardando...' : 'Guardando...';
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
     const account = state.accounts.find(a => a.id === fd.accountId);
     const data = {...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || '', updatedAt:new Date().toISOString()};
     if(!c.id) data.createdAt = data.updatedAt;
-    await saveItem('client', data, { newSale:isNewSale, deliverAfterSave:isNewSale, deliveryWindow });
+    const deliveryUrl = isNewSale ? whatsappUrlForClient(data, 'delivery') : '';
+    if(isNewSale && !deliveryUrl){
+      toast('Agrega el WhatsApp del cliente para entregar.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Entregar cuenta';
+      return;
+    }
+    if(isNewSale) window.open(deliveryUrl, '_blank', 'noopener');
+    await saveItem('client', data, { newSale:isNewSale, skipDeliverySheet:isNewSale });
     submitBtn.disabled = false;
     submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
   };
@@ -454,11 +461,7 @@ async function saveItem(kind,data,opts={}){
       state.query = data.whatsapp || clientName(data);
       document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'clients'));
       render();
-      if(opts.deliverAfterSave){
-        openWhatsApp(data, 'delivery', opts.deliveryWindow);
-      }else{
-        setTimeout(() => openSaleDeliverySheet(data), 80);
-      }
+      if(!opts.skipDeliverySheet) setTimeout(() => openSaleDeliverySheet(data), 80);
     }
   }catch(err){
     console.error(err);
@@ -554,12 +557,14 @@ async function markNoRenew(c){
   }
 }
 function openWhatsApp(c, mode='delivery', targetWindow=null){
-  if(!c) return;
+  const url = whatsappUrlForClient(c, mode);
+  if(!url) return toast('Ese cliente no tiene WhatsApp.','bad');
+  navigatePreparedWhatsapp(targetWindow, url);
+}
+function whatsappUrlForClient(c, mode='delivery'){
+  if(!c) return '';
   const phone = normalizePhone(c.whatsapp);
-  if(!phone){
-    if(targetWindow && !targetWindow.closed) targetWindow.close();
-    return toast('Ese cliente no tiene WhatsApp.','bad');
-  }
+  if(!phone) return '';
   const acc = state.accounts.find(a => a.id === c.accountId);
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
@@ -576,8 +581,7 @@ function openWhatsApp(c, mode='delivery', targetWindow=null){
     const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
     text = `Hola ${clientName(c)}, te envio los datos de tu cuenta de ${service}.\n\nPerfil: ${clean(c.profile) || '-'}\nPIN: ${clean(c.pin) || '-'}\nVence: ${clean(c.dueDate) || '-'}${pay}${final}`;
   }
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-  navigatePreparedWhatsapp(targetWindow, url);
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
 function openDeliveryPendingWindow(){
   const win = window.open('', '_blank');

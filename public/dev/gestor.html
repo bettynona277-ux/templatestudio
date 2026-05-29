@@ -5178,17 +5178,21 @@ function navigatePreparedWhatsapp(targetWindow,url){
   }
   window.open(url,'_blank');
 }
+function whatsappUrlForClient(client,context=''){
+  const phone=normalizePhone(client?.whatsapp);
+  if(!phone) return '';
+  const account=state.accounts.find(a=>a.id===client.accountId);
+  const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
-  const phone=normalizePhone(client.whatsapp);
-  if(!phone){
+  const url=whatsappUrlForClient(client,context);
+  if(!url){
     if(targetWindow && !targetWindow.closed) targetWindow.close();
     alert('Este cliente no tiene WhatsApp registrado.');
     return;
   }
-  const account=state.accounts.find(a=>a.id===client.accountId);
-  const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
-  const url=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
   navigatePreparedWhatsapp(targetWindow,url);
   if(context==='renewal'){
     client.lastRenewalWhatsAppNoticeDate=todayStr();
@@ -5427,13 +5431,11 @@ $('#saveAccountBtn').onclick=async ()=>{
 };
 $('#saveClientBtn').onclick=async ()=>{
   const wasNewSale=!editingClientId;
-  const deliveryWindow=wasNewSale ? openDeliveryPendingWindow() : null;
   const saveBtn=$('#saveClientBtn');
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
   if(!name || !accountId){
-    if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
     alert('Completa nombre y cuenta madre');
     saveBtn.disabled=false;
     setClientSubmitMode(wasNewSale);
@@ -5446,9 +5448,16 @@ $('#saveClientBtn').onclick=async ()=>{
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
   };
+  const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
+  if(wasNewSale && !deliveryUrl){
+    alert('Agrega el WhatsApp del cliente para entregar la cuenta.');
+    saveBtn.disabled=false;
+    setClientSubmitMode(true);
+    return;
+  }
+  if(wasNewSale) window.open(deliveryUrl,'_blank');
   const ok = await persistDoc('clients', data);
   if(!ok){
-    if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
     saveBtn.disabled=false;
     setClientSubmitMode(wasNewSale);
     return;
@@ -5458,7 +5467,6 @@ $('#saveClientBtn').onclick=async ()=>{
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){
     focusClientAfterSale(data);
-    window.sendWhatsapp(data.id,'delivery',deliveryWindow);
   }
   saveBtn.disabled=false;
   setClientSubmitMode(false);
