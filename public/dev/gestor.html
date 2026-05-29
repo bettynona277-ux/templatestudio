@@ -4,6 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Gestor Streaming — Disenos Streaming</title>
+<script>
+  // Redirección automática a versión móvil
+  (function() {
+    var isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
+      || (window.innerWidth <= 768 && 'ontouchstart' in window);
+    if (isMobile) {
+      window.location.replace('https://disenosstreaming.com/gestor-mobile.html');
+    }
+  })();
+</script>
 <script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
@@ -12,7 +22,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot,
+  getFirestore, doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -59,12 +69,25 @@ async function loadFromSubcollections(uid) {
     getDocs(clientsCol(uid)),
     getDoc(settingsRef(uid))
   ]);
-  const accounts  = accSnap.docs.map(d => d.data());
-  const clients   = cliSnap.docs.map(d => d.data());
+  const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const settings  = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform' };
   window.__loadFromFirestore({ accounts, clients, settings });
 }
+
+window.__manualRefreshGestor = async function(showToast = true) {
+  const user = auth.currentUser;
+  if (!user || window.__loadingFromFirestore || window.__saving) return;
+  try {
+    if (showToast) notifySaveStatus('saving', 'Actualizando datos...');
+    await loadFromSubcollections(user.uid);
+    if (showToast) notifySaveStatus('success', 'Datos actualizados.');
+  } catch (err) {
+    console.error('No se pudieron actualizar los datos:', err);
+    if (showToast) notifySaveStatus('error', 'No se pudieron actualizar los datos.');
+  }
+};
 
 function isExpiredUser(data) {
   const status = String(data?.subscriptionStatus || data?.status || '').toLowerCase();
@@ -204,7 +227,7 @@ async function permissionDebugMessage(uid, colName) {
 // ── Auth listener ──────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
   if (!user) {
-    const next = location.pathname.includes('/dev/') ? '/dev/gestor.html' : '/gestor.html';
+    const next = '/gestor.html';
     window.location.href = `/gestor-login.html?next=${encodeURIComponent(next)}`;
     return;
   }
@@ -236,32 +259,87 @@ onAuthStateChanged(auth, async user => {
   // Migrar si es necesario
   await migrateIfNeeded(user.uid);
 
-  // Cargar datos
+  // Cargar datos una sola vez al iniciar.
+  // Se quitaron las escuchas en tiempo real para reducir lecturas de Firestore.
   await loadFromSubcollections(user.uid);
-
-  // Escuchar cambios en tiempo real sin volver a leer ambas colecciones completas.
-  // Solo recargar si el cambio viene de otra sesión (no de nuestras propias escrituras)
-  onSnapshot(accountsCol(user.uid), (snap) => {
-    if (!window.__saving && !window.__loadingFromFirestore) {
-      const fromServer = snap.metadata.hasPendingWrites === false;
-      if (fromServer) {
-        state.accounts = snap.docs.map(d => d.data());
-        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-        refreshUI();
-      }
-    }
-  });
-  onSnapshot(clientsCol(user.uid), (snap) => {
-    if (!window.__saving && !window.__loadingFromFirestore) {
-      const fromServer = snap.metadata.hasPendingWrites === false;
-      if (fromServer) {
-        state.clients = snap.docs.map(d => d.data());
-        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-        refreshUI();
-      }
-    }
-  });
 });
+
+// ── Sanitizadores Firestore ───────────────────────────────────────────────
+// Evitan "Missing or insufficient permissions" cuando el formulario/localStorage
+// trae campos extra o tipos incorrectos que no pasan las reglas de seguridad.
+function fsString(value, maxLen, fallback = '') {
+  return String(value ?? fallback).trim().slice(0, maxLen);
+}
+function fsOptionalString(value, maxLen) {
+  const text = String(value ?? '').trim().slice(0, maxLen);
+  return text || null;
+}
+function fsValidId(value) {
+  let text = String(value ?? '').trim().slice(0, 80);
+  if (!text && typeof crypto !== 'undefined' && crypto.randomUUID) text = crypto.randomUUID();
+  if (!text) text = 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return text;
+}
+function sanitizeGestorAccountForFirestore(data = {}) {
+  const id = fsValidId(data.id);
+  let capacity = Number(data.capacity);
+  if (!Number.isFinite(capacity)) capacity = 1;
+  capacity = Math.max(1, Math.min(500, Math.round(capacity)));
+  return {
+    id,
+    platform: fsString(data.platform, 120, 'Cuenta'),
+    provider: fsOptionalString(data.provider, 120),
+    providerWhatsapp: fsOptionalString(data.providerWhatsapp, 64),
+    email: fsOptionalString(data.email, 240),
+    password: fsOptionalString(data.password, 240),
+    capacity,
+    dueDate: fsOptionalString(data.dueDate, 20),
+    notes: fsOptionalString(data.notes, 1000),
+    category: fsOptionalString(data.category, 120),
+    createdAt: fsOptionalString(data.createdAt, 40),
+    updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
+  };
+}
+function sanitizeGestorClientForFirestore(data = {}) {
+  const id = fsValidId(data.id);
+  return {
+    id,
+    name: fsString(data.name, 120, 'Cliente'),
+    whatsapp: fsOptionalString(data.whatsapp, 32),
+    accountId: fsValidId(data.accountId),
+    platform: fsOptionalString(data.platform, 80),
+    profile: fsOptionalString(data.profile, 50),
+    pin: fsOptionalString(data.pin, 50),
+    dueDate: fsOptionalString(data.dueDate, 20),
+    state: fsOptionalString(data.state, 30),
+    notes: fsOptionalString(data.notes, 1000),
+    lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
+    createdAt: fsOptionalString(data.createdAt, 40),
+    updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
+  };
+}
+function sanitizeGestorSettingsForFirestore(settings = {}) {
+  const paymentMethods = Array.isArray(settings.paymentMethods)
+    ? settings.paymentMethods.slice(0, 30)
+    : (typeof settings.paymentMethods === 'string' && settings.paymentMethods.trim()
+      ? settings.paymentMethods.slice(0, 2000)
+      : []);
+  const categories = Array.isArray(settings.categories)
+    ? settings.categories.map(c => String(c ?? '').trim()).filter(Boolean).slice(0, 50)
+    : [];
+  return {
+    paymentMethods,
+    whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
+    freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
+    categories,
+    finalMessage: fsOptionalString(settings.finalMessage, 500)
+  };
+}
+function sanitizeGestorDocForFirestore(colName, data) {
+  return colName === 'accounts'
+    ? sanitizeGestorAccountForFirestore(data)
+    : sanitizeGestorClientForFirestore(data);
+}
 
 // ── Persistir: escribe solo lo que cambió ────────────────────────────────
 window.__persistDebounceTimer = null;
@@ -293,11 +371,12 @@ window.__persistToFirestore = async function(stateData) {
       const ops = [];
 
       // Settings — siempre escribir
-      ops.push({ type: 'set', ref: settingsRef(uid), data: stateData.settings || {} });
+      ops.push({ type: 'set', ref: settingsRef(uid), data: sanitizeGestorSettingsForFirestore(stateData.settings || {}) });
 
       // Accounts: setDoc para cada uno (crea o sobreescribe)
       for (const a of (stateData.accounts || [])) {
-        ops.push({ type: 'set', ref: doc(accountsCol(uid), a.id), data: a });
+        const safeAccount = sanitizeGestorAccountForFirestore(a);
+        ops.push({ type: 'set', ref: doc(accountsCol(uid), safeAccount.id), data: safeAccount });
       }
       // Accounts que ya no existen → borrar
       for (const id of existingAccIds) {
@@ -308,7 +387,8 @@ window.__persistToFirestore = async function(stateData) {
 
       // Clients: setDoc para cada uno
       for (const c of (stateData.clients || [])) {
-        ops.push({ type: 'set', ref: doc(clientsCol(uid), c.id), data: c });
+        const safeClient = sanitizeGestorClientForFirestore(c);
+        ops.push({ type: 'set', ref: doc(clientsCol(uid), safeClient.id), data: safeClient });
       }
       // Clients que ya no existen → borrar
       for (const id of existingCliIds) {
@@ -351,9 +431,11 @@ window.__persistSingleDoc = async function(colName, docData) {
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
+    const safeData = sanitizeGestorDocForFirestore(colName, docData);
+    console.log('DOC LIMPIO PARA FIRESTORE:', colName, JSON.stringify(safeData, null, 2));
     notifySaveStatus('saving', 'Guardando dato...');
-    await setDoc(doc(colRef, docData.id), docData);
-    console.log('✅ Doc guardado:', colName, docData.id);
+    await setDoc(doc(colRef, safeData.id), safeData);
+    console.log('✅ Doc guardado:', colName, safeData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
@@ -387,7 +469,7 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
-    await setDoc(settingsRef(user.uid), settingsData || {});
+    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}));
     console.log('✅ Settings guardados');
     notifySaveStatus('success', 'Ajustes guardados.');
   } catch (err) {
@@ -3603,9 +3685,8 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       </div>
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
       <button class="ghost-btn" id="openSettingsBtn"><i data-lucide="settings"></i><span>Ajustes</span></button>
+      <button class="ghost-btn" id="refreshBtn"><i data-lucide="refresh-cw"></i><span>Actualizar</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
-      <label class="ghost-btn" for="importFile"><i data-lucide="upload"></i><span>Importar</span></label>
-      <input id="importFile" type="file" accept="application/json" />
     </div>
   </aside>
 
@@ -3752,8 +3833,8 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       <button class="x" data-close="clientModalWrap">×</button>
     </div>
     <div class="form">
-      <label>Nombre<input class="input" id="cName" placeholder="Jose" /></label>
-      <label>WhatsApp<input class="input" id="cWhatsapp" placeholder="939401721" /></label>
+      <label>Nombre<input class="input" id="cName" placeholder="Deros Rafael" /></label>
+      <label>WhatsApp<input class="input" id="cWhatsapp" placeholder="974834197" /></label>
       <label>Cuenta madre<select class="select" id="cAccount"></select></label>
       <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
       <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
@@ -3779,8 +3860,8 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       <label>Plataforma
         <select class="select" id="aPlatformSelect"></select>
       </label>
-      <label>Proveedor<input class="input" id="aProvider" placeholder="Bertha / cuenta propia" /></label>
-      <label>WhatsApp proveedor<input class="input" id="aProviderWhatsapp" placeholder="939401721" /></label>
+      <label>Proveedor<input class="input" id="aProvider" placeholder="Deros Rafael / cuenta propia" /></label>
+      <label>WhatsApp proveedor<input class="input" id="aProviderWhatsapp" placeholder="974834197" /></label>
       <label>Correo<input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></label>
       <label>Contraseña<input class="input" id="aPassword" placeholder="contraseña de la cuenta" /></label>
       <label>Capacidad<input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></label>
@@ -3960,7 +4041,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -3990,9 +4071,41 @@ function persistDeleteDoc(colName, docId){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistDeleteDoc) window.__persistDeleteDoc(colName, docId);
 }
+function sanitizeSettingsForSave(settings={}){
+  return {
+    paymentMethods: Array.isArray(settings.paymentMethods)
+      ? settings.paymentMethods
+          .filter(p => p && (p.method || p.number || p.holder))
+          .slice(0, 30)
+          .map(p => ({
+            method: String(p.method || '').slice(0, 40),
+            number: String(p.number || '').slice(0, 40),
+            holder: String(p.holder || '').slice(0, 120)
+          }))
+      : [],
+    whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
+    freeSort: String(settings.freeSort || 'platform').slice(0, 30),
+    categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
+    finalMessage: String(settings.finalMessage || '').slice(0, 500)
+  };
+}
 function persistSettings(){
+  state.settings = sanitizeSettingsForSave(state.settings);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
+}
+function sanitizeAccountForSave(data={}){
+  return {
+    id: String(data.id || uid()).trim().slice(0,80),
+    platform: String(data.platform || '').trim().slice(0,120),
+    provider: String(data.provider || '').trim().slice(0,120),
+    providerWhatsapp: String(data.providerWhatsapp || '').trim().slice(0,64),
+    email: String(data.email || '').trim().slice(0,240),
+    password: String(data.password || '').trim().slice(0,240),
+    capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
+    dueDate: String(data.dueDate || '').trim().slice(0,20),
+    notes: String(data.notes || '').trim().slice(0,1000)
+  };
 }
 function updateExpiredSummary(){
   const acc=$('#expiredAccountsCount');
@@ -4922,8 +5035,8 @@ function renderPaymentRows(){
   $('#paymentList').innerHTML=(state.settings.paymentMethods||[]).length ? state.settings.paymentMethods.map((p,i)=>`
     <div class="payment-row">
       <label>Medio<input class="input" data-pay="method" data-index="${i}" value="${escapeAttr(p.method||'')}" placeholder="Yape" /></label>
-      <label>Número<input class="input" data-pay="number" data-index="${i}" value="${escapeAttr(p.number||'')}" placeholder="939401721" /></label>
-      <label>Nombre<input class="input" data-pay="holder" data-index="${i}" value="${escapeAttr(p.holder||'')}" placeholder="Bertha D. Nonajulca M." /></label>
+      <label>Número<input class="input" data-pay="number" data-index="${i}" value="${escapeAttr(p.number||'')}" placeholder="974834197" /></label>
+      <label>Nombre<input class="input" data-pay="holder" data-index="${i}" value="${escapeAttr(p.holder||'')}" placeholder="Deros Rafael" /></label>
       <button class="mini" type="button" onclick="removePayment(${i})">Borrar</button>
     </div>`).join('') : `<div class="empty">Sin medios de pago</div>`;
 }
@@ -5415,10 +5528,10 @@ $('#saveAccountBtn').onclick=async ()=>{
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
-  const data={
+  const data=sanitizeAccountForSave({
     id:editingAccountId||uid(), platform, provider:$('#aProvider').value.trim(), providerWhatsapp:$('#aProviderWhatsapp').value.trim(), capacity,
     email:$('#aEmail').value.trim(), password:$('#aPassword').value.trim(), dueDate:$('#aDueDisplay').value.trim(), notes:$('#aNotes').value.trim()
-  };
+  });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
   const ok = await persistDoc('accounts', data);
@@ -5479,23 +5592,8 @@ $('#saveClientBtn').onclick=async ()=>{
 };
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
-$('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='gestion-streaming-backup.json'; a.click(); URL.revokeObjectURL(a.href); };
-$('#importFile').onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ state=loadImported(JSON.parse(reader.result)); persist(); refresh(); alert('✅ Datos importados y guardados en la nube'); } catch(err){ alert(err?.message || 'Archivo invalido'); } e.target.value=''; }; reader.readAsText(f); };
-function loadImported(data){
-  const imported={accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES]}};
-  if((data.accounts||[]).length > MAX_ACCOUNTS_PER_IMPORT || (data.clients||[]).length > MAX_CLIENTS_PER_IMPORT){
-    throw new Error(`Importacion demasiado grande. Maximo ${MAX_ACCOUNTS_PER_IMPORT} cuentas madre y ${MAX_CLIENTS_PER_IMPORT} clientes.`);
-  }
-  imported.accounts=(data.accounts||[]).map(a=>({ id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'', capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'', notes:a.notes||'' }));
-  imported.clients=(data.clients||[]).map(c=>({ id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'', profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'', lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||'' }));
-  const pm=data.settings?.paymentMethods;
-  if(Array.isArray(pm)) imported.settings.paymentMethods=pm.map(p=>({method:p.method||'',number:p.number||'',holder:p.holder||''}));
-  else if(typeof pm==='string' && pm.trim()) imported.settings.paymentMethods=[{method:'Pago',number:pm.trim(),holder:''}];
-  imported.settings.whatsappPrefix=String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,'');
-  imported.settings.freeSort=data.settings?.freeSort||'platform';
-  imported.settings.categories=uniqueClean([...DEFAULT_CATEGORIES,...(Array.isArray(data.settings?.categories)?data.settings.categories:[])]);
-  return imported;
-}
+$('#refreshBtn').onclick=()=>window.__manualRefreshGestor?.();
+$('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
 // ===== CARGA MASIVA DE CUENTAS MADRE =====
