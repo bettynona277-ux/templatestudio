@@ -588,8 +588,7 @@ function openClientSheet(item={}){
     submitBtn.textContent = isNewSale ? 'Guardando...' : 'Guardando...';
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
     const account = state.accounts.find(a => a.id === fd.accountId);
-    const data = {...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || '', updatedAt:new Date().toISOString()};
-    if(!c.id) data.createdAt = data.updatedAt;
+    const data = sanitizeClientForSave({...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || ''});
     const deliveryUrl = isNewSale ? whatsappUrlForClient(data, 'delivery') : '';
     if(isNewSale && !deliveryUrl){
       toast('Agrega el WhatsApp del cliente para entregar.','bad');
@@ -626,15 +625,15 @@ function openAccountSheet(item={}){
   $('#accountForm').onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
-    const data = {...a, ...fd, capacity:Number(fd.capacity || 0), id:a.id || id(), updatedAt:new Date().toISOString()};
-    if(!a.id) data.createdAt = data.updatedAt;
+    const data = sanitizeAccountForSave({...a, ...fd, capacity:Number(fd.capacity || 0), id:a.id || id()});
     await saveItem('account', data);
   };
   $('#deleteAccount').onclick = async () => a.id ? removeItem('account', a.id) : closeSheet();
 }
 async function saveItem(kind,data,opts={}){
+  const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
-    await setDoc(kind === 'account' ? accountRef(data.id) : clientRef(data.id), data, { merge:true });
+    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData);
     toast('Guardado correctamente');
     closeSheet();
     if(kind === 'client' && opts.newSale){
@@ -649,6 +648,34 @@ async function saveItem(kind,data,opts={}){
     if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
     toast('No se pudo guardar. Revisa permisos o conexion.','bad');
   }
+}
+function sanitizeAccountForSave(data={}){
+  return {
+    id: clean(data.id) || id(),
+    platform: clean(data.platform),
+    provider: clean(data.provider),
+    providerWhatsapp: clean(data.providerWhatsapp).slice(0,64),
+    email: clean(data.email).slice(0,240),
+    password: clean(data.password).slice(0,240),
+    capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
+    dueDate: clean(data.dueDate),
+    notes: clean(data.notes).slice(0,1000)
+  };
+}
+function sanitizeClientForSave(data={}){
+  return {
+    id: clean(data.id) || id(),
+    name: clean(data.name),
+    whatsapp: clean(data.whatsapp).slice(0,32),
+    accountId: clean(data.accountId),
+    platform: clean(data.platform),
+    profile: clean(data.profile),
+    pin: clean(data.pin),
+    dueDate: clean(data.dueDate),
+    state: clean(data.state) || 'Activo',
+    notes: clean(data.notes).slice(0,1000),
+    lastRenewalWhatsAppNoticeDate: clean(data.lastRenewalWhatsAppNoticeDate)
+  };
 }
 function openSaleDeliverySheet(client){
   openSheet(`<div class="sheet-head"><h3>Venta registrada</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>

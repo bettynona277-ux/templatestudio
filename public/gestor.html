@@ -4011,6 +4011,19 @@ function persistSettings(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
+function sanitizeAccountForSave(data={}){
+  return {
+    id: String(data.id || uid()).trim().slice(0,80),
+    platform: String(data.platform || '').trim().slice(0,120),
+    provider: String(data.provider || '').trim().slice(0,120),
+    providerWhatsapp: String(data.providerWhatsapp || '').trim().slice(0,64),
+    email: String(data.email || '').trim().slice(0,240),
+    password: String(data.password || '').trim().slice(0,240),
+    capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
+    dueDate: String(data.dueDate || '').trim().slice(0,20),
+    notes: String(data.notes || '').trim().slice(0,1000)
+  };
+}
 function updateExpiredSummary(){
   const acc=$('#expiredAccountsCount');
   const cli=$('#expiredClientsCount');
@@ -5432,10 +5445,10 @@ $('#saveAccountBtn').onclick=async ()=>{
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
-  const data={
+  const data=sanitizeAccountForSave({
     id:editingAccountId||uid(), platform, provider:$('#aProvider').value.trim(), providerWhatsapp:$('#aProviderWhatsapp').value.trim(), capacity,
     email:$('#aEmail').value.trim(), password:$('#aPassword').value.trim(), dueDate:$('#aDueDisplay').value.trim(), notes:$('#aNotes').value.trim()
-  };
+  });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
   const ok = await persistDoc('accounts', data);
