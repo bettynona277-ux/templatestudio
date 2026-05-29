@@ -85,8 +85,8 @@ button{border:0;cursor:pointer}
 .settings-card{padding:14px;border:1px solid var(--line);border-radius:20px;background:rgba(13,23,38,.86);display:grid;gap:12px}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
 .category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
-.card-actions{display:flex;gap:8px;margin-top:11px}.mini{height:38px;border-radius:13px;padding:0 11px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);font-weight:850;flex:1;display:flex;align-items:center;justify-content:center;gap:7px}.mini .i{width:16px;height:16px}
-.empty{padding:24px 16px;text-align:center;border:1px dashed rgba(158,177,214,.22);border-radius:20px;color:var(--muted);background:rgba(255,255,255,.03)}
+.phone-row{display:flex;gap:6px}.country-select{width:100px;flex:0 0 auto;min-height:46px;border-radius:15px;border:1px solid var(--line);background:#07101d;color:var(--text);padding:0 8px;outline:0}.phone-input{flex:1;min-width:0}.card-actions{display:flex;gap:8px;margin-top:11px}.mini{height:38px;border-radius:13px;padding:0 11px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);font-weight:850;flex:1;display:flex;align-items:center;justify-content:center;gap:7px}.mini .i{width:16px;height:16px}
+.empty{padding:24px 16px;text-align:center;border:1px dashed rgba(158,177,214,.22);border-radius:20px;color:var(--muted);background:rgba(255,255,255,.03)}.archived-section{margin-top:20px;border:1px solid rgba(255,93,125,.2);border-radius:20px;overflow:hidden;background:rgba(255,93,125,.04)}.archived-section summary{padding:13px 16px;font-weight:900;font-size:14px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none;user-select:none}.archived-section summary::-webkit-details-marker{display:none}.archived-section summary .pill{font-size:11px}.archived-section[open] summary{border-bottom:1px solid rgba(255,93,125,.15)}.archived-list{padding:10px;display:grid;gap:8px}.card-archived{opacity:.8}
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;background:rgba(7,13,24,.94);border-top:1px solid var(--line)}
 .navbtn{height:54px;border-radius:17px;background:transparent;color:var(--muted);font-weight:850;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.navbtn .i{width:20px;height:20px}.navbtn small{font-size:11px}.navbtn.active{background:rgba(118,92,255,.18);color:#fff}
 .fab{position:fixed;right:16px;bottom:calc(86px + env(safe-area-inset-bottom));z-index:28;width:58px;height:58px;border-radius:21px;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-size:28px;font-weight:900;box-shadow:0 16px 35px rgba(0,0,0,.36);display:grid;place-items:center}.fab .i{width:26px;height:26px;stroke-width:2.4}
@@ -178,7 +178,7 @@ const db = getFirestore(app);
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
-const DEFAULT_PAYMENT_METHODS = 'Yape / Plin: +51974834197';
+const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas',
@@ -211,11 +211,40 @@ const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 
 function normalizeSettings(data={}){
   const categories = Array.isArray(data.categories) ? data.categories.map(clean).filter(Boolean) : DEFAULT_CATEGORIES;
+  const paymentMethods = normalizePaymentMethods(data.paymentMethods);
   return {
-    paymentMethods: data.paymentMethods || DEFAULT_PAYMENT_METHODS,
+    paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
-    categories: [...new Set(categories)]
+    categories: [...new Set(categories)],
+    defaultCountryCode: clean(data.defaultCountryCode) || '51'
   };
+}
+function normalizePaymentMethods(value){
+  const source = Array.isArray(value)
+    ? value
+    : parsePaymentMethodsText(typeof value === 'string' ? value : '');
+  return source
+    .map(p => ({
+      method: clean(p?.method || 'Pago').slice(0,40),
+      number: clean(p?.number).replace(/^939401721$/,'974834197').slice(0,40),
+      holder: clean(p?.holder).slice(0,120)
+    }))
+    .filter(p => p.method || p.number || p.holder)
+    .slice(0,30);
+}
+function parsePaymentMethodsText(text=''){
+  return clean(text)
+    .replace(/939401721/g,'974834197')
+    .replace(/999 999 999/g,'974834197')
+    .split(/\r?\n/)
+    .map(line => clean(line))
+    .filter(Boolean)
+    .map(line => {
+      const [main, holder=''] = line.split(/\s+-\s+/, 2);
+      const parts = main.split(':');
+      if(parts.length > 1) return { method: parts.shift(), number: parts.join(':').trim(), holder };
+      return { method: 'Pago', number: main, holder };
+    });
 }
 function paymentMethodsText(value=state.settings.paymentMethods){
   if(Array.isArray(value)){
@@ -255,7 +284,7 @@ function dueState(date){
 function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
-function accountUsed(accountId){ return state.clients.filter(c => c.accountId === accountId).length; }
+function accountUsed(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').length; }
 function toast(msg,type='ok'){
   const el = $('#toast');
   el.textContent = msg;
@@ -284,7 +313,7 @@ function render(){
   return renderHome();
 }
 function renderHome(){
-  const due = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).sort((a,b)=>a.due.days-b.due.days);
+  const due = state.clients.filter(c => c.state !== 'No renovo').map(c => ({...c, due:dueState(c.dueDate)})).sort((a,b)=>a.due.days-b.due.days);
   const expired = due.filter(c => c.due.days < 0).length;
   const today = due.filter(c => c.due.days === 0).length;
   const free = state.accounts.reduce((sum,a)=> sum + Math.max(0, Number(a.capacity||0)-accountUsed(a.id)), 0);
@@ -316,25 +345,40 @@ function renderHome(){
 function searchBlock(title,count){
   return `<div class="section-head"><h2>${title}</h2><span>${count}</span></div><div class="search"><input id="q" value="${esc(state.query)}" placeholder="Buscar..." /></div>`;
 }
-function renderClients(){
-  const list = state.clients.filter(c => matches(c,state.query)).sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
-  $('#view').innerHTML = searchBlock('Clientes', list.length) + `<div class="list">${list.map(clientCard).join('') || empty('No hay clientes con ese filtro.')}</div>`;
+function renderClients(listOnly=false){
+  const active = state.clients.filter(c => c.state !== 'No renovo' && matches(c,state.query)).sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
+  const archived = state.clients.filter(c => c.state === 'No renovo' && matches(c,state.query));
+  const hasQuery = state.query.trim().length > 0;
+  const archivedSection = archived.length ? `
+    <details class="archived-section" ${hasQuery ? 'open' : ''}>
+      <summary>${hasQuery ? '🔍 Encontrado en archivados' : 'No renovaron'} <span class="pill">${archived.length}</span></summary>
+      <div class="list archived-list">${archived.map(c => clientCardArchived(c)).join('')}</div>
+    </details>` : '';
+  if(listOnly){
+    const listEl = $('#clients-list');
+    if(listEl) { listEl.innerHTML = `<div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}`; bindCards(); return; }
+  }
+  $('#view').innerHTML = searchBlock('Clientes', active.length) + `<div id="clients-list"><div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}</div>`;
   bindSearch(); bindCards();
 }
-function renderAccounts(){
+function renderAccounts(listOnly=false){
   const categories = ['Todas', ...state.settings.categories];
   const list = state.accounts
     .filter(a => state.accountCategory === 'Todas' || accountCategory(a) === state.accountCategory)
     .filter(a => matches(a,state.query))
     .sort((a,b)=>accountName(a).localeCompare(accountName(b)));
+  if(listOnly){
+    const listEl = $('#accounts-list');
+    if(listEl){ listEl.innerHTML = `<div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div>`; bindCards(); return; }
+  }
   $('#view').innerHTML = searchBlock('Cuentas madre', list.length) + `
-    <div class="chips">${categories.map(cat => `<button class="chip ${state.accountCategory===cat?'active':''}" data-cat="${esc(cat)}">${cat==='Todas'?icon('stack'):icon('tag')}<span>${esc(cat)}</span></button>`).join('')}</div>
-    <div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div>`;
+    <div id="accounts-list-wrap"><div class="chips">${categories.map(cat => `<button class="chip ${state.accountCategory===cat?'active':''}" data-cat="${esc(cat)}">${cat==='Todas'?icon('stack'):icon('tag')}<span>${esc(cat)}</span></button>`).join('')}</div>
+    <div id="accounts-list"><div class="list">${list.map(accountCard).join('') || empty('No hay cuentas con ese filtro.')}</div></div></div>`;
   bindSearch(); bindCards();
   document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { state.accountCategory = b.dataset.cat; renderAccounts(); });
 }
 function renderDue(){
-  const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7).sort((a,b)=>a.due.days-b.due.days);
+  const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && c.state !== 'No renovo').sort((a,b)=>a.due.days-b.due.days);
   $('#view').innerHTML = `<section class="section"><div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div><div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div></section>`;
   bindCards();
 }
@@ -343,7 +387,8 @@ function renderSettings(){
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Ajustes</h2><span>entrega y categorias</span></div>
     <form class="settings-card" id="settingsForm">
-      <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 999 999 999&#10;Plin: 999 999 999&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
+      <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
@@ -391,30 +436,52 @@ function clientCard(c){
     </div>
   </article>`;
 }
+function clientCardArchived(c){
+  return `<article class="card card-archived" data-client="${esc(c.id)}">
+    <div class="card-row"><div class="avatar bad">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
+      <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
+        <span class="pill bad">No renovo</span>${c.platform ? `<span class="pill brand">${esc(c.platform)}</span>` : ''}${c.whatsapp ? `<span class="pill">${esc(c.whatsapp)}</span>` : ''}
+      </div></div>
+      <button class="mini" style="flex:0 0 auto;min-width:80px" data-restore-client="${esc(c.id)}">${icon('refresh')}<span>Activar</span></button>
+    </div>
+  </article>`;
+}
 function accountCard(a){
   const used = accountUsed(a.id), cap = Number(a.capacity || 0), free = Math.max(0, cap-used);
   const ds = dueState(a.dueDate);
   const cat = accountCategory(a);
+  const assigned = state.clients.filter(c => c.accountId === a.id && c.state !== 'No renovo').length;
   return `<article class="card" data-account="${esc(a.id)}">
     <div class="card-row"><div class="avatar green">${esc(platformShort(a.platform).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
-        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
+        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender perfil</span></button></div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button></div>
   </article>`;
 }
 function bindSearch(){
   const q = $('#q');
-  q?.addEventListener('input', e => { state.query = e.target.value; render(); });
-  q?.focus();
+  if(!q) return;
+  q.addEventListener('input', e => {
+    state.query = e.target.value;
+    if(state.view === 'clients') renderClients(true);
+    else if(state.view === 'accounts') renderAccounts(true);
+    else render();
+  });
+  // Restore cursor to end and focus without moving caret
+  const len = q.value.length;
+  q.focus();
+  q.setSelectionRange(len, len);
 }
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
+  document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
   document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa), 'delivery'));
   document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.waRenew), 'renewal'));
   document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
   document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
+  document.querySelectorAll('[data-restore-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.restoreClient)));
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
     if(!a) return;
@@ -531,12 +598,52 @@ async function copyInstallLink(){
     toast(url, 'ok');
   }
 }
+
+function openAccountClientsSheet(account){
+  if(!account) return;
+  const assigned = state.clients
+    .filter(c => c.accountId === account.id && c.state !== 'No renovo')
+    .sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
+  const rows = assigned.map(c => {
+    const ds = dueState(c.dueDate);
+    return `<article class="card">
+      <div class="card-row">
+        <div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
+        <div class="info">
+          <b>${esc(clientName(c))}</b>
+          <div class="meta">
+            <span class="pill ${ds.cls}">${esc(ds.label)}</span>
+            <span class="pill brand">Perfil ${esc(c.profile || '-')}</span>
+            ${c.pin ? `<span class="pill">PIN ${esc(c.pin)}</span>` : ''}
+            ${c.whatsapp ? `<span class="pill">${esc(c.whatsapp)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="mini" data-account-client-deliver="${esc(c.id)}">${icon('message')}<span>Datos</span></button>
+        <button class="mini" data-account-client-notice="${esc(c.id)}">${icon('calendar')}<span>Avisar</span></button>
+        <button class="mini" data-account-client-edit="${esc(c.id)}">${icon('edit')}<span>Editar</span></button>
+      </div>
+    </article>`;
+  }).join('');
+  openSheet(`<div class="sheet-head"><h3>Clientes de la cuenta</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>${esc(accountName(account))}</strong>
+        <span class="beta-note">${assigned.length} cliente${assigned.length === 1 ? '' : 's'} usando esta cuenta. Puedes reenviar datos o avisar por WhatsApp.</span>
+      </div>
+      <div class="list">${rows || empty('Esta cuenta todavia no tiene clientes asignados.')}</div>
+    </div>`);
+  document.querySelectorAll('[data-account-client-deliver]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientDeliver), 'delivery'));
+  document.querySelectorAll('[data-account-client-notice]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.accountClientNotice), 'renewal'));
+  document.querySelectorAll('[data-account-client-edit]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.accountClientEdit)));
+}
 function openClientSheet(item={}){
   const c = item || {};
   openSheet(`<div class="sheet-head"><h3>${c.id?'Editar cliente':'Nuevo cliente'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="clientForm" class="grid">
-      <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" required></div>
-      <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel"></div>
+      <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" placeholder="Deros Rafael" required></div>
+      <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel" placeholder="999 999 999"></div>
       <div class="grid two">
         <div class="field"><label>Plataforma</label><input name="platform" value="${esc(c.platform)}"></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
@@ -560,8 +667,13 @@ function openClientSheet(item={}){
     submitBtn.textContent = isNewSale ? 'Guardando...' : 'Guardando...';
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
     const account = state.accounts.find(a => a.id === fd.accountId);
-    const data = {...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || '', updatedAt:new Date().toISOString()};
-    if(!c.id) data.createdAt = data.updatedAt;
+    const data = sanitizeClientForSave({...c, ...fd, id:c.id || id(), platform:fd.platform || account?.platform || ''});
+    if(!data.accountId){
+      toast('Selecciona una cuenta madre para guardar la venta.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
+      return;
+    }
     const deliveryUrl = isNewSale ? whatsappUrlForClient(data, 'delivery') : '';
     if(isNewSale && !deliveryUrl){
       toast('Agrega el WhatsApp del cliente para entregar.','bad');
@@ -580,11 +692,8 @@ function openAccountSheet(item={}){
   const a = item || {};
   openSheet(`<div class="sheet-head"><h3>${a.id?'Editar cuenta':'Nueva cuenta'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="accountForm" class="grid">
-      <div class="grid two">
-        <div class="field"><label>Plataforma</label><input name="platform" value="${esc(a.platform)}" required></div>
-        <div class="field"><label>Proveedor</label><input name="provider" value="${esc(a.provider)}"></div>
-      </div>
-      <div class="field"><label>Categoria</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${accountCategory(a)===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
+      <div class="field"><label>Proveedor</label><input name="provider" value="${esc(a.provider)}" placeholder="Deros Rafael / cuenta propia"></div>
+      <div class="field"><label>Plataforma</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${accountCategory(a)===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
       <div class="field"><label>WhatsApp proveedor</label><input name="providerWhatsapp" value="${esc(a.providerWhatsapp)}" inputmode="tel"></div>
       <div class="field"><label>Correo</label><input name="email" value="${esc(a.email)}" inputmode="email"></div>
       <div class="grid two">
@@ -598,15 +707,15 @@ function openAccountSheet(item={}){
   $('#accountForm').onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
-    const data = {...a, ...fd, capacity:Number(fd.capacity || 0), id:a.id || id(), updatedAt:new Date().toISOString()};
-    if(!a.id) data.createdAt = data.updatedAt;
+    const data = sanitizeAccountForSave({...a, ...fd, platform: fd.category || fd.platform || clean(a.platform), capacity:Number(fd.capacity || 0), id:a.id || id()});
     await saveItem('account', data);
   };
   $('#deleteAccount').onclick = async () => a.id ? removeItem('account', a.id) : closeSheet();
 }
 async function saveItem(kind,data,opts={}){
+  const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
-    await setDoc(kind === 'account' ? accountRef(data.id) : clientRef(data.id), data, { merge:true });
+    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData);
     toast('Guardado correctamente');
     closeSheet();
     if(kind === 'client' && opts.newSale){
@@ -619,8 +728,39 @@ async function saveItem(kind,data,opts={}){
   }catch(err){
     console.error(err);
     if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
-    toast('No se pudo guardar. Revisa permisos o conexion.','bad');
+    const msg = /permission|permissions|insufficient/i.test(err?.message || '')
+      ? 'No se pudo guardar. Actualiza la app o revisa que el usuario este activo.'
+      : 'No se pudo guardar. Revisa la conexion.';
+    toast(msg,'bad');
   }
+}
+function sanitizeAccountForSave(data={}){
+  return {
+    id: clean(data.id) || id(),
+    platform: clean(data.platform),
+    provider: clean(data.provider),
+    providerWhatsapp: clean(data.providerWhatsapp).slice(0,64),
+    email: clean(data.email).slice(0,240),
+    password: clean(data.password).slice(0,240),
+    capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
+    dueDate: clean(data.dueDate),
+    notes: clean(data.notes).slice(0,1000)
+  };
+}
+function sanitizeClientForSave(data={}){
+  return {
+    id: clean(data.id) || id(),
+    name: clean(data.name),
+    whatsapp: clean(data.whatsapp).slice(0,32),
+    accountId: clean(data.accountId),
+    platform: clean(data.platform),
+    profile: clean(data.profile),
+    pin: clean(data.pin),
+    dueDate: clean(data.dueDate),
+    state: clean(data.state) || 'Activo',
+    notes: clean(data.notes).slice(0,1000),
+    lastRenewalWhatsAppNoticeDate: clean(data.lastRenewalWhatsAppNoticeDate)
+  };
 }
 function openSaleDeliverySheet(client){
   openSheet(`<div class="sheet-head"><h3>Venta registrada</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
@@ -649,7 +789,7 @@ async function removeItem(kind,itemId){
 async function saveSettings(next){
   state.settings = normalizeSettings(next);
   try{
-    await setDoc(settingsRef(state.uid), state.settings, { merge:true });
+    await setDoc(settingsRef(state.uid), state.settings);
     toast('Ajustes guardados');
     renderSettings();
   }catch(err){
@@ -675,24 +815,81 @@ async function removeCategory(category){
   if(state.accountCategory === category) state.accountCategory = 'Todas';
   await saveSettings({ ...state.settings, categories });
 }
+const COUNTRY_CODES = [
+  {code:'51',flag:'🇵🇪',name:'Peru',digits:9},
+  {code:'57',flag:'🇨🇴',name:'Colombia',digits:10},
+  {code:'56',flag:'🇨🇱',name:'Chile',digits:9},
+  {code:'54',flag:'🇦🇷',name:'Argentina',digits:10},
+  {code:'52',flag:'🇲🇽',name:'Mexico',digits:10},
+  {code:'593',flag:'🇪🇨',name:'Ecuador',digits:9},
+  {code:'591',flag:'🇧🇴',name:'Bolivia',digits:8},
+  {code:'595',flag:'🇵🇾',name:'Paraguay',digits:9},
+  {code:'598',flag:'🇺🇾',name:'Uruguay',digits:9},
+  {code:'58',flag:'🇻🇪',name:'Venezuela',digits:10},
+  {code:'1',flag:'🇺🇸',name:'USA / Canada',digits:10},
+  {code:'34',flag:'🇪🇸',name:'Espana',digits:9},
+];
+function stripCountryCode(phone){
+  if(!phone) return '';
+  let p = clean(phone).replace(/\D/g,'');
+  for(const cc of COUNTRY_CODES){
+    if(p.startsWith(cc.code) && p.length > cc.code.length){
+      return p.slice(cc.code.length);
+    }
+  }
+  return p;
+}
 function normalizePhone(phone){
   let p = clean(phone).replace(/\D/g,'');
   if(!p) return '';
-  if(p.length === 9) p = '51'+p;
-  return p;
+  // If already has a known country code prefix, return as-is
+  for(const cc of COUNTRY_CODES){
+    if(p.startsWith(cc.code) && p.length > cc.code.length) return p;
+  }
+  // Apply configured default country code
+  const defaultCode = clean(state?.settings?.defaultCountryCode) || '51';
+  return defaultCode + p;
 }
 function addDaysISO(date, days){
   const d = new Date((date || todayISO()) + 'T00:00:00');
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0,10);
 }
-async function renewClient(c){
+function renewClient(c){
   if(!c) return;
-  const base = dueState(c.dueDate).days > 0 ? c.dueDate : todayISO();
-  const nextDate = addDaysISO(base, 30);
+  const currentDue = clean(c.dueDate) || todayISO();
+  const base = dueState(currentDue).days > 0 ? currentDue : todayISO();
+  const oneMonth = addMonthsISO(base, 1);
+  const threeMonths = addMonthsISO(base, 3);
+  openSheet(`<div class="sheet-head"><h3>Renovar cliente</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>${esc(clientName(c))}</strong>
+        <span class="beta-note">Vence actual: ${esc(currentDue || 'Sin fecha')}. Elige cuanto tiempo aumentar antes de guardar.</span>
+      </div>
+      <button class="btn ok" id="renewOneMonth">${icon('calendar')}<span>Renovar 1 mes</span></button>
+      <button class="btn primary" id="renewThreeMonths">${icon('calendar')}<span>Renovar 3 meses</span></button>
+      <form id="renewCustomForm" class="grid">
+        <div class="field"><label>Seleccionar fecha</label><input type="date" name="dueDate" value="${esc(oneMonth)}" required></div>
+        <button class="btn">${icon('save')}<span>Guardar fecha personalizada</span></button>
+      </form>
+    </div>`);
+  $('#renewOneMonth')?.addEventListener('click', () => applyClientRenewal(c, oneMonth, 'Cliente renovado por 1 mes'));
+  $('#renewThreeMonths')?.addEventListener('click', () => applyClientRenewal(c, threeMonths, 'Cliente renovado por 3 meses'));
+  $('#renewCustomForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const customDate = clean(fd.get('dueDate'));
+    if(!customDate) return toast('Selecciona una fecha valida.','bad');
+    applyClientRenewal(c, customDate, 'Cliente renovado hasta ' + customDate);
+  });
+}
+async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'){
+  if(!c || !nextDate) return;
   try{
     await setDoc(clientRef(c.id), { ...c, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
-    toast('Cliente renovado por 30 dias');
+    toast(successMessage);
+    closeSheet();
   }catch(err){
     console.error(err);
     toast('No se pudo renovar.','bad');
@@ -700,10 +897,12 @@ async function renewClient(c){
 }
 async function markNoRenew(c){
   if(!c) return;
-  if(!confirm('Marcar como no renovado?')) return;
+  if(!confirm('Archivar a ' + clientName(c) + '? Se liberara su perfil y quedara en la lista de no renovados.')) return;
   try{
-    await setDoc(clientRef(c.id), { ...c, state:'No renovo', updatedAt:new Date().toISOString() }, { merge:true });
-    toast('Marcado como no renovado');
+    const acc = state.accounts.find(a => a.id === c.accountId);
+    const platform = clean(c.platform) || clean(acc?.platform) || '';
+    await setDoc(clientRef(c.id), { ...c, accountId:'', platform, state:'No renovo', updatedAt:new Date().toISOString() }, { merge:true });
+    toast('Perfil liberado. Cliente archivado.');
   }catch(err){
     console.error(err);
     toast('No se pudo actualizar.','bad');
