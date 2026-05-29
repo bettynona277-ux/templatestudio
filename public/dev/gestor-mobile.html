@@ -90,6 +90,7 @@ button{border:0;cursor:pointer}
   <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
   <symbol id="i-stack" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/></symbol>
   <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18"/></symbol>
+  <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><rect x="5" y="15" width="14" height="6" rx="2"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
   <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
@@ -108,6 +109,7 @@ button{border:0;cursor:pointer}
   <header class="top">
     <img class="logo" src="/icons/icon-192.png" alt="Disenos Streaming">
     <div class="title"><b>Gestor <span class="beta-badge">Beta</span></b><span id="userLine">Version en mejora</span></div>
+    <button class="iconbtn" id="installBtn" title="Instalar gestor" aria-label="Instalar gestor"><svg class="i"><use href="#i-install"></use></svg></button>
     <button class="iconbtn" id="exportTop" title="Exportar Excel" aria-label="Exportar Excel"><svg class="i"><use href="#i-download"></use></svg></button>
     <button class="iconbtn" id="logoutBtn" title="Cerrar sesion" aria-label="Cerrar sesion"><svg class="i"><use href="#i-log-out"></use></svg></button>
   </header>
@@ -377,6 +379,43 @@ function openSheet(html){
 function closeSheet(){
   $('#sheetBack').classList.remove('show');
   $('#sheet').classList.remove('show');
+}
+let deferredInstallPrompt = null;
+function isStandaloneMode(){
+  return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
+}
+function updateInstallButton(){
+  $('#installBtn')?.classList.toggle('hidden', isStandaloneMode());
+}
+async function runInstallPrompt(){
+  if(!deferredInstallPrompt) return showInstallHelp();
+  const promptEvent = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  await promptEvent.prompt();
+  const choice = await promptEvent.userChoice.catch(()=>null);
+  updateInstallButton();
+  toast(choice?.outcome === 'accepted' ? 'Instalando gestor.' : 'Instalacion cancelada.', choice?.outcome === 'accepted' ? 'ok' : 'bad');
+}
+function showInstallHelp(){
+  openSheet(`<div class="sheet-head"><h3>Instalar gestor</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card">
+        <strong>Android</strong>
+        <span class="beta-note">Toca Instalar app. Si no aparece, abre el menu del navegador y elige Instalar app o Agregar a pantalla principal.</span>
+        ${deferredInstallPrompt ? `<button class="btn ok" id="nativeInstallBtn">${icon('install')}<span>Instalar app</span></button>` : ''}
+      </div>
+      <div class="settings-card">
+        <strong>iPhone</strong>
+        <span class="beta-note">Abre esta pagina en Safari, toca Compartir y luego Agregar a pantalla de inicio. Apple no muestra un boton automatico de instalar dentro de la web.</span>
+      </div>
+      <button class="btn" id="installHelpClose">Entendido</button>
+    </div>`);
+  $('#nativeInstallBtn')?.addEventListener('click', runInstallPrompt);
+  $('#installHelpClose')?.addEventListener('click', closeSheet);
+}
+function installGestorApp(){
+  if(isStandaloneMode()) return toast('El gestor ya esta instalado.');
+  return deferredInstallPrompt ? runInstallPrompt() : showInstallHelp();
 }
 function openClientSheet(item={}){
   const c = item || {};
@@ -652,8 +691,21 @@ function startLive(){
 
 document.querySelectorAll('.navbtn').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('#fab').onclick = () => state.view === 'accounts' ? openAccountSheet() : openClientSheet();
+$('#installBtn').onclick = installGestorApp;
 $('#exportTop').onclick = exportExcel;
 $('#logoutBtn').onclick = () => signOut(auth);
+window.addEventListener('beforeinstallprompt', ev => {
+  ev.preventDefault();
+  deferredInstallPrompt = ev;
+  updateInstallButton();
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  updateInstallButton();
+  toast('Gestor instalado.');
+});
+window.matchMedia?.('(display-mode: standalone)')?.addEventListener?.('change', updateInstallButton);
+updateInstallButton();
 
 onAuthStateChanged(auth, async user => {
   if(!user){
