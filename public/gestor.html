@@ -4071,7 +4071,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0,500)};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500)};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -4116,7 +4116,7 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
-    finalMessage: String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0, 500)
+    finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500)
   };
 }
 function persistSettings(){
@@ -5376,7 +5376,10 @@ function whatsappUrlForClient(client,context=''){
   if(!phone) return '';
   const account=state.accounts.find(a=>a.id===client.accountId);
   const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  var normalizedText = text.normalize ? text.normalize('NFC') : text;
+  console.log('[WA] finalMessage en state:', JSON.stringify(state.settings && state.settings.finalMessage));
+  console.log('[WA] texto completo antes de encode:', normalizedText);
+  return `https://wa.me/${phone}?text=${encodeURIComponent(normalizedText)}`;
 }
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
