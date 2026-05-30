@@ -5622,67 +5622,43 @@ $('#saveClientBtn').onclick=async ()=>{
   const saveBtn=$('#saveClientBtn');
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
-
-  let deliveryWindow=null;
-
-  try{
-    const name=$('#cName').value.trim();
-    const accountId=$('#cAccount').value;
-
-    if(!name || !accountId){
-      alert('Completa nombre y cuenta madre');
-      setClientSubmitMode(wasNewSale);
-      return;
-    }
-
-    const account=state.accounts.find(a=>a.id===accountId);
-    const data={
-      id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
-      platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
-      dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
-      lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
-    };
-
-    const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
-    if(wasNewSale && !deliveryUrl){
-      alert('Agrega el WhatsApp del cliente para entregar la cuenta.');
-      setClientSubmitMode(true);
-      return;
-    }
-
-    // Abrimos una ventana de espera dentro del clic para que el navegador no bloquee WhatsApp.
-    if(wasNewSale) deliveryWindow=openDeliveryPendingWindow();
-
-    const ok = await persistDoc('clients', data);
-    if(!ok){
-      if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
-      setClientSubmitMode(wasNewSale);
-      return;
-    }
-
-    if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c);
-    else state.clients.unshift(data);
-
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-
-    closeModal('clientModalWrap');
-    clearClientForm();
-    refreshUI();
-
-    if(wasNewSale){
-      navigatePreparedWhatsapp(deliveryWindow, deliveryUrl);
-      focusClientAfterSale(data);
-    }
-  }catch(err){
-    if(deliveryWindow && !deliveryWindow.closed) deliveryWindow.close();
-    console.error('Error guardando cliente:', err);
-    alert('No se pudo completar la operación. Revisa la consola o intenta nuevamente.');
-    setClientSubmitMode(wasNewSale);
-  }finally{
+  const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
+  if(!name || !accountId){
+    alert('Completa nombre y cuenta madre');
     saveBtn.disabled=false;
-    // Al terminar, el modal queda listo para una nueva venta sin recargar la página.
-    if(!editingClientId) setClientSubmitMode(true);
+    setClientSubmitMode(wasNewSale);
+    return;
   }
+  const account=state.accounts.find(a=>a.id===accountId);
+  const data={
+    id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
+    platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
+    dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
+    lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
+  };
+  const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
+  if(wasNewSale && !deliveryUrl){
+    alert('Agrega el WhatsApp del cliente para entregar la cuenta.');
+    saveBtn.disabled=false;
+    setClientSubmitMode(true);
+    return;
+  }
+  if(wasNewSale) window.open(deliveryUrl,'_blank');
+  const ok = await persistDoc('clients', data);
+  if(!ok){
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
+  if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  closeModal('clientModalWrap'); clearClientForm(); refreshUI();
+  if(wasNewSale){
+    focusClientAfterSale(data);
+  }
+  saveBtn.disabled=false;
+  // Dejar el formulario listo para registrar otra venta sin recargar.
+  setClientSubmitMode(true);
 };
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
