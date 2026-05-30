@@ -616,6 +616,40 @@ label{display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--mute
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
 .payment-list{display:flex;flex-direction:column;gap:10px}
 .payment-row{display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:10px;align-items:end}
+.archived-clients{
+  margin-top:16px;
+  border:1px solid rgba(251,113,133,.18);
+  border-radius:18px;
+  background:rgba(251,113,133,.045);
+  overflow:hidden;
+}
+.archived-clients summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:13px 15px;
+  cursor:pointer;
+  list-style:none;
+  color:var(--muted);
+  font-weight:900;
+}
+.archived-clients summary::-webkit-details-marker{display:none}
+.archived-clients[open] summary{border-bottom:1px solid rgba(251,113,133,.14)}
+.archived-clients .archived-body{padding:12px;display:grid;gap:10px}
+.archived-client-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.06);
+  background:rgba(8,14,25,.62);
+}
+.archived-client-card .left{min-width:0}
+.archived-client-card strong{display:block}
+.archived-client-card .sub{margin-top:4px}
 .hidden{display:none!important}
 input[type=file]{display:none}
 .flatpickr-calendar{background:#101c30!important;border:1px solid rgba(138,161,255,.2)!important;box-shadow:0 24px 80px rgba(0,0,0,.45)!important;border-radius:18px!important;overflow:hidden!important;font-family:Inter,system-ui,sans-serif!important}
@@ -3108,7 +3142,7 @@ body.modal-open{overflow:hidden}
     border-radius:20px!important;
     padding:13px!important;
   }
-  .account-topline,.free-account-top,.item,.client-notify-card{
+  .account-topline,.free-account-top,.item,.client-notify-card,.archived-client-card{
     align-items:stretch!important;
     flex-direction:column!important;
   }
@@ -3769,6 +3803,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
             <tbody id="clientsTable"></tbody>
           </table>
         </div>
+        <div id="archivedClientsPanel"></div>
       </section>
 
     <section id="cuentasView" class="view panel">
@@ -3924,6 +3959,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
     <div class="form">
       <label>Código WhatsApp por defecto<input class="input" id="waPrefix" placeholder="51" /></label>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por más libres</option></select></label>
+      <label class="full">Mensaje final para entregar cuentas<textarea id="finalMessage" placeholder="Gracias por tu compra. Cualquier duda me escribes."></textarea></label>
       <div class="full">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
           <div>
@@ -3977,6 +4013,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
 const KEY='gestion_streaming_v5';
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
+const DEFAULT_FINAL_MESSAGE='Gracias por tu compra. Cualquier duda me escribes.';
 const DEFAULT_CATEGORIES=['Netflix','Disney+','Max','Prime Video','Crunchyroll','Spotify','Paramount+','YouTube Premium','Viki','ViX'];
 const PLATFORM_OPTIONS=DEFAULT_CATEGORIES;
 const PLATFORM_URLS={
@@ -4010,7 +4047,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES]}};
+  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],finalMessage:DEFAULT_FINAL_MESSAGE}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -4029,7 +4066,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0,500)};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -4074,7 +4111,7 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
-    finalMessage: String(settings.finalMessage || '').slice(0, 500)
+    finalMessage: String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0, 500)
   };
 }
 function persistSettings(){
@@ -4289,15 +4326,19 @@ function escapeJs(str){ return String(str??'').replace(/\\/g,'\\\\').replace(/'/
 function accountLabel(a){
   return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' · ');
 }
+function isNoRenewState(value){
+  const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return text==='no renovo';
+}
 function effectiveClientState(c){
-  if(c.state==='No renovó') return 'No renovó';
+  if(isNoRenewState(c.state)) return 'No renovó';
   const dd=daysUntil(c.dueDate);
   if(dd===null) return c.state||'Activo';
   if(dd<0) return 'Vencido';
   if(dd<=3) return 'Por vencer';
   return 'Activo';
 }
-function activeOccupants(accountId){ return state.clients.filter(c=>c.accountId===accountId); }
+function activeOccupants(accountId){ return state.clients.filter(c=>c.accountId===accountId && !isNoRenewState(c.state)); }
 function accountAvailability(account){ const used=activeOccupants(account.id).length; return {used,free:Math.max(0,Number(account.capacity||0)-used)}; }
 function freeProfiles(account){
   const used=new Set(activeOccupants(account.id).map(c=>String(c.profile).trim()).filter(Boolean));
@@ -4485,14 +4526,17 @@ function renderClients(){
   const q=$('#clientSearch').value.trim().toLowerCase();
   const f=$('#clientStatusFilter').value;
   const af=$('#clientAccountFilter').value;
-  const rows=state.clients.filter(c=>{
+  const matchesFilters=c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const platform=(c.platform||account?.platform||'').toLowerCase();
     const blob=[c.name,c.whatsapp,platform,account?.provider,account?.email,c.profile].join(' ').toLowerCase();
     const st=effectiveClientState(c);
     return (!q || blob.includes(q)) && (!f || st===f) && (!af || c.accountId===af);
-  }).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
-  $('#clientsTable').innerHTML=rows.length?rows.map(c=>{
+  };
+  const allRows=state.clients.filter(matchesFilters).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
+  const tableRows=f==='No renovó' ? allRows : allRows.filter(c=>!isNoRenewState(c.state));
+  const archivedRows=f==='No renovó' ? [] : allRows.filter(c=>isNoRenewState(c.state));
+  const renderRow=c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const st=effectiveClientState(c);
     return `<tr>
@@ -4517,7 +4561,31 @@ function renderClients(){
         </details>
       </div></td>
     </tr>`;
-  }).join(''):`<tr><td colspan="9"><div class="empty">Sin clientes</div></td></tr>`;
+  };
+  $('#clientsTable').innerHTML=tableRows.length?tableRows.map(renderRow).join(''):`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
+  const archivedPanel=$('#archivedClientsPanel');
+  if(archivedPanel){
+    archivedPanel.innerHTML=archivedRows.length ? `
+      <details class="archived-clients" ${q?'open':''}>
+        <summary><span>${q?'Encontrado en archivados':'Clientes archivados'}</span><span class="chip danger">${archivedRows.length}</span></summary>
+        <div class="archived-body">
+          ${archivedRows.map(c=>{
+            const account=state.accounts.find(a=>a.id===c.accountId);
+            const platform=c.platform || account?.platform || '';
+            return `<div class="archived-client-card">
+              <div class="left">
+                <strong>${escapeHtml(c.name||'Sin nombre')}</strong>
+                <div class="sub">${platformIcon(platform)} ${escapeHtml(platform||'Sin plataforma')} · ${escapeHtml(c.whatsapp||'Sin WhatsApp')} ${c.notes?`· ${escapeHtml(c.notes)}`:''}</div>
+              </div>
+              <div class="row-actions">
+                <button class="mini" onclick="restoreClient('${c.id}')">Activar</button>
+                <button class="mini" onclick="editClient('${c.id}')">Editar</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </details>` : '';
+  }
 }
 
 function orderedPlatforms(accounts=state.accounts){
@@ -4894,6 +4962,7 @@ function paymentTextBlock(){
 }
 function credentialsText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
+  const finalMessage=String(state.settings?.finalMessage || '').trim();
   return [
     `Hola ${client.name || ''}, te paso tus datos de ${platform}:`,
     '',
@@ -4901,7 +4970,18 @@ function credentialsText(client, account){
     `Correo: ${account?.email || '—'}`,
     `Contraseña: ${account?.password || '—'}`,
     ...(client.pin ? [`Pin: ${client.pin}`] : []),
-    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '—'}`
+    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '—'}`,
+    ...(finalMessage ? ['', finalMessage] : [])
+  ].join('\n');
+}
+function accessTextBlock(client, account){
+  return [
+    '',
+    'Tus datos actuales son:',
+    `Perfil: ${client.profile || '—'}`,
+    `Correo: ${account?.email || '—'}`,
+    `Contraseña: ${account?.password || '—'}`,
+    ...(client.pin ? [`Pin: ${client.pin}`] : [])
   ].join('\n');
 }
 function whatsappText(client){
@@ -4909,14 +4989,14 @@ function whatsappText(client){
   const platform=friendlyPlatform(client.platform||account?.platform);
   const dd=daysUntil(client.dueDate);
   const payment=paymentTextBlock();
-  if(client.state==='No renovó' || (dd!==null && dd<0)){
+  if(isNoRenewState(client.state) || (dd!==null && dd<0)){
     return `Hola ${client.name || ''}, tu cuenta de ${platform} acaba de vencer y ha sido cortada.\n\nSi más adelante deseas volver a activarla, me escribes con confianza y te ayudo sin problema.`;
   }
   if(dd===0){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence hoy.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${payment}`;
+    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence hoy.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
   }
   if(dd===1){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el día de mañana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${payment}`;
+    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el día de mañana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
   }
   return credentialsText(client, account);
 }
@@ -5260,6 +5340,7 @@ window.applyExactRenewClient=()=>{
   applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
 };
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
+window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function openDeliveryPendingWindow(){
@@ -5578,8 +5659,8 @@ $('#saveClientBtn').onclick=async ()=>{
   saveBtn.disabled=false;
   setClientSubmitMode(false);
 };
-$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
+$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
