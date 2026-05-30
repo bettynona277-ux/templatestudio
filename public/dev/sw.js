@@ -1,12 +1,10 @@
-const CACHE_NAME = 'disenos-streaming-v34';
+const CACHE_NAME = 'disenos-streaming-v46';
 const ASSETS = [
   '/index-mobile.html',
   '/editor-mobile.html',
   '/manifest.json',
   '/gestor-mobile.html',
   '/manifest-gestor.json',
-  '/dev/gestor-mobile.html',
-  '/dev/manifest-gestor.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
 ];

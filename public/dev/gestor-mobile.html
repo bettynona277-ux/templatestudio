@@ -85,6 +85,9 @@ button{border:0;cursor:pointer}
 .settings-card{padding:14px;border:1px solid var(--line);border-radius:20px;background:rgba(13,23,38,.86);display:grid;gap:12px}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
 .category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
+.combo-sale-card{padding:12px;border-radius:18px;border:1px solid rgba(118,92,255,.22);background:rgba(118,92,255,.08);display:grid;gap:10px}
+.combo-sale-card strong{font-size:13px}.combo-app-card{padding:12px;border-radius:17px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:grid;gap:9px}
+.combo-app-card .combo-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:950}.combo-badge{display:inline-flex;align-items:center;min-height:24px;border-radius:999px;padding:0 8px;background:rgba(118,92,255,.18);border:1px solid rgba(118,92,255,.28);color:#d9d3ff;font-size:11px;font-weight:900}
 .phone-row{display:flex;gap:6px}.country-select{width:100px;flex:0 0 auto;min-height:46px;border-radius:15px;border:1px solid var(--line);background:#07101d;color:var(--text);padding:0 8px;outline:0}.phone-input{flex:1;min-width:0}.card-actions{display:flex;gap:8px;margin-top:11px}.mini{height:38px;border-radius:13px;padding:0 11px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);font-weight:850;flex:1;display:flex;align-items:center;justify-content:center;gap:7px}.mini .i{width:16px;height:16px}
 .empty{padding:24px 16px;text-align:center;border:1px dashed rgba(158,177,214,.22);border-radius:20px;color:var(--muted);background:rgba(255,255,255,.03)}.archived-section{margin-top:20px;border:1px solid rgba(255,93,125,.2);border-radius:20px;overflow:hidden;background:rgba(255,93,125,.04)}.archived-section summary{padding:13px 16px;font-weight:900;font-size:14px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none;user-select:none}.archived-section summary::-webkit-details-marker{display:none}.archived-section summary .pill{font-size:11px}.archived-section[open] summary{border-bottom:1px solid rgba(255,93,125,.15)}.archived-list{padding:10px;display:grid;gap:8px}.card-archived{opacity:.8}
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;background:rgba(7,13,24,.94);border-top:1px solid var(--line)}
@@ -181,10 +184,14 @@ const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
+const DEFAULT_COMBO_TEMPLATES = [
+  { id:'combo_familiar', name:'Combo Familiar', platforms:['Netflix','Disney'] },
+  { id:'combo_premium', name:'Combo Premium', platforms:['Netflix','Disney','HBO Max'] }
+];
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas',
   accounts:[], clients:[], unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES] }
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES] }
 };
 const icon = name => `<svg class="i"><use href="#i-${name}"></use></svg>`;
 const localISO = date => {
@@ -217,8 +224,21 @@ function normalizeSettings(data={}){
     paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
     categories: [...new Set(categories)],
-    defaultCountryCode: clean(data.defaultCountryCode) || '51'
+    defaultCountryCode: clean(data.defaultCountryCode) || '51',
+    comboTemplates: normalizeComboTemplates(data.comboTemplates, categories)
   };
+}
+function normalizeComboTemplates(value, categories=[]){
+  const source = Array.isArray(value) && value.length ? value : DEFAULT_COMBO_TEMPLATES;
+  const allowed = [...new Set([...(categories||[]), ...DEFAULT_CATEGORIES].map(clean).filter(Boolean))];
+  return source.map(t => {
+    const raw = Array.isArray(t?.platforms) ? t.platforms : clean(t?.platforms).split(/[,+|]/);
+    const platforms = [...new Set(raw.map(p => {
+      const text = clean(p);
+      return allowed.find(a => a.toLowerCase() === text.toLowerCase()) || text;
+    }).filter(Boolean))].slice(0,8);
+    return { id: clean(t?.id) || id(), name: clean(t?.name) || 'Combo', platforms };
+  }).filter(t => t.platforms.length).slice(0,30);
 }
 function normalizePaymentMethods(value){
   const source = Array.isArray(value)
@@ -333,6 +353,7 @@ function renderHome(){
     </section>
     <div class="actions">
       <button class="btn primary" id="newClient">${icon('user-plus')}<span>Nuevo cliente</span></button>
+      <button class="btn ok" id="newCombo">${icon('stack')}<span>Nuevo combo</span></button>
       <button class="btn" id="newAccount">${icon('database-plus')}<span>Nueva cuenta</span></button>
     </div>
     <section class="section">
@@ -340,6 +361,7 @@ function renderHome(){
       <div class="list">${due.slice(0,8).map(clientCard).join('') || empty('No tienes vencimientos pendientes.')}</div>
     </section>`;
   $('#newClient').onclick = () => openClientSheet();
+  $('#newCombo').onclick = () => openComboSheet();
   $('#newAccount').onclick = () => openAccountSheet();
   bindCards();
 }
@@ -401,10 +423,21 @@ function renderSettings(){
       </form>
       <div class="list">${s.categories.map(cat => `<div class="category-row"><b>${esc(cat)}</b><button class="danger-icon" data-del-cat="${esc(cat)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
     </div>
+    <div class="section">
+      <div class="section-head"><h2>Combos</h2><span>${s.comboTemplates.length}</span></div>
+      <form class="settings-card" id="comboTemplateForm">
+        <div class="field"><label>Nombre del combo</label><input name="name" placeholder="Combo Familiar" required></div>
+        <div class="field"><label>Apps separadas por coma</label><input name="platforms" placeholder="Netflix, Disney, HBO Max" required></div>
+        <button class="btn">${icon('stack')}<span>Agregar combo</span></button>
+      </form>
+      <div class="list">${s.comboTemplates.map(t => `<div class="category-row"><b>${esc(t.name)} <span class="combo-badge">${esc(t.platforms.join(' + '))}</span></b><button class="danger-icon" data-del-combo="${esc(t.id)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
+    </div>
   </section>`;
   $('#settingsForm').onsubmit = saveSettingsFromForm;
   $('#categoryForm').onsubmit = addCategoryFromForm;
+  $('#comboTemplateForm').onsubmit = addComboTemplateFromForm;
   document.querySelectorAll('[data-del-cat]').forEach(b => b.onclick = () => removeCategory(b.dataset.delCat));
+  document.querySelectorAll('[data-del-combo]').forEach(b => b.onclick = () => removeComboTemplate(b.dataset.delCombo));
 }
 function renderExpired(){
   $('#app').innerHTML = `<main class="expired"><div class="expired-box">
@@ -428,7 +461,7 @@ function clientCard(c){
   return `<article class="card" data-client="${esc(c.id)}">
     <div class="card-row"><div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
-        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span><span class="pill brand">Perfil ${esc(c.profile || '-')}</span>
+        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span><span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${c.comboId ? `<span class="pill brand">${esc(c.comboName || 'Combo')} · ${esc(c.comboSize || '')} apps</span>` : ''}
       </div></div></div>
     <div class="card-actions">
       ${dueActions
@@ -478,8 +511,14 @@ function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
   document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
-  document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.wa), 'delivery'));
-  document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => openWhatsApp(state.clients.find(c => c.id === b.dataset.waRenew), 'renewal'));
+  document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => {
+    const c = state.clients.find(x => x.id === b.dataset.wa);
+    c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'delivery') : openWhatsApp(c, 'delivery');
+  });
+  document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => {
+    const c = state.clients.find(x => x.id === b.dataset.waRenew);
+    c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'renewal') : openWhatsApp(c, 'renewal');
+  });
   document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
   document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
   document.querySelectorAll('[data-restore-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.restoreClient)));
@@ -689,6 +728,98 @@ function openClientSheet(item={}){
   };
   $('#deleteClient').onclick = async () => c.id ? removeItem('client', c.id) : closeSheet();
 }
+function accountMatchesComboPlatform(account, platform){
+  const a = clean(account?.platform).toLowerCase();
+  const p = clean(platform).toLowerCase();
+  return a === p || a.includes(p) || p.includes(a);
+}
+function comboAccountOptions(platform, selected=''){
+  const matches = state.accounts
+    .filter(a => accountMatchesComboPlatform(a, platform))
+    .sort((a,b)=>accountUsed(a.id)-accountUsed(b.id));
+  const list = matches.length ? matches : state.accounts;
+  return `<option value="">Elige cuenta para ${esc(platform)}</option>${list.map(a=>`<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountName(a))} - ${Math.max(0, Number(a.capacity||0)-accountUsed(a.id))} libres</option>`).join('')}`;
+}
+function renderComboRows(template){
+  return template.platforms.map(platform => {
+    const first = state.accounts.find(a => accountMatchesComboPlatform(a, platform) && Number(a.capacity||0) > accountUsed(a.id)) || state.accounts.find(a => accountMatchesComboPlatform(a, platform));
+    return `<div class="combo-app-card" data-platform="${esc(platform)}">
+      <div class="combo-title"><span>${esc(platform)}</span><span class="combo-badge">App combo</span></div>
+      <div class="field"><label>Cuenta madre</label><select class="combo-account">${comboAccountOptions(platform, first?.id || '')}</select></div>
+      <div class="grid two">
+        <div class="field"><label>Perfil</label><input class="combo-profile" value="${esc(first ? nextProfileSuggestionMobile(first.id) : '')}" placeholder="1"></div>
+        <div class="field"><label>PIN</label><input class="combo-pin" placeholder="1234"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function nextProfileSuggestionMobile(accountId){
+  const acc = state.accounts.find(a => a.id === accountId);
+  const used = new Set(state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').map(c => clean(c.profile)).filter(Boolean));
+  for(let i=1;i<=Number(acc?.capacity||0);i++) if(!used.has(String(i))) return String(i);
+  return '';
+}
+function openComboSheet(){
+  const templates = normalizeComboTemplates(state.settings.comboTemplates, state.settings.categories);
+  const first = templates[0];
+  openSheet(`<div class="sheet-head"><h3>Nuevo combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <form id="comboForm" class="grid">
+      <div class="combo-sale-card"><strong>Venta por combo</strong><span class="beta-note">Todas las apps usan la misma fecha. Si una app tiene otra fecha, vendela por separado.</span></div>
+      <div class="field"><label>Nombre</label><input name="name" placeholder="Deros Rafael" required></div>
+      <div class="field"><label>WhatsApp</label><input name="whatsapp" inputmode="tel" placeholder="999 999 999" required></div>
+      <div class="grid two">
+        <div class="field"><label>Plantilla</label><select name="templateId" id="comboTemplatePicker">${templates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} - ${t.platforms.length} apps</option>`).join('')}</select></div>
+        <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(addMonthsISO(todayISO(), 1))}" required></div>
+      </div>
+      <div id="comboMobileRows">${first ? renderComboRows(first) : empty('Crea una plantilla de combo en Ajustes.')}</div>
+      <div class="field"><label>Notas</label><textarea name="notes"></textarea></div>
+      <div class="form-actions"><button type="button" class="btn" id="cancelCombo">Cancelar</button><button class="btn ok" id="saveComboBtn">${icon('message')}<span>Guardar y entregar</span></button></div>
+    </form>`);
+  $('#comboTemplatePicker').onchange = e => {
+    const tpl = templates.find(t => t.id === e.target.value) || templates[0];
+    $('#comboMobileRows').innerHTML = tpl ? renderComboRows(tpl) : empty('Crea una plantilla de combo en Ajustes.');
+  };
+  $('#cancelCombo').onclick = closeSheet;
+  $('#comboForm').onsubmit = saveComboFromForm;
+}
+async function saveComboFromForm(e){
+  e.preventDefault();
+  const form = e.currentTarget;
+  const btn = $('#saveComboBtn');
+  btn.disabled = true;
+  const fd = Object.fromEntries(new FormData(form).entries());
+  const template = normalizeComboTemplates(state.settings.comboTemplates, state.settings.categories).find(t => t.id === fd.templateId);
+  const comboId = id();
+  const comboCreatedAt = new Date().toISOString();
+  const rows = [...document.querySelectorAll('.combo-app-card')].map(row => {
+    const accountId = row.querySelector('.combo-account')?.value || '';
+    const account = state.accounts.find(a => a.id === accountId);
+    return {
+      id:id(), name:fd.name, whatsapp:fd.whatsapp, accountId,
+      platform: account?.platform || row.dataset.platform || '',
+      profile: row.querySelector('.combo-profile')?.value || '',
+      pin: row.querySelector('.combo-pin')?.value || '',
+      dueDate:fd.dueDate, state:'Activo', notes:fd.notes || '',
+      comboId, comboName:template?.name || 'Combo', comboSize:template?.platforms.length || 0, comboCreatedAt
+    };
+  }).map(sanitizeClientForSave);
+  if(!rows.length || rows.some(c => !c.accountId)){
+    toast('Elige una cuenta para cada app.','bad');
+    btn.disabled = false;
+    return;
+  }
+  try{
+    for(const client of rows) await setDoc(clientRef(client.id), client);
+    toast('Combo guardado');
+    closeSheet();
+    openWhatsAppCombo(rows, 'delivery');
+  }catch(err){
+    console.error(err);
+    toast('No se pudo guardar el combo.','bad');
+  }finally{
+    btn.disabled = false;
+  }
+}
 function openAccountSheet(item={}){
   const a = item || {};
   openSheet(`<div class="sheet-head"><h3>${a.id?'Editar cuenta':'Nueva cuenta'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
@@ -760,7 +891,11 @@ function sanitizeClientForSave(data={}){
     dueDate: clean(data.dueDate),
     state: clean(data.state) || 'Activo',
     notes: clean(data.notes).slice(0,1000),
-    lastRenewalWhatsAppNoticeDate: clean(data.lastRenewalWhatsAppNoticeDate)
+    lastRenewalWhatsAppNoticeDate: clean(data.lastRenewalWhatsAppNoticeDate),
+    comboId: clean(data.comboId),
+    comboName: clean(data.comboName).slice(0,120),
+    comboSize: Math.max(0, Math.min(20, Number(data.comboSize || 0))),
+    comboCreatedAt: clean(data.comboCreatedAt).slice(0,40)
   };
 }
 function openSaleDeliverySheet(client){
@@ -809,6 +944,18 @@ async function addCategoryFromForm(e){
   const category = clean(fd.get('category'));
   if(!category) return;
   await saveSettings({ ...state.settings, categories:[...state.settings.categories, category] });
+}
+async function addComboTemplateFromForm(e){
+  e.preventDefault();
+  const fd = new FormData(e.currentTarget);
+  const name = clean(fd.get('name'));
+  const platforms = clean(fd.get('platforms')).split(',').map(clean).filter(Boolean);
+  if(!name || !platforms.length) return;
+  await saveSettings({ ...state.settings, comboTemplates:[...state.settings.comboTemplates, { id:id(), name, platforms }] });
+}
+async function removeComboTemplate(templateId){
+  if(!confirm('Eliminar este combo?')) return;
+  await saveSettings({ ...state.settings, comboTemplates:state.settings.comboTemplates.filter(t => t.id !== templateId) });
 }
 async function removeCategory(category){
   if(!confirm('Eliminar esta categoria?')) return;
@@ -919,6 +1066,47 @@ function openWhatsApp(c, mode='delivery', targetWindow=null){
   const payload = whatsappPayloadForClient(c, mode);
   if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
   openWhatsAppAppSelector(payload, targetWindow);
+}
+function activeComboClients(comboId){
+  return state.clients.filter(c => c.comboId === comboId && c.state !== 'No renovo').sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
+}
+function comboText(clients, mode='delivery'){
+  const first = clients[0] || {};
+  const lines = [`Hola ${clientName(first)} ${mode === 'renewal' ? 'te aviso sobre tu combo.' : 'te envio los datos de tu combo:'}`, ''];
+  clients.forEach((c,i) => {
+    const acc = state.accounts.find(a => a.id === c.accountId);
+    lines.push(`${i+1}. ${platformShort(c.platform || acc?.platform)}`);
+    lines.push(`Correo: ${clean(acc?.email) || '-'}`);
+    lines.push(`Contrasena: ${clean(acc?.password) || '-'}`);
+    lines.push(`Perfil: ${clean(c.profile) || '-'}`);
+    if(clean(c.pin)) lines.push(`PIN: ${clean(c.pin)}`);
+    lines.push(`Vence: ${clean(c.dueDate) || '-'}`);
+    lines.push('');
+  });
+  if(mode === 'renewal'){
+    const payText = paymentMethodsText();
+    lines.push('Si deseas renovar todo el combo, enviame tu comprobante.');
+    if(payText) lines.push('', 'Medios de pago:', payText);
+  }else if(clean(state.settings.finalMessage)){
+    lines.push(state.settings.finalMessage);
+  }
+  return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function openWhatsAppCombo(clients, mode='delivery'){
+  const list = (clients || []).filter(Boolean);
+  const phone = normalizePhone(list[0]?.whatsapp);
+  if(!list.length || !phone) return toast('Ese combo no tiene WhatsApp.','bad');
+  const text = comboText(list, mode);
+  openWhatsAppAppSelector({
+    phone,
+    text,
+    encodedText: encodeURIComponent(text),
+    webUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
+    normalUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
+    businessUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
+    chooserUrl:`whatsapp://send?phone=${phone}&text=${encodeURIComponent(text)}`,
+    mode
+  });
 }
 function whatsappUrlForClient(c, mode='delivery'){
   const payload = whatsappPayloadForClient(c, mode);

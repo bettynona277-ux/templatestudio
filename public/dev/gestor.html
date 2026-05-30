@@ -303,6 +303,10 @@ function sanitizeGestorClientForFirestore(data = {}) {
     state: fsOptionalString(data.state, 30),
     notes: fsOptionalString(data.notes, 1000),
     lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
+    comboId: fsOptionalString(data.comboId, 80),
+    comboName: fsOptionalString(data.comboName, 120),
+    comboSize: Number.isFinite(Number(data.comboSize)) ? Math.max(0, Math.min(20, Math.round(Number(data.comboSize)))) : null,
+    comboCreatedAt: fsOptionalString(data.comboCreatedAt, 40),
     createdAt: fsOptionalString(data.createdAt, 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
@@ -316,12 +320,20 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
   const categories = Array.isArray(settings.categories)
     ? settings.categories.map(c => String(c ?? '').trim()).filter(Boolean).slice(0, 50)
     : [];
+  const comboTemplates = Array.isArray(settings.comboTemplates)
+    ? settings.comboTemplates.map(t => ({
+        id: fsValidId(t?.id),
+        name: fsString(t?.name, 80, 'Combo'),
+        platforms: Array.isArray(t?.platforms) ? t.platforms.map(p => String(p ?? '').trim()).filter(Boolean).slice(0, 8) : []
+      })).filter(t => t.platforms.length).slice(0, 30)
+    : [];
   return {
     paymentMethods,
     whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
-    finalMessage: fsOptionalString(settings.finalMessage, 500)
+    finalMessage: fsOptionalString(settings.finalMessage, 500),
+    comboTemplates
   };
 }
 function sanitizeGestorDocForFirestore(colName, data) {
@@ -650,6 +662,59 @@ label{display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--mute
 .archived-client-card .left{min-width:0}
 .archived-client-card strong{display:block}
 .archived-client-card .sub{margin-top:4px}
+.combo-panel{
+  grid-column:1/-1;
+  border:1px solid rgba(138,161,255,.14);
+  border-radius:18px;
+  background:rgba(255,255,255,.025);
+  padding:14px;
+}
+.combo-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+.combo-head strong{display:block;color:var(--text)}
+.combo-head span,.combo-hint{color:var(--muted);font-size:12px;line-height:1.4}
+.combo-list{display:grid;gap:10px}
+.combo-row{
+  display:grid;
+  grid-template-columns:minmax(180px,1.4fr) minmax(80px,.55fr) minmax(80px,.55fr) auto;
+  gap:10px;
+  align-items:end;
+  padding:12px;
+  border-radius:15px;
+  border:1px solid rgba(255,255,255,.06);
+  background:rgba(8,14,25,.55);
+}
+.combo-row label{min-width:0}
+.combo-mode{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  padding:5px;
+  border:1px solid rgba(138,161,255,.12);
+  border-radius:16px;
+  background:rgba(255,255,255,.025);
+}
+.combo-mode button{
+  min-height:42px;
+  border:0;
+  border-radius:12px;
+  background:transparent;
+  color:var(--muted);
+  font-weight:900;
+  cursor:pointer;
+}
+.combo-mode button.active{
+  background:linear-gradient(180deg,rgba(141,125,255,.34),rgba(111,92,255,.24));
+  color:#fff;
+}
+.combo-template-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(160px,1.4fr) auto;gap:10px;align-items:end}
+.combo-chip{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:5px 8px;border-radius:999px;background:rgba(141,125,255,.14);border:1px solid rgba(141,125,255,.22);color:#dcd7ff;font-size:11px;font-weight:900}
 .hidden{display:none!important}
 input[type=file]{display:none}
 .flatpickr-calendar{background:#101c30!important;border:1px solid rgba(138,161,255,.2)!important;box-shadow:0 24px 80px rgba(0,0,0,.45)!important;border-radius:18px!important;overflow:hidden!important;font-family:Inter,system-ui,sans-serif!important}
@@ -3184,7 +3249,7 @@ body.modal-open{overflow:hidden}
     padding:14px 16px!important;
   }
   .modal-head h3{font-size:19px!important}
-  .form,.payment-row{
+  .form,.payment-row,.combo-row{
     grid-template-columns:1fr!important;
   }
   .modal-actions{
@@ -3856,15 +3921,31 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       <button class="x" data-close="clientModalWrap">×</button>
     </div>
     <div class="form">
+      <div class="combo-mode" id="saleModeSwitch">
+        <button type="button" class="active" data-sale-mode="single">Venta individual</button>
+        <button type="button" data-sale-mode="combo">Combo</button>
+      </div>
       <label>Nombre<input class="input" id="cName" placeholder="Deros Rafael" /></label>
       <label>WhatsApp<input class="input" id="cWhatsapp" placeholder="974834197" /></label>
-      <label>Cuenta madre<select class="select" id="cAccount"></select></label>
-      <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
-      <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
-      <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
+      <label class="single-sale-field">Cuenta madre<select class="select" id="cAccount"></select></label>
+      <label class="single-sale-field">Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
+      <label class="single-sale-field">Perfil<input class="input" id="cProfile" placeholder="1" /></label>
+      <label class="single-sale-field">Pin<input class="input" id="cPin" placeholder="1234" /></label>
       <label>Vencimiento<input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></label>
       <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></label>
       <label class="full">Notas<textarea id="cNotes" placeholder="Opcional"></textarea></label>
+      <div class="combo-panel hidden" id="comboSalePanel">
+        <div class="combo-head">
+          <div>
+            <strong>Venta por combo</strong>
+            <span>Elige una plantilla y asigna una cuenta libre por app.</span>
+          </div>
+          <button class="btn soft" type="button" id="refreshComboRowsBtn">Sugerir perfiles</button>
+        </div>
+        <label>Plantilla<select class="select" id="comboTemplateSelect"></select></label>
+        <div class="combo-list" id="comboRows"></div>
+        <div class="combo-hint">Todas las apps del combo usan la misma fecha de vencimiento. Si una app tiene otra fecha, registrala como venta individual.</div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="clientModalWrap">Cancelar</button>
@@ -3983,6 +4064,16 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
         </div>
         <div class="payment-list" id="categoryList"></div>
       </div>
+      <div class="full">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:800">Plantillas de combos</div>
+            <div style="color:var(--muted);font-size:13px">Ejemplo: Combo Familiar = Netflix + Disney+.</div>
+          </div>
+          <button class="btn soft" type="button" id="addComboTemplateBtn">+ Combo</button>
+        </div>
+        <div class="payment-list" id="comboTemplateList"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="settingsModalWrap">Cancelar</button>
@@ -4038,6 +4129,7 @@ let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
 let renewingClientId=null;
+let renewingComboId=null;
 
 function load(){
   // Intentar cargar desde localStorage como respaldo (Firebase lo sobreescribirá al cargar)
@@ -4047,7 +4139,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],finalMessage:DEFAULT_FINAL_MESSAGE}};
+  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],finalMessage:DEFAULT_FINAL_MESSAGE,comboTemplates:defaultComboTemplates()}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -4058,7 +4150,8 @@ function normalizeLoaded(data){
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
-    lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
+    lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||'',
+    comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||''
   }));
   let paymentMethods=[];
   if(Array.isArray(data.settings?.paymentMethods)) paymentMethods=data.settings.paymentMethods;
@@ -4066,7 +4159,8 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0,500)};
+  const comboTemplates=normalizeComboTemplates(data.settings?.comboTemplates, categories);
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0,500), comboTemplates};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -4111,7 +4205,8 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
-    finalMessage: String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0, 500)
+    finalMessage: String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).slice(0, 500),
+    comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES)
   };
 }
 function persistSettings(){
@@ -4154,6 +4249,24 @@ function uniqueClean(values){
     seen.add(key);
     return true;
   });
+}
+function defaultComboTemplates(){
+  return [
+    {id:'combo_familiar', name:'Combo Familiar', platforms:['Netflix','Disney+']},
+    {id:'combo_premium', name:'Combo Premium', platforms:['Netflix','Disney+','Max']}
+  ];
+}
+function normalizeComboTemplates(value, categories=[]){
+  const source=Array.isArray(value) && value.length ? value : defaultComboTemplates();
+  const allowed=uniqueClean([...(categories||[]),...DEFAULT_CATEGORIES]);
+  return source.map(t=>{
+    const rawPlatforms=Array.isArray(t?.platforms) ? t.platforms : String(t?.platforms||'').split(/[,+|]/);
+    const platforms=uniqueClean(rawPlatforms.map(p=>{
+      const text=String(p||'').trim();
+      return allowed.find(a=>a.toLowerCase()===text.toLowerCase()) || text;
+    })).slice(0,8);
+    return { id:String(t?.id||uid()).slice(0,80), name:String(t?.name||'Combo').trim().slice(0,80), platforms };
+  }).filter(t=>t.name && t.platforms.length).slice(0,30);
 }
 function excelColumnXml(widths, count){
   const cols=[];
@@ -4540,7 +4653,7 @@ function renderClients(){
     const account=state.accounts.find(a=>a.id===c.accountId);
     const st=effectiveClientState(c);
     return `<tr>
-      <td><div class="name">${escapeHtml(c.name||'')}</div>${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}</td>
+      <td><div class="name">${escapeHtml(c.name||'')}</div>${c.comboId?`<span class="combo-chip">${escapeHtml(c.comboName||'Combo')} · ${activeComboClients(c.comboId).length || c.comboSize || 1} apps activas</span>`:''}${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}</td>
       <td>${escapeHtml(c.whatsapp||'')}</td>
       <td><span class="chip platform">${platformIcon(c.platform || account?.platform)} ${escapeHtml(c.platform || account?.platform || '')}</span></td>
       <td>${escapeHtml(account ? accountLabel(account) : '—')}</td>
@@ -4932,7 +5045,38 @@ function renderRenewals(){
         && (!q || blob.includes(q) || (qDigits && phoneDigits.includes(qDigits)));
     })
     .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
-  $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
+  const seenCombos=new Set();
+  const cards=[];
+  rows.forEach(({client,account,platform,dd,st})=>{
+    if(client.comboId){
+      const comboKey=client.comboId+'|'+client.dueDate;
+      if(seenCombos.has(comboKey)) return;
+      const comboClients=activeComboClients(client.comboId).filter(c=>c.dueDate===client.dueDate);
+      if(comboClients.length>1){
+        seenCombos.add(comboKey);
+        let msg='Próximo';
+        if(dd<0) msg=`Venció hace ${Math.abs(dd)} día${Math.abs(dd)===1?'':'s'}`;
+        else if(dd===0) msg='Vence hoy';
+        else if(dd===1) msg='Vence mañana';
+        const alreadyNotified=comboClients.every(c=>c.lastRenewalWhatsAppNoticeDate===todayStr());
+        const whatsappClass=alreadyNotified?'mini notified':'mini wa';
+        const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
+        cards.push(`<div class="item">
+          <div>
+            <strong>${escapeHtml(client.name)} · ${escapeHtml(comboLabel(comboClients))}</strong>
+            <div class="sub">${comboClients.map(c=>escapeHtml(friendlyPlatform(c.platform))).join(' · ')} · ${comboClients.length} apps activas</div>
+          </div>
+          <div class="right">
+            <span class="chip platform">Combo</span>
+            <span class="chip platform">${msg}</span>
+            <button class="${whatsappClass}" onclick="sendComboWhatsapp('${client.comboId}','renewal')">${whatsappText}</button>
+            <button class="mini" onclick="renewCombo('${client.comboId}')">Renovar combo</button>
+            <button class="mini" onclick="setNoRenewCombo('${client.comboId}')">No renovó</button>
+          </div>
+        </div>`);
+        return;
+      }
+    }
     let msg='Próximo';
     if(dd<0) msg=`Venció hace ${Math.abs(dd)} día${Math.abs(dd)===1?'':'s'}`;
     else if(dd===0) msg='Vence hoy';
@@ -4940,7 +5084,7 @@ function renderRenewals(){
     const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
     const whatsappClass=alreadyNotified?'mini notified':'mini wa';
     const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
-    return `<div class="item">
+    cards.push(`<div class="item">
       <div>
         <strong>${escapeHtml(client.name)}</strong>
         <div class="sub">${escapeHtml(friendlyPlatform(platform))} · Perfil ${escapeHtml(client.profile||'—')}</div>
@@ -4952,8 +5096,9 @@ function renderRenewals(){
         <button class="mini" onclick="renewClient('${client.id}')">Renovar</button>
         <button class="mini" onclick="setNoRenew('${client.id}')">No renovó</button>
       </div>
-    </div>`;
-  }).join(''):`<div class="empty">Sin renovaciones cercanas para esta plataforma</div>`;
+    </div>`);
+  });
+  $('#renewalsList').innerHTML=cards.length?cards.join(''):`<div class="empty">Sin renovaciones cercanas para esta plataforma</div>`;
 }
 
 function paymentTextBlock(){
@@ -4983,6 +5128,47 @@ function accessTextBlock(client, account){
     `Contraseña: ${account?.password || '—'}`,
     ...(client.pin ? [`Pin: ${client.pin}`] : [])
   ].join('\n');
+}
+function activeComboClients(comboId){
+  return state.clients
+    .filter(c=>c.comboId===comboId && !isNoRenewState(c.state))
+    .sort((a,b)=>(a.platform||'').localeCompare(b.platform||'') || (a.profile||'').localeCompare(b.profile||'',undefined,{numeric:true}));
+}
+function comboLabel(clients){
+  const first=clients[0] || {};
+  return first.comboName || `Combo ${clients.length} apps`;
+}
+function comboAccessText(clients, mode='delivery'){
+  const first=clients[0] || {};
+  const finalMessage=String(state.settings?.finalMessage || '').trim();
+  const lines=[
+    `Hola ${first.name || ''}, ${mode==='renewal' ? `tu ${comboLabel(clients)} esta por vencer.` : `te paso los datos de tu ${comboLabel(clients)}:`}`,
+    ''
+  ];
+  clients.forEach((c,i)=>{
+    const account=state.accounts.find(a=>a.id===c.accountId);
+    lines.push(`${i+1}. ${friendlyPlatform(c.platform || account?.platform)}`);
+    lines.push(`Correo: ${account?.email || '—'}`);
+    lines.push(`Contraseña: ${account?.password || '—'}`);
+    lines.push(`Perfil: ${c.profile || '—'}`);
+    if(c.pin) lines.push(`PIN: ${c.pin}`);
+    lines.push(`Vence: ${fmtDateLong(c.dueDate) || '—'}`);
+    lines.push('');
+  });
+  if(mode==='renewal') lines.push('Si deseas renovar, me confirmas enviando tu comprobante.');
+  if(mode==='renewal'){
+    const pay=paymentTextBlock().trim();
+    if(pay) lines.push('', pay);
+  }else if(finalMessage){
+    lines.push(finalMessage);
+  }
+  return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function whatsappUrlForCombo(comboId, mode='delivery'){
+  const clients=activeComboClients(comboId);
+  const phone=normalizePhone(clients[0]?.whatsapp);
+  if(!clients.length || !phone) return '';
+  return `https://wa.me/${phone}?text=${encodeURIComponent(comboAccessText(clients, mode))}`;
 }
 function whatsappText(client){
   const account=state.accounts.find(a=>a.id===client.accountId);
@@ -5125,6 +5311,29 @@ function renderCategoryRows(){
     </div>`;
   }).join('') : `<div class="empty">Sin categorias</div>`;
 }
+function renderComboTemplateRows(){
+  const list=$('#comboTemplateList');
+  if(!list) return;
+  const templates=normalizeComboTemplates(state.settings.comboTemplates, categoryOptions());
+  state.settings.comboTemplates=templates;
+  list.innerHTML=templates.length ? templates.map((tpl,i)=>`
+    <div class="combo-template-row">
+      <label>Nombre<input class="input" data-combo-template="name" data-index="${i}" value="${escapeAttr(tpl.name)}" placeholder="Combo Familiar" /></label>
+      <label>Apps<input class="input" data-combo-template="platforms" data-index="${i}" value="${escapeAttr(tpl.platforms.join(', '))}" placeholder="Netflix, Disney+" /></label>
+      <button class="mini" type="button" onclick="removeComboTemplate(${i})">Borrar</button>
+    </div>`).join('') : `<div class="empty">Sin combos guardados</div>`;
+}
+function comboTemplateOptions(){
+  return normalizeComboTemplates(state.settings.comboTemplates, categoryOptions());
+}
+window.removeComboTemplate=(idx)=>{
+  state.settings.comboTemplates=(state.settings.comboTemplates||[]).filter((_,i)=>i!==idx);
+  renderComboTemplateRows();
+};
+function addComboTemplate(){
+  state.settings.comboTemplates=normalizeComboTemplates([...(state.settings.comboTemplates||[]), {id:uid(), name:'Nuevo combo', platforms:['Netflix','Disney+']}], categoryOptions());
+  renderComboTemplateRows();
+}
 function addCategory(value){
   const category=String(value||'').trim();
   if(!category) return '';
@@ -5158,7 +5367,7 @@ function refresh(){
   initDatepickers();
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); }
-function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap') renewingClientId=null; if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
+function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap'){ renewingClientId=null; renewingComboId=null; } if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
 function setClientSubmitMode(isNewSale){
   const btn=$('#saveClientBtn');
   if(!btn) return;
@@ -5166,7 +5375,53 @@ function setClientSubmitMode(isNewSale){
   btn.classList.toggle('ok', !!isNewSale);
   btn.classList.toggle('primary', !isNewSale);
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function setSaleMode(mode='single'){
+  const isCombo=mode==='combo';
+  $$('#saleModeSwitch [data-sale-mode]').forEach(b=>b.classList.toggle('active', b.dataset.saleMode===mode));
+  $$('.single-sale-field').forEach(el=>el.classList.toggle('hidden', isCombo));
+  $('#comboSalePanel')?.classList.toggle('hidden', !isCombo);
+  if(isCombo) renderComboSaleTemplateOptions();
+}
+function accountMatchesComboPlatform(account, platform){
+  const a=String(account?.platform||'').toLowerCase();
+  const p=String(platform||'').toLowerCase();
+  return a===p || a.includes(p) || p.includes(a);
+}
+function comboAccountOptions(platform, selected=''){
+  const matches=state.accounts
+    .filter(a=>accountMatchesComboPlatform(a, platform))
+    .sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free || accountLabel(a).localeCompare(accountLabel(b)));
+  const list=matches.length ? matches : sortedAccountsForPick();
+  return `<option value="">Elige cuenta para ${escapeHtml(platform)}</option>` + list.map(a=>{
+    const av=accountAvailability(a);
+    return `<option value="${a.id}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} · ${av.free} libre${av.free===1?'':'s'}</option>`;
+  }).join('');
+}
+function renderComboSaleTemplateOptions(){
+  const select=$('#comboTemplateSelect');
+  if(!select) return;
+  const templates=comboTemplateOptions();
+  select.innerHTML=templates.map(t=>`<option value="${escapeAttr(t.id)}">${escapeHtml(t.name)} · ${t.platforms.length} apps</option>`).join('');
+  if(!select.value && templates[0]) select.value=templates[0].id;
+  renderComboSaleRows();
+}
+function renderComboSaleRows(){
+  const list=$('#comboRows');
+  const selectedId=$('#comboTemplateSelect')?.value;
+  const template=comboTemplateOptions().find(t=>t.id===selectedId) || comboTemplateOptions()[0];
+  if(!list || !template){ if(list) list.innerHTML='<div class="empty">Crea una plantilla de combo en Ajustes.</div>'; return; }
+  list.innerHTML=template.platforms.map((platform,i)=>{
+    const first=state.accounts.find(a=>accountMatchesComboPlatform(a, platform) && accountAvailability(a).free>0) || state.accounts.find(a=>accountMatchesComboPlatform(a, platform));
+    const profile=first ? nextProfileSuggestion(first.id) : '';
+    return `<div class="combo-row" data-platform="${escapeAttr(platform)}">
+      <label>App<input class="input" value="${escapeAttr(platform)}" readonly /></label>
+      <label>Cuenta<select class="select combo-account" data-index="${i}">${comboAccountOptions(platform, first?.id||'')}</select></label>
+      <label>Perfil<input class="input combo-profile" data-index="${i}" value="${escapeAttr(profile)}" placeholder="1" /></label>
+      <label>PIN<input class="input combo-pin" data-index="${i}" placeholder="1234" /></label>
+    </div>`;
+  }).join('');
+}
+function clearClientForm(){ editingClientId=null; $('#saleModeSwitch')?.classList.remove('hidden'); $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); setSaleMode('single'); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -5205,6 +5460,8 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password);}catch(e){} };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
+  setSaleMode('single');
+  $('#saleModeSwitch')?.classList.add('hidden');
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
   openModal('clientModalWrap'); initDatepickers();
@@ -5269,12 +5526,22 @@ function renewalDateFor(client, amount, unit){
   return dateToLocalString(next);
 }
 function applyRenewalDate(clientId, newDate){
-  const c=state.clients.find(x=>x.id===clientId);
-  if(!c) return;
   if(!safeDateFromYMD(newDate)){
     alert('Elige una fecha válida para renovar.');
     return;
   }
+  if(renewingComboId){
+    const clients=activeComboClients(renewingComboId);
+    if(!clients.length) return;
+    clients.forEach(c=>{ c.dueDate=newDate; c.state='Activo'; persistDoc('clients', c); });
+    renewingClientId=null;
+    renewingComboId=null;
+    closeModal('renewModalWrap');
+    refreshUI();
+    return;
+  }
+  const c=state.clients.find(x=>x.id===clientId);
+  if(!c) return;
   c.dueDate=newDate;
   c.state='Activo';
   renewingClientId=null;
@@ -5287,8 +5554,15 @@ function renewUnitLabel(unit, amount){
   if(unit==='years') return qty===1?'año':'años';
   return qty===1?'mes':'meses';
 }
+function currentRenewSubject(){
+  if(renewingComboId){
+    const clients=activeComboClients(renewingComboId);
+    return clients[0] || null;
+  }
+  return state.clients.find(x=>x.id===renewingClientId) || null;
+}
 function updateRenewPreview(){
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=currentRenewSubject();
   const preview=$('#renewPreviewText');
   if(!c || !preview) return;
   const amount=Number($('#renewCustomAmount')?.value||1);
@@ -5301,6 +5575,7 @@ function openRenewModal(id){
   if(!c) return;
   if(typeof closeAllActionMenus==='function') closeAllActionMenus();
   renewingClientId=id;
+  renewingComboId=null;
   const account=state.accounts.find(a=>a.id===c.accountId);
   const platform=friendlyPlatform(c.platform || account?.platform);
   const base=renewalBaseDate(c);
@@ -5321,13 +5596,38 @@ function openRenewModal(id){
   initDatepickers();
 }
 window.renewClient=(id)=>openRenewModal(id);
+window.renewCombo=(comboId)=>{
+  const clients=activeComboClients(comboId);
+  if(!clients.length) return;
+  if(typeof closeAllActionMenus==='function') closeAllActionMenus();
+  renewingClientId=null;
+  renewingComboId=comboId;
+  const c=clients[0];
+  const base=renewalBaseDate(c);
+  $('#renewModalTitle').textContent=`Renovar ${comboLabel(clients)}`;
+  $('#renewClientSummary').innerHTML=`
+    <strong>${escapeHtml(c.name || 'Sin nombre')}</strong><br>
+    ${escapeHtml(comboLabel(clients))} · ${clients.length} apps activas<br>
+    ${clients.map(x=>escapeHtml(friendlyPlatform(x.platform))).join(' · ')}<br>
+    Vence actualmente: <strong>${fmtDateLong(c.dueDate) || 'Sin fecha'}</strong><br>
+    La renovacion se aplicara a todo el combo desde: <strong>${fmtDateLong(dateToLocalString(base))}</strong>`;
+  const amountEl=$('#renewCustomAmount');
+  const unitEl=$('#renewCustomUnit');
+  const exactEl=$('#renewExactDate');
+  if(amountEl) amountEl.value='1';
+  if(unitEl) unitEl.value='months';
+  if(exactEl) exactEl.value=renewalDateFor(c,1,'months');
+  updateRenewPreview();
+  openModal('renewModalWrap');
+  initDatepickers();
+};
 window.applyRenewClientDuration=(amount,unit)=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=currentRenewSubject();
   if(!c) return;
   applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
 };
 window.applyCustomRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=currentRenewSubject();
   if(!c) return;
   const amount=Number($('#renewCustomAmount')?.value||0);
   const unit=$('#renewCustomUnit')?.value||'months';
@@ -5335,11 +5635,18 @@ window.applyCustomRenewClient=()=>{
   applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
 };
 window.applyExactRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=currentRenewSubject();
   if(!c) return;
   applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
 };
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
+window.setNoRenewCombo=(comboId)=>{
+  const clients=activeComboClients(comboId);
+  if(!clients.length) return;
+  if(!confirm('Archivar todas las apps activas de este combo?')) return;
+  clients.forEach(c=>{ c.state='No renovó'; persistDoc('clients', c); });
+  refreshUI();
+};
 window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
@@ -5385,6 +5692,16 @@ window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   if(context==='renewal'){
     client.lastRenewalWhatsAppNoticeDate=todayStr();
     persistDoc('clients', client);
+    refreshUI();
+  }
+};
+window.sendComboWhatsapp=(comboId,context='delivery')=>{
+  const clients=activeComboClients(comboId);
+  const url=whatsappUrlForCombo(comboId,context);
+  if(!clients.length || !url){ alert('Este combo no tiene WhatsApp registrado.'); return; }
+  window.open(url,'_blank');
+  if(context==='renewal'){
+    clients.forEach(c=>{ c.lastRenewalWhatsAppNoticeDate=todayStr(); persistDoc('clients', c); });
     refreshUI();
   }
 };
@@ -5582,7 +5899,22 @@ $('#aPlatformSelect').onchange=()=>{
 };
 $('#addPaymentBtn').onclick=()=>{ state.settings.paymentMethods.push({method:'',number:'',holder:''}); renderPaymentRows(); };
 $('#addCategoryBtn').onclick=()=>{ const input=$('#categoryInput'); const category=addCategory(input?.value); if(input && category) input.value=''; };
-document.addEventListener('input',e=>{ const payField=e.target.dataset.pay; if(payField){ const idx=Number(e.target.dataset.index); state.settings.paymentMethods[idx][payField]=e.target.value; } });
+$('#addComboTemplateBtn').onclick=addComboTemplate;
+$('#comboTemplateSelect').onchange=renderComboSaleRows;
+$('#refreshComboRowsBtn').onclick=renderComboSaleRows;
+$$('#saleModeSwitch [data-sale-mode]').forEach(btn=>btn.onclick=()=>setSaleMode(btn.dataset.saleMode));
+document.addEventListener('input',e=>{
+  const payField=e.target.dataset.pay;
+  if(payField){ const idx=Number(e.target.dataset.index); state.settings.paymentMethods[idx][payField]=e.target.value; }
+  const comboField=e.target.dataset.comboTemplate;
+  if(comboField){
+    const idx=Number(e.target.dataset.index);
+    const templates=state.settings.comboTemplates || [];
+    if(!templates[idx]) return;
+    if(comboField==='name') templates[idx].name=e.target.value;
+    if(comboField==='platforms') templates[idx].platforms=uniqueClean(e.target.value.split(','));
+  }
+});
 
 document.addEventListener('input',e=>{
   if(e.target && (e.target.id==='renewCustomAmount' || e.target.id==='renewCustomUnit')) updateRenewPreview();
@@ -5623,6 +5955,61 @@ $('#saveClientBtn').onclick=async ()=>{
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
+  const isComboSale=wasNewSale && $('#saleModeSwitch [data-sale-mode="combo"]')?.classList.contains('active');
+  if(isComboSale){
+    if(!name || !$('#cWhatsapp').value.trim()){
+      alert('Completa nombre y WhatsApp para entregar el combo.');
+      saveBtn.disabled=false;
+      setClientSubmitMode(true);
+      return;
+    }
+    const template=comboTemplateOptions().find(t=>t.id===$('#comboTemplateSelect')?.value);
+    const rows=$$('.combo-row').map(row=>{
+      const accountId=row.querySelector('.combo-account')?.value||'';
+      const account=state.accounts.find(a=>a.id===accountId);
+      return {
+        platform: row.dataset.platform || account?.platform || '',
+        accountId,
+        account,
+        profile: row.querySelector('.combo-profile')?.value.trim()||'',
+        pin: row.querySelector('.combo-pin')?.value.trim()||''
+      };
+    });
+    if(!template || !rows.length || rows.some(r=>!r.accountId)){
+      alert('Elige una cuenta madre para cada app del combo.');
+      saveBtn.disabled=false;
+      setClientSubmitMode(true);
+      return;
+    }
+    const comboId=uid();
+    const comboCreatedAt=new Date().toISOString();
+    const dueDate=$('#cDueDisplay').value.trim();
+    const clients=rows.map(r=>({
+      id:uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId:r.accountId,
+      platform:r.account?.platform || r.platform, profile:r.profile || nextProfileSuggestion(r.accountId), pin:r.pin,
+      dueDate, state:$('#cState').value, notes:$('#cNotes').value.trim(),
+      comboId, comboName:template.name, comboSize:rows.length, comboCreatedAt,
+      lastRenewalWhatsAppNoticeDate:''
+    }));
+    const url=whatsappUrlForCombo(comboId,'delivery') || `https://wa.me/${normalizePhone(clients[0].whatsapp)}?text=${encodeURIComponent(comboAccessText(clients,'delivery'))}`;
+    for(const client of clients){
+      const ok=await persistDoc('clients', client);
+      if(!ok){
+        alert('No se pudo guardar una app del combo. Revisa tu conexion e intenta otra vez.');
+        saveBtn.disabled=false;
+        setClientSubmitMode(true);
+        return;
+      }
+    }
+    state.clients=[...clients,...state.clients];
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+    closeModal('clientModalWrap'); clearClientForm(); refreshUI();
+    if(url) window.open(url,'_blank');
+    focusClientAfterSale(clients[0]);
+    saveBtn.disabled=false;
+    setClientSubmitMode(false);
+    return;
+  }
   if(!name || !accountId){
     alert('Completa nombre y cuenta madre');
     saveBtn.disabled=false;
@@ -5659,8 +6046,8 @@ $('#saveClientBtn').onclick=async ()=>{
   saveBtn.disabled=false;
   setClientSubmitMode(false);
 };
-$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; if(!state.settings.comboTemplates) state.settings.comboTemplates=defaultComboTemplates(); $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); renderComboTemplateRows(); openModal('settingsModalWrap'); };
+$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates, state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
