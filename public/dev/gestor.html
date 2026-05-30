@@ -5054,7 +5054,7 @@ window.sendClientAccountUpdate=(clientId,accountId)=>{
   if(!client||!acc) return;
   const phone=normalizePhone(client.whatsapp);
   if(!phone){ alert('Este cliente no tiene WhatsApp registrado.'); return; }
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(accountClientUpdateText(client,acc))}`,'_blank');
+  window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fixSurrogates(accountClientUpdateText(client,acc)))}`,'_blank');
 };
 window.copyClientAccountUpdate=async(clientId,accountId)=>{
   const client=state.clients.find(c=>c.id===clientId), acc=state.accounts.find(a=>a.id===accountId);
@@ -5069,7 +5069,7 @@ window.notifyAllAccountClients=(accountId)=>{
   if(!acc || !clients.length){ alert('No hay clientes con WhatsApp para avisar.'); return; }
   clients.forEach((c,i)=>{
     setTimeout(()=>{
-      window.open(`https://wa.me/${normalizePhone(c.whatsapp)}?text=${encodeURIComponent(accountClientUpdateText(c,acc))}`,'_blank');
+      window.open(`https://api.whatsapp.com/send?phone=${normalizePhone(c.whatsapp)}&text=${encodeURIComponent(fixSurrogates(accountClientUpdateText(c,acc)))}`,'_blank');
     }, i*500);
   });
 };
@@ -5099,7 +5099,7 @@ window.sendProviderWhatsapp=(id)=>{
   const acc=state.accounts.find(a=>a.id===id); if(!acc) return;
   const phone=normalizePhone(acc.providerWhatsapp);
   if(!phone){ alert('Esta cuenta madre no tiene WhatsApp del proveedor registrado.'); return; }
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(providerRenewText(acc))}`,'_blank');
+  window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fixSurrogates(providerRenewText(acc)))}`,'_blank');
 };
 
 function renderPaymentRows(){
@@ -5369,12 +5369,22 @@ function navigatePreparedWhatsapp(targetWindow,url){
   }
   window.open(url,'_blank');
 }
+function fixSurrogates(str){
+  // Convierte el string a UTF-8 y de vuelta, eliminando surrogates sueltos
+  // que Firestore/JSON introduce al guardar emojis de 4 bytes
+  if(!str) return str;
+  try {
+    var enc = new TextEncoder();
+    var dec = new TextDecoder('utf-8', {fatal: false});
+    return dec.decode(enc.encode(str));
+  } catch(e) { return str; }
+}
 function whatsappUrlForClient(client,context=''){
   const phone=normalizePhone(client?.whatsapp);
   if(!phone) return '';
   const account=state.accounts.find(a=>a.id===client.accountId);
-  const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : whatsappText(client));
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
