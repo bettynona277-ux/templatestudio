@@ -95,6 +95,24 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .status-msg{font-size:0.78rem;padding:8px 12px;border-radius:8px;margin-top:8px;display:none;}
 .status-ok{background:rgba(0,200,150,0.12);color:var(--accent);}
 .status-err{background:rgba(255,107,107,0.12);color:var(--accent2);}
+.credentials-box{display:none;margin-top:14px;padding:14px;border-radius:14px;border:1px solid rgba(0,200,150,0.24);background:linear-gradient(180deg,rgba(0,200,150,0.10),rgba(79,142,247,0.06));}
+.credentials-box.show{display:block;}
+.credentials-box textarea{width:100%;min-height:156px;background:#090912;border:1px solid rgba(255,255,255,0.08);border-radius:11px;color:var(--text);font-family:monospace;font-size:0.78rem;line-height:1.55;padding:12px;resize:vertical;outline:none;margin:10px 0;}
+.credentials-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.helper-mini{font-size:0.72rem;color:var(--muted);line-height:1.55;margin-top:6px;}
+@media(max-width:760px){
+  body{height:auto;min-height:100vh;overflow:auto;}
+  #admin-main{height:auto!important;min-height:100vh!important;overflow:visible!important;}
+  .layout{flex-direction:column;overflow:visible;}
+  .sidebar{width:100%;border-right:0;border-bottom:1px solid var(--border);padding:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+  .nav-item{border-left:0;border-radius:10px;padding:10px 12px;justify-content:center;}
+  .sidebar-footer{grid-column:1/-1;margin-top:0;padding:8px;border-top:0;}
+  .content{padding:18px 14px;overflow:visible;}
+  .cards-grid{grid-template-columns:1fr;}
+  .topbar{height:auto;min-height:54px;padding:10px 14px;gap:10px;align-items:flex-start;}
+  .topbar-right{flex-direction:column;align-items:flex-end;gap:6px;}
+  .credentials-actions .btn{flex:1 1 140px;}
+}
 
 /* TEMPLATES */
 .tpl-tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--panel2);padding:4px;border-radius:10px;width:fit-content;border:1px solid var(--border);}
@@ -240,18 +258,28 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
             <div class="card-title">➕ Crear Nuevo Cliente</div>
             <div class="f-row">
               <label class="f-label">Email del cliente</label>
-              <input id="new-user-email" class="f-input" type="email" placeholder="cliente@gmail.com">
+              <input id="new-user-email" class="f-input" type="email" placeholder="cliente@gmail.com" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false">
             </div>
             <div class="f-row">
               <label class="f-label">Contraseña inicial</label>
-              <input id="new-user-pass" class="f-input" type="text" placeholder="mín. 6 caracteres">
+              <input id="new-user-pass" class="f-input" type="text" placeholder="mín. 6 caracteres" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+              <div class="helper-mini">En celular evita espacios, tildes y autocorrector. Puedes generar una clave segura.</div>
             </div>
+            <button type="button" onclick="generateClientPassword()" class="btn btn-ghost btn-full">Generar contraseña</button>
             <div class="f-row">
               <label class="f-label">Nombre (opcional)</label>
-              <input id="new-user-name" class="f-input" type="text" placeholder="Nombre del cliente">
+              <input id="new-user-name" class="f-input" type="text" placeholder="Nombre del cliente" autocomplete="name">
             </div>
             <div id="create-user-status" class="status-msg"></div>
             <button id="btn-create-user" onclick="createUser()" class="btn btn-green btn-full">Crear Cuenta</button>
+            <div id="created-credentials-box" class="credentials-box">
+              <div class="card-title" style="margin-bottom:6px;">Credenciales listas</div>
+              <div class="helper-mini">Este texto se activa apenas creas el cliente. Copialo antes de crear otro usuario.</div>
+              <textarea id="created-credentials-text" readonly></textarea>
+              <div class="credentials-actions">
+                <button id="btn-copy-created-credentials" type="button" class="btn btn-green" onclick="copyCreatedCredentials()">Copiar credenciales</button>
+              </div>
+            </div>
           </div>
 
           <div class="card">
@@ -653,12 +681,61 @@ async function draftTemplate(id) {
 // ══════════════════════════════════════════
 // USUARIOS
 // ══════════════════════════════════════════
+let lastCreatedCredentialsText = '';
+
+function normalizeNewUserEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeNewUserPassword(value) {
+  return String(value || '').trim().replace(/\s+/g, '');
+}
+
+function buildCredentialsMessage(email, pass) {
+  return [
+    'Pagina creada para editar mas facil: https://disenosstreaming.com/',
+    'Pagina para gestionar tus cuentas de streaming: https://disenosstreaming.com/gestor.html',
+    `Correo: ${email}`,
+    `Contraseña: ${pass}`
+  ].join('\n');
+}
+
+function showCreatedCredentials(email, pass) {
+  lastCreatedCredentialsText = buildCredentialsMessage(email, pass);
+  const box = document.getElementById('created-credentials-box');
+  const text = document.getElementById('created-credentials-text');
+  const btn = document.getElementById('btn-copy-created-credentials');
+  if(text) text.value = lastCreatedCredentialsText;
+  if(btn) btn.disabled = false;
+  if(box) box.classList.add('show');
+}
+
+function generateClientPassword() {
+  const parts = ['stream','cine','play','max','plus','nova','perfil','pixel'];
+  const pass = parts[Math.floor(Math.random()*parts.length)] + Math.floor(1000 + Math.random()*9000) + '!';
+  const input = document.getElementById('new-user-pass');
+  if(input) {
+    input.value = pass;
+    input.focus();
+    input.select();
+  }
+}
+
+function copyCreatedCredentials() {
+  if(!lastCreatedCredentialsText) return;
+  copyText(lastCreatedCredentialsText);
+}
+
 async function createUser() {
   if(!fbConnected) return;
-  const email = document.getElementById('new-user-email').value.trim();
-  const pass = document.getElementById('new-user-pass').value.trim();
+  const emailInput = document.getElementById('new-user-email');
+  const passInput = document.getElementById('new-user-pass');
+  const email = normalizeNewUserEmail(emailInput.value);
+  const pass = normalizeNewUserPassword(passInput.value);
   const name = document.getElementById('new-user-name').value.trim();
   const btn = document.getElementById('btn-create-user');
+  emailInput.value = email;
+  passInput.value = pass;
 
   if(!email || pass.length < 6) {
     showStatus('create-user-status', '✗ Email válido y contraseña de mín. 6 caracteres', 'err');
@@ -670,7 +747,11 @@ async function createUser() {
   try {
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_CONFIG.apiKey}`,
-      { method:'POST', body: JSON.stringify({ email, password: pass, returnSecureToken: true }) }
+      {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ email, password: pass, returnSecureToken: true })
+      }
     );
     const data = await res.json();
     if(!res.ok) throw new Error(data.error?.message || 'Error al crear');
@@ -686,6 +767,7 @@ async function createUser() {
     });
 
     showStatus('create-user-status', '✓ Cliente creado correctamente', 'ok');
+    showCreatedCredentials(email, pass);
     document.getElementById('new-user-email').value = '';
     document.getElementById('new-user-pass').value = '';
     document.getElementById('new-user-name').value = '';
