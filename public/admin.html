@@ -109,6 +109,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .sidebar-footer{grid-column:1/-1;margin-top:0;padding:8px;border-top:0;}
   .content{padding:18px 14px;overflow:visible;}
   .cards-grid{grid-template-columns:1fr;}
+  .users-card-head{align-items:stretch;}
+  .users-search{min-width:100%;max-width:none;}
   .topbar{height:auto;min-height:54px;padding:10px 14px;gap:10px;align-items:flex-start;}
   .topbar-right{flex-direction:column;align-items:flex-end;gap:6px;}
   .credentials-actions .btn{flex:1 1 140px;}
@@ -136,6 +138,15 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .tpl-actions button:hover{border-color:var(--accent);color:var(--accent);}
 
 /* USERS TABLE */
+.users-card-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;flex-wrap:wrap;}
+.users-search{position:relative;flex:1;min-width:240px;max-width:420px;}
+.users-search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:0.86rem;color:var(--muted);pointer-events:none;}
+.users-search input{width:100%;height:38px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,0.045);color:var(--text);font-family:inherit;font-size:0.82rem;padding:0 40px 0 38px;outline:none;transition:border-color 0.15s,background 0.15s,box-shadow 0.15s;}
+.users-search input:focus{border-color:rgba(0,200,150,0.45);background:rgba(0,200,150,0.08);box-shadow:0 0 0 3px rgba(0,200,150,0.08);}
+.users-search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;display:none;}
+.users-search-clear.show{display:block;}
+.users-search-clear:hover{background:rgba(255,255,255,0.08);color:var(--text);}
+.users-empty{color:var(--muted);font-size:0.82rem;padding:18px 0;}
 .users-table{width:100%;border-collapse:collapse;font-size:0.82rem;}
 .users-table th{text-align:left;font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:8px 12px;border-bottom:1px solid var(--border);}
 .users-table td{padding:12px 12px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle;}
@@ -292,7 +303,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         </div>
 
         <div class="card">
-          <div class="card-title">👥 Clientes Registrados</div>
+          <div class="users-card-head">
+            <div class="card-title" style="margin-bottom:0;">👥 Clientes Registrados</div>
+            <div class="users-search">
+              <span class="users-search-icon">⌕</span>
+              <input id="users-search-input" type="search" placeholder="Buscar por nombre o correo" autocomplete="off" oninput="filterUsers()">
+              <button id="users-search-clear" class="users-search-clear" type="button" title="Limpiar búsqueda" onclick="clearUsersSearch()">×</button>
+            </div>
+          </div>
           <div id="users-table-wrap">
             <p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando clientes...</p>
           </div>
@@ -680,6 +698,7 @@ async function draftTemplate(id) {
 // USUARIOS
 // ══════════════════════════════════════════
 let lastCreatedCredentialsText = '';
+let adminUsersCache = [];
 
 function normalizeNewUserEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -717,12 +736,47 @@ function copyCredentialsForUser(email, pass) {
   copyText(buildCredentialsMessage(email, pass || ''), '✓ Credenciales copiadas');
 }
 
+function getUsernamePassword(user) {
+  const data = user || {};
+  const username = String(data.name || '').trim();
+  if(username) return username;
+  const email = String(data.email || '').trim();
+  return email.includes('@') ? email.split('@')[0] : email;
+}
+
 function jsString(value) {
   return String(value == null ? '' : value)
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
     .replace(/\r/g, '')
     .replace(/\n/g, '\\n');
+}
+
+function normalizeUserSearch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function getUsersSearchTerm() {
+  const input = document.getElementById('users-search-input');
+  return normalizeUserSearch(input ? input.value : '');
+}
+
+function filterUsers() {
+  const clearBtn = document.getElementById('users-search-clear');
+  const hasSearch = !!getUsersSearchTerm();
+  if(clearBtn) clearBtn.classList.toggle('show', hasSearch);
+  renderUsersTable(adminUsersCache);
+}
+
+function clearUsersSearch() {
+  const input = document.getElementById('users-search-input');
+  if(input) input.value = '';
+  filterUsers();
+  if(input) input.focus();
 }
 
 async function createUser() {
@@ -732,6 +786,7 @@ async function createUser() {
   const email = normalizeNewUserEmail(emailInput.value);
   const pass = normalizeNewUserPassword(passInput.value);
   const name = document.getElementById('new-user-name').value.trim();
+  const displayName = name || email.split('@')[0];
   const btn = document.getElementById('btn-create-user');
   emailInput.value = email;
   passInput.value = pass;
@@ -758,7 +813,7 @@ async function createUser() {
     await fbDb.collection('users').doc(data.localId).set({
       uid: data.localId,
       email: email,
-      name: name || email.split('@')[0],
+      name: displayName,
       active: true,
       status: 'active',
       subscriptionStatus: 'active',
@@ -767,7 +822,7 @@ async function createUser() {
     });
 
     showStatus('create-user-status', '✓ Cliente creado correctamente', 'ok');
-    showCreatedCredentials(email, pass);
+    showCreatedCredentials(email, displayName);
     document.getElementById('new-user-email').value = '';
     document.getElementById('new-user-pass').value = '';
     document.getElementById('new-user-name').value = '';
@@ -794,7 +849,7 @@ async function legacyLoadUsers() {
       const fecha = d.createdAt ? new Date(d.createdAt).toLocaleDateString('es-PE') : '—';
       const loginUrl = `${location.origin}/index.html`;
       const userEmail = d.email || '';
-      const userPass = d.initialPassword || d.password || '';
+      const userPass = getUsernamePassword(d);
       rows += `
         <tr>
           <td><strong style="font-size:0.82rem;">${escHtml(d.name||'—')}</strong></td>
@@ -832,54 +887,75 @@ async function hardDeleteUser(id) {
 // ══════════════════════════════════════════
 // MODAL LINK DE PLANTILLA
 // ══════════════════════════════════════════
+function renderUsersTable(users) {
+  const wrap = document.getElementById('users-table-wrap');
+  const search = getUsersSearchTerm();
+  const list = (users || []).filter(item => {
+    if(!search) return true;
+    const d = item.data || {};
+    const haystack = normalizeUserSearch(`${d.name || ''} ${d.email || ''}`);
+    return haystack.includes(search);
+  });
+  if(!users || !users.length) {
+    wrap.innerHTML = '<p class="users-empty">No hay clientes registrados aun.</p>';
+    return;
+  }
+  if(!list.length) {
+    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda.</p>';
+    return;
+  }
+  const inactiveStatuses = ['expired','Expired','vencido','Vencido','inactive','Inactive','inactivo','Inactivo','blocked','Blocked','bloqueado','Bloqueado'];
+  let rows = '';
+  list.forEach(item => {
+    const d = item.data || {};
+    const fecha = d.createdAt ? new Date(d.createdAt).toLocaleDateString('es-PE') : '-';
+    const loginUrl = `${location.origin}/index.html`;
+    const currentStatus = d.subscriptionStatus != null ? d.subscriptionStatus : d.status;
+    const isInactive = d.active === false || inactiveStatuses.includes(currentStatus);
+    const statusLabel = isInactive ? 'Inactivo' : 'Activo';
+    const statusClass = isInactive ? 'inactive' : 'active';
+    const name = escHtml(d.name || '-');
+    const rawName = d.name || '';
+    const rawEmail = d.email || '';
+    const email = escHtml(rawEmail);
+    const userPass = getUsernamePassword(d);
+    rows += `
+      <tr>
+        <td><strong style="font-size:0.82rem;">${name}</strong></td>
+        <td style="color:var(--muted);font-size:0.78rem;">${email}</td>
+        <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
+        <td><span class="client-status ${statusClass}">${statusLabel}</span></td>
+        <td>
+          <button class="user-link" onclick="showLinkModal('${jsString(loginUrl)}','${jsString(rawEmail)}')">Ver link</button>
+          <button class="copy-link" onclick="copyCredentialsForUser('${jsString(rawEmail)}','${jsString(userPass)}')">Copiar</button>
+        </td>
+        <td>
+          <button class="btn-devices" onclick="showDevices('${item.id}', '${jsString(rawName || rawEmail)}')">Dispositivos</button>
+          ${isInactive
+            ? `<button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px;" onclick="reactivateUser('${item.id}')">Reactivar</button>`
+            : `<button class="btn btn-red" onclick="deactivateUser('${item.id}')">Inhabilitar</button>`}
+        </td>
+      </tr>`;
+  });
+  wrap.innerHTML = `
+    <table class="users-table">
+      <thead><tr>
+        <th>Nombre</th><th>Email</th><th>Registro</th><th>Estado</th><th>Link acceso</th><th>Accion</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 async function loadUsers() {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
     const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
-    if(snap.empty) {
-      wrap.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">No hay clientes registrados aun.</p>';
-      return;
-    }
-    const inactiveStatuses = ['expired','Expired','vencido','Vencido','inactive','Inactive','inactivo','Inactivo','blocked','Blocked','bloqueado','Bloqueado'];
-    let rows = '';
+    adminUsersCache = [];
     snap.forEach(doc => {
-      const d = doc.data() || {};
-      const fecha = d.createdAt ? new Date(d.createdAt).toLocaleDateString('es-PE') : '-';
-      const loginUrl = `${location.origin}/index.html`;
-      const currentStatus = d.subscriptionStatus != null ? d.subscriptionStatus : d.status;
-      const isInactive = d.active === false || inactiveStatuses.includes(currentStatus);
-      const statusLabel = isInactive ? 'Inactivo' : 'Activo';
-      const statusClass = isInactive ? 'inactive' : 'active';
-      const name = escHtml(d.name || '-');
-      const rawEmail = d.email || '';
-      const email = escHtml(rawEmail);
-      const userPass = d.initialPassword || d.password || '';
-      rows += `
-        <tr>
-          <td><strong style="font-size:0.82rem;">${name}</strong></td>
-          <td style="color:var(--muted);font-size:0.78rem;">${email}</td>
-          <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
-          <td><span class="client-status ${statusClass}">${statusLabel}</span></td>
-          <td>
-            <button class="user-link" onclick="showLinkModal('${jsString(loginUrl)}','${jsString(rawEmail)}')">Ver link</button>
-            <button class="copy-link" onclick="copyCredentialsForUser('${jsString(rawEmail)}','${jsString(userPass)}')">Copiar</button>
-          </td>
-          <td>
-            <button class="btn-devices" onclick="showDevices('${doc.id}', '${name || email}')">Dispositivos</button>
-            ${isInactive
-              ? `<button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px;" onclick="reactivateUser('${doc.id}')">Reactivar</button>`
-              : `<button class="btn btn-red" onclick="deactivateUser('${doc.id}')">Inhabilitar</button>`}
-          </td>
-        </tr>`;
+      adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
     });
-    wrap.innerHTML = `
-      <table class="users-table">
-        <thead><tr>
-          <th>Nombre</th><th>Email</th><th>Registro</th><th>Estado</th><th>Link acceso</th><th>Accion</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+    renderUsersTable(adminUsersCache);
   } catch(e) {
     wrap.innerHTML = '<p style="color:var(--accent2);">Error al cargar clientes.</p>';
     console.error(e);
