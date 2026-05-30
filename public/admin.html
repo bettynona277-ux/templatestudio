@@ -263,9 +263,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
             <div class="f-row">
               <label class="f-label">Contraseña inicial</label>
               <input id="new-user-pass" class="f-input" type="text" placeholder="mín. 6 caracteres" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-              <div class="helper-mini">En celular evita espacios, tildes y autocorrector. Puedes generar una clave segura.</div>
             </div>
-            <button type="button" onclick="generateClientPassword()" class="btn btn-ghost btn-full">Generar contraseña</button>
             <div class="f-row">
               <label class="f-label">Nombre (opcional)</label>
               <input id="new-user-name" class="f-input" type="text" placeholder="Nombre del cliente" autocomplete="name">
@@ -696,7 +694,7 @@ function buildCredentialsMessage(email, pass) {
     'Pagina creada para editar mas facil: https://disenosstreaming.com/',
     'Pagina para gestionar tus cuentas de streaming: https://disenosstreaming.com/gestor.html',
     `Correo: ${email}`,
-    `Contraseña: ${pass}`
+    `Contraseña: ${pass || ''}`
   ].join('\n');
 }
 
@@ -710,20 +708,21 @@ function showCreatedCredentials(email, pass) {
   if(box) box.classList.add('show');
 }
 
-function generateClientPassword() {
-  const parts = ['stream','cine','play','max','plus','nova','perfil','pixel'];
-  const pass = parts[Math.floor(Math.random()*parts.length)] + Math.floor(1000 + Math.random()*9000) + '!';
-  const input = document.getElementById('new-user-pass');
-  if(input) {
-    input.value = pass;
-    input.focus();
-    input.select();
-  }
-}
-
 function copyCreatedCredentials() {
   if(!lastCreatedCredentialsText) return;
-  copyText(lastCreatedCredentialsText);
+  copyText(lastCreatedCredentialsText, '✓ Credenciales copiadas');
+}
+
+function copyCredentialsForUser(email, pass) {
+  copyText(buildCredentialsMessage(email, pass || ''), '✓ Credenciales copiadas');
+}
+
+function jsString(value) {
+  return String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n');
 }
 
 async function createUser() {
@@ -763,6 +762,7 @@ async function createUser() {
       active: true,
       status: 'active',
       subscriptionStatus: 'active',
+      initialPassword: pass,
       createdAt: Date.now()
     });
 
@@ -793,17 +793,19 @@ async function legacyLoadUsers() {
       const d = doc.data();
       const fecha = d.createdAt ? new Date(d.createdAt).toLocaleDateString('es-PE') : '—';
       const loginUrl = `${location.origin}/index.html`;
+      const userEmail = d.email || '';
+      const userPass = d.initialPassword || d.password || '';
       rows += `
         <tr>
-          <td><strong style="font-size:0.82rem;">${d.name||'—'}</strong></td>
-          <td style="color:var(--muted);font-size:0.78rem;">${d.email}</td>
+          <td><strong style="font-size:0.82rem;">${escHtml(d.name||'—')}</strong></td>
+          <td style="color:var(--muted);font-size:0.78rem;">${escHtml(userEmail)}</td>
           <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
           <td>
-            <button class="user-link" onclick="showLinkModal('${loginUrl}','${d.email}')">🔗 Ver link</button>
-            <button class="copy-link" onclick="copyText('${loginUrl}')">📋 Copiar</button>
+            <button class="user-link" onclick="showLinkModal('${jsString(loginUrl)}','${jsString(userEmail)}')">🔗 Ver link</button>
+            <button class="copy-link" onclick="copyCredentialsForUser('${jsString(userEmail)}','${jsString(userPass)}')">📋 Copiar</button>
           </td>
           <td>
-            <button class="btn-devices" onclick="showDevices('${doc.id}', '${d.name||d.email}')">📱 Dispositivos</button>
+            <button class="btn-devices" onclick="showDevices('${doc.id}', '${jsString(d.name||userEmail)}')">📱 Dispositivos</button>
             <button class="btn btn-red" onclick="deleteUser('${doc.id}')">Borrar</button>
           </td>
         </tr>`;
@@ -850,7 +852,9 @@ async function loadUsers() {
       const statusLabel = isInactive ? 'Inactivo' : 'Activo';
       const statusClass = isInactive ? 'inactive' : 'active';
       const name = escHtml(d.name || '-');
-      const email = escHtml(d.email || '');
+      const rawEmail = d.email || '';
+      const email = escHtml(rawEmail);
+      const userPass = d.initialPassword || d.password || '';
       rows += `
         <tr>
           <td><strong style="font-size:0.82rem;">${name}</strong></td>
@@ -858,8 +862,8 @@ async function loadUsers() {
           <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
           <td><span class="client-status ${statusClass}">${statusLabel}</span></td>
           <td>
-            <button class="user-link" onclick="showLinkModal('${loginUrl}','${email}')">Ver link</button>
-            <button class="copy-link" onclick="copyText('${loginUrl}')">Copiar</button>
+            <button class="user-link" onclick="showLinkModal('${jsString(loginUrl)}','${jsString(rawEmail)}')">Ver link</button>
+            <button class="copy-link" onclick="copyCredentialsForUser('${jsString(rawEmail)}','${jsString(userPass)}')">Copiar</button>
           </td>
           <td>
             <button class="btn-devices" onclick="showDevices('${doc.id}', '${name || email}')">Dispositivos</button>
@@ -953,11 +957,11 @@ function copyDesignLink() {
   copyAndFlash();
 }
 
-function copyText(text) {
+function copyText(text, successMessage) {
   navigator.clipboard.writeText(text).then(() => {
-    showToast('✓ Link copiado al portapapeles');
+    showToast(successMessage || '✓ Link copiado al portapapeles');
   }).catch(() => {
-    prompt('Copia este link:', text);
+    prompt('Copia este texto:', text);
   });
 }
 
