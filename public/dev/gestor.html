@@ -256,16 +256,13 @@ onAuthStateChanged(auth, async user => {
 // ── Sanitizadores Firestore ───────────────────────────────────────────────
 // Evitan "Missing or insufficient permissions" cuando el formulario/localStorage
 // trae campos extra o tipos incorrectos que no pasan las reglas de seguridad.
-function safeSlice(str, maxLen) {
-  var chars = Array.from(str);
-  return chars.length <= maxLen ? str : chars.slice(0, maxLen).join('');
-}
+function safeSliceModule(str,maxLen){var a=Array.from(str);return a.length<=maxLen?str:a.slice(0,maxLen).join('');}
 function fsString(value, maxLen, fallback) {
   fallback = fallback !== undefined ? fallback : '';
-  return safeSlice(String(value != null ? value : fallback).trim(), maxLen);
+  return safeSliceModule(String(value != null ? value : fallback).trim(), maxLen);
 }
 function fsOptionalString(value, maxLen) {
-  var text = safeSlice(String(value != null ? value : '').trim(), maxLen);
+  var text = safeSliceModule(String(value != null ? value : '').trim(), maxLen);
   return text || null;
 }
 function fsValidId(value) {
@@ -4015,6 +4012,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script>
+function safeSlice(str,maxLen){var a=Array.from(str);return a.length<=maxLen?str:a.slice(0,maxLen).join('');}
 const KEY='gestion_streaming_v5';
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
@@ -5376,10 +5374,7 @@ function whatsappUrlForClient(client,context=''){
   if(!phone) return '';
   const account=state.accounts.find(a=>a.id===client.accountId);
   const text=context==='delivery' ? credentialsText(client, account) : whatsappText(client);
-  var normalizedText = text.normalize ? text.normalize('NFC') : text;
-  console.log('[WA] finalMessage en state:', JSON.stringify(state.settings && state.settings.finalMessage));
-  console.log('[WA] texto completo antes de encode:', normalizedText);
-  return `https://wa.me/${phone}?text=${encodeURIComponent(normalizedText)}`;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
@@ -5660,16 +5655,11 @@ $('#saveClientBtn').onclick=async ()=>{
   }
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
-  // Primero resetear el botón ANTES de cerrar el modal,
-  // así clearClientForm + openModal siguiente lo encuentran en estado limpio
   saveBtn.disabled=false;
-  // clearClientForm ya llama setClientSubmitMode(true) internamente,
-  // así el modo "Entregar cuenta" queda listo para la próxima venta
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){
-    const savedClient=data;
-    showDeliveryPrompt(savedClient);
-    focusClientAfterSale(savedClient);
+    showDeliveryPrompt(data);
+    focusClientAfterSale(data);
   }
 };
 $('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
