@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = 'disenos-streaming-v53';
+﻿const CACHE_NAME = 'disenos-streaming-v54';
 const ASSETS = [
   '/index-mobile.html',
   '/editor-mobile.html',
