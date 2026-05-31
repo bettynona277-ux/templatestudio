@@ -261,6 +261,10 @@ function sanitizeGestorClientForFirestore(data = {}) {
     dueDate: fsOptionalString(data.dueDate, 20),
     state: fsOptionalString(data.state, 30),
     notes: fsOptionalString(data.notes, 1000),
+    comboId: fsOptionalString(data.comboId, 80),
+    comboName: fsOptionalString(data.comboName, 120),
+    comboSize: Math.max(0, Math.min(20, Number(data.comboSize || 0))),
+    comboCreatedAt: fsOptionalString(data.comboCreatedAt, 40),
     lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
     createdAt: fsOptionalString(data.createdAt, 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
@@ -275,11 +279,19 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
   const categories = Array.isArray(settings.categories)
     ? settings.categories.map(c => String(c ?? '').trim()).filter(Boolean).slice(0, 50)
     : [];
+  const comboTemplates = Array.isArray(settings.comboTemplates)
+    ? settings.comboTemplates.slice(0, 30).map(t => ({
+      id: fsOptionalString(t?.id, 80),
+      name: fsOptionalString(t?.name, 120),
+      platforms: Array.isArray(t?.platforms) ? t.platforms.map(p => fsOptionalString(p, 80)).filter(Boolean).slice(0, 8) : []
+    })).filter(t => t.name && t.platforms.length)
+    : [];
   return {
     paymentMethods,
     whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
+    comboTemplates,
     finalMessage: fsOptionalString(settings.finalMessage, 500)
   };
 }
@@ -608,6 +620,30 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   width:17px;height:17px;
   flex-shrink:0;
   stroke-width:2.1;
+}
+.config-menu{
+  margin-top:18px;
+  margin-bottom:176px;
+  padding-top:14px;
+  border-top:1px solid rgba(255,255,255,.06);
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.config-title{
+  padding:0 12px 6px;
+  color:var(--muted-2);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.config-menu .ghost-btn{
+  min-height:38px;
+  font-size:12.5px;
+}
+.config-menu .ghost-btn span{
+  line-height:1.2;
 }
 
 /* Count badge */
@@ -1473,6 +1509,108 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 /* Payment / Category rows */
 .payment-list{display:flex;flex-direction:column;gap:10px}
 .payment-row{display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:10px;align-items:end}
+.settings-section{
+  grid-column:1/-1;
+  padding:14px;
+  border-radius:var(--r-md);
+  border:1px solid rgba(255,255,255,.07);
+  background:rgba(255,255,255,.025);
+}
+.settings-section-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+.settings-section-title{font-weight:850;color:var(--text)}
+.settings-section-note{color:var(--muted);font-size:12.5px;margin-top:3px}
+.combo-template-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;
+  gap:10px;
+  align-items:end;
+}
+.combo-template-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 12px;
+  border-radius:var(--r-sm);
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.07);
+}
+.combo-template-card strong{display:block;color:var(--text);font-weight:850}
+.combo-template-card .sub{font-size:12px;color:var(--muted);margin-top:3px}
+.combo-modal{width:min(940px,100%)}
+.combo-intro{
+  grid-column:1/-1;
+  padding:13px 14px;
+  border-radius:var(--r-md);
+  border:1px solid rgba(34,211,238,.18);
+  background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(124,109,255,.06));
+  color:var(--text-2);
+  font-size:13px;
+}
+.combo-tools{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:end;
+}
+.combo-toggle{
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:42px;
+  padding:10px 12px;
+  border-radius:var(--r-sm);
+  border:1px solid rgba(255,255,255,.07);
+  background:rgba(255,255,255,.025);
+  color:var(--text-2);
+}
+.combo-toggle input{width:18px;height:18px;accent-color:#22d3ee}
+.combo-rows{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:10px;
+}
+.combo-app-card{
+  --pcolor:#7c6dff;
+  padding:13px;
+  border-radius:var(--r-md);
+  border:1px solid color-mix(in srgb,var(--pcolor) 28%,rgba(255,255,255,.08));
+  background:radial-gradient(240px 90px at 0 0,color-mix(in srgb,var(--pcolor) 12%,transparent),transparent 70%),rgba(255,255,255,.025);
+}
+.combo-app-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+  font-weight:850;
+  color:var(--text);
+}
+.combo-badge{
+  display:inline-flex;
+  align-items:center;
+  min-height:22px;
+  padding:0 8px;
+  border-radius:999px;
+  background:rgba(34,211,238,.10);
+  border:1px solid rgba(34,211,238,.20);
+  color:#a5f3fc;
+  font-size:11px;
+  font-weight:850;
+}
+.combo-app-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.combo-due-field{margin-top:10px}
 
 /* Form check */
 .form-check{
@@ -1568,6 +1706,11 @@ i[data-lucide="download"]::before{content:"↓"}
 i[data-lucide="upload"]::before{content:"↑"}
 i[data-lucide="user-plus"]::before{content:"+"}
 i[data-lucide="upload-cloud"]::before{content:"⇧"}
+i[data-lucide="code"]::before{content:"</>"}
+i[data-lucide="message-square"]::before{content:"□"}
+i[data-lucide="credit-card"]::before{content:"▭"}
+i[data-lucide="folder"]::before{content:"▱"}
+i[data-lucide="package"]::before,i[data-lucide="package-plus"]::before{content:"◫"}
 
 /* ─── Reorder renew actions ──────────────────────── */
 .account-primary-actions .mini.replace{
@@ -1681,7 +1824,8 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
   .modal-backdrop.show{align-items:flex-end;padding:0}
   .modal{width:100vw!important;max-width:100vw!important;max-height:90dvh!important;border-radius:24px 24px 0 0!important;overflow:auto}
   .modal-head{margin:-22px -22px 14px!important;padding:16px 22px!important;border-radius:24px 24px 0 0}
-  .form,.payment-row{grid-template-columns:1fr!important}
+  .form,.payment-row,.combo-template-row,.combo-tools,.combo-app-grid{grid-template-columns:1fr!important}
+  .combo-rows{grid-template-columns:1fr!important}
   .modal-actions{
     position:sticky;bottom:-22px;z-index:4;
     margin:14px -22px -22px!important;padding:12px 22px 18px!important;
@@ -1773,6 +1917,14 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       <button class="nav-btn" data-view="libresView"><i data-lucide="badge-check"></i><span>Libres</span><span class="count" id="navLibres">0</span></button>
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
     </nav>
+    <div class="config-menu">
+      <div class="config-title">Configuracion</div>
+      <button class="ghost-btn" data-settings-section="general"><i data-lucide="code"></i><span>Codigo por defecto de los clientes</span></button>
+      <button class="ghost-btn" data-settings-section="message"><i data-lucide="message-square"></i><span>Mensaje final para entrega de cuentas</span></button>
+      <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
+      <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categoria de cuentas</span></button>
+      <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos personalizados</span></button>
+    </div>
 
     <div class="sidebar-bottom">
       <div style="padding:10px 14px;border-radius:14px;background:rgba(138,161,255,.06);border:1px solid rgba(138,161,255,.12);font-size:12px;color:#95a5cb;word-break:break-all">
@@ -1793,6 +1945,7 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
       </div>
       <div class="actions">
         <button class="btn primary" id="openClientBtn"><i data-lucide="user-plus"></i><span>Cliente</span></button>
+        <button class="btn soft" id="openComboBtn"><i data-lucide="package-plus"></i><span>Combo</span></button>
         <button class="btn soft" id="openAccountBtn"><i data-lucide="key-round"></i><span>Cuenta madre</span></button>
       </div>
     </div>
@@ -2056,11 +2209,47 @@ i[data-lucide="upload-cloud"]::before{content:"⇧"}
         </div>
         <div class="payment-list" id="categoryList"></div>
       </div>
+      <div class="settings-section" id="settingsSectionCombos">
+        <div class="settings-section-head"><div><div class="settings-section-title">Combos personalizados</div><div class="settings-section-note">Arma plantillas para vender varios perfiles en un solo mensaje.</div></div></div>
+        <div class="combo-template-row" style="margin-bottom:10px">
+          <label>Nombre del combo<input class="input" id="comboTemplateName" placeholder="Combo Familiar" /></label>
+          <label>Apps del combo<input class="input" id="comboTemplatePlatforms" placeholder="Netflix, Disney, Prime Video" /></label>
+          <button class="btn soft" type="button" id="addComboTemplateBtn">+ Combo</button>
+        </div>
+        <div class="payment-list" id="comboTemplateList"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="settingsModalWrap">Cancelar</button>
       <button class="btn primary" id="saveSettingsBtn">Guardar</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="comboModalWrap">
+  <div class="modal combo-modal">
+    <div class="modal-head">
+      <h3>Nuevo combo</h3>
+      <button class="x" data-close="comboModalWrap">Ã—</button>
+    </div>
+    <form id="comboForm" class="form">
+      <div class="combo-intro">Vende varias apps en una sola operacion. El gestor guarda un cliente por app y arma un solo WhatsApp con todos los accesos.</div>
+      <label>Nombre<input class="input" id="comboClientName" placeholder="Deros Rafael" required /></label>
+      <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
+      <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
+      <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
+      <div class="combo-tools">
+        <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
+        <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
+      </div>
+      <label class="combo-toggle"><span>Fechas diferentes por app</span><input type="checkbox" id="comboSplitDates" /></label>
+      <div class="combo-rows" id="comboRows"></div>
+      <label class="full">Notas<textarea id="comboNotes" placeholder="Opcional"></textarea></label>
+      <div class="modal-actions full">
+        <button class="btn" type="button" data-close="comboModalWrap">Cancelar</button>
+        <button class="btn ok" type="submit" id="saveComboBtn">Guardar y entregar</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -2127,6 +2316,10 @@ const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
 const DEFAULT_FINAL_MESSAGE='Gracias por tu compra. Cualquier duda me escribes.';
 const DEFAULT_CATEGORIES=['Netflix','Disney+','Max','Prime Video','Crunchyroll','Spotify','Paramount+','YouTube Premium','Viki','ViX'];
+const DEFAULT_COMBO_TEMPLATES=[
+  {id:'combo_familiar',name:'Combo Familiar',platforms:['Netflix','Disney+']},
+  {id:'combo_premium',name:'Combo Premium',platforms:['Netflix','Disney+','Max']}
+];
 const PLATFORM_OPTIONS=DEFAULT_CATEGORIES;
 const PLATFORM_URLS={
   'Netflix':'https://www.netflix.com/login',
@@ -2159,7 +2352,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],finalMessage:DEFAULT_FINAL_MESSAGE}};
+  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -2170,6 +2363,7 @@ function normalizeLoaded(data){
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
+    comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
   }));
   let paymentMethods=[];
@@ -2178,7 +2372,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500)};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500)};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -2223,6 +2417,7 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
+    comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
     finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500)
   };
 }
@@ -2266,6 +2461,18 @@ function uniqueClean(values){
     seen.add(key);
     return true;
   });
+}
+function normalizeComboTemplates(value, categories=[]){
+  const source=Array.isArray(value) && value.length ? value : DEFAULT_COMBO_TEMPLATES;
+  const allowed=uniqueClean([...(categories||[]),...DEFAULT_CATEGORIES]);
+  return source.map(t=>{
+    const raw=Array.isArray(t?.platforms) ? t.platforms : String(t?.platforms||'').split(/[,+|]/);
+    const platforms=uniqueClean(raw.map(p=>{
+      const text=String(p||'').trim();
+      return allowed.find(a=>a.toLowerCase()===text.toLowerCase()) || text;
+    }).filter(Boolean)).slice(0,8);
+    return {id:String(t?.id||uid()).trim().slice(0,80),name:String(t?.name||'Combo').trim().slice(0,120),platforms};
+  }).filter(t=>t.name && t.platforms.length).slice(0,30);
 }
 function excelColumnXml(widths, count){
   const cols=[];
@@ -2752,6 +2959,7 @@ function renderClients(){
       <td>
         <div class="client-name-cell">
           <div class="name">${escapeHtml(c.name||'')}</div>
+          ${c.comboId?`<div class="sub">${escapeHtml(c.comboName||'Combo')} · ${escapeHtml(c.comboSize||'')} apps</div>`:''}
           ${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}
         </div>
       </td>
@@ -3344,6 +3552,34 @@ function renderCategoryRows(){
     </div>`;
   }).join('') : `<div class="empty">Sin categorias</div>`;
 }
+function renderComboTemplateRows(){
+  const list=$('#comboTemplateList');
+  if(!list) return;
+  const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  state.settings.comboTemplates=templates;
+  list.innerHTML=templates.length ? templates.map(t=>`
+    <div class="combo-template-card">
+      <div>
+        <strong>${escapeHtml(t.name)}</strong>
+        <div class="sub">${escapeHtml(t.platforms.join(' + '))}</div>
+      </div>
+      <button class="mini" type="button" onclick="removeComboTemplate('${escapeJs(t.id)}')">Borrar</button>
+    </div>`).join('') : `<div class="empty">Sin combos personalizados</div>`;
+}
+function addComboTemplate(nameValue, platformsValue){
+  const name=String(nameValue||'').trim();
+  const platforms=uniqueClean(String(platformsValue||'').split(/[,+|]/).map(v=>v.trim()).filter(Boolean)).slice(0,8);
+  if(!name || !platforms.length) return false;
+  state.settings.comboTemplates=normalizeComboTemplates([...(state.settings.comboTemplates||[]),{id:uid(),name,platforms}],state.settings.categories);
+  persistSettings();
+  renderComboTemplateRows();
+  return true;
+}
+window.removeComboTemplate=(templateId)=>{
+  state.settings.comboTemplates=(state.settings.comboTemplates||[]).filter(t=>t.id!==templateId);
+  persistSettings();
+  renderComboTemplateRows();
+};
 function addCategory(value){
   const category=String(value||'').trim();
   if(!category) return '';
@@ -3562,6 +3798,64 @@ window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) retur
 window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
+function accountMatchesComboPlatform(account, platform){
+  const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
+  const p=String(platform||'').toLowerCase().replace(/[+\s]/g,'');
+  return !!a && !!p && (a===p || a.includes(p) || p.includes(a));
+}
+function comboAccountOptions(platform, selected=''){
+  const matches=state.accounts.filter(a=>accountMatchesComboPlatform(a,platform)).sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
+  const list=matches.length ? matches : state.accounts;
+  return `<option value="">Elige cuenta para ${escapeHtml(platform)}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} · ${accountAvailability(a).free} libres</option>`).join('')}`;
+}
+function selectedComboTemplate(){
+  const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  const selected=$('#comboTemplatePicker')?.value;
+  if(selected==='__custom__'){
+    const platforms=uniqueClean(String($('#comboCustomPlatforms')?.value||'').split(/[,+|]/).map(v=>v.trim()).filter(Boolean)).slice(0,8);
+    return platforms.length ? {id:'__custom__',name:'Combo personalizado',platforms} : null;
+  }
+  return templates.find(t=>t.id===selected) || templates[0] || null;
+}
+function renderComboRows(){
+  const tpl=selectedComboTemplate();
+  const wrap=$('#comboRows');
+  if(!wrap) return;
+  const split=!!$('#comboSplitDates')?.checked;
+  const baseDate=$('#comboDueDate')?.value || todayPlus(30);
+  wrap.innerHTML=tpl ? tpl.platforms.map(platform=>{
+    const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountAvailability(a).free>0) || state.accounts.find(a=>accountMatchesComboPlatform(a,platform));
+    return `<div class="combo-app-card" style="--pcolor:${platformColor(platform)}" data-platform="${escapeAttr(platform)}">
+      <div class="combo-app-title"><span>${platformLogo(platform,'chip')} ${escapeHtml(platform)}</span><span class="combo-badge">App combo</span></div>
+      <label>Cuenta madre<select class="select combo-account">${comboAccountOptions(platform,first?.id||'')}</select></label>
+      <div class="combo-app-grid" style="margin-top:10px">
+        <label>Perfil<input class="input combo-profile" value="${escapeAttr(first ? nextProfileSuggestion(first.id) : '')}" placeholder="1" /></label>
+        <label>PIN<input class="input combo-pin" placeholder="1234" /></label>
+      </div>
+      <label class="combo-due-field" style="${split?'':'display:none'}">Vence esta app<input class="input date-input combo-due" value="${escapeAttr(baseDate)}" placeholder="Elige fecha" /></label>
+    </div>`;
+  }).join('') : `<div class="empty">Elige una plantilla o escribe apps separadas por coma.</div>`;
+  initDatepickers();
+}
+function renderComboTemplatePicker(){
+  const picker=$('#comboTemplatePicker');
+  if(!picker) return;
+  const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  picker.innerHTML=templates.map(t=>`<option value="${escapeAttr(t.id)}">${escapeHtml(t.name)} · ${t.platforms.length} apps</option>`).join('') + '<option value="__custom__">Personalizado</option>';
+}
+function openComboModal(){
+  state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  $('#comboClientName').value='';
+  $('#comboWhatsapp').value='';
+  $('#comboCustomPlatforms').value='';
+  $('#comboNotes').value='';
+  $('#comboSplitDates').checked=false;
+  $('#comboDueDate').value=todayPlus(30);
+  renderComboTemplatePicker();
+  renderComboRows();
+  openModal('comboModalWrap');
+  initDatepickers();
+}
 function openDeliveryPendingWindow(){
   const win=window.open('', '_blank');
   if(!win) return null;
@@ -3602,9 +3896,42 @@ function whatsappUrlForClient(client,context=''){
   const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : whatsappText(client));
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
+function activeComboClients(comboId){
+  return state.clients.filter(c=>c.comboId===comboId && !isNoRenewState(c.state)).sort((a,b)=>friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)));
+}
+function comboText(clients, context='delivery'){
+  const list=(clients||[]).filter(Boolean);
+  const first=list[0]||{};
+  const lines=[`Hola ${first.name || ''}, ${context==='renewal'?'te aviso sobre tu combo.':'te paso los datos de tu combo:'}`,''];
+  list.forEach((client,index)=>{
+    const account=state.accounts.find(a=>a.id===client.accountId);
+    lines.push(`${index+1}. ${friendlyPlatform(client.platform||account?.platform)}`);
+    lines.push(`Correo: ${account?.email || '—'}`);
+    lines.push(`Contraseña: ${account?.password || '—'}`);
+    lines.push(`Perfil: ${client.profile || '—'}`);
+    if(client.pin) lines.push(`PIN: ${client.pin}`);
+    lines.push(`Vence: ${fmtDateLong(client.dueDate) || '—'}`);
+    lines.push('');
+  });
+  if(context==='renewal'){
+    const payment=paymentTextBlock();
+    lines.push('Si deseas renovar todo el combo, me confirmas enviando tu comprobante.');
+    if(payment) lines.push(payment.trim());
+  }else if(String(state.settings?.finalMessage||'').trim()){
+    lines.push(String(state.settings.finalMessage).trim());
+  }
+  return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function whatsappUrlForCombo(clients,context='delivery'){
+  const list=(clients||[]).filter(Boolean);
+  const phone=normalizePhone(list[0]?.whatsapp);
+  if(!list.length || !phone) return '';
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fixSurrogates(comboText(list,context)))}`;
+}
 window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
-  const url=whatsappUrlForClient(client,context);
+  const comboList=client.comboId ? activeComboClients(client.comboId) : [];
+  const url=comboList.length>1 ? whatsappUrlForCombo(comboList,context) : whatsappUrlForClient(client,context);
   if(!url){
     if(targetWindow && !targetWindow.closed) targetWindow.close();
     alert('Este cliente no tiene WhatsApp registrado.');
@@ -3612,12 +3939,74 @@ window.sendWhatsapp=(id,context='',targetWindow=null)=>{
   }
   navigatePreparedWhatsapp(targetWindow,url);
   if(context==='renewal'){
-    client.lastRenewalWhatsAppNoticeDate=todayStr();
-    persistDoc('clients', client);
+    const markList=comboList.length>1 ? comboList : [client];
+    markList.forEach(c=>{
+      c.lastRenewalWhatsAppNoticeDate=todayStr();
+      persistDoc('clients', c);
+    });
     refreshUI();
   }
 };
 window.removePayment=(idx)=>{ state.settings.paymentMethods.splice(idx,1); renderPaymentRows(); };
+async function saveComboSale(e){
+  e.preventDefault();
+  const btn=$('#saveComboBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+  const name=$('#comboClientName').value.trim();
+  const whatsapp=$('#comboWhatsapp').value.trim();
+  const dueDate=$('#comboDueDate').value.trim();
+  const tpl=selectedComboTemplate();
+  const split=!!$('#comboSplitDates')?.checked;
+  const comboId=uid();
+  const comboCreatedAt=new Date().toISOString();
+  const rows=$$('.combo-app-card').map(row=>{
+    const accountId=row.querySelector('.combo-account')?.value || '';
+    const account=state.accounts.find(a=>a.id===accountId);
+    return {
+      id:uid(),
+      name,
+      whatsapp,
+      accountId,
+      platform:account?.platform || row.dataset.platform || '',
+      profile:row.querySelector('.combo-profile')?.value.trim() || '',
+      pin:row.querySelector('.combo-pin')?.value.trim() || '',
+      dueDate:split ? (row.querySelector('.combo-due')?.value.trim() || dueDate) : dueDate,
+      state:'Activo',
+      notes:$('#comboNotes').value.trim(),
+      comboId,
+      comboName:tpl?.name || 'Combo',
+      comboSize:tpl?.platforms?.length || 0,
+      comboCreatedAt,
+      lastRenewalWhatsAppNoticeDate:''
+    };
+  });
+  const deliveryUrl=whatsappUrlForCombo(rows,'delivery');
+  const targetWindow=deliveryUrl ? openDeliveryPendingWindow() : null;
+  if(!name || !whatsapp || !rows.length || rows.some(c=>!c.accountId)){
+    if(targetWindow && !targetWindow.closed) targetWindow.close();
+    alert('Completa nombre, WhatsApp y una cuenta madre para cada app.');
+    if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
+    return;
+  }
+  try{
+    for(const client of rows){
+      const ok=await persistDoc('clients',client);
+      if(!ok) throw new Error('No se pudo guardar una app del combo.');
+    }
+    state.clients=[...rows,...state.clients];
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+    closeModal('comboModalWrap');
+    refreshUI();
+    navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(rows,'delivery'));
+    focusClientAfterSale(rows[0]);
+  }catch(err){
+    console.error(err);
+    if(targetWindow && !targetWindow.closed) targetWindow.close();
+    alert('No se pudo guardar el combo. Revisa permisos o conexion.');
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
+  }
+}
 
 
 
@@ -3799,6 +4188,12 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; };
+$('#openComboBtn').onclick=()=>openComboModal();
+$('#comboTemplatePicker').onchange=()=>renderComboRows();
+$('#comboSplitDates').onchange=()=>renderComboRows();
+$('#comboDueDate').addEventListener('change',()=>renderComboRows());
+$('#applyCustomComboBtn').onclick=()=>{ $('#comboTemplatePicker').value='__custom__'; renderComboRows(); };
+$('#comboForm').onsubmit=saveComboSale;
 $('#aPlatformSelect').onchange=()=>{ 
   let platform=$('#aPlatformSelect').value;
   if(platform==='__new__'){
@@ -3811,6 +4206,8 @@ $('#aPlatformSelect').onchange=()=>{
 };
 $('#addPaymentBtn').onclick=()=>{ state.settings.paymentMethods.push({method:'',number:'',holder:''}); renderPaymentRows(); };
 $('#addCategoryBtn').onclick=()=>{ const input=$('#categoryInput'); const category=addCategory(input?.value); if(input && category) input.value=''; };
+$('#addComboTemplateBtn').onclick=()=>{ const n=$('#comboTemplateName'); const p=$('#comboTemplatePlatforms'); if(addComboTemplate(n?.value,p?.value)){ n.value=''; p.value=''; } };
+$$('[data-settings-section]').forEach(btn=>btn.onclick=()=>openSettingsSection(btn.dataset.settingsSection));
 document.addEventListener('input',e=>{ const payField=e.target.dataset.pay; if(payField){ const idx=Number(e.target.dataset.index); state.settings.paymentMethods[idx][payField]=e.target.value; } });
 
 document.addEventListener('input',e=>{
@@ -3888,8 +4285,23 @@ $('#saveClientBtn').onclick=async ()=>{
     focusClientAfterSale(data);
   }
 };
-$('#openSettingsBtn').onclick=()=>{ if(!state.settings.paymentMethods) state.settings.paymentMethods=[]; if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES]; $('#waPrefix').value=state.settings.whatsappPrefix||'51'; $('#settingsFreeSort').value=state.settings.freeSort||'platform'; $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; renderPaymentRows(); renderCategoryRows(); openModal('settingsModalWrap'); };
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+function openSettingsSection(section=''){
+  if(!state.settings.paymentMethods) state.settings.paymentMethods=[];
+  if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES];
+  state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  $('#waPrefix').value=state.settings.whatsappPrefix||'51';
+  $('#settingsFreeSort').value=state.settings.freeSort||'platform';
+  $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
+  renderPaymentRows();
+  renderCategoryRows();
+  renderComboTemplateRows();
+  openModal('settingsModalWrap');
+  const map={combos:'settingsSectionCombos'};
+  const target=document.getElementById(map[section]||'settingsModalWrap');
+  if(target && section) setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
+}
+$('#openSettingsBtn').onclick=()=>openSettingsSection();
+$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
