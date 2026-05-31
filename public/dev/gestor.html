@@ -897,7 +897,6 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   border-color:color-mix(in srgb,var(--pcolor) 44%,var(--border));
   box-shadow:0 12px 32px color-mix(in srgb,var(--pcolor) 12%,transparent);
 }
-.platform-tile .big{font-size:20px;margin-bottom:8px;display:block}
 .platform-tile strong{display:block;font-size:15px;font-weight:800;letter-spacing:-.02em}
 .platform-tile span{display:block;margin-top:4px;color:var(--muted);font-size:12px}
 
@@ -1223,9 +1222,11 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
 }
 .platform-title{display:flex;align-items:center;gap:10px}
 .platform-icon{
-  width:38px;height:38px;border-radius:13px;display:grid;place-items:center;font-size:18px;
+  width:38px;height:38px;border-radius:13px;display:grid;place-items:center;
   background:color-mix(in srgb,var(--pcolor) 14%,rgba(255,255,255,.02));
   border:1px solid color-mix(in srgb,var(--pcolor) 26%,rgba(255,255,255,.06));
+  overflow:hidden;
+  padding:5px;
 }
 .platform-title h4{margin:0;font-size:17px;font-weight:800;letter-spacing:-.03em}
 .platform-title .sub{color:var(--muted);font-size:12px;margin-top:2px}
@@ -2403,31 +2404,72 @@ function accountStateChip(a){
   if(dd<=3) return '<span class="chip warn">Vence pronto</span>';
   return '<span class="chip ok">Al día</span>';
 }
-function platformIcon(name){
+// ── Platform SVG Logos ─────────────────────────────────────────────────────
+const PLATFORM_SVGS = {
+  netflix: `<svg viewBox="0 0 111 30" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><path d="M105.062 14.28L111 30c-1.75-.25-3.5-.563-5.28-.845l-3.626-9.768-3.753 8.96c-1.69-.282-3.344-.376-5.034-.658l6.28-14.84L94.1 0h5.222l3.378 9.098L105.875 0h5.124l-5.937 14.28zM90.17 0h-4.927v29.19c1.63.094 3.3.188 4.927.376V0zm-8.44 28.064c-5.03-.376-10.06-.563-15.123-.563V0h4.927v23.474c3.44 0 6.91.188 10.196.47v4.12zM50.917 13.258h8.005v4.12h-8.005v7.81h-4.927V0h14.14v4.12h-9.213v9.138zM35.794 0h-4.927v29.19c1.63.094 3.3.188 4.927.376V0zM14.655 21.948V0H9.728v29.75c4.365.375 8.7.844 13.03 1.5V27.13c-2.813-.47-5.44-.846-8.1-1.18zM0 0v4.12h5.315V30.9c1.63.28 3.3.47 4.927.656V4.12H15.5V0H0z" fill="#e50914"/></svg>`,
+  disney: `<svg viewBox="0 0 56 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><text y="20" font-size="20" font-weight="900" font-family="Arial,sans-serif" fill="#006e99">Disney</text><text x="38" y="20" font-size="20" font-weight="900" font-family="Arial,sans-serif" fill="#ffffff">+</text></svg>`,
+  prime: `<svg viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><text y="20" font-size="14" font-weight="700" font-family="Arial,sans-serif" fill="#00a8e1">prime</text><text x="0" y="24" font-size="9" font-weight="500" font-family="Arial,sans-serif" fill="#00a8e1">video</text></svg>`,
+  youtube: `<svg viewBox="0 0 90 20" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect x="0" y="0" width="28" height="20" rx="5" fill="#ff0000"/><polygon points="11,5 11,15 21,10" fill="white"/><text x="32" y="15" font-size="14" font-weight="700" font-family="Arial,sans-serif" fill="#ffffff">Premium</text></svg>`,
+  spotify: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><circle cx="12" cy="12" r="12" fill="#1db954"/><path d="M17.9 10.9C14.7 9 9.35 8.8 6.3 9.75c-.5.15-1-.15-1.15-.6-.15-.5.15-1 .6-1.15 3.55-1.05 9.4-.85 13.1 1.35.45.25.6.85.35 1.3-.25.35-.85.5-1.3.25zm-.1 2.8c-.25.35-.7.5-1.05.25-2.7-1.65-6.8-2.15-9.95-1.15-.4.1-.85-.1-.95-.5-.1-.4.1-.85.5-.95 3.65-1.1 8.15-.55 11.25 1.35.3.15.45.65.2 1zm-1.2 2.75c-.2.3-.55.4-.85.2-2.35-1.45-5.3-1.75-8.8-.95-.35.1-.65-.15-.75-.45-.1-.35.15-.65.45-.75 3.8-.85 7.1-.5 9.7 1.1.35.15.4.55.25.85z" fill="white"/></svg>`,
+  max: `<svg viewBox="0 0 60 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="60" height="24" rx="4" fill="#002be7"/><text x="8" y="18" font-size="16" font-weight="900" font-family="Arial,sans-serif" fill="white">max</text></svg>`,
+  crunchyroll: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><circle cx="12" cy="12" r="12" fill="#f47521"/><circle cx="12" cy="12" r="8" fill="none" stroke="white" stroke-width="2"/><circle cx="12" cy="7" r="3" fill="white"/></svg>`,
+  paramount: `<svg viewBox="0 0 90 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="90" height="24" rx="4" fill="#0064ff"/><text x="5" y="18" font-size="13" font-weight="800" font-family="Arial,sans-serif" fill="white">Paramount+</text></svg>`,
+  vix: `<svg viewBox="0 0 50 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="50" height="24" rx="4" fill="#f97316"/><text x="6" y="18" font-size="15" font-weight="900" font-family="Arial,sans-serif" fill="white">ViX</text></svg>`,
+  apple: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" fill="white"/></svg>`,
+  hbo: `<svg viewBox="0 0 60 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="60" height="24" rx="4" fill="#1e0030"/><text x="5" y="18" font-size="15" font-weight="900" font-family="Arial,sans-serif" fill="white">HBO</text></svg>`,
+  viki: `<svg viewBox="0 0 60 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="60" height="24" rx="4" fill="#06b6d4"/><text x="5" y="18" font-size="15" font-weight="800" font-family="Arial,sans-serif" fill="white">Viki</text></svg>`,
+  default: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="24" height="24" rx="6" fill="rgba(124,109,255,.3)"/><text x="12" y="17" text-anchor="middle" font-size="14" fill="white">▶</text></svg>`
+};
+
+function getPlatformKey(name){
   const p=(name||'').toLowerCase();
-  if(p.includes('netflix')) return '🎬';
-  if(p.includes('disney')) return '✨';
-  if(p.includes('max')) return '🎞️';
-  if(p.includes('prime')) return '📦';
-  if(p.includes('crunchy')) return '🍥';
-  if(p.includes('spotify')) return '🎵';
-  if(p.includes('youtube')) return '▶️';
-  if(p.includes('vix')) return '📺';
-  return '📺';
+  if(p.includes('netflix')) return 'netflix';
+  if(p.includes('disney')) return 'disney';
+  if(p.includes('max') && !p.includes('paramount')) return 'max';
+  if(p.includes('prime') || p.includes('amazon')) return 'prime';
+  if(p.includes('crunchy')) return 'crunchyroll';
+  if(p.includes('spotify')) return 'spotify';
+  if(p.includes('youtube')) return 'youtube';
+  if(p.includes('paramount')) return 'paramount';
+  if(p.includes('viki')) return 'viki';
+  if(p.includes('vix')) return 'vix';
+  if(p.includes('apple') || p.includes('tv+')) return 'apple';
+  if(p.includes('hbo')) return 'hbo';
+  return 'default';
 }
+
+// Returns an inline SVG logo wrapped in a styled container
+// size: 'tile' (large card), 'chip' (table badge), 'tab' (platform tab), 'icon' (small icon)
+function platformLogo(name, size='chip'){
+  const key = getPlatformKey(name);
+  const svg = PLATFORM_SVGS[key] || PLATFORM_SVGS.default;
+  const styles = {
+    tile: 'display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.12);overflow:hidden;padding:6px;margin-bottom:10px;',
+    chip: 'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.10);overflow:hidden;padding:2px;flex-shrink:0;vertical-align:middle;margin-right:4px;',
+    tab:  'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:7px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.10);overflow:hidden;padding:2px;flex-shrink:0;',
+    icon: 'display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.10);overflow:hidden;padding:3px;flex-shrink:0;'
+  };
+  return `<span style="${styles[size]||styles.chip}">${svg}</span>`;
+}
+
+// Keep backward-compatible platformIcon for sub-lines (returns compact logo)
+function platformIcon(name){ return platformLogo(name, 'chip'); }
+
 function platformColor(name){
   const p=(name||'').toLowerCase();
   if(p.includes('netflix')) return '#e50914';
-  if(p.includes('disney')) return '#38bdf8';
-  if(p.includes('max')) return '#7c3aed';
-  if(p.includes('prime')) return '#00a8e1';
+  if(p.includes('disney')) return '#006e99';
+  if(p.includes('max')) return '#002be7';
+  if(p.includes('prime') || p.includes('amazon')) return '#00a8e1';
   if(p.includes('crunchy')) return '#f47521';
   if(p.includes('spotify')) return '#1db954';
-  if(p.includes('youtube')) return '#ff0033';
-  if(p.includes('paramount')) return '#2563eb';
+  if(p.includes('youtube')) return '#ff0000';
+  if(p.includes('paramount')) return '#0064ff';
   if(p.includes('viki')) return '#06b6d4';
   if(p.includes('vix')) return '#f97316';
-  return '#8aa1ff';
+  if(p.includes('apple') || p.includes('tv+')) return '#555555';
+  if(p.includes('hbo')) return '#7c3aed';
+  return '#7c6dff';
 }
 function setToday(){ const el=$('#todayLabel'); if(!el) return; const d=new Date(); el.textContent=d.toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long'}); }
 function friendlyPlatform(name){ return name||'tu servicio'; }
@@ -2509,7 +2551,7 @@ function renderHome(){
     .map(([p,data])=>{
       const color=platformColor(p);
       return `<button class="platform-tile" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(p)}';switchView('libresView');">
-        <div class="big">${platformIcon(p)}</div>
+        ${platformLogo(p,'tile')}
         <strong>${escapeHtml(p)}</strong>
         <span>${data.free} Perfiles Libres · ${data.accounts} Cuentas</span>
       </button>`;
@@ -2587,10 +2629,26 @@ function renderClients(){
   const renderRow=c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const st=effectiveClientState(c);
+    const platform=c.platform||account?.platform||'';
+    const initials=(c.name||'?').trim().split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const pcolor=platformColor(platform);
     return `<tr>
-      <td><div class="name">${escapeHtml(c.name||'')}</div>${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="width:34px;height:34px;border-radius:10px;background:${pcolor}22;border:1px solid ${pcolor}44;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:${pcolor};flex-shrink:0">${initials}</div>
+          <div>
+            <div class="name">${escapeHtml(c.name||'')}</div>
+            ${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}
+          </div>
+        </div>
+      </td>
       <td>${escapeHtml(c.whatsapp||'')}</td>
-      <td><span class="chip platform">${platformIcon(c.platform || account?.platform)} ${escapeHtml(c.platform || account?.platform || '')}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${platformLogo(platform,'chip')}
+          <span style="font-weight:700;font-size:13px">${escapeHtml(platform||'—')}</span>
+        </div>
+      </td>
       <td>${escapeHtml(account ? accountLabel(account) : '—')}</td>
       <td>${escapeHtml(c.profile||'')}</td>
       <td>${escapeHtml(c.pin||'—')}</td>
@@ -2680,7 +2738,7 @@ function renderPlatformFilters(){
   normalizeAccountPlatformFilter();
   const buttons=[
     `<button class="filter-chip ${accountPlatformFilter==='__all__'?'active':''}" onclick="setAccountPlatformFilter('__all__')">Todas</button>`,
-    ...platforms.map(p=>`<button class="filter-chip ${p===accountPlatformFilter?'active':''}" onclick="setAccountPlatformFilter('${escapeJs(p)}')">${platformIcon(p)} ${escapeHtml(p)}</button>`)
+    ...platforms.map(p=>`<button class="filter-chip ${p===accountPlatformFilter?'active':''}" onclick="setAccountPlatformFilter('${escapeJs(p)}')" style="display:inline-flex;align-items:center;gap:6px">${platformLogo(p,'tab')} ${escapeHtml(p)}</button>`)
   ];
   $('#platformFilters').innerHTML=buttons.join('');
 }
@@ -2772,7 +2830,7 @@ function renderAccounts(){
           return `<div class="account-card compact-v2 ${cardClass}">
             <div class="account-topline">
               <div class="account-topline-left">
-                <span class="chip platform">${platformIcon(a.platform)} ${escapeHtml(a.platform||'')}</span>
+                <span class="chip platform" style="display:inline-flex;align-items:center;gap:5px">${platformLogo(a.platform,'chip')} ${escapeHtml(a.platform||'')}</span>
                 ${accountStateChip(a)}
               </div>
               <span class="chip ${av.free===0?'danger':'free'}">${av.free===0?'Llena':`${av.free} Libre${av.free===1?'':'s'}`}</span>
@@ -2881,7 +2939,7 @@ function renderFree(){
       ...totals.map(([platform,total])=>{
         const color=platformColor(platform);
         const active=selectedFreePlatform===platform?'active':'';
-        return `<button class="free-platform-tab ${active}" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(platform)}';renderFree()">${platformIcon(platform)} ${escapeHtml(platform)} · ${total}</button>`;
+        return `<button class="free-platform-tab ${active}" style="--pcolor:${color}" onclick="selectedFreePlatform='${escapeJs(platform)}';renderFree()">${platformLogo(platform,'tab')} ${escapeHtml(platform)} · ${total}</button>`;
       })
     ].join('');
   }
@@ -2911,7 +2969,7 @@ function renderFree(){
     return `<div class="platform-panel" style="--pcolor:${color}">
       <div class="platform-panel-head">
         <div class="platform-title">
-          <div class="platform-icon">${platformIcon(platform)}</div>
+          <div class="platform-icon">${platformLogo(platform,'icon')}</div>
           <div>
             <h4>${escapeHtml(platform)}</h4>
             <div class="sub">${list.length} Cuenta${list.length===1?'':'s'} Disponible${list.length===1?'':'s'}</div>
