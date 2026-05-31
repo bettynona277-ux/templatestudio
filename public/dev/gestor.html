@@ -545,7 +545,8 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   border-right:1px solid var(--border);
   display:flex;
   flex-direction:column;
-  overflow:hidden;
+  overflow-y:auto;
+  overflow-x:hidden;
 }
 
 /* Brand */
@@ -585,7 +586,7 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   display:flex;
   flex-direction:column;
   gap:3px;
-  flex:1;
+  flex:0 0 auto;
   margin-top:4px;
 }
 .nav-btn,.ghost-btn{
@@ -623,12 +624,11 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
 }
 .config-menu{
   margin-top:18px;
-  margin-bottom:176px;
   padding-top:14px;
   border-top:1px solid rgba(255,255,255,.06);
   display:flex;
   flex-direction:column;
-  gap:3px;
+  gap:4px;
 }
 .config-title{
   padding:0 12px 6px;
@@ -639,8 +639,10 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   text-transform:uppercase;
 }
 .config-menu .ghost-btn{
-  min-height:38px;
-  font-size:12.5px;
+  min-height:42px;
+  padding:9px 10px;
+  font-size:12px;
+  border-radius:13px;
 }
 .config-menu .ghost-btn span{
   line-height:1.2;
@@ -665,8 +667,9 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
 
 /* Sidebar bottom */
 .sidebar-bottom{
-  position:absolute;
-  left:10px;right:10px;bottom:10px;
+  position:static;
+  margin-top:auto;
+  padding-top:12px;
   display:flex;
   flex-direction:column;
   gap:6px;
@@ -1516,6 +1519,18 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   border:1px solid rgba(255,255,255,.07);
   background:rgba(255,255,255,.025);
 }
+.settings-section.is-hidden{display:none}
+.settings-single-note{
+  grid-column:1/-1;
+  display:none;
+  padding:10px 12px;
+  border-radius:var(--r-sm);
+  border:1px solid rgba(124,109,255,.18);
+  background:rgba(124,109,255,.06);
+  color:var(--muted);
+  font-size:12.5px;
+}
+.settings-single-note.show{display:block}
 .settings-section-head{
   display:flex;
   justify-content:space-between;
@@ -4285,6 +4300,24 @@ $('#saveClientBtn').onclick=async ()=>{
     focusClientAfterSale(data);
   }
 };
+function setSettingsSectionVisibility(section=''){
+  const form=document.querySelector('#settingsModalWrap .form');
+  if(!form) return;
+  const children=[...form.children];
+  const groups={
+    general:[children[0],children[1]],
+    message:[children[2]],
+    payments:[children[3]],
+    categories:[children[4]],
+    combos:[document.getElementById('settingsSectionCombos')||children[5]]
+  };
+  const only=!!section && groups[section];
+  children.forEach(el=>{ if(el) el.classList.remove('is-hidden'); });
+  if(only){
+    const visible=new Set(groups[section].filter(Boolean));
+    children.forEach(el=>{ if(el && !visible.has(el)) el.classList.add('is-hidden'); });
+  }
+}
 function openSettingsSection(section=''){
   if(!state.settings.paymentMethods) state.settings.paymentMethods=[];
   if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES];
@@ -4295,6 +4328,7 @@ function openSettingsSection(section=''){
   renderPaymentRows();
   renderCategoryRows();
   renderComboTemplateRows();
+  setSettingsSectionVisibility(section);
   openModal('settingsModalWrap');
   const map={combos:'settingsSectionCombos'};
   const target=document.getElementById(map[section]||'settingsModalWrap');
