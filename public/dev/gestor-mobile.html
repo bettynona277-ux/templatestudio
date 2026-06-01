@@ -226,6 +226,177 @@ const devicesCol = uid => collection(db,'users',uid,'devices');
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 
+const MAX_GESTOR_DEVICES = 5;
+const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getGestorDeviceId(){
+  let id = localStorage.getItem('ts_device_id');
+  if(!id){
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    localStorage.setItem('ts_device_id', id);
+  }
+  return id;
+}
+function detectGestorBrowser(ua=navigator.userAgent || ''){
+  if(/Edg/i.test(ua)) return 'Edge';
+  if(/OPR|Opera/i.test(ua)) return 'Opera';
+  if(/Firefox/i.test(ua)) return 'Firefox';
+  if(/Chrome|CriOS/i.test(ua) && !/Edg/i.test(ua)) return 'Chrome';
+  if(/Safari/i.test(ua) && !/Chrome|CriOS/i.test(ua)) return 'Safari';
+  return 'Navegador';
+}
+function detectGestorOS(ua=navigator.userAgent || ''){
+  if(/iPhone/i.test(ua)) return 'iPhone';
+  if(/iPad/i.test(ua)) return 'iPad';
+  if(/Android/i.test(ua)) return ua.includes('Mobile') ? 'Android movil' : 'Android tablet';
+  if(/Windows/i.test(ua)) return 'Windows PC';
+  if(/Mac/i.test(ua)) return 'Mac';
+  if(/Linux/i.test(ua)) return 'Linux PC';
+  return 'Dispositivo';
+}
+function getGestorWebGLInfo(){
+  try{
+    const canvas=document.createElement('canvas');
+    const gl=canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if(!gl) return {vendor:'',renderer:''};
+    const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor:String((dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)) || ''),
+      renderer:String((dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '')
+    };
+  }catch(_){ return {vendor:'',renderer:''}; }
+}
+function shortGestorGpuName(renderer){
+  return String(renderer || '').replace(/^ANGLE\s*\(|\)$/gi,'').replace(/\s*\(.*?\)\s*/g,' ').replace(/Direct3D.*|OpenGL.*|Vulkan.*/gi,'').replace(/\s+/g,' ').trim().slice(0,48);
+}
+function fallbackGestorHash(str){
+  let h=0x811c9dc5;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+  return ('00000000'+(h>>>0).toString(16)).slice(-8);
+}
+async function hashGestorText(str){
+  try{
+    if(window.crypto?.subtle){
+      const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+  }catch(_){}
+  return fallbackGestorHash(str);
+}
+async function buildGestorDeviceFingerprint(){
+  const ua=navigator.userAgent || '';
+  const webgl=getGestorWebGLInfo();
+  const screenInfo=`${screen.width || 0}x${screen.height || 0}`;
+  const timezone=Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const signals={
+    userAgent:ua,
+    platform:navigator.platform || '',
+    language:navigator.language || '',
+    languages:Array.from(navigator.languages || []).join(','),
+    timezone,
+    screen:screenInfo,
+    pixelRatio:window.devicePixelRatio || 1,
+    hardwareConcurrency:navigator.hardwareConcurrency || 0,
+    deviceMemory:navigator.deviceMemory || 0,
+    touch:('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0,
+    maxTouchPoints:navigator.maxTouchPoints || 0,
+    webglVendor:webgl.vendor,
+    webglRenderer:webgl.renderer,
+    browser:detectGestorBrowser(ua),
+    os:detectGestorOS(ua)
+  };
+  const hash=await hashGestorText(JSON.stringify({
+    platform:signals.platform,
+    language:signals.language,
+    languages:signals.languages,
+    timezone:signals.timezone,
+    screen:signals.screen,
+    pixelRatio:signals.pixelRatio,
+    hardwareConcurrency:signals.hardwareConcurrency,
+    deviceMemory:signals.deviceMemory,
+    touch:signals.touch,
+    maxTouchPoints:signals.maxTouchPoints,
+    webglVendor:signals.webglVendor,
+    webglRenderer:signals.webglRenderer,
+    browser:signals.browser,
+    os:signals.os
+  }));
+  const gpu=shortGestorGpuName(webgl.renderer);
+  const city=timezone.split('/').pop() || '';
+  const label=[signals.os, signals.browser, screenInfo, city, gpu ? 'GPU '+gpu : ''].filter(Boolean).join(' - ');
+  return {hash,label,summary:{os:signals.os,browser:signals.browser,screen:screenInfo,timezone,gpu,platform:signals.platform},confidenceSignals:signals};
+}
+function gestorDeviceSeenAt(d){ return Number(d?.lastSeen || d?.registeredAt || 0); }
+function isGestorDeviceExpired(d, now=Date.now()){
+  const seen=gestorDeviceSeenAt(d);
+  return !!seen && (now-seen) > GESTOR_DEVICE_TTL_MS;
+}
+function gestorFingerprintScore(oldSignals={}, nextSignals={}){
+  let score=0;
+  if(oldSignals.platform && nextSignals.platform && oldSignals.platform !== nextSignals.platform) score += 2;
+  if(oldSignals.timezone && nextSignals.timezone && oldSignals.timezone !== nextSignals.timezone) score += 1;
+  if(oldSignals.screen && nextSignals.screen && oldSignals.screen !== nextSignals.screen) score += 1;
+  if(oldSignals.browser && nextSignals.browser && oldSignals.browser !== nextSignals.browser) score += 1;
+  if(oldSignals.webglRenderer && nextSignals.webglRenderer && oldSignals.webglRenderer !== nextSignals.webglRenderer) score += 2;
+  if(oldSignals.maxTouchPoints !== undefined && nextSignals.maxTouchPoints !== undefined && oldSignals.maxTouchPoints !== nextSignals.maxTouchPoints) score += 1;
+  return score;
+}
+function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice){
+  const now=Date.now();
+  if(existing?.confidenceSignals && gestorFingerprintScore(existing.confidenceSignals, fingerprint.confidenceSignals) >= 3) return true;
+  const distinctHashes=new Set(activeDevices.map(d=>d.fingerprintHash).filter(Boolean));
+  if(isNewDevice && distinctHashes.size >= 3 && !distinctHashes.has(fingerprint.hash)) return true;
+  const recentNew=activeDevices.filter(d=>Number(d.registeredAt || 0) && (now-Number(d.registeredAt)) < 24*60*60*1000);
+  return isNewDevice && recentNew.length >= 3;
+}
+async function registerGestorDevice(uid){
+  const deviceId=getGestorDeviceId();
+  const devRef=doc(db,'users',uid,'devices',deviceId);
+  const snap=await getDocs(devicesCol(uid));
+  const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
+  const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
+  const fingerprint=await buildGestorDeviceFingerprint();
+  const existing=devices.find(d=>d.id===deviceId);
+  const now=Date.now();
+  if(existing){
+    if(existing.revoked === true) return {ok:false,revoked:true};
+    const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+    const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    await setDoc(devRef,{
+      name:fingerprint.label,
+      deviceLabel:fingerprint.label,
+      fingerprintHash:fingerprint.hash,
+      fingerprintSummary:fingerprint.summary,
+      confidenceSignals:fingerprint.confidenceSignals,
+      lastSeen:now,
+      lastLoginAt:now,
+      loginCount:Number(existing.loginCount || 0) + 1,
+      suspicious,
+      revoked:false
+    },{merge:true});
+    return {ok:true};
+  }
+  const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+  if(activeDevices.length >= MAX_GESTOR_DEVICES) return {ok:false,count:activeDevices.length};
+  const suspicious=detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
+  await setDoc(devRef,{
+    name:fingerprint.label,
+    deviceLabel:fingerprint.label,
+    fingerprintHash:fingerprint.hash,
+    fingerprintSummary:fingerprint.summary,
+    confidenceSignals:fingerprint.confidenceSignals,
+    registeredAt:now,
+    lastSeen:now,
+    lastLoginAt:now,
+    loginCount:1,
+    suspicious,
+    revoked:false
+  });
+  return {ok:true};
+}
+
 function normalizeSettings(data={}){
   const categories = Array.isArray(data.categories) ? data.categories.map(clean).filter(Boolean) : DEFAULT_CATEGORIES;
   const paymentMethods = normalizePaymentMethods(data.paymentMethods);
@@ -1443,8 +1614,6 @@ onAuthStateChanged(auth, async user => {
   state.uid = user.uid;
   state.email = user.email || '';
   $('#userLine').textContent = state.email;
-  startSecurityDeviceListener(user.uid);
-  await updateSecuritySummary(user);
   try{
     const userSnap = await getDoc(doc(db,'users',user.uid));
     state.active = !isExpiredUser(userSnap.data() || {});
@@ -1453,6 +1622,20 @@ onAuthStateChanged(auth, async user => {
       renderExpired();
       return;
     }
+    let deviceResult = null;
+    try{
+      deviceResult = await registerGestorDevice(user.uid);
+    }catch(err){
+      console.warn('No se pudo registrar este dispositivo del gestor:', err);
+    }
+    if(deviceResult && !deviceResult.ok){
+      alert(deviceResult.revoked ? 'Este dispositivo fue cerrado desde Seguridad.' : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado.`);
+      await signOut(auth);
+      window.location.href = 'gestor-login.html';
+      return;
+    }
+    startSecurityDeviceListener(user.uid);
+    await updateSecuritySummary(user);
     startLive();
     render();
   }catch(err){
