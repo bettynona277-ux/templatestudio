@@ -5130,6 +5130,7 @@ async function applyRenewalDate(clientId, newDate){
     alert('Elige una fecha válida para renovar.');
     return;
   }
+  const targetWindow=openWhatsappPendingWindow('Renovaci\u00f3n lista', 'Estamos armando el mensaje de agradecimiento para tu cliente.');
   c.dueDate=newDate;
   c.state='Activo';
   const renewalAmount=moneyNumber($('#renewPrice')?.value || c.renewalPrice || c.salePrice);
@@ -5148,6 +5149,7 @@ async function applyRenewalDate(clientId, newDate){
     await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
   }
   refreshUI();
+  sendWhatsapp(c.id,'renewed',targetWindow);
 }
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;
@@ -5283,6 +5285,16 @@ function openDeliveryPendingWindow(){
   }catch(err){}
   return win;
 }
+function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos armando el mensaje.'){
+  const win=window.open('', '_blank');
+  if(!win) return null;
+  try{
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
+    win.document.close();
+  }catch(err){}
+  return win;
+}
 function navigatePreparedWhatsapp(targetWindow,url){
   if(targetWindow && !targetWindow.closed){
     try{
@@ -5310,7 +5322,7 @@ function whatsappUrlForClient(client,context=''){
   const phone=normalizePhone(client?.whatsapp);
   if(!phone) return '';
   const account=state.accounts.find(a=>a.id===client.accountId);
-  const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : whatsappText(client));
+  const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : context==='renewed' ? renewedText(client, account) : whatsappText(client));
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
 function activeComboClients(comboId){
@@ -5319,6 +5331,22 @@ function activeComboClients(comboId){
 function comboText(clients, context='delivery'){
   const list=(clients||[]).filter(Boolean);
   const first=list[0]||{};
+  if(context==='renewed'){
+    const due=fmtDateLong(first.dueDate) || first.dueDate || '';
+    const apps=list.map(client=>{
+      const account=state.accounts.find(a=>a.id===client.accountId);
+      return friendlyPlatform(client.platform||account?.platform);
+    }).filter(Boolean).join(', ');
+    return [
+      `Hola ${first.name || ''} \u2728`,
+      '',
+      `Muchas gracias por tu renovaci\u00f3n \u2705`,
+      '',
+      `Tu combo${apps ? ` (${apps})` : ''} fue renovado correctamente hasta el ${due}.`,
+      '',
+      'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+    ].join('\n').trim();
+  }
   const lines=[`Hola ${first.name || ''}, ${context==='renewal'?'te aviso sobre tu combo.':'te paso los datos de tu combo:'}`,''];
   list.forEach((client,index)=>{
     const account=state.accounts.find(a=>a.id===client.accountId);
@@ -5338,6 +5366,20 @@ function comboText(clients, context='delivery'){
     lines.push(String(state.settings.finalMessage).trim());
   }
   return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function renewedText(client, account){
+  const platform=friendlyPlatform(client.platform||account?.platform);
+  const email=account?.email ? ` ${account.email}` : '';
+  const due=fmtDateLong(client.dueDate) || client.dueDate || '';
+  return [
+    `Hola ${client.name || ''} \u2728`,
+    '',
+    `Muchas gracias por tu renovaci\u00f3n \u2705`,
+    '',
+    `Tu cuenta de ${platform || 'streaming'}${email} fue renovada correctamente hasta el ${due}.`,
+    '',
+    'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+  ].join('\n').trim();
 }
 function whatsappUrlForCombo(clients,context='delivery'){
   const list=(clients||[]).filter(Boolean);

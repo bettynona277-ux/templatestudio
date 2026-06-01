@@ -1640,6 +1640,7 @@ function renewClient(c){
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0){
   if(!c || !nextDate) return;
   try{
+    let sendRenewedMessage = null;
     const pricePatch = c.comboId ? { comboRenewalPrice:renewalAmount || moneyNumber(c.comboRenewalPrice) } : { renewalPrice:renewalAmount || moneyNumber(c.renewalPrice) };
     if(c.comboId){
       const combo = activeComboClients(c.comboId);
@@ -1649,14 +1650,17 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       }
       state.clients = [...updatedCombo, ...state.clients.filter(item => item.comboId !== c.comboId)];
       await recordComboRenewalIncome(updatedCombo, renewalAmount);
+      sendRenewedMessage = () => openWhatsAppCombo(updatedCombo, 'renewed');
     }else{
       const updated = { ...c, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() };
       await setDoc(clientRef(c.id), updated, { merge:true });
       state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
       await recordRenewalIncome(updated, renewalAmount);
+      sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
     }
     toast(successMessage);
     closeSheet();
+    setTimeout(()=>sendRenewedMessage?.(), 80);
   }catch(err){
     console.error(err);
     toast('No se pudo renovar.','bad');
@@ -1691,6 +1695,18 @@ function activeComboClients(comboId){
 }
 function comboText(clients, mode='delivery'){
   const first = clients[0] || {};
+  if(mode === 'renewed'){
+    const apps = clients.map(c => platformShort(c.platform || state.accounts.find(a => a.id === c.accountId)?.platform)).filter(Boolean).join(', ');
+    return [
+      `Hola ${clientName(first)} \u2728`,
+      '',
+      'Muchas gracias por tu renovaci\u00f3n \u2705',
+      '',
+      `Tu combo${apps ? ` (${apps})` : ''} fue renovado correctamente hasta el ${clean(first.dueDate) || '-'}.`,
+      '',
+      'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+    ].join('\n').trim();
+  }
   const lines = [`Hola ${clientName(first)} ${mode === 'renewal' ? 'te aviso sobre tu combo.' : 'te envio los datos de tu combo:'}`, ''];
   clients.forEach((c,i) => {
     const acc = state.accounts.find(a => a.id === c.accountId);
@@ -1739,7 +1755,18 @@ function whatsappPayloadForClient(c, mode='delivery'){
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
   let text = '';
-  if(mode === 'renewal'){
+  if(mode === 'renewed'){
+    const accountEmail = clean(acc?.email);
+    text = [
+      `Hola ${clientName(c)} \u2728`,
+      '',
+      'Muchas gracias por tu renovaci\u00f3n \u2705',
+      '',
+      `Tu cuenta de ${service || 'streaming'}${accountEmail ? ` ${accountEmail}` : ''} fue renovada correctamente hasta el ${clean(c.dueDate) || '-'}.`,
+      '',
+      'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+    ].join('\n').trim();
+  }else if(mode === 'renewal'){
     let statusText = `tu cuenta de ${service} esta proxima a vencer.`;
     if(ds.days < 0) statusText = `tu cuenta de ${service} ya vencio el ${c.dueDate || 'dia indicado'}.`;
     else if(ds.days === 0) statusText = `tu cuenta de ${service} vence hoy.`;
