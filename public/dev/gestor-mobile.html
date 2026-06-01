@@ -472,6 +472,15 @@ function paymentMethodsText(value=state.settings.paymentMethods){
   }
   return clean(value);
 }
+function renewalPaymentLines(value=state.settings.paymentMethods){
+  const methods = normalizePaymentMethods(value);
+  return methods.map(p=>{
+    const method = clean(p.method) || 'Medio de pago';
+    const number = clean(p.number);
+    const holder = clean(p.holder);
+    return `\ud83d\udcf1 ${method}${number ? `: ${number}` : ''}${holder ? ` - ${holder}` : ''}`;
+  }).join('\n');
+}
 function accountCategory(a={}){
   if(clean(a.category)) return clean(a.category);
   const p = clean(a.platform).toLowerCase();
@@ -1755,6 +1764,39 @@ function whatsappPayloadForClient(c, mode='delivery'){
   const ds = dueState(c.dueDate);
   const service = platformShort(c.platform || acc?.platform);
   let text = '';
+  if(mode === 'renewal'){
+    const statusText = ds.days < 0
+      ? `venci\u00f3 el ${clean(c.dueDate) || 'd\u00eda indicado'}`
+      : ds.days === 0
+        ? 'vence hoy'
+        : ds.days === 1
+          ? 'vence el d\u00eda de ma\u00f1ana'
+          : ds.days <= 7
+            ? `est\u00e1 por vencer el ${clean(c.dueDate) || 'd\u00eda indicado'}`
+            : 'est\u00e1 pr\u00f3xima a vencer';
+    const payText = renewalPaymentLines();
+    text = [
+      `Hola, ${clientName(c)} \ud83d\udc4b\u2728`,
+      '',
+      `\ud83d\udccc Tu cuenta de ${service} ${statusText}.`,
+      '',
+      `\ud83c\udfac Perfil: ${clean(c.profile) || '-'}`,
+      `\ud83d\udce7 Correo: ${clean(acc?.email) || '-'}`,
+      `\ud83d\udd11 Contrase\u00f1a: ${clean(acc?.password) || '-'}`,
+      `\ud83d\udd10 PIN: ${clean(c.pin) || '-'}`,
+      '',
+      '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
+      ...(payText ? ['', payText] : []),
+      '',
+      '\u2705 Gracias por tu preferencia.'
+    ].join('\n');
+    const encodedText = encodeURIComponent(text);
+    const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
+    const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+    const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+    const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
+    return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
+  }
   if(mode === 'renewed'){
     const accountEmail = clean(acc?.email);
     text = [

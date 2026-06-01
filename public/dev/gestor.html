@@ -4757,6 +4757,17 @@ function paymentTextBlock(){
   const lines=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder).map(p=>`${p.method||'Pago'} ${p.number?`" ${p.number}`:''} ${p.holder?`A nombre de ${p.holder}`:''}`.trim());
   return lines.length?`\n\nNuestros medios de pago son:\n${lines.join('\n')}`:'';
 }
+function renewalPaymentLines(){
+  return (state.settings.paymentMethods||[])
+    .filter(p=>p.method||p.number||p.holder)
+    .map(p=>{
+      const method=String(p.method||'Medio de pago').trim();
+      const number=String(p.number||'').trim();
+      const holder=String(p.holder||'').trim();
+      return `\ud83d\udcf1 ${method}${number?`: ${number}`:''}${holder?` - ${holder}`:''}`;
+    })
+    .join('\n');
+}
 function credentialsText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
   const finalMessage=String(state.settings?.finalMessage || '').trim();
@@ -4794,6 +4805,38 @@ function whatsappText(client){
   }
   if(dd===1){
     return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el día de mañana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
+  }
+  return credentialsText(client, account);
+}
+
+function whatsappText(client){
+  const account=state.accounts.find(a=>a.id===client.accountId);
+  const platform=friendlyPlatform(client.platform||account?.platform);
+  const dd=daysUntil(client.dueDate);
+  const payment=renewalPaymentLines();
+  const status=dd===0
+    ? 'vence hoy'
+    : dd===1
+      ? 'vence el d\u00eda de ma\u00f1ana'
+      : dd!==null && dd<0
+        ? `venci\u00f3 el ${fmtDateLong(client.dueDate) || client.dueDate || 'd\u00eda indicado'}`
+        : 'est\u00e1 pr\u00f3xima a vencer';
+  if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
+    return [
+      `Hola, ${client.name || ''} \ud83d\udc4b\u2728`,
+      '',
+      `\ud83d\udccc Tu cuenta de ${platform} ${status}.`,
+      '',
+      `\ud83c\udfac Perfil: ${client.profile || '-'}`,
+      `\ud83d\udce7 Correo: ${account?.email || '-'}`,
+      `\ud83d\udd11 Contrase\u00f1a: ${account?.password || '-'}`,
+      `\ud83d\udd10 PIN: ${client.pin || '-'}`,
+      '',
+      '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
+      ...(payment ? ['', payment] : []),
+      '',
+      '\u2705 Gracias por tu preferencia.'
+    ].join('\n');
   }
   return credentialsText(client, account);
 }
