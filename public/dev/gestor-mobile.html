@@ -522,6 +522,10 @@ function financeCurrency(){ return clean(state.settings.financeCurrency) || 'PEN
 function financeSymbol(){ return clean(state.settings.financeSymbol) || CURRENCY_SYMBOLS[financeCurrency()] || financeCurrency(); }
 function formatMoney(value){ return `${financeSymbol()} ${moneyNumber(value).toFixed(2)}`; }
 function financeMovementId(source, entityId){ return [source, entityId].map(clean).filter(Boolean).join('_') || id(); }
+function financeMovementTime(movement){
+  const time = new Date(movement?.occurredAt || movement?.createdAt || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
 function normalizeFinanceMovement(data={}){
   const now = new Date().toISOString();
   return {
@@ -728,7 +732,7 @@ function renderDue(){
   bindCards();
 }
 function renderFinance(){
-  const movements = state.financeMovements.map(normalizeFinanceMovement).filter(movementInRange).sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt));
+  const movements = state.financeMovements.map(normalizeFinanceMovement).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income = movements.filter(m=>m.type==='income').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
   const expense = movements.filter(m=>m.type==='expense').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
   const renewals = movements.filter(m=>m.source === 'renewal' || m.source === 'combo_renewal').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
@@ -1293,6 +1297,7 @@ async function saveItem(kind,data,opts={}){
   }
 }
 function sanitizeAccountForSave(data={}){
+  const purchaseCost = moneyNumber(data.purchaseCost);
   return {
     id: clean(data.id) || id(),
     platform: clean(data.platform),
@@ -1303,8 +1308,8 @@ function sanitizeAccountForSave(data={}){
     capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
     dueDate: clean(data.dueDate),
     notes: clean(data.notes).slice(0,1000),
-    purchaseCost: moneyNumber(data.purchaseCost),
-    purchaseCostRegistered: data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on'
+    purchaseCost,
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on'
   };
 }
 function sanitizeClientForSave(data={}){
@@ -1828,7 +1833,7 @@ function exportExcel(){
   financeRows.push(['Ingresos',formatMoney(income),'Gastos',formatMoney(expense),'Ganancia',formatMoney(income-expense)]);
   financeRows.push([]);
   financeRows.push(['Fecha','Tipo','Origen','Descripcion','Plataforma','Monto','Moneda']);
-  state.financeMovements.sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt)).forEach(m => financeRows.push([
+  state.financeMovements.slice().sort((a,b)=>financeMovementTime(b)-financeMovementTime(a)).forEach(m => financeRows.push([
     m.occurredAt, m.type === 'expense' ? 'Gasto' : 'Ingreso', m.source, m.description, m.platform, m.amount, m.currency
   ]));
   const sheetRows = data => data.map((r,i)=>`<Row>${r.map(v=>`<Cell ss:StyleID="${i===0?'brand':(String(v)==='CLIENTES'||String(v)==='CUENTAS MADRE'||String(v)==='FINANZAS')?'section':'cell'}"><Data ss:Type="String">${esc(v)}</Data></Cell>`).join('')}</Row>`).join('');

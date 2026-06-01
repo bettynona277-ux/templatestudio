@@ -459,7 +459,8 @@ function sanitizeGestorAccountForFirestore(data = {}) {
   let capacity = Number(data.capacity);
   if (!Number.isFinite(capacity)) capacity = 1;
   capacity = Math.max(1, Math.min(500, Math.round(capacity)));
-  const purchaseCost = Number(data.purchaseCost || 0);
+  const rawPurchaseCost = Number(data.purchaseCost || 0);
+  const purchaseCost = Number.isFinite(rawPurchaseCost) ? Math.max(0, rawPurchaseCost) : 0;
   return {
     id,
     platform: fsString(data.platform, 120, 'Cuenta'),
@@ -471,8 +472,8 @@ function sanitizeGestorAccountForFirestore(data = {}) {
     dueDate: fsOptionalString(data.dueDate, 20),
     notes: fsOptionalString(data.notes, 1000),
     category: fsOptionalString(data.category, 120),
-    purchaseCost: Number.isFinite(purchaseCost) ? Math.max(0, purchaseCost) : 0,
-    purchaseCostRegistered: data.purchaseCostRegistered === true,
+    purchaseCost,
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true,
     createdAt: fsOptionalString(data.createdAt, 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
@@ -3441,6 +3442,10 @@ function normalizeFinanceMovement(data={}){
 function financeMovementId(source, id){
   return `${source}_${String(id||uid()).replace(/[^a-zA-Z0-9_-]/g,'_')}`;
 }
+function financeMovementTime(movement){
+  const t=new Date(movement?.occurredAt||movement?.createdAt||0).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
 async function persistFinanceMovement(data){
   const movement=normalizeFinanceMovement(data);
   if(!movement || !movement.amount) return false;
@@ -3460,6 +3465,15 @@ async function deleteFinanceMovement(id){
   state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   renderFinance();
+}
+async function removeFinanceMovement(id){
+  if(!id) return false;
+  const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
+  if(!ok) return false;
+  state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  renderFinance();
+  return true;
 }
 function clientFinanceLabel(client, prefix){
   const account=state.accounts.find(a=>a.id===client.accountId);
@@ -3544,9 +3558,13 @@ async function recordComboRenewalIncome(clients, amountOverride){
 }
 async function upsertAccountPurchaseExpense(account){
   const amount=moneyNumber(account.purchaseCost);
-  if(!amount || account.purchaseCostRegistered!==true) return;
+  const movementId=financeMovementId('account_purchase', account.id);
+  if(!amount){
+    await removeFinanceMovement(movementId).catch(()=>{});
+    return;
+  }
   await persistFinanceMovement({
-    id:financeMovementId('account_purchase', account.id),
+    id:movementId,
     type:'expense',
     source:'account_purchase',
     amount,
@@ -3559,6 +3577,7 @@ async function upsertAccountPurchaseExpense(account){
   });
 }
 function sanitizeAccountForSave(data={}){
+  const purchaseCost=moneyNumber(data.purchaseCost);
   return {
     id: String(data.id || uid()).trim().slice(0,80),
     platform: String(data.platform || '').trim().slice(0,120),
@@ -3569,8 +3588,8 @@ function sanitizeAccountForSave(data={}){
     capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
     dueDate: String(data.dueDate || '').trim().slice(0,20),
     notes: String(data.notes || '').trim().slice(0,1000),
-    purchaseCost: moneyNumber(data.purchaseCost),
-    purchaseCostRegistered: data.purchaseCostRegistered === true
+    purchaseCost,
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true
   };
 }
 function updateExpiredSummary(){
@@ -3717,7 +3736,7 @@ function downloadGestorExcel(){
       'Notas':c.notes
     };
   });
-  const financeRows=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt)).map(m=>({
+  const financeRows=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a)).map(m=>({
     'Fecha':m.occurredAt ? new Date(m.occurredAt).toLocaleDateString('es-PE') : '',
     'Tipo':m.type==='expense'?'Gasto':'Ingreso',
     'Origen':m.source,
@@ -4613,7 +4632,7 @@ function movementInRange(m){
 function renderFinance(){
   const rangeEl=$('#financeRange');
   if(rangeEl) financeRange=rangeEl.value||financeRange||'month';
-  const list=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).filter(movementInRange).sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt));
+  const list=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income=list.filter(m=>m.type==='income').reduce((n,m)=>n+moneyNumber(m.amount),0);
   const expense=list.filter(m=>m.type==='expense').reduce((n,m)=>n+moneyNumber(m.amount),0);
   const renewals=list.filter(m=>m.source==='renewal'||m.source==='combo_renewal');
