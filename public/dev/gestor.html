@@ -20,7 +20,7 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, writeBatch
@@ -56,6 +56,7 @@ function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'met
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
+function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
 
 // ── Migración: si hay datos en el doc raíz los mueve a subcolecciones ──────
 async function migrateIfNeeded(uid) {
@@ -198,6 +199,7 @@ onAuthStateChanged(auth, async user => {
 
   const el = document.getElementById('userEmail');
   if (el) el.textContent = user.email;
+  updateSecuritySummary(user);
 
   document.getElementById('authLoader').style.display = 'none';
   document.getElementById('appRoot').style.display    = '';
@@ -292,7 +294,12 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
     comboTemplates,
-    finalMessage: fsOptionalString(settings.finalMessage, 500)
+    finalMessage: fsOptionalString(settings.finalMessage, 500),
+    security: settings.security && typeof settings.security === 'object'
+      ? {
+        passwordChangedAt: fsOptionalString(settings.security.passwordChangedAt, 40)
+      }
+      : {}
   };
 }
 function sanitizeGestorDocForFirestore(colName, data) {
@@ -863,6 +870,31 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   color:var(--text-2);
   letter-spacing:-.01em;
 }
+.security-banner{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+  margin-bottom:18px;
+  padding:14px 16px;
+  border:1px solid rgba(45,212,191,.18);
+  border-radius:22px;
+  background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(124,92,255,.06));
+  box-shadow:0 18px 45px rgba(0,0,0,.14);
+}
+.security-banner-icon{
+  width:44px;
+  height:44px;
+  border-radius:15px;
+  display:grid;
+  place-items:center;
+  background:rgba(45,212,191,.13);
+  color:#7fffe3;
+  border:1px solid rgba(45,212,191,.25);
+}
+.security-banner-icon svg{width:22px;height:22px}
+.security-banner h3{margin:0 0 3px;font-size:15px}
+.security-banner p{margin:0;color:var(--muted);font-size:13px;line-height:1.35}
 
 /* ─── Cards / Panels ────────────────────────────── */
 .card,.panel,.mini-panel,.group-card{
@@ -987,17 +1019,18 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   font-size:13px;
 }
 .client-panel-top{
-  display:flex;
-  justify-content:flex-end;
+  display:block;
   margin-bottom:12px;
 }
 .client-tools{
-  display:flex;
+  display:grid;
+  grid-template-columns:minmax(260px,1fr) minmax(150px,180px) minmax(220px,320px);
   gap:8px;
   align-items:center;
-  flex-wrap:wrap;
+  width:100%;
 }
-.client-tools .search{min-width:280px}
+.client-tools .search{min-width:0}
+.client-tools .input,.client-tools .select{width:100%}
 .client-name-cell{
   min-width:130px;
   display:flex;
@@ -1169,7 +1202,8 @@ select option:checked{
   align-items:center;
 }
 .renewals-search-wrap .input{padding-right:46px}
-.renewals-search-wrap i{
+.renewals-search-wrap i,
+.renewals-search-wrap svg{
   position:absolute;
   right:14px;
   top:50%;
@@ -1274,13 +1308,23 @@ select option:checked{
   padding:0!important;
   font-size:20px!important;
 }
+.renewal-actions .action-more summary.renewal-more{
+  min-height:34px;
+  width:38px;
+  min-width:38px;
+  padding:0!important;
+  border-radius:11px;
+  font-size:20px!important;
+}
+.renewal-actions .action-more summary.renewal-more::after{content:""!important}
+.renewal-actions .action-more-menu{min-width:150px}
 .renewal-status-chip{
   justify-self:start;
 }
 .renewals-summary{
   margin:0 28px 28px;
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   border:1px solid rgba(255,255,255,.08);
   border-radius:18px;
   overflow:hidden;
@@ -1761,6 +1805,33 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .settings-section-title{font-weight:850;color:var(--text)}
 .settings-section-note{color:var(--muted);font-size:12.5px;margin-top:3px}
+.security-grid{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.security-card{
+  padding:14px;
+  border-radius:18px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.035);
+}
+.security-card strong{display:block;font-size:18px;color:var(--text)}
+.security-card span{display:block;margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35}
+.security-tip{
+  grid-column:1/-1;
+  display:flex;
+  gap:12px;
+  align-items:flex-start;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid rgba(45,212,191,.20);
+  background:rgba(45,212,191,.07);
+  color:#dffdf7;
+}
+.security-tip svg{width:20px;height:20px;flex:0 0 auto;color:#7fffe3}
+.security-tip p{margin:2px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
 .combo-template-row{
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;
@@ -1985,9 +2056,9 @@ i[data-lucide="search"]::before{content:"⌕"}
   .renewals-head{display:none}
   .renewal-row{grid-template-columns:1fr;gap:12px}
   .renewal-status-chip{justify-self:start}
-  .renewals-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .renewal-metric:nth-child(2){border-right:none}
-  .renewal-metric:nth-child(n+3){border-top:1px solid rgba(255,255,255,.06)}
+  .renewals-summary{grid-template-columns:1fr}
+  .renewal-metric{border-right:none!important;border-top:1px solid rgba(255,255,255,.06)}
+  .renewal-metric:first-child{border-top:none}
 }
 @media(max-width:980px){
   .hero-stats{grid-template-columns:1fr}
@@ -2039,11 +2110,15 @@ i[data-lucide="search"]::before{content:"⌕"}
   .actions .btn{min-width:0;font-size:13px}
 
   .hero-stats{grid-template-columns:1fr;gap:10px}
+  .security-banner{grid-template-columns:auto minmax(0,1fr);align-items:start}
+  .security-banner .btn{grid-column:1/-1;width:100%;justify-content:center}
+  .security-grid{grid-template-columns:1fr}
   .hero-pill{min-height:84px}
   .hero-number{font-size:30px}
 
   .quick-platforms,.account-grid-compact,.free-account-grid{grid-template-columns:1fr!important}
   .clients-panel-header,.client-panel-top{flex-direction:column;align-items:stretch}
+  .client-tools{grid-template-columns:1fr}
   .client-tools .search{min-width:100%}
 
   .table-wrap{overflow:visible;border:0;background:transparent}
@@ -2199,6 +2274,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
       <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categoria de cuentas</span></button>
       <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos personalizados</span></button>
+      <button class="ghost-btn" id="openSecurityBtn"><i data-lucide="shield-check"></i><span>Seguridad de cuenta</span></button>
     </div>
 
     <div class="sidebar-bottom">
@@ -2207,7 +2283,6 @@ i[data-lucide="search"]::before{content:"⌕"}
         <span id="userEmail">—</span>
       </div>
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
-      <button class="ghost-btn" id="openSettingsBtn"><i data-lucide="settings"></i><span>Ajustes</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
     </div>
   </aside>
@@ -2240,6 +2315,15 @@ i[data-lucide="search"]::before{content:"⌕"}
           <div class="hero-text">Vencen mañana</div>
         </div>
       </div>
+
+      <section class="security-banner" id="homeSecurityBanner">
+        <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
+        <div>
+          <h3>Datos protegidos</h3>
+          <p>Tu gestor es privado, esta limitado por dispositivo y puedes cambiar tu contrasena inicial.</p>
+        </div>
+        <button class="btn soft small" id="openSecurityHomeBtn" type="button"><i data-lucide="lock-keyhole"></i><span>Ver seguridad</span></button>
+      </section>
 
       <section class="quick-sale-panel">
         <div class="quick-sale-head">
@@ -2523,6 +2607,43 @@ i[data-lucide="search"]::before{content:"⌕"}
   </div>
 </div>
 
+<div class="modal-backdrop" id="securityModalWrap">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Seguridad de cuenta</h3>
+      <button class="x" data-close="securityModalWrap">x</button>
+    </div>
+    <div class="form">
+      <div class="security-tip">
+        <i data-lucide="shield-check"></i>
+        <div>
+          <strong>Datos seguros y privados</strong>
+          <p>Tu informacion se guarda separada por usuario. Cambia tu contrasena inicial para que solo tu la conozcas.</p>
+        </div>
+      </div>
+      <div class="security-grid">
+        <div class="security-card"><strong id="securityEmail">-</strong><span>Correo de acceso</span></div>
+        <div class="security-card"><strong id="securityLastLogin">-</strong><span>Ultimo ingreso</span></div>
+        <div class="security-card"><strong id="securityDevices">-</strong><span>Dispositivos registrados</span></div>
+      </div>
+      <label>Contrasena actual<input class="input" id="securityCurrentPassword" type="password" autocomplete="current-password" placeholder="Tu contrasena actual" /></label>
+      <label>Nueva contrasena<input class="input" id="securityNewPassword" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" /></label>
+      <label>Repetir nueva contrasena<input class="input" id="securityConfirmPassword" type="password" autocomplete="new-password" placeholder="Repite la nueva contrasena" /></label>
+      <div class="security-tip">
+        <i data-lucide="info"></i>
+        <div>
+          <strong>Recomendacion</strong>
+          <p>Usa una contrasena unica. Si sospechas que alguien entro, cambia la contrasena y cierra sesion.</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" data-close="securityModalWrap">Cancelar</button>
+      <button class="btn primary" id="changePasswordBtn">Cambiar contrasena</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="comboModalWrap">
   <div class="modal combo-modal">
     <div class="modal-head">
@@ -2669,7 +2790,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500)};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -2715,7 +2836,8 @@ function sanitizeSettingsForSave(settings={}){
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
     comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
-    finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500)
+    finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500),
+    security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
 function persistSettings(){
@@ -3013,7 +3135,7 @@ const PLATFORM_LOGO_URLS = {
   telelatino: '/logos/Tele%20Latino.svg',
   ufc: '/logos/UFC.svg',
   universal: '/logos/Universal.svg',
-  viki: '/logos/Viki%20Rakuten.svg',
+  viki: '/logos/viki.svg',
   vix: '/logos/vix.svg',
   youtube: '/logos/youtube.svg'
 };
@@ -3662,7 +3784,6 @@ function renderRenewals(){
   const expiredCount=rows.filter(x=>x.dd<0).length;
   const todayCount=rows.filter(x=>x.dd===0).length;
   const totalCount=rows.length;
-  const renewalRate=totalCount ? Math.round((rows.filter(x=>x.st!=='Vencido').length/totalCount)*100) : 0;
   $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
     let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon';
     if(dd<0){ dueLabel='Vencido'; dueSub=`Hace ${Math.abs(dd)} dia${Math.abs(dd)===1?'':'s'}`; dueClass='expired'; }
@@ -3688,7 +3809,12 @@ function renderRenewals(){
       <div class="renewal-actions">
         <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
         <button class="mini" onclick="renewClient('${client.id}')">Renovar</button>
-        <button class="mini renewal-more" title="No renovo" onclick="setNoRenew('${client.id}')">⋮</button>
+        <details class="action-more">
+          <summary class="renewal-more" title="Mas acciones">⋮</summary>
+          <div class="action-more-menu">
+            <button class="mini" onclick="setNoRenew('${client.id}')">No renovo</button>
+          </div>
+        </details>
       </div>
       <div class="renewal-status-chip">
         ${chipForState(st)}
@@ -3700,8 +3826,7 @@ function renderRenewals(){
     summary.innerHTML=`
       <div class="renewal-metric danger"><div class="renewal-metric-icon"><i data-lucide="calendar-x"></i></div><div><strong>${expiredCount}</strong><span>Vencidas</span><small>Requieren atencion</small></div></div>
       <div class="renewal-metric warn"><div class="renewal-metric-icon"><i data-lucide="calendar-days"></i></div><div><strong>${todayCount}</strong><span>Por vencer hoy</span><small>Atencion inmediata</small></div></div>
-      <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Total cuentas</span><small>En esta vista</small></div></div>
-      <div class="renewal-metric ok"><div class="renewal-metric-icon"><i data-lucide="bar-chart-3"></i></div><div><strong>${renewalRate}%</strong><span>Tasa de renovacion</span><small>Vista actual</small></div></div>`;
+      <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Total cuentas</span><small>En esta vista</small></div></div>`;
     if(window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons();
   }
 }
@@ -4627,6 +4752,74 @@ function setSettingsSectionVisibility(section=''){
     children.forEach(el=>{ if(el && !visible.has(el)) el.classList.add('is-hidden'); });
   }
 }
+function formatSecurityDate(value){
+  if(!value) return '-';
+  const date = value instanceof Date ? value : new Date(value);
+  if(Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+async function updateSecuritySummary(user){
+  if(!user) return;
+  const email = user.email || '-';
+  const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
+  let deviceText = 'Este dispositivo';
+  try{
+    const snap = await getDocs(devicesCol(user.uid));
+    const active = snap.docs.filter(d => d.data()?.revoked !== true);
+    deviceText = `${active.length || snap.size || 1} de 5`;
+  }catch(_){
+    deviceText = 'Privado';
+  }
+  Object.entries({securityEmail:email, securityLastLogin:lastLogin, securityDevices:deviceText}).forEach(([id,text])=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent=text;
+  });
+}
+function clearPasswordFields(){
+  ['securityCurrentPassword','securityNewPassword','securityConfirmPassword'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.value='';
+  });
+}
+function openSecurityModal(){
+  updateSecuritySummary(auth.currentUser);
+  clearPasswordFields();
+  openModal('securityModalWrap');
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+}
+async function changeCurrentPassword(){
+  const user=auth.currentUser;
+  if(!user || !user.email) return notifySaveStatus('error','No hay sesion activa.');
+  const current=$('#securityCurrentPassword')?.value || '';
+  const next=$('#securityNewPassword')?.value || '';
+  const confirm=$('#securityConfirmPassword')?.value || '';
+  if(!current || !next || !confirm) return notifySaveStatus('error','Completa las tres casillas de seguridad.');
+  if(next.length < 8) return notifySaveStatus('error','La nueva contrasena debe tener minimo 8 caracteres.');
+  if(next !== confirm) return notifySaveStatus('error','La nueva contrasena no coincide.');
+  const btn=$('#changePasswordBtn');
+  if(btn) btn.disabled=true;
+  try{
+    notifySaveStatus('saving','Actualizando contrasena...');
+    const credential=EmailAuthProvider.credential(user.email,current);
+    await reauthenticateWithCredential(user,credential);
+    await updatePassword(user,next);
+    state.settings.security={...(state.settings.security||{}),passwordChangedAt:new Date().toISOString()};
+    persistSettings();
+    clearPasswordFields();
+    closeModal('securityModalWrap');
+    notifySaveStatus('success','Contrasena actualizada correctamente.');
+  }catch(err){
+    const code=err?.code || '';
+    const msg=code.includes('wrong-password') || code.includes('invalid-credential')
+      ? 'La contrasena actual no es correcta.'
+      : code.includes('requires-recent-login')
+        ? 'Vuelve a iniciar sesion y prueba de nuevo.'
+        : 'No se pudo cambiar la contrasena. Intenta nuevamente.';
+    notifySaveStatus('error',msg);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
 function openSettingsSection(section=''){
   const titles={
     general:'Codigo por defecto',
@@ -4652,7 +4845,11 @@ function openSettingsSection(section=''){
   const target=document.getElementById(map[section]||'settingsModalWrap');
   if(target && section) setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
 }
-$('#openSettingsBtn').onclick=()=>openSettingsSection('general');
+const openSettingsBtn=$('#openSettingsBtn');
+if(openSettingsBtn) openSettingsBtn.onclick=()=>openSettingsSection('general');
+$('#openSecurityBtn').onclick=openSecurityModal;
+$('#openSecurityHomeBtn').onclick=openSecurityModal;
+$('#changePasswordBtn').onclick=changeCurrentPassword;
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
