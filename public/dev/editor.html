@@ -3451,6 +3451,41 @@ async function getFreshDoc(collectionName, docId){
   }
 }
 
+function waitForFirebaseUser(timeoutMs=3500){
+  return new Promise(resolve=>{
+    if(!fbAuth){ resolve(null); return; }
+    if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
+    let settled=false;
+    const unsub=fbAuth.onAuthStateChanged(user=>{
+      if(settled) return;
+      if(!user && !fbAuth.currentUser) return;
+      settled=true;
+      try{ unsub(); }catch(_){}
+      resolve(user || fbAuth.currentUser || null);
+    });
+    setTimeout(()=>{
+      if(settled) return;
+      settled=true;
+      try{ unsub(); }catch(_){}
+      resolve(fbAuth.currentUser || null);
+    }, timeoutMs);
+  });
+}
+
+async function verifyCurrentAdminSession(timeoutMs=4500){
+  const user = await waitForFirebaseUser(timeoutMs);
+  if(!user || !fbDb){
+    window.__isVerifiedAdmin = false;
+    window.__adminCheckDebug = {uid:user?.uid||null,email:user?.email||null,isVerifiedAdmin:false,reason:'no-user-or-db'};
+    return {ok:false,user};
+  }
+  const adminDoc = await getFreshDoc('admins', user.uid);
+  const ok = !!adminDoc?.exists;
+  window.__isVerifiedAdmin = ok;
+  window.__adminCheckDebug = {uid:user.uid,email:user.email,isVerifiedAdmin:ok};
+  return {ok,user};
+}
+
 window.addEventListener('load',async()=>{
   await initFB();
   const p=new URLSearchParams(window.location.search);
@@ -3530,12 +3565,13 @@ window.addEventListener('load',async()=>{
     let isVerifiedAdmin = false;
     window.__isVerifiedAdmin = false;
     try{
-      const currentUser = fbAuth?.currentUser;
+      const currentUser = await waitForFirebaseUser(4500);
       if(currentUser && fbDb){
-        const adminDoc = await fbDb.collection('admins').doc(currentUser.uid).get();
+        const adminDoc = await getFreshDoc('admins', currentUser.uid);
         isVerifiedAdmin = adminDoc.exists;
         window.__isVerifiedAdmin = isVerifiedAdmin;
       }
+      window.__adminCheckDebug = currentUser ? {uid:currentUser.uid,email:currentUser.email,isVerifiedAdmin} : {uid:null,email:null,isVerifiedAdmin:false};
     }catch(e){ console.warn('Verificación admin falló:', e.message); }
 
     if(!isVerifiedAdmin){
@@ -8649,6 +8685,14 @@ async function doSave(status){
   // Verificar sesión activa antes de guardar
   if(!fbAuth?.currentUser){
     alert('No hay sesión activa. Cierra y vuelve a abrir el editor desde el panel de admin.');
+    return;
+  }
+  const adminCheck = await verifyCurrentAdminSession(4500);
+  if(!adminCheck.ok){
+    const uid = adminCheck.user?.uid || 'sin-uid';
+    const email = adminCheck.user?.email || 'sin-email';
+    alert(`Ya no tienes permiso de administrador en este editor.\n\nSesion actual: ${email}\nUID: ${uid}\n\nAbre admin.html, cierra sesion e inicia de nuevo para sincronizar esta PC.`);
+    console.warn('Admin debug:', window.__adminCheckDebug);
     return;
   }
   // Si el modal no está abierto (guardado directo de publicada), usar tplName como fallback
