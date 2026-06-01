@@ -20,10 +20,10 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
-  collection, getDocs, writeBatch
+  collection, getDocs, writeBatch, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -200,6 +200,7 @@ onAuthStateChanged(auth, async user => {
   const el = document.getElementById('userEmail');
   if (el) el.textContent = user.email;
   updateSecuritySummary(user);
+  startSecurityDeviceListener(user.uid);
 
   document.getElementById('authLoader').style.display = 'none';
   document.getElementById('appRoot').style.display    = '';
@@ -1832,6 +1833,76 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .security-tip svg{width:20px;height:20px;flex:0 0 auto;color:#7fffe3}
 .security-tip p{margin:2px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
+.security-page{
+  padding:0;
+}
+.security-page-head{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:22px;
+  border:1px solid var(--border);
+  border-radius:26px;
+  background:linear-gradient(160deg,var(--surface),rgba(9,15,26,.96));
+  margin-bottom:14px;
+}
+.security-page-head h3{margin:0;font-size:24px}
+.security-page-head p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.security-layout{
+  display:grid;
+  grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);
+  gap:14px;
+}
+.security-panel-card{
+  border:1px solid var(--border);
+  border-radius:26px;
+  background:linear-gradient(160deg,var(--surface),rgba(9,15,26,.96));
+  padding:18px;
+  min-width:0;
+}
+.security-card-title{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+.security-card-title h4{margin:0;font-size:17px}
+.security-card-title p,.security-footnote{margin:5px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
+.security-status-pill{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  border-radius:999px;
+  padding:0 10px;
+  background:rgba(45,212,191,.10);
+  border:1px solid rgba(45,212,191,.24);
+  color:#a7f3d0;
+  font-size:12px;
+  font-weight:900;
+}
+.device-list{display:grid;gap:10px}
+.device-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:13px;
+  border:1px solid rgba(158,177,214,.13);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+}
+.device-row strong{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.device-row span{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.35}
+.device-row .mini{
+  min-width:40px;
+  height:38px;
+  border-radius:13px;
+  display:grid;
+  place-items:center;
+  padding:0;
+}
+.device-row .mini svg{width:16px;height:16px}
 .combo-template-row{
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;
@@ -2113,6 +2184,8 @@ i[data-lucide="search"]::before{content:"⌕"}
   .security-banner{grid-template-columns:auto minmax(0,1fr);align-items:start}
   .security-banner .btn{grid-column:1/-1;width:100%;justify-content:center}
   .security-grid{grid-template-columns:1fr}
+  .security-layout{grid-template-columns:1fr}
+  .security-page-head{align-items:flex-start}
   .hero-pill{min-height:84px}
   .hero-number{font-size:30px}
 
@@ -2266,6 +2339,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="nav-btn" data-view="cuentasView"><i data-lucide="key-round"></i><span>Cuentas</span><span class="count" id="navCuentas">0</span></button>
       <button class="nav-btn" data-view="libresView"><i data-lucide="badge-check"></i><span>Libres</span><span class="count" id="navLibres">0</span></button>
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
+      <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
     </nav>
     <div class="config-menu">
       <div class="config-title">Configuracion</div>
@@ -2452,6 +2526,43 @@ i[data-lucide="search"]::before{content:"⌕"}
         <div id="renewalsList" class="list"></div>
       </div>
       <div class="renewals-summary" id="renewalsSummary"></div>
+    </section>
+
+    <section id="seguridadView" class="view security-page">
+      <div class="security-page-head">
+        <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
+        <div>
+          <h3>Seguridad</h3>
+          <p>Controla tu contrasena y los dispositivos donde esta abierta tu cuenta.</p>
+        </div>
+      </div>
+      <div class="security-layout">
+        <article class="security-panel-card">
+          <div class="security-card-title">
+            <div>
+              <h4>Acceso protegido</h4>
+              <p>Te enviaremos un enlace oficial para cambiar la contrasena del gestor.</p>
+            </div>
+            <span class="security-status-pill">Privado</span>
+          </div>
+          <div class="security-grid">
+            <div class="security-card"><strong id="securityViewEmail">-</strong><span>Correo de acceso</span></div>
+            <div class="security-card"><strong id="securityViewLastLogin">-</strong><span>Ultimo ingreso</span></div>
+            <div class="security-card"><strong id="securityViewDevices">-</strong><span>Dispositivos activos</span></div>
+          </div>
+          <button class="btn primary" id="sendPasswordResetBtn" type="button"><i data-lucide="mail-check"></i><span>Enviar cambio de contrasena</span></button>
+          <p class="security-footnote">Si no reconoces algun acceso, cierra ese dispositivo y cambia tu contrasena.</p>
+        </article>
+        <article class="security-panel-card">
+          <div class="security-card-title">
+            <div>
+              <h4>Dispositivos activos</h4>
+              <p>El limite es de 5 dispositivos. Puedes cerrar los que no reconozcas.</p>
+            </div>
+          </div>
+          <div id="securityDeviceList" class="device-list"></div>
+        </article>
+      </div>
     </section>
   </main>
 </div>
@@ -3256,6 +3367,7 @@ function switchView(viewId){
   if(viewId==='cuentasView') renderAccounts();
   if(viewId==='libresView') renderFree();
   if(viewId==='renovacionesView') renderRenewals();
+  if(viewId==='seguridadView') renderSecurityView();
 }
 
 function compactClientItem(client, label){
@@ -4771,22 +4883,118 @@ function formatSecurityDate(value){
   if(Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 }
+function currentDeviceId(){
+  return localStorage.getItem('ts_device_id') || '';
+}
+let securityDeviceUnsub=null;
+function startSecurityDeviceListener(uid){
+  if(securityDeviceUnsub) securityDeviceUnsub();
+  const id=currentDeviceId();
+  if(!uid || !id) return;
+  securityDeviceUnsub=onSnapshot(doc(db,'users',uid,'devices',id),snap=>{
+    if(snap.exists() && snap.data()?.revoked === true){
+      if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub=null; }
+      signOut(auth).finally(()=>{ window.location.href='gestor-login.html'; });
+    }
+  },()=>{});
+}
+function deviceSeenValue(d){
+  return Number(d?.lastSeen || d?.lastLoginAt || d?.registeredAt || 0);
+}
+function deviceLabel(d){
+  return d?.deviceLabel || d?.name || d?.fingerprintSummary || 'Dispositivo registrado';
+}
+function deviceSubLabel(d){
+  const seen = deviceSeenValue(d);
+  const last = seen ? formatSecurityDate(seen) : '-';
+  const logins = Number(d?.loginCount || 0);
+  return `Ultimo uso: ${last}${logins ? ` · ${logins} ingresos` : ''}${d?.suspicious ? ' · Revisar' : ''}`;
+}
+async function getSecurityDevices(user){
+  if(!user) return [];
+  const snap = await getDocs(devicesCol(user.uid));
+  return snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(d=>d.revoked !== true)
+    .sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
+}
 async function updateSecuritySummary(user){
   if(!user) return;
   const email = user.email || '-';
   const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
   let deviceText = 'Este dispositivo';
   try{
-    const snap = await getDocs(devicesCol(user.uid));
-    const active = snap.docs.filter(d => d.data()?.revoked !== true);
-    deviceText = `${active.length || snap.size || 1} de 5`;
+    const active = await getSecurityDevices(user);
+    deviceText = `${active.length || 1} de 5`;
   }catch(_){
     deviceText = 'Privado';
   }
-  Object.entries({securityEmail:email, securityLastLogin:lastLogin, securityDevices:deviceText}).forEach(([id,text])=>{
+  Object.entries({
+    securityEmail:email,
+    securityLastLogin:lastLogin,
+    securityDevices:deviceText,
+    securityViewEmail:email,
+    securityViewLastLogin:lastLogin,
+    securityViewDevices:deviceText
+  }).forEach(([id,text])=>{
     const el=document.getElementById(id);
     if(el) el.textContent=text;
   });
+}
+async function renderSecurityView(){
+  const user=auth.currentUser;
+  if(!user) return;
+  await updateSecuritySummary(user);
+  const list=$('#securityDeviceList');
+  if(!list) return;
+  let devices=[];
+  try{
+    devices=await getSecurityDevices(user);
+  }catch(err){
+    list.innerHTML='<div class="empty">No se pudieron cargar los dispositivos.</div>';
+    return;
+  }
+  const current=currentDeviceId();
+  list.innerHTML = devices.length ? devices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}${d.id===current?' · Este dispositivo':''}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))}</span>
+      </div>
+      <button class="mini danger" type="button" title="Cerrar este dispositivo" onclick="revokeSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="x"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos registrados aun.</div>';
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+}
+window.revokeSecurityDevice=async function(deviceId){
+  const user=auth.currentUser;
+  if(!user || !deviceId) return;
+  if(!confirm('Cerrar sesion en este dispositivo?')) return;
+  const isCurrent=deviceId===currentDeviceId();
+  try{
+    await setDoc(doc(db,'users',user.uid,'devices',deviceId),{revoked:true,revokedAt:Date.now()},{merge:true});
+    notifySaveStatus('success', isCurrent ? 'Sesion cerrada.' : 'Dispositivo cerrado.');
+    if(isCurrent){
+      await signOut(auth);
+      window.location.href='gestor-login.html';
+      return;
+    }
+    renderSecurityView();
+  }catch(err){
+    notifySaveStatus('error','No se pudo cerrar ese dispositivo.');
+  }
+};
+async function sendPasswordResetFromSecurity(){
+  const user=auth.currentUser;
+  if(!user?.email) return notifySaveStatus('error','No hay correo de acceso.');
+  const btn=$('#sendPasswordResetBtn');
+  if(btn) btn.disabled=true;
+  try{
+    await sendPasswordResetEmail(auth,user.email);
+    notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
+  }catch(err){
+    notifySaveStatus('error','No se pudo enviar el correo. Intenta de nuevo.');
+  }finally{
+    if(btn) btn.disabled=false;
+  }
 }
 function clearPasswordFields(){
   ['securityCurrentPassword','securityNewPassword','securityConfirmPassword'].forEach(id=>{
@@ -4860,9 +5068,10 @@ function openSettingsSection(section=''){
 }
 const openSettingsBtn=$('#openSettingsBtn');
 if(openSettingsBtn) openSettingsBtn.onclick=()=>openSettingsSection('general');
-$('#openSecurityBtn').onclick=openSecurityModal;
-$('#openSecurityHomeBtn').onclick=openSecurityModal;
+$('#openSecurityBtn').onclick=()=>switchView('seguridadView');
+$('#openSecurityHomeBtn').onclick=()=>switchView('seguridadView');
 $('#changePasswordBtn').onclick=changeCurrentPassword;
+$('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 

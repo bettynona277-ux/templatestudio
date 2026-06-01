@@ -86,6 +86,7 @@ button{border:0;cursor:pointer}
 .security-box{padding:14px;border:1px solid rgba(45,212,191,.22);border-radius:20px;background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(118,92,255,.07));display:grid;gap:12px}
 .security-box h3{margin:0;font-size:16px}.security-box p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
 .security-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}.security-metric{padding:11px;border-radius:15px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);min-width:0}.security-metric b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.security-metric span{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.device-list{display:grid;gap:8px}.device-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.device-row b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.device-row span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.3}.device-row .iconbtn{width:36px;height:36px;border-radius:12px;color:#ffb8c6;border-color:rgba(255,93,125,.24);background:rgba(255,93,125,.09)}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
 .category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
 .combo-sale-card{padding:13px;border-radius:20px;border:1px solid rgba(56,189,248,.24);background:radial-gradient(260px 120px at 0% 0%,rgba(229,9,20,.18),transparent 65%),radial-gradient(260px 120px at 100% 0%,rgba(56,189,248,.16),transparent 68%),rgba(13,23,38,.92);display:grid;gap:10px}
@@ -164,8 +165,8 @@ button{border:0;cursor:pointer}
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -198,7 +199,7 @@ const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas',
   accounts:[], clients:[], unsub:[],
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES] },
-  security:{lastLogin:'-',deviceCount:'Privado'}
+  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
 const icon = name => `<svg class="i"><use href="#i-${name}"></use></svg>`;
 const localISO = date => {
@@ -429,6 +430,8 @@ function renderSettings(){
         <div class="security-metric"><b>${esc(state.security.deviceCount || 'Privado')}</b><span>Dispositivos</span></div>
         <div class="security-metric"><b>Privado</b><span>Datos del gestor</span></div>
       </div>
+      <button class="btn primary" id="sendMobilePasswordReset" type="button">${icon('save')}<span>Enviar cambio por correo</span></button>
+      <div class="device-list" id="mobileDeviceList"></div>
       <form class="grid" id="passwordForm">
         <div class="field"><label>Contrasena actual</label><input name="current" type="password" autocomplete="current-password" placeholder="Actual" required></div>
         <div class="field"><label>Nueva contrasena</label><input name="next" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" required></div>
@@ -461,6 +464,8 @@ function renderSettings(){
     </div>
   </section>`;
   $('#passwordForm').onsubmit = changePasswordFromForm;
+  $('#sendMobilePasswordReset').onclick = sendMobilePasswordReset;
+  renderMobileDeviceList();
   $('#settingsForm').onsubmit = saveSettingsFromForm;
   $('#categoryForm').onsubmit = addCategoryFromForm;
   $('#comboTemplateForm').onsubmit = addComboTemplateFromForm;
@@ -995,6 +1000,25 @@ function formatSecurityDate(value){
   if(Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 }
+function currentDeviceId(){ return localStorage.getItem('ts_device_id') || ''; }
+let securityDeviceUnsub = null;
+function startSecurityDeviceListener(uid){
+  if(securityDeviceUnsub) securityDeviceUnsub();
+  const id = currentDeviceId();
+  if(!uid || !id) return;
+  securityDeviceUnsub = onSnapshot(doc(db,'users',uid,'devices',id), snap => {
+    if(snap.exists() && snap.data()?.revoked === true){
+      if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub = null; }
+      signOut(auth);
+    }
+  }, () => {});
+}
+function deviceSeenValue(d){ return Number(d?.lastSeen || d?.lastLoginAt || d?.registeredAt || 0); }
+function deviceLabel(d){ return d?.deviceLabel || d?.name || d?.fingerprintSummary || 'Dispositivo'; }
+function deviceSubLabel(d){
+  const seen = deviceSeenValue(d);
+  return `Ultimo uso: ${seen ? formatSecurityDate(seen) : '-'}`;
+}
 async function updateSecuritySummary(user){
   if(!user) return;
   state.security.lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
@@ -1002,8 +1026,49 @@ async function updateSecuritySummary(user){
     const snap = await getDocs(devicesCol(user.uid));
     const active = snap.docs.filter(d => d.data()?.revoked !== true);
     state.security.deviceCount = `${active.length || snap.size || 1} de 5`;
+    state.security.devices = active.map(d=>({id:d.id,...d.data()})).sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
   }catch(_){
     state.security.deviceCount = 'Privado';
+    state.security.devices = [];
+  }
+}
+function renderMobileDeviceList(){
+  const list = $('#mobileDeviceList');
+  if(!list) return;
+  const current = currentDeviceId();
+  const devices = state.security.devices || [];
+  list.innerHTML = devices.length ? devices.map(d => `<div class="device-row">
+    <div><b>${esc(deviceLabel(d))}${d.id===current?' · este':''}</b><span>${esc(deviceSubLabel(d))}</span></div>
+    <button class="iconbtn" type="button" data-revoke-device="${esc(d.id)}" aria-label="Cerrar dispositivo">${icon('x')}</button>
+  </div>`).join('') : `<div class="empty">No hay dispositivos registrados aun.</div>`;
+  document.querySelectorAll('[data-revoke-device]').forEach(b => b.onclick = () => revokeMobileDevice(b.dataset.revokeDevice));
+}
+async function revokeMobileDevice(deviceId){
+  const user = auth.currentUser;
+  if(!user || !deviceId) return;
+  if(!confirm('Cerrar sesion en este dispositivo?')) return;
+  const isCurrent = deviceId === currentDeviceId();
+  try{
+    await setDoc(doc(db,'users',user.uid,'devices',deviceId), {revoked:true, revokedAt:Date.now()}, {merge:true});
+    toast(isCurrent ? 'Sesion cerrada' : 'Dispositivo cerrado');
+    if(isCurrent){
+      await signOut(auth);
+      return;
+    }
+    await updateSecuritySummary(user);
+    renderMobileDeviceList();
+  }catch(err){
+    toast('No se pudo cerrar el dispositivo.','bad');
+  }
+}
+async function sendMobilePasswordReset(){
+  const user = auth.currentUser;
+  if(!user?.email) return toast('No hay correo de acceso.','bad');
+  try{
+    await sendPasswordResetEmail(auth, user.email);
+    toast('Enlace enviado al correo');
+  }catch(err){
+    toast('No se pudo enviar el correo.','bad');
   }
 }
 async function changePasswordFromForm(e){
@@ -1378,6 +1443,7 @@ onAuthStateChanged(auth, async user => {
   state.uid = user.uid;
   state.email = user.email || '';
   $('#userLine').textContent = state.email;
+  startSecurityDeviceListener(user.uid);
   await updateSecuritySummary(user);
   try{
     const userSnap = await getDoc(doc(db,'users',user.uid));
