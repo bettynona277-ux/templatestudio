@@ -205,6 +205,32 @@ const state = {
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
+const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
+const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
+function cacheMobileState(){
+  try{
+    localStorage.setItem(MOBILE_STATE_CACHE_KEY, JSON.stringify({
+      accounts:state.accounts,
+      clients:state.clients,
+      financeMovements:state.financeMovements,
+      settings:state.settings
+    }));
+    localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
+  }catch(_){}
+}
+function restoreMobileStateFromCache(maxAgeMs=60000){
+  try{
+    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
+    const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
+    if(!raw || !cachedAt || Date.now() - cachedAt > maxAgeMs) return false;
+    const data = JSON.parse(raw);
+    state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    state.clients = Array.isArray(data.clients) ? data.clients : [];
+    state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
+    state.settings = normalizeSettings(data.settings || {});
+    return true;
+  }catch(_){ return false; }
+}
 const icon = name => `<svg class="i"><use href="#i-${name}"></use></svg>`;
 const localISO = date => {
   const pad = n => String(n).padStart(2,'0');
@@ -358,18 +384,13 @@ function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNew
 async function registerGestorDevice(uid){
   const deviceId=getGestorDeviceId();
   const devRef=doc(db,'users',uid,'devices',deviceId);
-  const snap=await getDocs(devicesCol(uid));
-  const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
-  const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
-  await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
-  const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
+  const currentSnap=await getDoc(devRef);
   const fingerprint=await buildGestorDeviceFingerprint();
-  const existing=devices.find(d=>d.id===deviceId);
+  const existing=currentSnap.exists() ? {id:currentSnap.id,...currentSnap.data()} : null;
   const now=Date.now();
   if(existing){
     if(existing.revoked === true) return {ok:false,revoked:true};
-    const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
-    const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef,{
       name:fingerprint.label,
       deviceLabel:fingerprint.label,
@@ -384,6 +405,11 @@ async function registerGestorDevice(uid){
     },{merge:true});
     return {ok:true};
   }
+  const snap=await getDocs(devicesCol(uid));
+  const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
+  const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
   const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
   if(activeDevices.length >= MAX_GESTOR_DEVICES) return {ok:false,count:activeDevices.length};
   const suspicious=detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
@@ -559,12 +585,14 @@ async function persistFinanceMovement(data){
   if(!state.uid || !movement.amount) return null;
   await setDoc(financeRef(movement.id), movement, { merge:true });
   state.financeMovements = [movement, ...state.financeMovements.filter(m => m.id !== movement.id)];
+  cacheMobileState();
   return movement;
 }
 async function deleteFinanceMovement(movementId){
   if(!state.uid || !movementId) return;
   await deleteDoc(financeRef(movementId));
   state.financeMovements = state.financeMovements.filter(m => m.id !== movementId);
+  cacheMobileState();
 }
 function clientFinanceLabel(client, prefix){
   const acc = state.accounts.find(a => a.id === client?.accountId);
@@ -824,6 +852,14 @@ function renderSettings(){
   $('#passwordForm').onsubmit = changePasswordFromForm;
   $('#sendMobilePasswordReset').onclick = sendMobilePasswordReset;
   renderMobileDeviceList();
+  if(!state.security.devicesLoaded){
+    const list = $('#mobileDeviceList');
+    if(list) list.innerHTML = `<div class="empty">Cargando dispositivos...</div>`;
+    loadSecurityDevices(auth.currentUser).then(()=>{
+      state.security.devicesLoaded = true;
+      if(state.view === 'settings') renderSettings();
+    });
+  }
   $('#settingsForm').onsubmit = saveSettingsFromForm;
   $('#categoryForm').onsubmit = addCategoryFromForm;
   $('#comboTemplateForm').onsubmit = addComboTemplateFromForm;
@@ -1241,6 +1277,7 @@ async function saveComboFromForm(e){
     for(const client of rows) await setDoc(clientRef(client.id), client);
     state.clients = [...rows, ...state.clients.filter(c => !rows.some(row => row.id === c.id))];
     await recordComboSaleIncome(rows);
+    cacheMobileState();
     toast('Combo guardado');
     closeSheet();
     openWhatsAppCombo(rows, 'delivery');
@@ -1287,6 +1324,7 @@ async function saveItem(kind,data,opts={}){
     else state.clients = [cleanData, ...state.clients.filter(c => c.id !== cleanData.id)];
     if(kind === 'client' && opts.newSale) await recordSaleIncome(cleanData);
     if(kind === 'account') await upsertAccountPurchaseExpense(cleanData);
+    cacheMobileState();
     toast('Guardado correctamente');
     closeSheet();
     if(kind === 'client' && opts.newSale){
@@ -1361,8 +1399,12 @@ async function removeItem(kind,itemId){
   if(!confirm('Eliminar este registro?')) return;
   try{
     await deleteDoc(kind === 'account' ? accountRef(itemId) : clientRef(itemId));
+    if(kind === 'account') state.accounts = state.accounts.filter(a => a.id !== itemId);
+    else state.clients = state.clients.filter(c => c.id !== itemId);
+    cacheMobileState();
     toast('Eliminado');
     closeSheet();
+    render();
   }catch(err){
     console.error(err);
     toast('No se pudo eliminar.','bad');
@@ -1372,6 +1414,7 @@ async function saveSettings(next){
   state.settings = normalizeSettings(next);
   try{
     await setDoc(settingsRef(state.uid), state.settings);
+    cacheMobileState();
     toast('Ajustes guardados');
     renderSettings();
   }catch(err){
@@ -1407,6 +1450,10 @@ function deviceSubLabel(d){
 async function updateSecuritySummary(user){
   if(!user) return;
   state.security.lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
+  state.security.deviceCount = state.security.deviceCount || 'Este dispositivo';
+}
+async function loadSecurityDevices(user){
+  if(!user) return;
   try{
     const snap = await getDocs(devicesCol(user.uid));
     const allDevices = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
@@ -1667,6 +1714,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       await recordRenewalIncome(updated, renewalAmount);
       sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
     }
+    cacheMobileState();
     toast(successMessage);
     closeSheet();
     setTimeout(()=>sendRenewedMessage?.(), 80);
@@ -1681,8 +1729,12 @@ async function markNoRenew(c){
   try{
     const acc = state.accounts.find(a => a.id === c.accountId);
     const platform = clean(c.platform) || clean(acc?.platform) || '';
-    await setDoc(clientRef(c.id), { ...c, accountId:'', platform, state:'No renovo', updatedAt:new Date().toISOString() }, { merge:true });
+    const updated = { ...c, accountId:'', platform, state:'No renovo', updatedAt:new Date().toISOString() };
+    await setDoc(clientRef(c.id), updated, { merge:true });
+    state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
+    cacheMobileState();
     toast('Perfil liberado. Cliente archivado.');
+    render();
   }catch(err){
     console.error(err);
     toast('No se pudo actualizar.','bad');
@@ -1927,11 +1979,16 @@ async function loadOnce(showToast=true){
   if(!state.uid) return;
   try{
     if(showToast) toast('Actualizando datos...');
+    if(!showToast && restoreMobileStateFromCache()){
+      render();
+      return;
+    }
     const [acc, cli, fin, cfg] = await Promise.all([getDocs(accountsCol(state.uid)), getDocs(clientsCol(state.uid)), getDocs(financeCol(state.uid)), getDoc(settingsRef(state.uid))]);
     state.accounts = acc.docs.map(d => ({id:d.id,...d.data()}));
     state.clients = cli.docs.map(d => ({id:d.id,...d.data()}));
     state.financeMovements = fin.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
     state.settings = normalizeSettings(cfg.data() || {});
+    cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
   }catch(err){

@@ -1375,7 +1375,7 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
       <div class="desk-tabs">
         <button class="desk-tab active" id="desktab-designs" onclick="switchMobTab('designs')">🎨 Mis diseños</button>
         <button class="desk-tab" id="desktab-templates" onclick="switchMobTab('templates')">📦 Plantillas</button>
-        <button class="desk-tab" id="desktab-accounts" onclick="window.open('/dev/gestor.html','_blank','noopener')">Gestor</button>
+        <button class="desk-tab" id="desktab-accounts" onclick="window.open('/gestor.html','_blank','noopener')">Gestor</button>
         <span class="desk-tab-meta">Cambia entre biblioteca personal y catálogo sin bajar de más.</span>
       </div>
 
@@ -1383,7 +1383,7 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
       <div class="mob-tabs">
         <button class="mob-tab active" id="mobtab-designs" onclick="switchMobTab('designs')">🎨 Mis diseños</button>
         <button class="mob-tab" id="mobtab-templates" onclick="switchMobTab('templates')">📦 Plantillas</button>
-        <button class="mob-tab" id="mobtab-accounts" onclick="window.open('/dev/gestor.html','_blank','noopener')">Gestor</button>
+        <button class="mob-tab" id="mobtab-accounts" onclick="window.open('/gestor.html','_blank','noopener')">Gestor</button>
       </div>
 
       <div class="mob-section active" id="mobsec-designs">
@@ -2146,19 +2146,14 @@ function detectDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice
 async function registerDevice(uid) {
   const deviceId = getDeviceId();
   const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
-  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
-  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
-  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
-  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
+  const currentDoc = await devRef.get();
   const fingerprint = await buildDeviceFingerprint();
-  const existing = devices.find(d => d.id === deviceId);
+  const existing = currentDoc.exists ? { id: currentDoc.id, ...currentDoc.data() } : null;
   if (existing) {
     if (existing.revoked === true) {
       return { ok: false, revoked: true };
     }
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, [], false);
     await devRef.set({
       name: fingerprint.label || getDeviceName(),
       deviceLabel: fingerprint.label,
@@ -2174,6 +2169,11 @@ async function registerDevice(uid) {
     return { ok: true };
   }
   // Solo contar dispositivos activos (no revocados) para el límite
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
+  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
+  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
   if (activeDevices.length >= MAX_DEVICES) {
     return { ok: false, count: activeDevices.length };
@@ -2425,8 +2425,9 @@ async function showDashboard() {
   setDashboardSyncLabel('Sincronizando contenido…');
   warmDashboardFromCache();
   requestAnimationFrame(() => {
-    loadMyDesigns();
-    loadAdminTemplates();
+    if(!readDashCache('designs')) loadMyDesigns();
+    if(!readDashCache('templates')) loadAdminTemplates();
+    if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
 }
 
@@ -2585,7 +2586,7 @@ async function loadAdminTemplates() {
     renderTemplateCards(getFilteredTemplates(rawDocs));
     writeDashCache('templates', {
       total: rawDocs.length,
-      items: rawDocs.slice(0, 36).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      items: rawDocs.slice(0, 120).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {

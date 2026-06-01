@@ -216,19 +216,14 @@ function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNew
 async function registerGestorDevice(uid) {
   const deviceId = getGestorDeviceId();
   const devRef = doc(db, 'users', uid, 'devices', deviceId);
-  const snap = await getDocs(devicesCol(uid));
-  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
-  await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
-  const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
+  const currentSnap = await getDoc(devRef);
   const fingerprint = await buildGestorDeviceFingerprint();
-  const existing = devices.find(d => d.id === deviceId);
+  const existing = currentSnap.exists() ? { id: currentSnap.id, ...currentSnap.data() } : null;
   const now = Date.now();
 
   if (existing) {
     if (existing.revoked === true) return { ok: false, revoked: true };
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef, {
       name: fingerprint.label,
       deviceLabel: fingerprint.label,
@@ -244,6 +239,11 @@ async function registerGestorDevice(uid) {
     return { ok: true };
   }
 
+  const snap = await getDocs(devicesCol(uid));
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
+  const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
   if (activeDevices.length >= MAX_GESTOR_DEVICES) return { ok: false, count: activeDevices.length };
   const suspicious = detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
@@ -270,6 +270,16 @@ async function migrateIfNeeded(uid) {
 
 // ── Cargar datos desde subcolecciones ─────────────────────────────────────
 async function loadFromSubcollections(uid) {
+  const cacheKey = 'gestion_streaming_v5';
+  const cacheTimeKey = cacheKey + '_synced_at';
+  try {
+    const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
+    const cached = localStorage.getItem(cacheKey);
+    if (cached && cachedAt && Date.now() - cachedAt < 60000 && window.__loadFromFirestore) {
+      window.__loadFromFirestore(JSON.parse(cached));
+      return;
+    }
+  } catch (e) {}
   const [accSnap, cliSnap, finSnap, setSnap] = await Promise.all([
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
@@ -282,6 +292,7 @@ async function loadFromSubcollections(uid) {
   const settings  = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform' };
   window.__loadFromFirestore({ accounts, clients, financeMovements, settings });
+  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
 }
 
 // Carga solo al abrir o al recargar la página para reducir lecturas de Firestore.
@@ -3386,27 +3397,30 @@ window.__loadFromFirestore = function(data){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
   // Actualizar localStorage como respaldo
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
 };
+function touchLocalStateCache(){
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
+}
 function persist(){
   if(window.__loadingFromFirestore) return;
   // Guardar en localStorage como respaldo inmediato
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   // Marcar INMEDIATAMENTE que hay escritura pendiente para bloquear onSnapshot
   window.__saving = true;
   if(window.__persistToFirestore) window.__persistToFirestore(JSON.parse(JSON.stringify(state)));
 }
 // ── Guardar UN solo documento (1-2 ops en vez de 468) ──
 function persistDoc(colName, docData){
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
   return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistDeleteDoc) window.__persistDeleteDoc(colName, docId);
 }
 function sanitizeSettingsForSave(settings={}){
@@ -3435,7 +3449,7 @@ function sanitizeSettingsForSave(settings={}){
 }
 function persistSettings(){
   state.settings = sanitizeSettingsForSave(state.settings);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
 function moneyNumber(value){
@@ -3487,7 +3501,7 @@ async function persistFinanceMovement(data){
   const clean=normalizeFinanceMovement(saved);
   state.financeMovements=state.financeMovements.filter(m=>m.id!==clean.id);
   state.financeMovements.unshift(clean);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   renderFinance();
   return clean;
 }
@@ -3496,7 +3510,7 @@ async function deleteFinanceMovement(id){
   const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
   if(!ok) return;
   state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   renderFinance();
 }
 async function removeFinanceMovement(id){
@@ -3504,7 +3518,7 @@ async function removeFinanceMovement(id){
   const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
   if(!ok) return false;
   state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   renderFinance();
   return true;
 }
@@ -5893,13 +5907,7 @@ async function updateSecuritySummary(user){
   if(!user) return;
   const email = user.email || '-';
   const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
-  let deviceText = 'Este dispositivo';
-  try{
-    const active = (await getSecurityDevices(user)).filter(d=>d.revoked !== true);
-    deviceText = `${active.length || 1} de 5`;
-  }catch(_){
-    deviceText = 'Privado';
-  }
+  const deviceText = window.__securityDeviceCountText || 'Este dispositivo';
   Object.entries({
     securityEmail:email,
     securityLastLogin:lastLogin,
@@ -5928,6 +5936,8 @@ async function renderSecurityView(){
   const current=currentDeviceId();
   const activeDevices=devices.filter(d=>d.revoked !== true);
   const bannedDevices=devices.filter(d=>d.revoked === true);
+  window.__securityDeviceCountText = `${activeDevices.length || 1} de 5`;
+  await updateSecuritySummary(user);
   const activeHtml=activeDevices.length ? activeDevices.map(d=>`
     <div class="device-row">
       <div>

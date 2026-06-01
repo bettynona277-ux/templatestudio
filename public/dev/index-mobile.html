@@ -815,7 +815,7 @@ function switchTab(tab){
 }
 
 function openGestorMobile(){
-  window.location.href = '/dev/gestor-mobile.html';
+  window.location.href = '/gestor-mobile.html';
 }
 
 // ═══════════════════════════════════
@@ -1203,17 +1203,12 @@ function detectDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice
 async function registerDevice(uid){
   const deviceId = getDeviceId();
   const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
-  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
-  const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
-  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
-  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
-  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
+  const currentDoc = await devRef.get();
   const fingerprint = await buildDeviceFingerprint();
-  const existing = devices.find(d=>d.id === deviceId);
+  const existing = currentDoc.exists ? {id:currentDoc.id, ...currentDoc.data()} : null;
   if(existing){
     if(existing.revoked === true) return {ok:false, revoked:true};
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, [], false);
     await devRef.set({
       name: fingerprint.label || getDeviceName(),
       deviceLabel: fingerprint.label,
@@ -1228,6 +1223,11 @@ async function registerDevice(uid){
     }, {merge:true});
     return {ok:true};
   }
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
+  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
+  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
   if(activeDevices.length >= MAX_DEVICES){
     return {ok:false, count:activeDevices.length};
@@ -1350,6 +1350,7 @@ async function loadMyDesigns(){
       if(cached?.items?.length){
         renderDesignsFromList(cached.items);
         hadCache = true;
+        if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
       }
     }catch(e){}
   }
@@ -1441,6 +1442,7 @@ function renderCachedTemplates(){
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
+      if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
     }
   }catch(e){}
 }
@@ -1467,6 +1469,7 @@ async function loadTemplates(){
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
+      if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
     }
   }catch(e){}
 
