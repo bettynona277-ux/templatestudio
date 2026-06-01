@@ -409,7 +409,7 @@ onAuthStateChanged(auth, async user => {
   }
   if (deviceResult && !deviceResult.ok) {
     const msg = deviceResult.revoked
-      ? 'Este dispositivo fue cerrado desde Seguridad. Vuelve a iniciar desde un dispositivo permitido.'
+      ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
       : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
     alert(msg);
     await signOut(auth);
@@ -2123,6 +2123,9 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   padding:0;
 }
 .device-row .mini svg{width:16px;height:16px}
+.device-section{display:grid;gap:8px}
+.device-section+.device-section{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
+.device-section-title{font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8aa1ff}
 .combo-template-row{
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;
@@ -5136,7 +5139,6 @@ async function getSecurityDevices(user){
   const fns = window.__firebaseFns || {};
   const snap = await fns.getDocs(fns.collection(window.__db,'users',user.uid,'devices'));
   return snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(d=>d.revoked !== true)
     .sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
 }
 async function updateSecuritySummary(user){
@@ -5145,7 +5147,7 @@ async function updateSecuritySummary(user){
   const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
   let deviceText = 'Este dispositivo';
   try{
-    const active = await getSecurityDevices(user);
+    const active = (await getSecurityDevices(user)).filter(d=>d.revoked !== true);
     deviceText = `${active.length || 1} de 5`;
   }catch(_){
     deviceText = 'Privado';
@@ -5176,6 +5178,35 @@ async function renderSecurityView(){
     return;
   }
   const current=currentDeviceId();
+  const activeDevices=devices.filter(d=>d.revoked !== true);
+  const bannedDevices=devices.filter(d=>d.revoked === true);
+  const activeHtml=activeDevices.length ? activeDevices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}${d.id===current?' - Este dispositivo':''}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))}</span>
+      </div>
+      <button class="mini danger" type="button" title="${d.id===current?'Cerrar sesion actual':'Vetar dispositivo'}" onclick="revokeSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="x"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos activos registrados.</div>';
+  const bannedHtml=bannedDevices.length ? bannedDevices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))} - Vetado</span>
+      </div>
+      <button class="mini" type="button" title="Permitir de nuevo" onclick="allowSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="undo-2"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos vetados.</div>';
+  list.innerHTML = `
+    <div class="device-section">
+      <div class="device-section-title">Dispositivos activos</div>
+      ${activeHtml}
+    </div>
+    <div class="device-section">
+      <div class="device-section-title">Dispositivos vetados</div>
+      ${bannedHtml}
+    </div>`;
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+  return;
   list.innerHTML = devices.length ? devices.map(d=>`
     <div class="device-row">
       <div>
@@ -5190,11 +5221,11 @@ window.revokeSecurityDevice=async function(deviceId){
   const fns = window.__firebaseFns || {};
   const user=window.__auth?.currentUser;
   if(!user || !deviceId) return;
-  if(!confirm('Cerrar sesion en este dispositivo?')) return;
   const isCurrent=deviceId===currentDeviceId();
+  if(!confirm(isCurrent ? 'Cerrar sesion en este dispositivo?' : 'Vetar este dispositivo? No podra entrar de nuevo mientras siga vetado.')) return;
   try{
     await fns.setDoc(fns.doc(window.__db,'users',user.uid,'devices',deviceId),{revoked:true,revokedAt:Date.now()},{merge:true});
-    notifySaveStatus('success', isCurrent ? 'Sesion cerrada.' : 'Dispositivo cerrado.');
+    notifySaveStatus('success', isCurrent ? 'Sesion cerrada.' : 'Dispositivo vetado.');
     if(isCurrent){
       await fns.signOut(window.__auth);
       window.location.href='gestor-login.html';
@@ -5203,6 +5234,19 @@ window.revokeSecurityDevice=async function(deviceId){
     renderSecurityView();
   }catch(err){
     notifySaveStatus('error','No se pudo cerrar ese dispositivo.');
+  }
+};
+window.allowSecurityDevice=async function(deviceId){
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
+  if(!user || !deviceId) return;
+  if(!confirm('Permitir de nuevo este dispositivo?')) return;
+  try{
+    await fns.setDoc(fns.doc(window.__db,'users',user.uid,'devices',deviceId),{revoked:false,unrevokedAt:Date.now()},{merge:true});
+    notifySaveStatus('success','Dispositivo permitido de nuevo.');
+    renderSecurityView();
+  }catch(err){
+    notifySaveStatus('error','No se pudo permitir ese dispositivo.');
   }
 };
 async function sendPasswordResetFromSecurity(){
