@@ -1043,6 +1043,9 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   border:1px solid var(--border)!important;
   border-radius:var(--r-md)!important;
   padding:10px 13px;
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
   outline:none;
   font-size:14px;
   transition:border-color .15s ease;
@@ -1089,6 +1092,35 @@ select option:checked{
   flex-wrap:wrap;
   gap:7px;
   margin-bottom:16px;
+}
+.renewal-platform-tabs{
+  grid-column:1/-1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:4px;
+}
+.renewal-platform-tab{
+  --pcolor:#7c6dff;
+  min-height:36px;
+  padding:6px 12px 6px 8px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.035);
+  color:var(--text-2);
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  font-weight:800;
+  font-size:13px;
+  cursor:pointer;
+  transition:transform .15s ease,border-color .15s ease,background .15s ease,color .15s ease;
+}
+.renewal-platform-tab:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--pcolor) 38%,rgba(255,255,255,.12));background:rgba(255,255,255,.055)}
+.renewal-platform-tab.active{
+  color:var(--text);
+  border-color:color-mix(in srgb,var(--pcolor) 58%,rgba(255,255,255,.14));
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pcolor) 20%,transparent),rgba(255,255,255,.035));
 }
 .filter-chip{
   height:34px;
@@ -1625,7 +1657,26 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-weight:850;
 }
 .combo-app-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.combo-app-grid label{min-width:0}
 .combo-due-field{margin-top:10px}
+.x.close-icon{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:inline-grid;
+  place-items:center;
+  color:var(--muted);
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.08);
+  font-size:0;
+}
+.x.close-icon::before{
+  content:"x";
+  font-size:20px;
+  line-height:1;
+  font-weight:800;
+}
+.x.close-icon:hover{color:var(--text);background:rgba(255,255,255,.06)}
 
 /* Form check */
 .form-check{
@@ -2079,12 +2130,13 @@ i[data-lucide="package"]::before,i[data-lucide="package-plus"]::before{content:"
       <div class="panel-head">
         <h3>Renovaciones</h3>
         <div class="tools">
-          <input class="input search" id="renewalSearch" placeholder="Buscar nombre o número" />
+          <input class="input search" id="renewalSearch" placeholder="Buscar nombre, WhatsApp o correo" />
           <select class="select" id="renewalAccountFilter">
             <option value="">Todas las plataformas</option>
           </select>
         </div>
       </div>
+      <div class="renewal-platform-tabs" id="renewalPlatformTabs"></div>
       <div id="renewalsList" class="list"></div>
     </section>
   </main>
@@ -2245,7 +2297,7 @@ i[data-lucide="package"]::before,i[data-lucide="package-plus"]::before{content:"
   <div class="modal combo-modal">
     <div class="modal-head">
       <h3>Nuevo combo</h3>
-      <button class="x" data-close="comboModalWrap">Ã—</button>
+      <button class="x close-icon" data-close="comboModalWrap" aria-label="Cerrar"></button>
     </div>
     <form id="comboForm" class="form">
       <div class="combo-intro">Vende varias apps en una sola operacion. El gestor guarda un cliente por app y arma un solo WhatsApp con todos los accesos.</div>
@@ -2945,9 +2997,18 @@ function renderClientFilterOptions(selectedId=''){
 }
 function renderRenewalFilterOptions(selectedId=''){
   const filter=$('#renewalAccountFilter');
-  if(!filter) return;
-  filter.innerHTML=`<option value="">Todas las plataformas</option>${orderedRenewalPlatforms().map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(friendlyPlatform(p))}</option>`).join('')}`;
-  filter.value=selectedId||'';
+  const platforms=orderedRenewalPlatforms();
+  if(filter){
+    filter.innerHTML=`<option value="">Todas las plataformas</option>${platforms.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(friendlyPlatform(p))}</option>`).join('')}`;
+    filter.value=selectedId||'';
+  }
+  const tabs=$('#renewalPlatformTabs');
+  if(tabs){
+    tabs.innerHTML=[
+      `<button class="renewal-platform-tab ${selectedId?'':'active'}" type="button" onclick="setRenewalPlatformFilter('')">Todas</button>`,
+      ...platforms.map(p=>`<button class="renewal-platform-tab ${p===selectedId?'active':''}" type="button" style="--pcolor:${platformColor(p)}" onclick="setRenewalPlatformFilter('${escapeJs(p)}')">${platformLogo(p,'tab')} ${escapeHtml(friendlyPlatform(p))}</button>`)
+    ].join('');
+  }
 }
 
 function renderClients(){
@@ -3367,7 +3428,7 @@ function renderRenewals(){
     .filter(x=>{
       const phone=String(x.client.whatsapp||'');
       const phoneDigits=phone.replace(/\D+/g,'');
-      const blob=[x.client.name,phone,x.platform,x.client.profile].join(' ').toLowerCase();
+      const blob=[x.client.name,phone,x.platform,x.client.profile,x.account?.email,x.account?.provider,x.account?.notes,accountLabel(x.account||{})].join(' ').toLowerCase();
       return x.st!=='No renovó'
         && renewalAlertDays(x.dd)
         && (!currentFilter || x.platform===currentFilter)
@@ -3664,6 +3725,7 @@ function initDatepickers(){
 }
 
 window.setAccountPlatformFilter=(value)=>{ accountPlatformFilter=value||'__all__'; renderAccounts(); };
+window.setRenewalPlatformFilter=(value)=>{ const filter=$('#renewalAccountFilter'); if(filter) filter.value=value||''; renderRenewals(); };
 window.openPlatform=(value)=>{ const url=PLATFORM_URLS[value]||value; if(url) window.open(url,'_blank'); };
 window.togglePassword=(id)=>{
   const acc=state.accounts.find(a=>a.id===id); if(!acc) return;
