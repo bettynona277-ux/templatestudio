@@ -49,6 +49,7 @@ const db   = getFirestore(app);
 
 window.__db   = db;
 window.__auth = auth;
+window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword };
 
 // ── Helpers de ruta ────────────────────────────────────────────────────────
 function userRef(uid)      { return doc(db, 'users', uid); }
@@ -4888,13 +4889,14 @@ function currentDeviceId(){
 }
 let securityDeviceUnsub=null;
 function startSecurityDeviceListener(uid){
+  const fns = window.__firebaseFns || {};
   if(securityDeviceUnsub) securityDeviceUnsub();
   const id=currentDeviceId();
-  if(!uid || !id) return;
-  securityDeviceUnsub=onSnapshot(doc(db,'users',uid,'devices',id),snap=>{
+  if(!uid || !id || !fns.onSnapshot || !fns.doc || !window.__db) return;
+  securityDeviceUnsub=fns.onSnapshot(fns.doc(window.__db,'users',uid,'devices',id),snap=>{
     if(snap.exists() && snap.data()?.revoked === true){
       if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub=null; }
-      signOut(auth).finally(()=>{ window.location.href='gestor-login.html'; });
+      fns.signOut(window.__auth).finally(()=>{ window.location.href='gestor-login.html'; });
     }
   },()=>{});
 }
@@ -4912,7 +4914,8 @@ function deviceSubLabel(d){
 }
 async function getSecurityDevices(user){
   if(!user) return [];
-  const snap = await getDocs(devicesCol(user.uid));
+  const fns = window.__firebaseFns || {};
+  const snap = await fns.getDocs(fns.collection(window.__db,'users',user.uid,'devices'));
   return snap.docs.map(d=>({id:d.id,...d.data()}))
     .filter(d=>d.revoked !== true)
     .sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
@@ -4941,7 +4944,7 @@ async function updateSecuritySummary(user){
   });
 }
 async function renderSecurityView(){
-  const user=auth.currentUser;
+  const user=window.__auth?.currentUser;
   if(!user) return;
   await updateSecuritySummary(user);
   const list=$('#securityDeviceList');
@@ -4965,15 +4968,16 @@ async function renderSecurityView(){
   if(window.lucide?.createIcons) window.lucide.createIcons();
 }
 window.revokeSecurityDevice=async function(deviceId){
-  const user=auth.currentUser;
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
   if(!user || !deviceId) return;
   if(!confirm('Cerrar sesion en este dispositivo?')) return;
   const isCurrent=deviceId===currentDeviceId();
   try{
-    await setDoc(doc(db,'users',user.uid,'devices',deviceId),{revoked:true,revokedAt:Date.now()},{merge:true});
+    await fns.setDoc(fns.doc(window.__db,'users',user.uid,'devices',deviceId),{revoked:true,revokedAt:Date.now()},{merge:true});
     notifySaveStatus('success', isCurrent ? 'Sesion cerrada.' : 'Dispositivo cerrado.');
     if(isCurrent){
-      await signOut(auth);
+      await fns.signOut(window.__auth);
       window.location.href='gestor-login.html';
       return;
     }
@@ -4983,12 +4987,13 @@ window.revokeSecurityDevice=async function(deviceId){
   }
 };
 async function sendPasswordResetFromSecurity(){
-  const user=auth.currentUser;
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
   if(!user?.email) return notifySaveStatus('error','No hay correo de acceso.');
   const btn=$('#sendPasswordResetBtn');
   if(btn) btn.disabled=true;
   try{
-    await sendPasswordResetEmail(auth,user.email);
+    await fns.sendPasswordResetEmail(window.__auth,user.email);
     notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
   }catch(err){
     notifySaveStatus('error','No se pudo enviar el correo. Intenta de nuevo.');
@@ -5003,13 +5008,14 @@ function clearPasswordFields(){
   });
 }
 function openSecurityModal(){
-  updateSecuritySummary(auth.currentUser);
+  updateSecuritySummary(window.__auth?.currentUser);
   clearPasswordFields();
   openModal('securityModalWrap');
   if(window.lucide?.createIcons) window.lucide.createIcons();
 }
 async function changeCurrentPassword(){
-  const user=auth.currentUser;
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
   if(!user || !user.email) return notifySaveStatus('error','No hay sesion activa.');
   const current=$('#securityCurrentPassword')?.value || '';
   const next=$('#securityNewPassword')?.value || '';
@@ -5021,9 +5027,9 @@ async function changeCurrentPassword(){
   if(btn) btn.disabled=true;
   try{
     notifySaveStatus('saving','Actualizando contrasena...');
-    const credential=EmailAuthProvider.credential(user.email,current);
-    await reauthenticateWithCredential(user,credential);
-    await updatePassword(user,next);
+    const credential=fns.EmailAuthProvider.credential(user.email,current);
+    await fns.reauthenticateWithCredential(user,credential);
+    await fns.updatePassword(user,next);
     state.settings.security={...(state.settings.security||{}),passwordChangedAt:new Date().toISOString()};
     persistSettings();
     clearPasswordFields();
