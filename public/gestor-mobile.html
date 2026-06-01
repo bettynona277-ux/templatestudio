@@ -83,6 +83,11 @@ button{border:0;cursor:pointer}
 .chip.active{color:#fff;background:rgba(118,92,255,.2);border-color:rgba(118,92,255,.42)}
 .chip-input{min-height:46px;border-radius:15px;border:1px solid var(--line);background:#07101d;color:var(--text);padding:0 12px;min-width:0;width:100%;outline:0}
 .settings-card{padding:14px;border:1px solid var(--line);border-radius:20px;background:rgba(13,23,38,.86);display:grid;gap:12px}
+.security-box{padding:14px;border:1px solid rgba(45,212,191,.22);border-radius:20px;background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(118,92,255,.07));display:grid;gap:12px}
+.security-box h3{margin:0;font-size:16px}.security-box p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
+.security-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}.security-metric{padding:11px;border-radius:15px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);min-width:0}.security-metric b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.security-metric span{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.device-list{display:grid;gap:8px}.device-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.device-row b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.device-row span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.3}.device-row .iconbtn{width:36px;height:36px;border-radius:12px;color:#ffb8c6;border-color:rgba(255,93,125,.24);background:rgba(255,93,125,.09)}
+.device-section{display:grid;gap:8px}.device-section+.device-section{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}.device-section-title{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8aa1ff}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
 .category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
 .combo-sale-card{padding:13px;border-radius:20px;border:1px solid rgba(56,189,248,.24);background:radial-gradient(260px 120px at 0% 0%,rgba(229,9,20,.18),transparent 65%),radial-gradient(260px 120px at 100% 0%,rgba(56,189,248,.16),transparent 68%),rgba(13,23,38,.92);display:grid;gap:10px}
@@ -124,6 +129,7 @@ button{border:0;cursor:pointer}
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></symbol>
   <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.6 13.7 20.5a2 2 0 0 1-2.8 0L3 12.6V3h9.6l8 8a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
 </svg>
 <div id="app" class="app">
@@ -160,8 +166,8 @@ button{border:0;cursor:pointer}
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -193,7 +199,8 @@ const DEFAULT_COMBO_TEMPLATES = [
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas',
   accounts:[], clients:[], unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES] }
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES] },
+  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
 const icon = name => `<svg class="i"><use href="#i-${name}"></use></svg>`;
 const localISO = date => {
@@ -216,8 +223,180 @@ const id = () => (crypto?.randomUUID?.() || ('id_'+Date.now()+'_'+Math.random().
 const accountsCol = uid => collection(db,'users',uid,'gestor_accounts');
 const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
+const devicesCol = uid => collection(db,'users',uid,'devices');
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
+
+const MAX_GESTOR_DEVICES = 5;
+const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getGestorDeviceId(){
+  let id = localStorage.getItem('ts_device_id');
+  if(!id){
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    localStorage.setItem('ts_device_id', id);
+  }
+  return id;
+}
+function detectGestorBrowser(ua=navigator.userAgent || ''){
+  if(/Edg/i.test(ua)) return 'Edge';
+  if(/OPR|Opera/i.test(ua)) return 'Opera';
+  if(/Firefox/i.test(ua)) return 'Firefox';
+  if(/Chrome|CriOS/i.test(ua) && !/Edg/i.test(ua)) return 'Chrome';
+  if(/Safari/i.test(ua) && !/Chrome|CriOS/i.test(ua)) return 'Safari';
+  return 'Navegador';
+}
+function detectGestorOS(ua=navigator.userAgent || ''){
+  if(/iPhone/i.test(ua)) return 'iPhone';
+  if(/iPad/i.test(ua)) return 'iPad';
+  if(/Android/i.test(ua)) return ua.includes('Mobile') ? 'Android movil' : 'Android tablet';
+  if(/Windows/i.test(ua)) return 'Windows PC';
+  if(/Mac/i.test(ua)) return 'Mac';
+  if(/Linux/i.test(ua)) return 'Linux PC';
+  return 'Dispositivo';
+}
+function getGestorWebGLInfo(){
+  try{
+    const canvas=document.createElement('canvas');
+    const gl=canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if(!gl) return {vendor:'',renderer:''};
+    const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor:String((dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)) || ''),
+      renderer:String((dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '')
+    };
+  }catch(_){ return {vendor:'',renderer:''}; }
+}
+function shortGestorGpuName(renderer){
+  return String(renderer || '').replace(/^ANGLE\s*\(|\)$/gi,'').replace(/\s*\(.*?\)\s*/g,' ').replace(/Direct3D.*|OpenGL.*|Vulkan.*/gi,'').replace(/\s+/g,' ').trim().slice(0,48);
+}
+function fallbackGestorHash(str){
+  let h=0x811c9dc5;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+  return ('00000000'+(h>>>0).toString(16)).slice(-8);
+}
+async function hashGestorText(str){
+  try{
+    if(window.crypto?.subtle){
+      const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+  }catch(_){}
+  return fallbackGestorHash(str);
+}
+async function buildGestorDeviceFingerprint(){
+  const ua=navigator.userAgent || '';
+  const webgl=getGestorWebGLInfo();
+  const screenInfo=`${screen.width || 0}x${screen.height || 0}`;
+  const timezone=Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const signals={
+    userAgent:ua,
+    platform:navigator.platform || '',
+    language:navigator.language || '',
+    languages:Array.from(navigator.languages || []).join(','),
+    timezone,
+    screen:screenInfo,
+    pixelRatio:window.devicePixelRatio || 1,
+    hardwareConcurrency:navigator.hardwareConcurrency || 0,
+    deviceMemory:navigator.deviceMemory || 0,
+    touch:('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0,
+    maxTouchPoints:navigator.maxTouchPoints || 0,
+    webglVendor:webgl.vendor,
+    webglRenderer:webgl.renderer,
+    browser:detectGestorBrowser(ua),
+    os:detectGestorOS(ua)
+  };
+  const hash=await hashGestorText(JSON.stringify({
+    platform:signals.platform,
+    language:signals.language,
+    languages:signals.languages,
+    timezone:signals.timezone,
+    screen:signals.screen,
+    pixelRatio:signals.pixelRatio,
+    hardwareConcurrency:signals.hardwareConcurrency,
+    deviceMemory:signals.deviceMemory,
+    touch:signals.touch,
+    maxTouchPoints:signals.maxTouchPoints,
+    webglVendor:signals.webglVendor,
+    webglRenderer:signals.webglRenderer,
+    browser:signals.browser,
+    os:signals.os
+  }));
+  const gpu=shortGestorGpuName(webgl.renderer);
+  const city=timezone.split('/').pop() || '';
+  const label=[signals.os, signals.browser, screenInfo, city, gpu ? 'GPU '+gpu : ''].filter(Boolean).join(' - ');
+  return {hash,label,summary:{os:signals.os,browser:signals.browser,screen:screenInfo,timezone,gpu,platform:signals.platform},confidenceSignals:signals};
+}
+function gestorDeviceSeenAt(d){ return Number(d?.lastSeen || d?.registeredAt || 0); }
+function isGestorDeviceExpired(d, now=Date.now()){
+  const seen=gestorDeviceSeenAt(d);
+  return !!seen && (now-seen) > GESTOR_DEVICE_TTL_MS;
+}
+function gestorFingerprintScore(oldSignals={}, nextSignals={}){
+  let score=0;
+  if(oldSignals.platform && nextSignals.platform && oldSignals.platform !== nextSignals.platform) score += 2;
+  if(oldSignals.timezone && nextSignals.timezone && oldSignals.timezone !== nextSignals.timezone) score += 1;
+  if(oldSignals.screen && nextSignals.screen && oldSignals.screen !== nextSignals.screen) score += 1;
+  if(oldSignals.browser && nextSignals.browser && oldSignals.browser !== nextSignals.browser) score += 1;
+  if(oldSignals.webglRenderer && nextSignals.webglRenderer && oldSignals.webglRenderer !== nextSignals.webglRenderer) score += 2;
+  if(oldSignals.maxTouchPoints !== undefined && nextSignals.maxTouchPoints !== undefined && oldSignals.maxTouchPoints !== nextSignals.maxTouchPoints) score += 1;
+  return score;
+}
+function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice){
+  const now=Date.now();
+  if(existing?.confidenceSignals && gestorFingerprintScore(existing.confidenceSignals, fingerprint.confidenceSignals) >= 3) return true;
+  const distinctHashes=new Set(activeDevices.map(d=>d.fingerprintHash).filter(Boolean));
+  if(isNewDevice && distinctHashes.size >= 3 && !distinctHashes.has(fingerprint.hash)) return true;
+  const recentNew=activeDevices.filter(d=>Number(d.registeredAt || 0) && (now-Number(d.registeredAt)) < 24*60*60*1000);
+  return isNewDevice && recentNew.length >= 3;
+}
+async function registerGestorDevice(uid){
+  const deviceId=getGestorDeviceId();
+  const devRef=doc(db,'users',uid,'devices',deviceId);
+  const snap=await getDocs(devicesCol(uid));
+  const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
+  const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
+  const fingerprint=await buildGestorDeviceFingerprint();
+  const existing=devices.find(d=>d.id===deviceId);
+  const now=Date.now();
+  if(existing){
+    if(existing.revoked === true) return {ok:false,revoked:true};
+    const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+    const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    await setDoc(devRef,{
+      name:fingerprint.label,
+      deviceLabel:fingerprint.label,
+      fingerprintHash:fingerprint.hash,
+      fingerprintSummary:fingerprint.summary,
+      confidenceSignals:fingerprint.confidenceSignals,
+      lastSeen:now,
+      lastLoginAt:now,
+      loginCount:Number(existing.loginCount || 0) + 1,
+      suspicious,
+      revoked:false
+    },{merge:true});
+    return {ok:true};
+  }
+  const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+  if(activeDevices.length >= MAX_GESTOR_DEVICES) return {ok:false,count:activeDevices.length};
+  const suspicious=detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
+  await setDoc(devRef,{
+    name:fingerprint.label,
+    deviceLabel:fingerprint.label,
+    fingerprintHash:fingerprint.hash,
+    fingerprintSummary:fingerprint.summary,
+    confidenceSignals:fingerprint.confidenceSignals,
+    registeredAt:now,
+    lastSeen:now,
+    lastLoginAt:now,
+    loginCount:1,
+    suspicious,
+    revoked:false
+  });
+  return {ok:true};
+}
 
 function normalizeSettings(data={}){
   const categories = Array.isArray(data.categories) ? data.categories.map(clean).filter(Boolean) : DEFAULT_CATEGORIES;
@@ -227,7 +406,8 @@ function normalizeSettings(data={}){
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
     categories: [...new Set(categories)],
     defaultCountryCode: clean(data.defaultCountryCode) || '51',
-    comboTemplates: normalizeComboTemplates(data.comboTemplates, categories)
+    comboTemplates: normalizeComboTemplates(data.comboTemplates, categories),
+    security: data.security && typeof data.security === 'object' ? {passwordChangedAt:clean(data.security.passwordChangedAt)} : {}
   };
 }
 function normalizeComboTemplates(value, categories=[]){
@@ -411,6 +591,26 @@ function renderSettings(){
   const s = state.settings;
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Ajustes</h2><span>entrega y categorias</span></div>
+    <div class="security-box">
+      <div>
+        <h3>${icon('shield')} Cuenta protegida</h3>
+        <p>Tus datos estan separados por usuario. Cambia tu contrasena inicial para que solo tu la conozcas.</p>
+      </div>
+      <div class="security-metrics">
+        <div class="security-metric"><b>${esc(state.email || '-')}</b><span>Correo de acceso</span></div>
+        <div class="security-metric"><b>${esc(state.security.lastLogin || '-')}</b><span>Ultimo ingreso</span></div>
+        <div class="security-metric"><b>${esc(state.security.deviceCount || 'Privado')}</b><span>Dispositivos</span></div>
+        <div class="security-metric"><b>Privado</b><span>Datos del gestor</span></div>
+      </div>
+      <button class="btn primary" id="sendMobilePasswordReset" type="button">${icon('save')}<span>Enviar cambio por correo</span></button>
+      <div class="device-list" id="mobileDeviceList"></div>
+      <form class="grid" id="passwordForm">
+        <div class="field"><label>Contrasena actual</label><input name="current" type="password" autocomplete="current-password" placeholder="Actual" required></div>
+        <div class="field"><label>Nueva contrasena</label><input name="next" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" required></div>
+        <div class="field"><label>Repetir nueva contrasena</label><input name="confirm" type="password" autocomplete="new-password" placeholder="Repite la nueva" required></div>
+        <button class="btn ok">${icon('shield')}<span>Cambiar contrasena</span></button>
+      </form>
+    </div>
     <form class="settings-card" id="settingsForm">
       <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
@@ -435,6 +635,9 @@ function renderSettings(){
       <div class="list">${s.comboTemplates.map(t => `<div class="category-row"><b>${esc(t.name)} <span class="combo-badge">${esc(t.platforms.join(' + '))}</span></b><button class="danger-icon" data-del-combo="${esc(t.id)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
     </div>
   </section>`;
+  $('#passwordForm').onsubmit = changePasswordFromForm;
+  $('#sendMobilePasswordReset').onclick = sendMobilePasswordReset;
+  renderMobileDeviceList();
   $('#settingsForm').onsubmit = saveSettingsFromForm;
   $('#categoryForm').onsubmit = addCategoryFromForm;
   $('#comboTemplateForm').onsubmit = addComboTemplateFromForm;
@@ -963,6 +1166,137 @@ async function saveSettings(next){
     toast('No se pudieron guardar los ajustes.','bad');
   }
 }
+function formatSecurityDate(value){
+  if(!value) return '-';
+  const date = new Date(value);
+  if(Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+function currentDeviceId(){ return localStorage.getItem('ts_device_id') || ''; }
+let securityDeviceUnsub = null;
+function startSecurityDeviceListener(uid){
+  if(securityDeviceUnsub) securityDeviceUnsub();
+  const id = currentDeviceId();
+  if(!uid || !id) return;
+  securityDeviceUnsub = onSnapshot(doc(db,'users',uid,'devices',id), snap => {
+    if(snap.exists() && snap.data()?.revoked === true){
+      if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub = null; }
+      signOut(auth);
+    }
+  }, () => {});
+}
+function deviceSeenValue(d){ return Number(d?.lastSeen || d?.lastLoginAt || d?.registeredAt || 0); }
+function deviceLabel(d){ return d?.deviceLabel || d?.name || d?.fingerprintSummary || 'Dispositivo'; }
+function deviceSubLabel(d){
+  const seen = deviceSeenValue(d);
+  return `Ultimo uso: ${seen ? formatSecurityDate(seen) : '-'}`;
+}
+async function updateSecuritySummary(user){
+  if(!user) return;
+  state.security.lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
+  try{
+    const snap = await getDocs(devicesCol(user.uid));
+    const allDevices = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
+    const active = allDevices.filter(d => d.revoked !== true);
+    state.security.deviceCount = `${active.length || snap.size || 1} de 5`;
+    state.security.devices = allDevices;
+  }catch(_){
+    state.security.deviceCount = 'Privado';
+    state.security.devices = [];
+  }
+}
+function renderMobileDeviceList(){
+  const list = $('#mobileDeviceList');
+  if(!list) return;
+  const current = currentDeviceId();
+  const devices = state.security.devices || [];
+  const activeDevices = devices.filter(d => d.revoked !== true);
+  const bannedDevices = devices.filter(d => d.revoked === true);
+  const activeHtml = activeDevices.length ? activeDevices.map(d => `<div class="device-row">
+    <div><b>${esc(deviceLabel(d))}${d.id===current?' - este':''}</b><span>${esc(deviceSubLabel(d))}</span></div>
+    <button class="iconbtn" type="button" data-revoke-device="${esc(d.id)}" aria-label="Vetar dispositivo">${icon('x')}</button>
+  </div>`).join('') : `<div class="empty">No hay dispositivos activos registrados.</div>`;
+  const bannedHtml = bannedDevices.length ? bannedDevices.map(d => `<div class="device-row">
+    <div><b>${esc(deviceLabel(d))}</b><span>${esc(deviceSubLabel(d))} - Vetado</span></div>
+    <button class="iconbtn" type="button" data-allow-device="${esc(d.id)}" aria-label="Permitir dispositivo">${icon('refresh')}</button>
+  </div>`).join('') : `<div class="empty">No hay dispositivos vetados.</div>`;
+  list.innerHTML = `<div class="device-section"><div class="device-section-title">Dispositivos activos</div>${activeHtml}</div><div class="device-section"><div class="device-section-title">Dispositivos vetados</div>${bannedHtml}</div>`;
+  document.querySelectorAll('[data-revoke-device]').forEach(b => b.onclick = () => revokeMobileDevice(b.dataset.revokeDevice));
+  document.querySelectorAll('[data-allow-device]').forEach(b => b.onclick = () => allowMobileDevice(b.dataset.allowDevice));
+  return;
+  list.innerHTML = devices.length ? devices.map(d => `<div class="device-row">
+    <div><b>${esc(deviceLabel(d))}${d.id===current?' · este':''}</b><span>${esc(deviceSubLabel(d))}</span></div>
+    <button class="iconbtn" type="button" data-revoke-device="${esc(d.id)}" aria-label="Cerrar dispositivo">${icon('x')}</button>
+  </div>`).join('') : `<div class="empty">No hay dispositivos registrados aun.</div>`;
+  document.querySelectorAll('[data-revoke-device]').forEach(b => b.onclick = () => revokeMobileDevice(b.dataset.revokeDevice));
+}
+async function revokeMobileDevice(deviceId){
+  const user = auth.currentUser;
+  if(!user || !deviceId) return;
+  const isCurrent = deviceId === currentDeviceId();
+  if(!confirm(isCurrent ? 'Cerrar sesion en este dispositivo?' : 'Vetar este dispositivo? No podra entrar de nuevo mientras siga vetado.')) return;
+  try{
+    await setDoc(doc(db,'users',user.uid,'devices',deviceId), {revoked:true, revokedAt:Date.now()}, {merge:true});
+    toast(isCurrent ? 'Sesion cerrada' : 'Dispositivo vetado');
+    if(isCurrent){
+      await signOut(auth);
+      return;
+    }
+    await updateSecuritySummary(user);
+    renderMobileDeviceList();
+  }catch(err){
+    toast('No se pudo cerrar el dispositivo.','bad');
+  }
+}
+async function allowMobileDevice(deviceId){
+  const user = auth.currentUser;
+  if(!user || !deviceId) return;
+  if(!confirm('Permitir de nuevo este dispositivo?')) return;
+  try{
+    await setDoc(doc(db,'users',user.uid,'devices',deviceId), {revoked:false, unrevokedAt:Date.now()}, {merge:true});
+    toast('Dispositivo permitido');
+    await updateSecuritySummary(user);
+    renderMobileDeviceList();
+  }catch(err){
+    toast('No se pudo permitir el dispositivo.','bad');
+  }
+}
+async function sendMobilePasswordReset(){
+  const user = auth.currentUser;
+  if(!user?.email) return toast('No hay correo de acceso.','bad');
+  try{
+    await sendPasswordResetEmail(auth, user.email);
+    toast('Enlace enviado al correo');
+  }catch(err){
+    toast('No se pudo enviar el correo.','bad');
+  }
+}
+async function changePasswordFromForm(e){
+  e.preventDefault();
+  const user = auth.currentUser;
+  if(!user || !user.email) return toast('No hay sesion activa.','bad');
+  const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
+  const current = clean(fd.current);
+  const next = clean(fd.next);
+  const confirmPass = clean(fd.confirm);
+  if(next.length < 8) return toast('La nueva contrasena debe tener minimo 8 caracteres.','bad');
+  if(next !== confirmPass) return toast('La nueva contrasena no coincide.','bad');
+  const btn = e.currentTarget.querySelector('button');
+  if(btn) btn.disabled = true;
+  try{
+    const credential = EmailAuthProvider.credential(user.email, current);
+    await reauthenticateWithCredential(user, credential);
+    await updatePassword(user, next);
+    await saveSettings({...state.settings, security:{...(state.settings.security||{}), passwordChangedAt:new Date().toISOString()}});
+    e.currentTarget.reset();
+    toast('Contrasena actualizada');
+  }catch(err){
+    const code = err?.code || '';
+    toast(code.includes('wrong-password') || code.includes('invalid-credential') ? 'La contrasena actual no es correcta.' : 'No se pudo cambiar la contrasena.', 'bad');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
 async function saveSettingsFromForm(e){
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
@@ -997,6 +1331,7 @@ const COUNTRY_CODES = [
   {code:'51',flag:'🇵🇪',name:'Peru',digits:9},
   {code:'57',flag:'🇨🇴',name:'Colombia',digits:10},
   {code:'56',flag:'🇨🇱',name:'Chile',digits:9},
+  {code:'502',flag:'🇬🇹',name:'Guatemala',digits:8},
   {code:'54',flag:'🇦🇷',name:'Argentina',digits:10},
   {code:'52',flag:'🇲🇽',name:'Mexico',digits:10},
   {code:'593',flag:'🇪🇨',name:'Ecuador',digits:9},
@@ -1316,6 +1651,20 @@ onAuthStateChanged(auth, async user => {
       renderExpired();
       return;
     }
+    let deviceResult = null;
+    try{
+      deviceResult = await registerGestorDevice(user.uid);
+    }catch(err){
+      console.warn('No se pudo registrar este dispositivo del gestor:', err);
+    }
+    if(deviceResult && !deviceResult.ok){
+      alert(deviceResult.revoked ? 'Este dispositivo esta vetado desde Seguridad.' : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado.`);
+      await signOut(auth);
+      window.location.href = 'gestor-login.html';
+      return;
+    }
+    startSecurityDeviceListener(user.uid);
+    await updateSecuritySummary(user);
     startLive();
     render();
   }catch(err){

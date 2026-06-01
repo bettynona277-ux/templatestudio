@@ -20,10 +20,10 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
-  collection, getDocs, writeBatch
+  collection, getDocs, writeBatch, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -49,6 +49,7 @@ const db   = getFirestore(app);
 
 window.__db   = db;
 window.__auth = auth;
+window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword };
 
 // ── Helpers de ruta ────────────────────────────────────────────────────────
 function userRef(uid)      { return doc(db, 'users', uid); }
@@ -56,6 +57,210 @@ function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'met
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
+function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
+
+const MAX_GESTOR_DEVICES = 5;
+const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getGestorDeviceId() {
+  let id = localStorage.getItem('ts_device_id');
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('ts_device_id', id);
+  }
+  return id;
+}
+
+function detectGestorBrowser(ua = navigator.userAgent || '') {
+  if (/Edg/i.test(ua)) return 'Edge';
+  if (/OPR|Opera/i.test(ua)) return 'Opera';
+  if (/Firefox/i.test(ua)) return 'Firefox';
+  if (/Chrome|CriOS/i.test(ua) && !/Edg/i.test(ua)) return 'Chrome';
+  if (/Safari/i.test(ua) && !/Chrome|CriOS/i.test(ua)) return 'Safari';
+  return 'Navegador';
+}
+
+function detectGestorOS(ua = navigator.userAgent || '') {
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return ua.includes('Mobile') ? 'Android movil' : 'Android tablet';
+  if (/Windows/i.test(ua)) return 'Windows PC';
+  if (/Mac/i.test(ua)) return 'Mac';
+  if (/Linux/i.test(ua)) return 'Linux PC';
+  return 'Dispositivo';
+}
+
+function getGestorWebGLInfo() {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return { vendor: '', renderer: '' };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor: String((dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)) || ''),
+      renderer: String((dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '')
+    };
+  } catch (e) {
+    return { vendor: '', renderer: '' };
+  }
+}
+
+function shortGestorGpuName(renderer) {
+  return String(renderer || '')
+    .replace(/^ANGLE\s*\(|\)$/gi, '')
+    .replace(/\s*\(.*?\)\s*/g, ' ')
+    .replace(/Direct3D.*|OpenGL.*|Vulkan.*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48);
+}
+
+function fallbackGestorHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ('00000000' + (h >>> 0).toString(16)).slice(-8);
+}
+
+async function hashGestorText(str) {
+  try {
+    if (window.crypto?.subtle) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  return fallbackGestorHash(str);
+}
+
+async function buildGestorDeviceFingerprint() {
+  const ua = navigator.userAgent || '';
+  const webgl = getGestorWebGLInfo();
+  const screenInfo = `${screen.width || 0}x${screen.height || 0}`;
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const signals = {
+    userAgent: ua,
+    platform: navigator.platform || '',
+    language: navigator.language || '',
+    languages: Array.from(navigator.languages || []).join(','),
+    timezone,
+    screen: screenInfo,
+    pixelRatio: window.devicePixelRatio || 1,
+    hardwareConcurrency: navigator.hardwareConcurrency || 0,
+    deviceMemory: navigator.deviceMemory || 0,
+    touch: ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0,
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+    webglVendor: webgl.vendor,
+    webglRenderer: webgl.renderer,
+    browser: detectGestorBrowser(ua),
+    os: detectGestorOS(ua)
+  };
+  const hash = await hashGestorText(JSON.stringify({
+    platform: signals.platform,
+    language: signals.language,
+    languages: signals.languages,
+    timezone: signals.timezone,
+    screen: signals.screen,
+    pixelRatio: signals.pixelRatio,
+    hardwareConcurrency: signals.hardwareConcurrency,
+    deviceMemory: signals.deviceMemory,
+    touch: signals.touch,
+    maxTouchPoints: signals.maxTouchPoints,
+    webglVendor: signals.webglVendor,
+    webglRenderer: signals.webglRenderer,
+    browser: signals.browser,
+    os: signals.os
+  }));
+  const gpu = shortGestorGpuName(webgl.renderer);
+  const city = timezone.split('/').pop() || '';
+  const label = [signals.os, signals.browser, screenInfo, city, gpu ? 'GPU ' + gpu : ''].filter(Boolean).join(' - ');
+  return {
+    hash,
+    label,
+    summary: { os: signals.os, browser: signals.browser, screen: screenInfo, timezone, gpu, platform: signals.platform },
+    confidenceSignals: signals
+  };
+}
+
+function gestorDeviceSeenAt(d) {
+  return Number(d?.lastSeen || d?.registeredAt || 0);
+}
+
+function isGestorDeviceExpired(d, now = Date.now()) {
+  const seen = gestorDeviceSeenAt(d);
+  return !!seen && (now - seen) > GESTOR_DEVICE_TTL_MS;
+}
+
+function gestorFingerprintScore(oldSignals = {}, nextSignals = {}) {
+  let score = 0;
+  if (oldSignals.platform && nextSignals.platform && oldSignals.platform !== nextSignals.platform) score += 2;
+  if (oldSignals.timezone && nextSignals.timezone && oldSignals.timezone !== nextSignals.timezone) score += 1;
+  if (oldSignals.screen && nextSignals.screen && oldSignals.screen !== nextSignals.screen) score += 1;
+  if (oldSignals.browser && nextSignals.browser && oldSignals.browser !== nextSignals.browser) score += 1;
+  if (oldSignals.webglRenderer && nextSignals.webglRenderer && oldSignals.webglRenderer !== nextSignals.webglRenderer) score += 2;
+  if (oldSignals.maxTouchPoints !== undefined && nextSignals.maxTouchPoints !== undefined && oldSignals.maxTouchPoints !== nextSignals.maxTouchPoints) score += 1;
+  return score;
+}
+
+function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice) {
+  const now = Date.now();
+  if (existing?.confidenceSignals && gestorFingerprintScore(existing.confidenceSignals, fingerprint.confidenceSignals) >= 3) return true;
+  const distinctHashes = new Set(activeDevices.map(d => d.fingerprintHash).filter(Boolean));
+  if (isNewDevice && distinctHashes.size >= 3 && !distinctHashes.has(fingerprint.hash)) return true;
+  const recentNew = activeDevices.filter(d => Number(d.registeredAt || 0) && (now - Number(d.registeredAt)) < 24 * 60 * 60 * 1000);
+  return isNewDevice && recentNew.length >= 3;
+}
+
+async function registerGestorDevice(uid) {
+  const deviceId = getGestorDeviceId();
+  const devRef = doc(db, 'users', uid, 'devices', deviceId);
+  const snap = await getDocs(devicesCol(uid));
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
+  const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
+  const fingerprint = await buildGestorDeviceFingerprint();
+  const existing = devices.find(d => d.id === deviceId);
+  const now = Date.now();
+
+  if (existing) {
+    if (existing.revoked === true) return { ok: false, revoked: true };
+    const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
+    const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    await setDoc(devRef, {
+      name: fingerprint.label,
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: now,
+      lastLoginAt: now,
+      loginCount: Number(existing.loginCount || 0) + 1,
+      suspicious,
+      revoked: false
+    }, { merge: true });
+    return { ok: true };
+  }
+
+  const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
+  if (activeDevices.length >= MAX_GESTOR_DEVICES) return { ok: false, count: activeDevices.length };
+  const suspicious = detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
+  await setDoc(devRef, {
+    name: fingerprint.label,
+    deviceLabel: fingerprint.label,
+    fingerprintHash: fingerprint.hash,
+    fingerprintSummary: fingerprint.summary,
+    confidenceSignals: fingerprint.confidenceSignals,
+    registeredAt: now,
+    lastSeen: now,
+    lastLoginAt: now,
+    loginCount: 1,
+    suspicious,
+    revoked: false
+  });
+  return { ok: true };
+}
 
 // ── Migración: si hay datos en el doc raíz los mueve a subcolecciones ──────
 async function migrateIfNeeded(uid) {
@@ -196,8 +401,26 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
+  let deviceResult = null;
+  try {
+    deviceResult = await registerGestorDevice(user.uid);
+  } catch (err) {
+    console.warn('No se pudo registrar este dispositivo del gestor:', err);
+  }
+  if (deviceResult && !deviceResult.ok) {
+    const msg = deviceResult.revoked
+      ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
+      : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
+    alert(msg);
+    await signOut(auth);
+    window.location.href = 'gestor-login.html';
+    return;
+  }
+
   const el = document.getElementById('userEmail');
   if (el) el.textContent = user.email;
+  updateSecuritySummary(user);
+  startSecurityDeviceListener(user.uid);
 
   document.getElementById('authLoader').style.display = 'none';
   document.getElementById('appRoot').style.display    = '';
@@ -292,7 +515,12 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
     comboTemplates,
-    finalMessage: fsOptionalString(settings.finalMessage, 500)
+    finalMessage: fsOptionalString(settings.finalMessage, 500),
+    security: settings.security && typeof settings.security === 'object'
+      ? {
+        passwordChangedAt: fsOptionalString(settings.security.passwordChangedAt, 40)
+      }
+      : {}
   };
 }
 function sanitizeGestorDocForFirestore(colName, data) {
@@ -863,6 +1091,31 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   color:var(--text-2);
   letter-spacing:-.01em;
 }
+.security-banner{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+  margin-bottom:18px;
+  padding:14px 16px;
+  border:1px solid rgba(45,212,191,.18);
+  border-radius:22px;
+  background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(124,92,255,.06));
+  box-shadow:0 18px 45px rgba(0,0,0,.14);
+}
+.security-banner-icon{
+  width:44px;
+  height:44px;
+  border-radius:15px;
+  display:grid;
+  place-items:center;
+  background:rgba(45,212,191,.13);
+  color:#7fffe3;
+  border:1px solid rgba(45,212,191,.25);
+}
+.security-banner-icon svg{width:22px;height:22px}
+.security-banner h3{margin:0 0 3px;font-size:15px}
+.security-banner p{margin:0;color:var(--muted);font-size:13px;line-height:1.35}
 
 /* ─── Cards / Panels ────────────────────────────── */
 .card,.panel,.mini-panel,.group-card{
@@ -1773,6 +2026,106 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .settings-section-title{font-weight:850;color:var(--text)}
 .settings-section-note{color:var(--muted);font-size:12.5px;margin-top:3px}
+.security-grid{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.security-card{
+  padding:14px;
+  border-radius:18px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.035);
+}
+.security-card strong{display:block;font-size:18px;color:var(--text)}
+.security-card span{display:block;margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35}
+.security-tip{
+  grid-column:1/-1;
+  display:flex;
+  gap:12px;
+  align-items:flex-start;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid rgba(45,212,191,.20);
+  background:rgba(45,212,191,.07);
+  color:#dffdf7;
+}
+.security-tip svg{width:20px;height:20px;flex:0 0 auto;color:#7fffe3}
+.security-tip p{margin:2px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
+.security-page{
+  padding:0;
+}
+.security-page-head{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:22px;
+  border:1px solid var(--border);
+  border-radius:26px;
+  background:linear-gradient(160deg,var(--surface),rgba(9,15,26,.96));
+  margin-bottom:14px;
+}
+.security-page-head h3{margin:0;font-size:24px}
+.security-page-head p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.security-layout{
+  display:grid;
+  grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);
+  gap:14px;
+}
+.security-panel-card{
+  border:1px solid var(--border);
+  border-radius:26px;
+  background:linear-gradient(160deg,var(--surface),rgba(9,15,26,.96));
+  padding:18px;
+  min-width:0;
+}
+.security-card-title{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+.security-card-title h4{margin:0;font-size:17px}
+.security-card-title p,.security-footnote{margin:5px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
+.security-status-pill{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  border-radius:999px;
+  padding:0 10px;
+  background:rgba(45,212,191,.10);
+  border:1px solid rgba(45,212,191,.24);
+  color:#a7f3d0;
+  font-size:12px;
+  font-weight:900;
+}
+.device-list{display:grid;gap:10px}
+.device-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:13px;
+  border:1px solid rgba(158,177,214,.13);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+}
+.device-row strong{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.device-row span{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.35}
+.device-row .mini{
+  min-width:40px;
+  height:38px;
+  border-radius:13px;
+  display:grid;
+  place-items:center;
+  padding:0;
+}
+.device-row .mini svg{width:16px;height:16px}
+.device-section{display:grid;gap:8px}
+.device-section+.device-section{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
+.device-section-title{font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8aa1ff}
 .combo-template-row{
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;
@@ -2051,6 +2404,11 @@ i[data-lucide="search"]::before{content:"⌕"}
   .actions .btn{min-width:0;font-size:13px}
 
   .hero-stats{grid-template-columns:1fr;gap:10px}
+  .security-banner{grid-template-columns:auto minmax(0,1fr);align-items:start}
+  .security-banner .btn{grid-column:1/-1;width:100%;justify-content:center}
+  .security-grid{grid-template-columns:1fr}
+  .security-layout{grid-template-columns:1fr}
+  .security-page-head{align-items:flex-start}
   .hero-pill{min-height:84px}
   .hero-number{font-size:30px}
 
@@ -2204,6 +2562,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="nav-btn" data-view="cuentasView"><i data-lucide="key-round"></i><span>Cuentas</span><span class="count" id="navCuentas">0</span></button>
       <button class="nav-btn" data-view="libresView"><i data-lucide="badge-check"></i><span>Libres</span><span class="count" id="navLibres">0</span></button>
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
+      <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
     </nav>
     <div class="config-menu">
       <div class="config-title">Configuracion</div>
@@ -2212,6 +2571,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
       <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categoria de cuentas</span></button>
       <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos personalizados</span></button>
+      <button class="ghost-btn" id="openSecurityBtn"><i data-lucide="shield-check"></i><span>Seguridad de cuenta</span></button>
     </div>
 
     <div class="sidebar-bottom">
@@ -2252,6 +2612,15 @@ i[data-lucide="search"]::before{content:"⌕"}
           <div class="hero-text">Vencen mañana</div>
         </div>
       </div>
+
+      <section class="security-banner" id="homeSecurityBanner">
+        <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
+        <div>
+          <h3>Datos protegidos</h3>
+          <p>Tu gestor es privado, esta limitado por dispositivo y puedes cambiar tu contrasena inicial.</p>
+        </div>
+        <button class="btn soft small" id="openSecurityHomeBtn" type="button"><i data-lucide="lock-keyhole"></i><span>Ver seguridad</span></button>
+      </section>
 
       <section class="quick-sale-panel">
         <div class="quick-sale-head">
@@ -2381,6 +2750,43 @@ i[data-lucide="search"]::before{content:"⌕"}
       </div>
       <div class="renewals-summary" id="renewalsSummary"></div>
     </section>
+
+    <section id="seguridadView" class="view security-page">
+      <div class="security-page-head">
+        <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
+        <div>
+          <h3>Seguridad</h3>
+          <p>Controla tu contrasena y los dispositivos donde esta abierta tu cuenta.</p>
+        </div>
+      </div>
+      <div class="security-layout">
+        <article class="security-panel-card">
+          <div class="security-card-title">
+            <div>
+              <h4>Acceso protegido</h4>
+              <p>Te enviaremos un enlace oficial para cambiar la contrasena del gestor.</p>
+            </div>
+            <span class="security-status-pill">Privado</span>
+          </div>
+          <div class="security-grid">
+            <div class="security-card"><strong id="securityViewEmail">-</strong><span>Correo de acceso</span></div>
+            <div class="security-card"><strong id="securityViewLastLogin">-</strong><span>Ultimo ingreso</span></div>
+            <div class="security-card"><strong id="securityViewDevices">-</strong><span>Dispositivos activos</span></div>
+          </div>
+          <button class="btn primary" id="sendPasswordResetBtn" type="button"><i data-lucide="mail-check"></i><span>Enviar cambio de contrasena</span></button>
+          <p class="security-footnote">Si no reconoces algun acceso, cierra ese dispositivo y cambia tu contrasena.</p>
+        </article>
+        <article class="security-panel-card">
+          <div class="security-card-title">
+            <div>
+              <h4>Dispositivos activos</h4>
+              <p>El limite es de 5 dispositivos. Puedes cerrar los que no reconozcas.</p>
+            </div>
+          </div>
+          <div id="securityDeviceList" class="device-list"></div>
+        </article>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -2492,7 +2898,20 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="x" data-close="settingsModalWrap">×</button>
     </div>
     <div class="form">
-      <label>Código WhatsApp por defecto<input class="input" id="waPrefix" placeholder="51" /></label>
+      <label>Código WhatsApp por defecto
+        <input class="input" id="waPrefix" list="waPrefixOptions" placeholder="51" />
+        <datalist id="waPrefixOptions">
+          <option value="51">Peru +51</option>
+          <option value="502">Guatemala +502</option>
+          <option value="57">Colombia +57</option>
+          <option value="56">Chile +56</option>
+          <option value="54">Argentina +54</option>
+          <option value="52">Mexico +52</option>
+          <option value="593">Ecuador +593</option>
+          <option value="591">Bolivia +591</option>
+          <option value="34">Espana +34</option>
+        </datalist>
+      </label>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por más libres</option></select></label>
       <label class="full">Mensaje final para entregar cuentas<textarea id="finalMessage" placeholder="Gracias por tu compra. Cualquier duda me escribes."></textarea></label>
       <div class="full">
@@ -2531,6 +2950,43 @@ i[data-lucide="search"]::before{content:"⌕"}
     <div class="modal-actions">
       <button class="btn" data-close="settingsModalWrap">Cancelar</button>
       <button class="btn primary" id="saveSettingsBtn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="securityModalWrap">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Seguridad de cuenta</h3>
+      <button class="x" data-close="securityModalWrap">x</button>
+    </div>
+    <div class="form">
+      <div class="security-tip">
+        <i data-lucide="shield-check"></i>
+        <div>
+          <strong>Datos seguros y privados</strong>
+          <p>Tu informacion se guarda separada por usuario. Cambia tu contrasena inicial para que solo tu la conozcas.</p>
+        </div>
+      </div>
+      <div class="security-grid">
+        <div class="security-card"><strong id="securityEmail">-</strong><span>Correo de acceso</span></div>
+        <div class="security-card"><strong id="securityLastLogin">-</strong><span>Ultimo ingreso</span></div>
+        <div class="security-card"><strong id="securityDevices">-</strong><span>Dispositivos registrados</span></div>
+      </div>
+      <label>Contrasena actual<input class="input" id="securityCurrentPassword" type="password" autocomplete="current-password" placeholder="Tu contrasena actual" /></label>
+      <label>Nueva contrasena<input class="input" id="securityNewPassword" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" /></label>
+      <label>Repetir nueva contrasena<input class="input" id="securityConfirmPassword" type="password" autocomplete="new-password" placeholder="Repite la nueva contrasena" /></label>
+      <div class="security-tip">
+        <i data-lucide="info"></i>
+        <div>
+          <strong>Recomendacion</strong>
+          <p>Usa una contrasena unica. Si sospechas que alguien entro, cambia la contrasena y cierra sesion.</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" data-close="securityModalWrap">Cancelar</button>
+      <button class="btn primary" id="changePasswordBtn">Cambiar contrasena</button>
     </div>
   </div>
 </div>
@@ -2681,7 +3137,7 @@ function normalizeLoaded(data){
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500)};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -2727,7 +3183,8 @@ function sanitizeSettingsForSave(settings={}){
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
     comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
-    finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500)
+    finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500),
+    security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
 function persistSettings(){
@@ -3133,6 +3590,7 @@ function switchView(viewId){
   if(viewId==='cuentasView') renderAccounts();
   if(viewId==='libresView') renderFree();
   if(viewId==='renovacionesView') renderRenewals();
+  if(viewId==='seguridadView') renderSecurityView();
 }
 
 function compactClientItem(client, label){
@@ -4642,6 +5100,216 @@ function setSettingsSectionVisibility(section=''){
     children.forEach(el=>{ if(el && !visible.has(el)) el.classList.add('is-hidden'); });
   }
 }
+function formatSecurityDate(value){
+  if(!value) return '-';
+  const date = value instanceof Date ? value : new Date(value);
+  if(Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+function currentDeviceId(){
+  return localStorage.getItem('ts_device_id') || '';
+}
+let securityDeviceUnsub=null;
+function startSecurityDeviceListener(uid){
+  const fns = window.__firebaseFns || {};
+  if(securityDeviceUnsub) securityDeviceUnsub();
+  const id=currentDeviceId();
+  if(!uid || !id || !fns.onSnapshot || !fns.doc || !window.__db) return;
+  securityDeviceUnsub=fns.onSnapshot(fns.doc(window.__db,'users',uid,'devices',id),snap=>{
+    if(snap.exists() && snap.data()?.revoked === true){
+      if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub=null; }
+      fns.signOut(window.__auth).finally(()=>{ window.location.href='gestor-login.html'; });
+    }
+  },()=>{});
+}
+function deviceSeenValue(d){
+  return Number(d?.lastSeen || d?.lastLoginAt || d?.registeredAt || 0);
+}
+function deviceLabel(d){
+  return d?.deviceLabel || d?.name || d?.fingerprintSummary || 'Dispositivo registrado';
+}
+function deviceSubLabel(d){
+  const seen = deviceSeenValue(d);
+  const last = seen ? formatSecurityDate(seen) : '-';
+  const logins = Number(d?.loginCount || 0);
+  return `Ultimo uso: ${last}${logins ? ` · ${logins} ingresos` : ''}${d?.suspicious ? ' · Revisar' : ''}`;
+}
+async function getSecurityDevices(user){
+  if(!user) return [];
+  const fns = window.__firebaseFns || {};
+  const snap = await fns.getDocs(fns.collection(window.__db,'users',user.uid,'devices'));
+  return snap.docs.map(d=>({id:d.id,...d.data()}))
+    .sort((a,b)=>deviceSeenValue(b)-deviceSeenValue(a));
+}
+async function updateSecuritySummary(user){
+  if(!user) return;
+  const email = user.email || '-';
+  const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
+  let deviceText = 'Este dispositivo';
+  try{
+    const active = (await getSecurityDevices(user)).filter(d=>d.revoked !== true);
+    deviceText = `${active.length || 1} de 5`;
+  }catch(_){
+    deviceText = 'Privado';
+  }
+  Object.entries({
+    securityEmail:email,
+    securityLastLogin:lastLogin,
+    securityDevices:deviceText,
+    securityViewEmail:email,
+    securityViewLastLogin:lastLogin,
+    securityViewDevices:deviceText
+  }).forEach(([id,text])=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent=text;
+  });
+}
+async function renderSecurityView(){
+  const user=window.__auth?.currentUser;
+  if(!user) return;
+  await updateSecuritySummary(user);
+  const list=$('#securityDeviceList');
+  if(!list) return;
+  let devices=[];
+  try{
+    devices=await getSecurityDevices(user);
+  }catch(err){
+    list.innerHTML='<div class="empty">No se pudieron cargar los dispositivos.</div>';
+    return;
+  }
+  const current=currentDeviceId();
+  const activeDevices=devices.filter(d=>d.revoked !== true);
+  const bannedDevices=devices.filter(d=>d.revoked === true);
+  const activeHtml=activeDevices.length ? activeDevices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}${d.id===current?' - Este dispositivo':''}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))}</span>
+      </div>
+      <button class="mini danger" type="button" title="${d.id===current?'Cerrar sesion actual':'Vetar dispositivo'}" onclick="revokeSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="x"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos activos registrados.</div>';
+  const bannedHtml=bannedDevices.length ? bannedDevices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))} - Vetado</span>
+      </div>
+      <button class="mini" type="button" title="Permitir de nuevo" onclick="allowSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="undo-2"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos vetados.</div>';
+  list.innerHTML = `
+    <div class="device-section">
+      <div class="device-section-title">Dispositivos activos</div>
+      ${activeHtml}
+    </div>
+    <div class="device-section">
+      <div class="device-section-title">Dispositivos vetados</div>
+      ${bannedHtml}
+    </div>`;
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+  return;
+  list.innerHTML = devices.length ? devices.map(d=>`
+    <div class="device-row">
+      <div>
+        <strong>${escapeHtml(deviceLabel(d))}${d.id===current?' · Este dispositivo':''}</strong>
+        <span>${escapeHtml(deviceSubLabel(d))}</span>
+      </div>
+      <button class="mini danger" type="button" title="Cerrar este dispositivo" onclick="revokeSecurityDevice('${escapeHtml(d.id)}')"><i data-lucide="x"></i></button>
+    </div>`).join('') : '<div class="empty">No hay dispositivos registrados aun.</div>';
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+}
+window.revokeSecurityDevice=async function(deviceId){
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
+  if(!user || !deviceId) return;
+  const isCurrent=deviceId===currentDeviceId();
+  if(!confirm(isCurrent ? 'Cerrar sesion en este dispositivo?' : 'Vetar este dispositivo? No podra entrar de nuevo mientras siga vetado.')) return;
+  try{
+    await fns.setDoc(fns.doc(window.__db,'users',user.uid,'devices',deviceId),{revoked:true,revokedAt:Date.now()},{merge:true});
+    notifySaveStatus('success', isCurrent ? 'Sesion cerrada.' : 'Dispositivo vetado.');
+    if(isCurrent){
+      await fns.signOut(window.__auth);
+      window.location.href='gestor-login.html';
+      return;
+    }
+    renderSecurityView();
+  }catch(err){
+    notifySaveStatus('error','No se pudo cerrar ese dispositivo.');
+  }
+};
+window.allowSecurityDevice=async function(deviceId){
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
+  if(!user || !deviceId) return;
+  if(!confirm('Permitir de nuevo este dispositivo?')) return;
+  try{
+    await fns.setDoc(fns.doc(window.__db,'users',user.uid,'devices',deviceId),{revoked:false,unrevokedAt:Date.now()},{merge:true});
+    notifySaveStatus('success','Dispositivo permitido de nuevo.');
+    renderSecurityView();
+  }catch(err){
+    notifySaveStatus('error','No se pudo permitir ese dispositivo.');
+  }
+};
+async function sendPasswordResetFromSecurity(){
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
+  if(!user?.email) return notifySaveStatus('error','No hay correo de acceso.');
+  const btn=$('#sendPasswordResetBtn');
+  if(btn) btn.disabled=true;
+  try{
+    await fns.sendPasswordResetEmail(window.__auth,user.email);
+    notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
+  }catch(err){
+    notifySaveStatus('error','No se pudo enviar el correo. Intenta de nuevo.');
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+function clearPasswordFields(){
+  ['securityCurrentPassword','securityNewPassword','securityConfirmPassword'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.value='';
+  });
+}
+function openSecurityModal(){
+  updateSecuritySummary(window.__auth?.currentUser);
+  clearPasswordFields();
+  openModal('securityModalWrap');
+  if(window.lucide?.createIcons) window.lucide.createIcons();
+}
+async function changeCurrentPassword(){
+  const fns = window.__firebaseFns || {};
+  const user=window.__auth?.currentUser;
+  if(!user || !user.email) return notifySaveStatus('error','No hay sesion activa.');
+  const current=$('#securityCurrentPassword')?.value || '';
+  const next=$('#securityNewPassword')?.value || '';
+  const confirm=$('#securityConfirmPassword')?.value || '';
+  if(!current || !next || !confirm) return notifySaveStatus('error','Completa las tres casillas de seguridad.');
+  if(next.length < 8) return notifySaveStatus('error','La nueva contrasena debe tener minimo 8 caracteres.');
+  if(next !== confirm) return notifySaveStatus('error','La nueva contrasena no coincide.');
+  const btn=$('#changePasswordBtn');
+  if(btn) btn.disabled=true;
+  try{
+    notifySaveStatus('saving','Actualizando contrasena...');
+    const credential=fns.EmailAuthProvider.credential(user.email,current);
+    await fns.reauthenticateWithCredential(user,credential);
+    await fns.updatePassword(user,next);
+    state.settings.security={...(state.settings.security||{}),passwordChangedAt:new Date().toISOString()};
+    persistSettings();
+    clearPasswordFields();
+    closeModal('securityModalWrap');
+    notifySaveStatus('success','Contrasena actualizada correctamente.');
+  }catch(err){
+    const code=err?.code || '';
+    const msg=code.includes('wrong-password') || code.includes('invalid-credential')
+      ? 'La contrasena actual no es correcta.'
+      : code.includes('requires-recent-login')
+        ? 'Vuelve a iniciar sesion y prueba de nuevo.'
+        : 'No se pudo cambiar la contrasena. Intenta nuevamente.';
+    notifySaveStatus('error',msg);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
 function openSettingsSection(section=''){
   const titles={
     general:'Codigo por defecto',
@@ -4669,6 +5337,10 @@ function openSettingsSection(section=''){
 }
 const openSettingsBtn=$('#openSettingsBtn');
 if(openSettingsBtn) openSettingsBtn.onclick=()=>openSettingsSection('general');
+$('#openSecurityBtn').onclick=()=>switchView('seguridadView');
+$('#openSecurityHomeBtn').onclick=()=>switchView('seguridadView');
+$('#changePasswordBtn').onclick=changeCurrentPassword;
+$('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 $('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 

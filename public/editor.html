@@ -3451,6 +3451,27 @@ async function getFreshDoc(collectionName, docId){
   }
 }
 
+function waitForFirebaseUser(timeoutMs=3500){
+  return new Promise(resolve=>{
+    if(!fbAuth){ resolve(null); return; }
+    if(fbAuth.currentUser){ resolve(fbAuth.currentUser); return; }
+    let settled=false;
+    const unsub=fbAuth.onAuthStateChanged(user=>{
+      if(settled) return;
+      if(!user && !fbAuth.currentUser) return;
+      settled=true;
+      try{ unsub(); }catch(_){}
+      resolve(user || fbAuth.currentUser || null);
+    });
+    setTimeout(()=>{
+      if(settled) return;
+      settled=true;
+      try{ unsub(); }catch(_){}
+      resolve(fbAuth.currentUser || null);
+    }, timeoutMs);
+  });
+}
+
 window.addEventListener('load',async()=>{
   await initFB();
   const p=new URLSearchParams(window.location.search);
