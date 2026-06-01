@@ -521,6 +521,17 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
       platforms: Array.isArray(t?.platforms) ? t.platforms.map(p => fsOptionalString(p, 80)).filter(Boolean).slice(0, 8) : []
     })).filter(t => t.name && t.platforms.length)
     : [];
+  const platformPrices = {};
+  if (settings.platformPrices && typeof settings.platformPrices === 'object') {
+    Object.keys(settings.platformPrices).slice(0, 80).forEach(key => {
+      const row = settings.platformPrices[key] || {};
+      platformPrices[fsString(key, 120, 'Plataforma')] = {
+        salePrice: Math.max(0, Number(row.salePrice || 0)),
+        renewalPrice: Math.max(0, Number(row.renewalPrice || 0)),
+        purchaseCost: Math.max(0, Number(row.purchaseCost || 0))
+      };
+    });
+  }
   return {
     paymentMethods,
     whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
@@ -529,6 +540,7 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
     comboTemplates,
     financeCurrency: fsOptionalString(settings.financeCurrency || 'PEN', 8),
     financeSymbol: fsOptionalString(settings.financeSymbol || 'S/', 8),
+    platformPrices,
     finalMessage: fsOptionalString(settings.finalMessage, 500),
     security: settings.security && typeof settings.security === 'object'
       ? {
@@ -697,6 +709,37 @@ window.__persistSettingsDoc = async function(settingsData) {
   } catch (err) {
     console.error('❌ Error guardando settings:', err);
     notifySaveStatus('error', friendlySaveError(err));
+  }
+};
+
+window.__persistFinanceMovementDoc = async function(docData) {
+  const user = auth.currentUser;
+  if (!user) return false;
+  try {
+    const safeData = sanitizeFinanceMovementForFirestore(docData);
+    notifySaveStatus('saving', 'Guardando movimiento...');
+    await setDoc(doc(financeCol(user.uid), safeData.id), safeData);
+    notifySaveStatus('success', safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
+    return safeData;
+  } catch (err) {
+    console.error('Error guardando movimiento financiero:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
+window.__persistDeleteFinanceMovementDoc = async function(docId) {
+  const user = auth.currentUser;
+  if (!user || !docId) return false;
+  try {
+    notifySaveStatus('saving', 'Eliminando movimiento...');
+    await deleteDoc(doc(financeCol(user.uid), docId));
+    notifySaveStatus('success', 'Movimiento eliminado.');
+    return true;
+  } catch (err) {
+    console.error('Error eliminando movimiento financiero:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
   }
 };
 </script>
@@ -2647,6 +2690,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="ghost-btn" data-settings-section="message"><i data-lucide="message-square"></i><span>Mensaje final para entrega de cuentas</span></button>
       <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
       <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categoria de cuentas</span></button>
+      <button class="ghost-btn" data-settings-section="prices"><i data-lucide="badge-dollar-sign"></i><span>Precios por plataforma</span></button>
       <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos personalizados</span></button>
       <button class="ghost-btn" id="openSecurityBtn"><i data-lucide="shield-check"></i><span>Seguridad de cuenta</span></button>
     </div>
@@ -3084,6 +3128,15 @@ i[data-lucide="search"]::before{content:"⌕"}
         </div>
         <div class="payment-list" id="categoryList"></div>
       </div>
+      <div class="full" id="settingsSectionPrices">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:800">Precios por plataforma</div>
+            <div style="color:var(--muted);font-size:13px">Valores por defecto para venta, renovacion y compra.</div>
+          </div>
+        </div>
+        <div class="payment-list" id="platformPriceList"></div>
+      </div>
       <div class="settings-section" id="settingsSectionCombos">
         <div class="settings-section-head"><div><div class="settings-section-title">Combos personalizados</div><div class="settings-section-note">Arma plantillas para vender varios perfiles en un solo mensaje.</div></div></div>
         <div class="combo-template-row" style="margin-bottom:10px">
@@ -3268,7 +3321,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,financeCurrency:'PEN',financeSymbol:'S/'}};
+  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -3292,7 +3345,7 @@ function normalizeLoaded(data){
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
   const financeCurrency=String(data.settings?.financeCurrency||'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -3338,6 +3391,7 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
+    platformPrices: normalizePlatformPrices(settings.platformPrices || {}, settings.categories || DEFAULT_CATEGORIES),
     comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
     financeCurrency: financeCurrencyValue,
     financeSymbol: String(settings.financeSymbol || CURRENCY_SYMBOLS[financeCurrencyValue] || financeCurrencyValue).trim().slice(0,8),
@@ -3554,6 +3608,28 @@ function normalizeComboTemplates(value, categories=[]){
     return {id:String(t?.id||uid()).trim().slice(0,80),name:String(t?.name||'Combo').trim().slice(0,120),platforms};
   }).filter(t=>t.name && t.platforms.length).slice(0,30);
 }
+function normalizePlatformPrices(value={}, categories=[]){
+  const out={};
+  if(value && typeof value==='object'){
+    Object.entries(value).slice(0,80).forEach(([key,row])=>{
+      const label=String(key||'').trim();
+      if(!label) return;
+      out[label]={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+    });
+  }
+  (categories||[]).forEach(cat=>{
+    const label=String(cat||'').trim();
+    if(label && !out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
+  });
+  return out;
+}
+function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
+function platformPriceFor(platform){
+  const target=platformPriceKey(platform);
+  const prices=state.settings?.platformPrices || {};
+  const found=Object.entries(prices).find(([key])=>platformPriceKey(key)===target);
+  return found ? found[1] : {salePrice:0,renewalPrice:0,purchaseCost:0};
+}
 function excelColumnXml(widths, count){
   const cols=[];
   for(let i=0;i<count;i++) cols.push(`<Column ss:AutoFitWidth="0" ss:Width="${widths[i] || 130}"/>`);
@@ -3759,6 +3835,17 @@ function freeProfiles(account){
   return list;
 }
 function nextProfileSuggestion(accountId){ const acc=state.accounts.find(a=>a.id===accountId); return acc?freeProfiles(acc)[0]||'':''; }
+function applyDefaultClientPrices(platform){
+  if(editingClientId) return;
+  const price=platformPriceFor(platform);
+  if(price.salePrice && !$('#cSalePrice').value) $('#cSalePrice').value=price.salePrice;
+  if((price.renewalPrice || price.salePrice) && !$('#cRenewalPrice').value) $('#cRenewalPrice').value=price.renewalPrice || price.salePrice;
+}
+function applyDefaultAccountPurchaseCost(platform){
+  if(editingAccountId) return;
+  const price=platformPriceFor(platform);
+  if(price.purchaseCost && !$('#aPurchaseCost').value) $('#aPurchaseCost').value=price.purchaseCost;
+}
 function chipForState(s){ const cls=s==='Activo'?'ok':s==='Por vencer'?'warn':s==='Vencido'?'danger':'free'; return `<span class="chip ${cls}">${s}</span>`; }
 function accountStateChip(a){
   const dd=daysUntil(a.dueDate);
@@ -3812,37 +3899,6 @@ const PLATFORM_LOGO_URLS = {
   viki: '/logos/viki.svg',
   vix: '/logos/vix.svg',
   youtube: '/logos/youtube.svg'
-};
-
-window.__persistFinanceMovementDoc = async function(docData) {
-  const user = auth.currentUser;
-  if (!user) return false;
-  try {
-    const safeData = sanitizeFinanceMovementForFirestore(docData);
-    notifySaveStatus('saving', 'Guardando movimiento...');
-    await setDoc(doc(financeCol(user.uid), safeData.id), safeData);
-    notifySaveStatus('success', safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
-    return safeData;
-  } catch (err) {
-    console.error('Error guardando movimiento financiero:', err);
-    notifySaveStatus('error', friendlySaveError(err));
-    return false;
-  }
-};
-
-window.__persistDeleteFinanceMovementDoc = async function(docId) {
-  const user = auth.currentUser;
-  if (!user || !docId) return false;
-  try {
-    notifySaveStatus('saving', 'Eliminando movimiento...');
-    await deleteDoc(doc(financeCol(user.uid), docId));
-    notifySaveStatus('success', 'Movimiento eliminado.');
-    return true;
-  } catch (err) {
-    console.error('Error eliminando movimiento financiero:', err);
-    notifySaveStatus('error', friendlySaveError(err));
-    return false;
-  }
 };
 
 function getPlatformKey(name){
@@ -4751,6 +4807,32 @@ function renderCategoryRows(){
     </div>`;
   }).join('') : `<div class="empty">Sin categorias</div>`;
 }
+function renderPlatformPriceRows(){
+  const list=$('#platformPriceList');
+  if(!list) return;
+  const categories=categoryOptions();
+  state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{}, categories);
+  list.innerHTML=categories.length ? categories.map(cat=>{
+    const row=platformPriceFor(cat);
+    return `<div class="payment-row" style="grid-template-columns:minmax(120px,1.1fr) repeat(3,minmax(90px,.8fr))">
+      <label>Plataforma<input class="input" value="${escapeAttr(cat)}" readonly /></label>
+      <label>Venta<input class="input" data-platform-price="salePrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.salePrice||'')}" placeholder="0.00" /></label>
+      <label>Renovacion<input class="input" data-platform-price="renewalPrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.renewalPrice||'')}" placeholder="0.00" /></label>
+      <label>Costo compra<input class="input" data-platform-price="purchaseCost" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.purchaseCost||'')}" placeholder="0.00" /></label>
+    </div>`;
+  }).join('') : `<div class="empty">Crea categorias para configurar precios.</div>`;
+}
+function readPlatformPricesFromUI(){
+  const next=normalizePlatformPrices(state.settings.platformPrices || {}, categoryOptions());
+  $$('[data-platform-price]').forEach(input=>{
+    const platform=input.dataset.platform || '';
+    const field=input.dataset.platformPrice;
+    if(!platform || !field) return;
+    if(!next[platform]) next[platform]={salePrice:0,renewalPrice:0,purchaseCost:0};
+    next[platform][field]=moneyNumber(input.value);
+  });
+  state.settings.platformPrices=next;
+}
 function renderComboTemplateRows(){
   const list=$('#comboTemplateList');
   if(!list) return;
@@ -4785,6 +4867,7 @@ function addCategory(value){
   state.settings.categories=uniqueClean([...(state.settings.categories||DEFAULT_CATEGORIES), category]);
   persistSettings();
   renderCategoryRows();
+  renderPlatformPriceRows();
   syncAccountPlatformOptions(category);
   renderAccounts();
   renderFree();
@@ -4796,6 +4879,7 @@ window.removeCategory=(category)=>{
   state.settings.categories=(state.settings.categories||[]).filter(c=>String(c||'').trim().toLowerCase()!==key);
   persistSettings();
   renderCategoryRows();
+  renderPlatformPriceRows();
   syncAccountPlatformOptions();
   renderAccounts();
   renderFree();
@@ -4830,7 +4914,7 @@ function syncAccountPlatformOptions(selected=''){
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aPurchaseCost').value=''; $('#aPurchaseCostRegistered').checked=false; $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aPurchaseCost').value=''; $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -4944,9 +5028,9 @@ async function applyRenewalDate(clientId, newDate){
     for(const item of comboList){
       if(item.id!==c.id) await persistDoc('clients', item);
     }
-    await recordComboRenewalIncome(comboList, renewalAmount);
+    await recordComboRenewalIncome(comboList, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion de combo en finanzas:', err));
   }else{
-    await recordRenewalIncome(c, renewalAmount);
+    await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
   }
   refreshUI();
 }
@@ -5012,7 +5096,7 @@ window.applyExactRenewClient=()=>{
 };
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
 window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
-window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
+window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
   const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
@@ -5218,7 +5302,7 @@ async function saveComboSale(e){
       if(!ok) throw new Error('No se pudo guardar una app del combo.');
     }
     state.clients=[...rows,...state.clients];
-    await recordComboSaleIncome(rows);
+    await recordComboSaleIncome(rows).catch(err=>console.warn('No se pudo registrar venta de combo en finanzas:', err));
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
     closeModal('comboModalWrap');
     refreshUI();
@@ -5412,7 +5496,8 @@ $('#renewalAccountFilter').onchange=renderRenewals;
 $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
-$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; };
+$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||''); };
+$('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value));
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
 $('#comboSplitDates').onchange=()=>renderComboRows();
@@ -5427,6 +5512,7 @@ $('#aPlatformSelect').onchange=()=>{
     if(platform) $('#aPlatformSelect').value=platform;
     else syncAccountPlatformOptions();
   }
+  applyDefaultAccountPurchaseCost(platform);
   if(platform==='ViX' && !$('#aCapacity').value) $('#aCapacity').value='5';
 };
 $('#addPaymentBtn').onclick=()=>{ state.settings.paymentMethods.push({method:'',number:'',holder:''}); renderPaymentRows(); };
@@ -5487,7 +5573,7 @@ $('#saveAccountBtn').onclick=async ()=>{
   const ok = await persistDoc('accounts', data);
   if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
-  await upsertAccountPurchaseExpense(data);
+  await upsertAccountPurchaseExpense(data).catch(err=>console.warn('No se pudo registrar compra en finanzas:', err));
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   closeModal('accountModalWrap'); clearAccountForm(); refreshUI();
   if(credentialsChanged && accountClientsForNotify(data.id).length && (shouldNotify || pendingNotifyAfterSave)){
@@ -5534,7 +5620,7 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
-  if(wasNewSale) await recordSaleIncome(data);
+  if(wasNewSale) await recordSaleIncome(data).catch(err=>console.warn('No se pudo registrar venta en finanzas:', err));
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   saveBtn.disabled=false;
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
@@ -5552,7 +5638,8 @@ function setSettingsSectionVisibility(section=''){
     message:[children[3]],
     payments:[children[4]],
     categories:[children[5]],
-    combos:[document.getElementById('settingsSectionCombos')||children[6]]
+    prices:[document.getElementById('settingsSectionPrices')||children[6]],
+    combos:[document.getElementById('settingsSectionCombos')||children[7]]
   };
   const only=!!section && groups[section];
   children.forEach(el=>{ if(el) el.classList.remove('is-hidden'); });
@@ -5777,23 +5864,27 @@ function openSettingsSection(section=''){
     message:'Mensaje final',
     payments:'Medios de pago',
     categories:'Categoria de cuentas',
+    prices:'Precios por plataforma',
     combos:'Combos personalizados'
   };
   if(!state.settings.paymentMethods) state.settings.paymentMethods=[];
   if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES];
+  if(!state.settings.platformPrices) state.settings.platformPrices={};
   state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices,state.settings.categories);
   $('#waPrefix').value=state.settings.whatsappPrefix||'51';
   $('#financeCurrencySelect').value=financeCurrency();
   $('#settingsFreeSort').value=state.settings.freeSort||'platform';
   $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
   renderPaymentRows();
   renderCategoryRows();
+  renderPlatformPriceRows();
   renderComboTemplateRows();
   const titleEl=document.getElementById('settingsModalTitle');
   if(titleEl) titleEl.textContent=titles[section]||'Ajustes';
   setSettingsSectionVisibility(section);
   openModal('settingsModalWrap');
-  const map={combos:'settingsSectionCombos'};
+  const map={prices:'settingsSectionPrices',combos:'settingsSectionCombos'};
   const target=document.getElementById(map[section]||'settingsModalWrap');
   if(target && section) setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
 }
@@ -5805,7 +5896,7 @@ $('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
 $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#changePasswordBtn').onclick=changeCurrentPassword;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#saveSettingsBtn').onclick=()=>{ readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
