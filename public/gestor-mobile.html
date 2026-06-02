@@ -260,10 +260,42 @@ const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
 const devicesCol = uid => collection(db,'users',uid,'devices');
+const gestorUsageRef = (uid, day) => doc(db,'users',uid,'gestor_usage',day);
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 const financeRef = itemId => doc(db,'users',state.uid,'gestor_finance_movements',itemId);
 const FINANCE_RECENT_LIMIT = 250;
+
+function usageDayId(date = new Date()){
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Lima',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(date);
+}
+
+async function trackGestorDailyUsage(user, surface='mobile'){
+  if(!user?.uid) return;
+  const day = usageDayId();
+  const cacheKey = `gestor_usage_${surface}_${user.uid}_${day}`;
+  try{
+    if(localStorage.getItem(cacheKey)) return;
+    const now = Date.now();
+    await setDoc(gestorUsageRef(user.uid, day), {
+      uid:user.uid,
+      email:user.email || '',
+      day,
+      surface,
+      lastSeenAt:now,
+      userAgent:navigator.userAgent || '',
+      updatedAt:now
+    }, { merge:true });
+    localStorage.setItem(cacheKey, String(now));
+  }catch(err){
+    console.warn('No se pudo registrar actividad diaria del gestor:', err);
+  }
+}
 
 function financeMonthStartIso(){
   const now = new Date();
@@ -2193,6 +2225,7 @@ onAuthStateChanged(auth, async user => {
       return;
     }
     startSecurityDeviceListener(user.uid);
+    trackGestorDailyUsage(user, 'mobile');
     await updateSecuritySummary(user);
     startLive();
     render();

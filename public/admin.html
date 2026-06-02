@@ -56,6 +56,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .client-status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 10px;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;}
 .client-status.active{background:rgba(0,200,150,0.14);color:var(--accent);border:1px solid rgba(0,200,150,0.22);}
 .client-status.inactive{background:rgba(255,107,107,0.14);color:var(--accent2);border:1px solid rgba(255,107,107,0.24);}
+.usage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0 14px;}
+.usage-pill{padding:14px;border-radius:13px;background:rgba(255,255,255,0.035);border:1px solid var(--border);}
+.usage-pill strong{display:block;font-size:1.35rem;line-height:1;color:var(--accent);}
+.usage-pill span{display:block;margin-top:7px;color:var(--muted);font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;}
+.usage-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;}
+.usage-day{min-height:64px;padding:10px;border-radius:12px;background:var(--panel2);border:1px solid var(--border);text-align:center;}
+.usage-day b{display:block;font-size:1rem;color:var(--text);}
+.usage-day span{display:block;margin-top:5px;color:var(--muted);font-size:0.68rem;}
 
 /* LAYOUT */
 .layout{display:flex;flex:1;overflow:hidden;}
@@ -110,6 +118,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .cards-grid{grid-template-columns:1fr;}
   .users-card-head{align-items:stretch;}
   .users-search{min-width:100%;max-width:none;}
+  .usage-grid,.usage-days{grid-template-columns:1fr;}
   .topbar{height:auto;min-height:54px;padding:10px 14px;gap:10px;align-items:flex-start;}
   .topbar-right{flex-direction:column;align-items:flex-end;gap:6px;}
   .credentials-actions .btn{flex:1 1 140px;}
@@ -262,6 +271,24 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="section" id="section-users">
         <div class="page-title">Gestión de Clientes</div>
         <div class="page-sub">Crea cuentas para que tus clientes puedan entrar a editar sus diseños.</div>
+
+        <div class="card">
+          <div class="users-card-head">
+            <div>
+              <div class="card-title" style="margin-bottom:4px;">Uso diario del gestor</div>
+              <div class="helper-mini">Conteo privado para admin. Se actualiza cuando un cliente abre el gestor.</div>
+            </div>
+            <button class="btn btn-ghost" type="button" onclick="loadGestorUsageMetrics()">Actualizar uso</button>
+          </div>
+          <div class="usage-grid">
+            <div class="usage-pill"><strong id="usage-today">-</strong><span>Activos hoy</span></div>
+            <div class="usage-pill"><strong id="usage-yesterday">-</strong><span>Activos ayer</span></div>
+            <div class="usage-pill"><strong id="usage-week">-</strong><span>Unicos 7 dias</span></div>
+          </div>
+          <div class="usage-days" id="usage-days-list">
+            <div class="usage-day"><b>-</b><span>Cargando</span></div>
+          </div>
+        </div>
 
         <div class="cards-grid">
           <div class="card">
@@ -956,9 +983,68 @@ async function loadUsers() {
       adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
     });
     renderUsersTable(adminUsersCache);
+    loadGestorUsageMetrics();
   } catch(e) {
     wrap.innerHTML = '<p style="color:var(--accent2);">Error al cargar clientes.</p>';
     console.error(e);
+  }
+}
+
+function adminUsageDayId(offsetDays=0) {
+  const date = new Date();
+  date.setDate(date.getDate() - offsetDays);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Lima',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(date);
+}
+
+function adminUsageDayLabel(day) {
+  const date = new Date(day + 'T12:00:00');
+  return date.toLocaleDateString('es-PE', { day:'2-digit', month:'short' });
+}
+
+async function loadGestorUsageMetrics() {
+  const todayEl = document.getElementById('usage-today');
+  const yesterdayEl = document.getElementById('usage-yesterday');
+  const weekEl = document.getElementById('usage-week');
+  const daysEl = document.getElementById('usage-days-list');
+  if(!fbConnected || !daysEl) return;
+  const users = adminUsersCache || [];
+  if(todayEl) todayEl.textContent = '...';
+  if(yesterdayEl) yesterdayEl.textContent = '...';
+  if(weekEl) weekEl.textContent = '...';
+  daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
+  try {
+    const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
+    const rows = await Promise.all(days.map(async day => {
+      const hits = await Promise.all(users.map(async user => {
+        try {
+          const doc = await fbDb.collection('users').doc(user.id).collection('gestor_usage').doc(day).get();
+          return doc.exists ? user.id : null;
+        } catch(_) {
+          return null;
+        }
+      }));
+      return { day, users:hits.filter(Boolean) };
+    }));
+    const uniqueWeek = new Set(rows.flatMap(row => row.users));
+    if(todayEl) todayEl.textContent = rows[0]?.users.length || 0;
+    if(yesterdayEl) yesterdayEl.textContent = rows[1]?.users.length || 0;
+    if(weekEl) weekEl.textContent = uniqueWeek.size;
+    daysEl.innerHTML = rows.map(row => `
+      <div class="usage-day">
+        <b>${row.users.length}</b>
+        <span>${adminUsageDayLabel(row.day)}</span>
+      </div>`).join('');
+  } catch(e) {
+    console.error(e);
+    if(todayEl) todayEl.textContent = '-';
+    if(yesterdayEl) yesterdayEl.textContent = '-';
+    if(weekEl) weekEl.textContent = '-';
+    daysEl.innerHTML = '<div class="usage-day"><b>-</b><span>Sin permiso</span></div>';
   }
 }
 
@@ -1062,6 +1148,7 @@ function showSection(id, el) {
   document.getElementById('section-' + id).classList.add('active');
   if(el) el.classList.add('active');
   if(id === 'logos') loadAdminLogos();
+  if(id === 'users') loadGestorUsageMetrics();
 }
 
 // ══════════════════════════════════════════
