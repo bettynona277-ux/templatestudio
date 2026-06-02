@@ -280,17 +280,18 @@ async function loadFromSubcollections(uid) {
       return;
     }
   } catch (e) {}
-  const [accSnap, cliSnap, finSnap, setSnap] = await Promise.all([
+  const setSnap = await getDoc(settingsRef(uid));
+  const settings = setSnap.exists() ? setSnap.data()
+    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: true };
+  const financeEnabled = settings.financeMode !== false;
+  const [accSnap, cliSnap, finSnap] = await Promise.all([
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
-    getDocs(financeCol(uid)),
-    getDoc(settingsRef(uid))
+    financeEnabled ? getDocs(financeCol(uid)) : Promise.resolve({ docs: [] })
   ]);
   const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const settings  = setSnap.exists() ? setSnap.data()
-    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform' };
   window.__loadFromFirestore({ accounts, clients, financeMovements, settings });
   try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
 }
@@ -550,6 +551,7 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
     comboTemplates,
+    financeMode: settings.financeMode !== false,
     financeCurrency: fsOptionalString(settings.financeCurrency || 'PEN', 8),
     financeSymbol: fsOptionalString(settings.financeSymbol || 'S/', 8),
     platformPrices,
@@ -2179,6 +2181,15 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-size:12.5px;
 }
 .settings-single-note.show{display:block}
+.setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.035)}
+.setting-toggle strong{display:block}
+.setting-toggle span{display:block;margin-top:3px;color:var(--muted);font-size:12.5px;line-height:1.35}
+.switch{position:relative;width:52px;height:30px;flex:0 0 auto}
+.switch input{position:absolute;opacity:0;inset:0}
+.switch i{position:absolute;inset:0;border-radius:999px;background:rgba(148,163,184,.22);border:1px solid rgba(255,255,255,.1);transition:.18s ease}
+.switch i:before{content:"";position:absolute;width:22px;height:22px;left:4px;top:3px;border-radius:50%;background:#dbe7ff;transition:.18s ease}
+.switch input:checked + i{background:linear-gradient(135deg,var(--primary),var(--primary2));border-color:transparent}
+.switch input:checked + i:before{transform:translateX(21px);background:#fff}
 .settings-section-head{
   display:flex;
   justify-content:space-between;
@@ -2725,7 +2736,7 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="nav-btn" data-view="cuentasView"><i data-lucide="key-round"></i><span>Cuentas</span><span class="count" id="navCuentas">0</span></button>
       <button class="nav-btn" data-view="libresView"><i data-lucide="badge-check"></i><span>Libres</span><span class="count" id="navLibres">0</span></button>
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
-      <button class="nav-btn" data-view="finanzasView"><i data-lucide="wallet-cards"></i><span>Finanzas</span></button>
+      <button class="nav-btn" data-view="finanzasView" data-finance-only><i data-lucide="wallet-cards"></i><span>Finanzas</span></button>
       <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
     </nav>
     <details class="config-menu">
@@ -2735,7 +2746,7 @@ i[data-lucide="search"]::before{content:"⌕"}
         <button class="ghost-btn" data-settings-section="message"><i data-lucide="message-square"></i><span>Mensaje de entrega</span></button>
         <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
         <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categorias</span></button>
-        <button class="ghost-btn" data-settings-section="prices"><i data-lucide="badge-dollar-sign"></i><span>Precios</span></button>
+        <button class="ghost-btn" data-settings-section="prices" data-finance-only><i data-lucide="badge-dollar-sign"></i><span>Precios</span></button>
         <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos</span></button>
       </div>
     </details>
@@ -2998,8 +3009,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
       <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
       <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
-      <label>Precio venta<input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></label>
-      <label>Precio renovacion<input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio venta<input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio renovacion<input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></label>
       <label>Vencimiento<input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></label>
       <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></label>
       <label class="full">Notas<textarea id="cNotes" placeholder="Opcional"></textarea></label>
@@ -3026,8 +3037,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>Correo<input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></label>
       <label>Contraseña<input class="input" id="aPassword" placeholder="contraseña de la cuenta" /></label>
       <label>Capacidad<input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></label>
-      <label>Costo compra<input class="input" type="number" min="0" step="0.01" id="aPurchaseCost" placeholder="0.00" /></label>
-      <label class="checkline"><input type="checkbox" id="aPurchaseCostRegistered" /> Registrar como gasto</label>
+      <label data-finance-only>Costo compra<input class="input" type="number" min="0" step="0.01" id="aPurchaseCost" placeholder="0.00" /></label>
+      <label class="checkline" data-finance-only><input type="checkbox" id="aPurchaseCostRegistered" /> Registrar como gasto</label>
       <label>Vencimiento<input class="input date-input" id="aDueDisplay" placeholder="Elige una fecha" /></label>
       <label class="full">Notas<textarea id="aNotes" placeholder="Opcional"></textarea></label>
     </div>
@@ -3085,7 +3096,7 @@ i[data-lucide="search"]::before{content:"⌕"}
     <div class="renew-preview" id="renewPreviewText"></div>
 
     <div class="renew-price-box">
-      <label>Precio de renovacion
+      <label data-finance-only>Precio de renovacion
         <input class="input" id="renewPrice" type="number" min="0" step="0.01" placeholder="0.00" />
       </label>
       <span>Este monto se guardara como ingreso al renovar.</span>
@@ -3137,8 +3148,15 @@ i[data-lucide="search"]::before{content:"⌕"}
           <option value="34">Espana +34</option>
         </datalist>
       </label>
+      <div class="setting-toggle full">
+        <div>
+          <strong>Modo finanzas</strong>
+          <span>Activa precios, gastos, ingresos, ganancias y reportes financieros.</span>
+        </div>
+        <label class="switch" title="Activar modo finanzas"><input type="checkbox" id="financeModeToggle" /><i></i></label>
+      </div>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por más libres</option></select></label>
-      <label>Moneda de finanzas
+      <label data-finance-only>Moneda de finanzas
         <select class="select" id="financeCurrencySelect">
           <option value="PEN">PEN - Soles</option>
           <option value="USD">USD - Dolares</option>
@@ -3248,8 +3266,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
       <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
       <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
-      <label>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
-      <label>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
       <div class="combo-tools">
         <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
         <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
@@ -3366,7 +3384,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,financeCurrency:'PEN',financeSymbol:'S/'}};
+  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,financeMode:true,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
@@ -3390,7 +3408,8 @@ function normalizeLoaded(data){
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
   const financeCurrency=String(data.settings?.financeCurrency||'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode!==false, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
+  if(data.settings.financeMode===false) data.financeMovements=[];
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -3441,6 +3460,7 @@ function sanitizeSettingsForSave(settings={}){
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
     platformPrices: normalizePlatformPrices(settings.platformPrices || {}, settings.categories || DEFAULT_CATEGORIES),
     comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
+    financeMode: settings.financeMode !== false,
     financeCurrency: financeCurrencyValue,
     financeSymbol: String(settings.financeSymbol || CURRENCY_SYMBOLS[financeCurrencyValue] || financeCurrencyValue).trim().slice(0,8),
     finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500),
@@ -3449,12 +3469,24 @@ function sanitizeSettingsForSave(settings={}){
 }
 function persistSettings(){
   state.settings = sanitizeSettingsForSave(state.settings);
+  if(state.settings.financeMode===false) state.financeMovements=[];
   touchLocalStateCache();
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
 function moneyNumber(value){
   const n=Number(String(value ?? '').replace(',', '.'));
   return Number.isFinite(n) ? Math.max(0, Math.round(n * 100) / 100) : 0;
+}
+function isFinanceModeEnabled(){
+  return state.settings?.financeMode !== false;
+}
+function syncFinanceModeUI(){
+  const enabled=isFinanceModeEnabled();
+  document.querySelectorAll('[data-finance-only]').forEach(el=>el.classList.toggle('is-hidden', !enabled));
+  const toggle=document.getElementById('financeModeToggle');
+  if(toggle) toggle.checked=enabled;
+  const financeView=document.getElementById('finanzasView');
+  if(financeView?.classList.contains('active') && !enabled) switchView('inicioView');
 }
 function financeCurrency(){
   return String(state.settings?.financeCurrency || 'PEN').toUpperCase();
@@ -3494,6 +3526,7 @@ function financeMovementTime(movement){
   return Number.isFinite(t) ? t : 0;
 }
 async function persistFinanceMovement(data){
+  if(!isFinanceModeEnabled()) return false;
   const movement=normalizeFinanceMovement(data);
   if(!movement || !movement.amount) return false;
   const saved=window.__persistFinanceMovementDoc ? await window.__persistFinanceMovementDoc(movement) : movement;
@@ -3506,6 +3539,7 @@ async function persistFinanceMovement(data){
   return clean;
 }
 async function deleteFinanceMovement(id){
+  if(!isFinanceModeEnabled()) return;
   if(!confirm('Eliminar este movimiento?')) return;
   const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
   if(!ok) return;
@@ -3514,6 +3548,7 @@ async function deleteFinanceMovement(id){
   renderFinance();
 }
 async function removeFinanceMovement(id){
+  if(!isFinanceModeEnabled()) return false;
   if(!id) return false;
   const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
   if(!ok) return false;
@@ -3532,6 +3567,7 @@ function comboFinanceTotal(clients){
   return moneyNumber(first.comboTotalPrice || first.comboRenewalPrice || (clients||[]).reduce((sum,c)=>sum+moneyNumber(c.salePrice||c.renewalPrice),0));
 }
 async function recordSaleIncome(client){
+  if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
@@ -3549,6 +3585,7 @@ async function recordSaleIncome(client){
   });
 }
 async function recordComboSaleIncome(clients){
+  if(!isFinanceModeEnabled()) return;
   const list=(clients||[]).filter(Boolean);
   const first=list[0];
   const amount=moneyNumber(first?.comboTotalPrice || comboFinanceTotal(list));
@@ -3568,6 +3605,7 @@ async function recordComboSaleIncome(clients){
   });
 }
 async function recordRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
@@ -3585,6 +3623,7 @@ async function recordRenewalIncome(client, amountOverride){
   });
 }
 async function recordComboRenewalIncome(clients, amountOverride){
+  if(!isFinanceModeEnabled()) return;
   const list=(clients||[]).filter(Boolean);
   const first=list[0];
   const amount=moneyNumber(amountOverride || first?.comboRenewalPrice || first?.comboTotalPrice || comboFinanceTotal(list));
@@ -3604,6 +3643,7 @@ async function recordComboRenewalIncome(clients, amountOverride){
   });
 }
 async function upsertAccountPurchaseExpense(account){
+  if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(account.purchaseCost);
   const movementId=financeMovementId('account_purchase', account.id);
   if(!amount){
@@ -3783,7 +3823,7 @@ function downloadGestorExcel(){
       'Notas':c.notes
     };
   });
-  const financeRows=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a)).map(m=>({
+  const financeRows=isFinanceModeEnabled() ? (state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a)).map(m=>({
     'Fecha':m.occurredAt ? new Date(m.occurredAt).toLocaleDateString('es-PE') : '',
     'Tipo':m.type==='expense'?'Gasto':'Ingreso',
     'Origen':m.source,
@@ -3791,7 +3831,10 @@ function downloadGestorExcel(){
     'Plataforma':m.platform,
     'Monto':`${m.type==='expense'?'-':'+'}${moneyNumber(m.amount).toFixed(2)}`,
     'Moneda':m.currency || financeCurrency()
-  }));
+  })) : [];
+  const financeWorksheet=isFinanceModeEnabled()
+    ? excelWorksheet('Finanzas', financeHeaders, financeRows, { subtitle:'Ingresos, gastos y ganancias registrados por el gestor.', widths:[100,90,120,260,120,100,90] })
+    : '';
   const xml=`<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -3824,7 +3867,7 @@ function downloadGestorExcel(){
 ${excelSummaryWorksheet(accountRows, clientRows)}
 ${excelWorksheet('Cuentas madre', accountHeaders, accountRows, { subtitle:'Tus cuentas principales ordenadas para recuperacion o respaldo.', widths:[120,150,130,190,150,80,110,260] })}
 ${excelWorksheet('Clientes', clientHeaders, clientRows, { subtitle:'Clientes, accesos asignados y vencimientos.', widths:[170,120,120,190,150,90,80,110,100,260] })}
-${excelWorksheet('Finanzas', financeHeaders, financeRows, { subtitle:'Ingresos, gastos y ganancias registrados por el gestor.', widths:[100,90,120,260,120,100,90] })}
+${financeWorksheet}
 </Workbook>`;
   const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'});
   const a=document.createElement('a');
@@ -3838,13 +3881,14 @@ window.downloadGestorExcel=downloadGestorExcel;
 // ── Refresh sin persistir (cuando ya se guardó el doc individual) ──
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
+  syncFinanceModeUI();
   renderStats();
   renderHome();
   renderClients();
   renderAccounts();
   renderFree();
   renderRenewals();
-  renderFinance();
+  if(isFinanceModeEnabled()) renderFinance();
   initDatepickers();
 }
 function uid(){ return Math.random().toString(36).slice(2,10); }
@@ -4092,6 +4136,7 @@ function renderStats(){
 
 
 function switchView(viewId){
+  if(viewId==='finanzasView' && !isFinanceModeEnabled()) viewId='inicioView';
   $$('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.view===viewId));
   $$('.view').forEach(v=>v.classList.remove('active'));
   const view=$('#'+viewId);
@@ -4101,7 +4146,7 @@ function switchView(viewId){
   if(viewId==='cuentasView') renderAccounts();
   if(viewId==='libresView') renderFree();
   if(viewId==='renovacionesView') renderRenewals();
-  if(viewId==='finanzasView') renderFinance();
+  if(viewId==='finanzasView' && isFinanceModeEnabled()) renderFinance();
   if(viewId==='seguridadView') renderSecurityView();
 }
 
@@ -5065,13 +5110,14 @@ window.removeCategory=(category)=>{
 
 function refresh(){
   cleanupFloatingActionMenusBeforeRender();
+  syncFinanceModeUI();
   renderStats();
   renderHome();
   renderClients();
   renderAccounts();
   renderFree();
   renderRenewals();
-  renderFinance();
+  if(isFinanceModeEnabled()) renderFinance();
   initDatepickers();
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); }
@@ -5754,6 +5800,7 @@ document.addEventListener('change',e=>{
 });
 
 function openFinanceExpenseModal(){
+  if(!isFinanceModeEnabled()) return;
   $('#financeExpenseDescription').value='';
   $('#financeExpenseAmount').value='';
   $('#financeExpensePlatform').value='';
@@ -5762,6 +5809,7 @@ function openFinanceExpenseModal(){
   initDatepickers();
 }
 async function saveManualFinanceExpense(){
+  if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber($('#financeExpenseAmount').value);
   const description=String($('#financeExpenseDescription').value||'').trim();
   if(!amount || !description){ alert('Completa descripcion y monto.'); return; }
@@ -5785,10 +5833,11 @@ $('#saveAccountBtn').onclick=async ()=>{
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
+  const financeOn=isFinanceModeEnabled();
   const data=sanitizeAccountForSave({
     id:editingAccountId||uid(), platform, provider:$('#aProvider').value.trim(), providerWhatsapp:$('#aProviderWhatsapp').value.trim(), capacity,
     email:$('#aEmail').value.trim(), password:$('#aPassword').value.trim(), dueDate:$('#aDueDisplay').value.trim(), notes:$('#aNotes').value.trim(),
-    purchaseCost:$('#aPurchaseCost').value, purchaseCostRegistered:$('#aPurchaseCostRegistered').checked
+    purchaseCost:financeOn ? $('#aPurchaseCost').value : (oldAccount?.purchaseCost || 0), purchaseCostRegistered:financeOn && $('#aPurchaseCostRegistered').checked
   });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
@@ -5820,12 +5869,15 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   const account=state.accounts.find(a=>a.id===accountId);
+  const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
+  const financeOn=isFinanceModeEnabled();
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
     platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
-    salePrice:moneyNumber($('#cSalePrice').value), renewalPrice:moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value),
-    lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
+    salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
+    renewalPrice:financeOn ? moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value) : moneyNumber(previousClient?.renewalPrice),
+    lastRenewalWhatsAppNoticeDate:previousClient?.lastRenewalWhatsAppNoticeDate||''
   };
   const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
   if(wasNewSale && !deliveryUrl){
@@ -5856,13 +5908,14 @@ function setSettingsSectionVisibility(section=''){
   if(!form) return;
   const children=[...form.children];
   const groups={
-    general:[children[0],children[1],children[2]],
-    message:[children[3]],
-    payments:[children[4]],
-    categories:[children[5]],
-    prices:[document.getElementById('settingsSectionPrices')||children[6]],
-    combos:[document.getElementById('settingsSectionCombos')||children[7]]
+    general:[children[0],children[1],children[2],children[3]],
+    message:[children[4]],
+    payments:[children[5]],
+    categories:[children[6]],
+    prices:[document.getElementById('settingsSectionPrices')||children[7]],
+    combos:[document.getElementById('settingsSectionCombos')||children[8]]
   };
+  if(section==='prices' && !isFinanceModeEnabled()) section='general';
   const only=!!section && groups[section];
   children.forEach(el=>{ if(el) el.classList.remove('is-hidden'); });
   if(only){
@@ -6077,6 +6130,7 @@ async function changeCurrentPassword(){
   }
 }
 function openSettingsSection(section=''){
+  if(section==='prices' && !isFinanceModeEnabled()) section='general';
   const titles={
     general:'Codigo por defecto',
     message:'Mensaje final',
@@ -6088,10 +6142,13 @@ function openSettingsSection(section=''){
   if(!state.settings.paymentMethods) state.settings.paymentMethods=[];
   if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES];
   if(!state.settings.platformPrices) state.settings.platformPrices={};
+  if(state.settings.financeMode !== false) state.settings.financeMode=true;
   state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
   state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices,state.settings.categories);
   $('#waPrefix').value=state.settings.whatsappPrefix||'51';
   $('#financeCurrencySelect').value=financeCurrency();
+  const financeToggle=$('#financeModeToggle');
+  if(financeToggle) financeToggle.checked=isFinanceModeEnabled();
   $('#settingsFreeSort').value=state.settings.freeSort||'platform';
   $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
   renderPaymentRows();
@@ -6101,6 +6158,7 @@ function openSettingsSection(section=''){
   const titleEl=document.getElementById('settingsModalTitle');
   if(titleEl) titleEl.textContent=titles[section]||'Ajustes';
   setSettingsSectionVisibility(section);
+  syncFinanceModeUI();
   openModal('settingsModalWrap');
   const map={prices:'settingsSectionPrices',combos:'settingsSectionCombos'};
   const target=document.getElementById(map[section]||'settingsModalWrap');
@@ -6115,7 +6173,7 @@ $('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
 $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#changePasswordBtn').onclick=changeCurrentPassword;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
-$('#saveSettingsBtn').onclick=()=>{ readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#saveSettingsBtn').onclick=()=>{ readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked!==false; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
