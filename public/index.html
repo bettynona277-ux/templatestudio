@@ -2146,19 +2146,14 @@ function detectDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice
 async function registerDevice(uid) {
   const deviceId = getDeviceId();
   const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
-  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
-  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
-  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
-  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
+  const currentDoc = await devRef.get();
   const fingerprint = await buildDeviceFingerprint();
-  const existing = devices.find(d => d.id === deviceId);
+  const existing = currentDoc.exists ? { id: currentDoc.id, ...currentDoc.data() } : null;
   if (existing) {
     if (existing.revoked === true) {
       return { ok: false, revoked: true };
     }
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, [], false);
     await devRef.set({
       name: fingerprint.label || getDeviceName(),
       deviceLabel: fingerprint.label,
@@ -2174,6 +2169,11 @@ async function registerDevice(uid) {
     return { ok: true };
   }
   // Solo contar dispositivos activos (no revocados) para el límite
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
+  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
+  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
   if (activeDevices.length >= MAX_DEVICES) {
     return { ok: false, count: activeDevices.length };
@@ -2219,6 +2219,64 @@ function startDeviceRevokeListener(uid) {
     }, () => {});
 }
 
+let _postLoginCompleting = false;
+
+async function completePostLogin(user, errEl) {
+  if(!user || !fbDb) return false;
+  if(_postLoginCompleting) return true;
+  _postLoginCompleting = true;
+  try {
+    const doc = await fbDb.collection('users').doc(user.uid).get();
+    if(!doc.exists || doc.data().active === false) {
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      showScreen('login');
+      if(errEl) errEl.textContent = 'Cuenta desactivada. Contacta al administrador.';
+      return false;
+    }
+
+    const devResult = await registerDevice(user.uid);
+    if(!devResult.ok) {
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      showScreen('login');
+      if(errEl) {
+        errEl.textContent = devResult.revoked
+          ? 'Este dispositivo fue revocado. Contacta al administrador.'
+          : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador para liberar un dispositivo.';
+      }
+      return false;
+    }
+
+    currentUser = { uid: user.uid, ...doc.data() };
+    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    startDeviceRevokeListener(user.uid);
+    loadUserProfile();
+
+    const urlTpl = new URLSearchParams(window.location.search).get('tpl');
+    const redirect = getSafePostLoginRedirect();
+    if(redirect) {
+      window.location.href = redirect;
+      return true;
+    }
+    if(urlTpl) {
+      openEditorFromTemplate(urlTpl);
+      return true;
+    }
+    showDashboard();
+    return true;
+  } catch(e) {
+    console.error('post login error:', e);
+    if(errEl) errEl.textContent = 'No se pudo cargar tu cuenta. Intenta otra vez.';
+    showScreen('login');
+    return false;
+  } finally {
+    _postLoginCompleting = false;
+  }
+}
+
 async function doLogin() {
   const phone = document.getElementById('login-phone').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -2231,9 +2289,12 @@ async function doLogin() {
   btn.innerHTML = '<span class="spinner"></span>';
   try {
     const email = phone; // ya es el email completo
-    await fbAuth.signInWithEmailAndPassword(email, pass);
-    // onAuthStateChanged will handle navigation
-    btn.textContent = 'Entrar'; btn.disabled = false;
+    const credential = await fbAuth.signInWithEmailAndPassword(email, pass);
+    const completed = await completePostLogin(credential.user, err);
+    if(!completed) {
+      btn.textContent = 'Entrar';
+      btn.disabled = false;
+    }
   } catch(e) {
     let msg = '✗ Correo o contraseña incorrectos';
     if(e.code === 'auth/too-many-requests') msg = '✗ Demasiados intentos. Espera un momento.';
@@ -2425,8 +2486,9 @@ async function showDashboard() {
   setDashboardSyncLabel('Sincronizando contenido…');
   warmDashboardFromCache();
   requestAnimationFrame(() => {
-    loadMyDesigns();
-    loadAdminTemplates();
+    if(!readDashCache('designs')) loadMyDesigns();
+    if(!readDashCache('templates')) loadAdminTemplates();
+    if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
 }
 
@@ -2585,7 +2647,7 @@ async function loadAdminTemplates() {
     renderTemplateCards(getFilteredTemplates(rawDocs));
     writeDashCache('templates', {
       total: rawDocs.length,
-      items: rawDocs.slice(0, 36).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      items: rawDocs.slice(0, 120).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {

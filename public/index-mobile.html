@@ -1203,17 +1203,12 @@ function detectDeviceSuspicion(existing, fingerprint, activeDevices, isNewDevice
 async function registerDevice(uid){
   const deviceId = getDeviceId();
   const devRef = fbDb.collection('users').doc(uid).collection('devices').doc(deviceId);
-  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
-  const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
-  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
-  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
-  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
+  const currentDoc = await devRef.get();
   const fingerprint = await buildDeviceFingerprint();
-  const existing = devices.find(d=>d.id === deviceId);
+  const existing = currentDoc.exists ? {id:currentDoc.id, ...currentDoc.data()} : null;
   if(existing){
     if(existing.revoked === true) return {ok:false, revoked:true};
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectDeviceSuspicion(existing, fingerprint, [], false);
     await devRef.set({
       name: fingerprint.label || getDeviceName(),
       deviceLabel: fingerprint.label,
@@ -1228,6 +1223,11 @@ async function registerDevice(uid){
     }, {merge:true});
     return {ok:true};
   }
+  const snap = await fbDb.collection('users').doc(uid).collection('devices').get();
+  const devices = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  const expired = devices.filter(d => !d.revoked && isDeviceExpired(d));
+  await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
+  const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
   if(activeDevices.length >= MAX_DEVICES){
     return {ok:false, count:activeDevices.length};
@@ -1256,6 +1256,73 @@ async function unregisterDevice(uid){
   }catch(e){}
 }
 
+let _postLoginCompleting = false;
+
+async function completePostLogin(user, errEl){
+  if(!user || !fbDb) return false;
+  if(_postLoginCompleting) return true;
+  _postLoginCompleting = true;
+  try{
+    const doc = await fbDb.collection('users').doc(user.uid).get();
+    if(!doc.exists || doc.data().active === false){
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      document.getElementById('app-loading').style.display = 'none';
+      showScreen('login');
+      if(errEl) errEl.textContent = 'Cuenta desactivada.';
+      return false;
+    }
+
+    const devResult = await registerDevice(user.uid);
+    if(!devResult.ok){
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      document.getElementById('app-loading').style.display = 'none';
+      showScreen('login');
+      if(errEl){
+        errEl.textContent = devResult.revoked
+          ? 'Este dispositivo fue revocado por el administrador.'
+          : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
+      }
+      return false;
+    }
+
+    currentUser = {uid:user.uid, ...doc.data()};
+    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    try{
+      const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
+      if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
+    }catch(_){}
+    loadMobProfile();
+    try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
+    try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
+
+    const params = new URLSearchParams(window.location.search);
+    const redirectTarget = resolvePostLoginRedirect();
+    if(redirectTarget){
+      try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid:user.uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
+      window.location.href = redirectTarget;
+      return true;
+    }
+    if(params.get('tpl')){
+      openEditorFromTemplate(params.get('tpl'));
+      return true;
+    }
+    showDashboard();
+    return true;
+  }catch(e){
+    console.error('post login error:', e);
+    document.getElementById('app-loading').style.display = 'none';
+    showScreen('login');
+    if(errEl) errEl.textContent = 'No se pudo cargar tu cuenta. Intenta otra vez.';
+    return false;
+  }finally{
+    _postLoginCompleting = false;
+  }
+}
+
 async function doLogin(){
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -1270,9 +1337,12 @@ async function doLogin(){
   try{
     try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
     try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
-    await fbAuth.signInWithEmailAndPassword(email, pass);
-    txt.textContent = 'Entrar ahora';
-    btn.disabled = false;
+    const credential = await fbAuth.signInWithEmailAndPassword(email, pass);
+    const completed = await completePostLogin(credential.user, err);
+    if(!completed){
+      txt.textContent = 'Entrar ahora';
+      btn.disabled = false;
+    }
   }catch(e){
     let msg = '✗ Correo o contraseña incorrectos';
     if(e.code === 'auth/too-many-requests') msg = '✗ Demasiados intentos. Espera un momento.';
@@ -1350,6 +1420,7 @@ async function loadMyDesigns(){
       if(cached?.items?.length){
         renderDesignsFromList(cached.items);
         hadCache = true;
+        if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
       }
     }catch(e){}
   }
@@ -1441,6 +1512,7 @@ function renderCachedTemplates(){
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
+      if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
     }
   }catch(e){}
 }
@@ -1467,6 +1539,7 @@ async function loadTemplates(){
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
+      if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
     }
   }catch(e){}
 
