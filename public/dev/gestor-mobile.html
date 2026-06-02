@@ -202,7 +202,7 @@ const DEFAULT_COMBO_TEMPLATES = [
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeCurrency:'PEN', financeSymbol:'S/' },
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
@@ -440,9 +440,45 @@ function normalizeSettings(data={}){
     defaultCountryCode: clean(data.defaultCountryCode) || '51',
     financeCurrency,
     financeSymbol: clean(data.financeSymbol) || CURRENCY_SYMBOLS[financeCurrency] || financeCurrency,
+    platformPrices: normalizePlatformPrices(data.platformPrices, categories),
     comboTemplates: normalizeComboTemplates(data.comboTemplates, categories),
     security: data.security && typeof data.security === 'object' ? {passwordChangedAt:clean(data.security.passwordChangedAt)} : {}
   };
+}
+function normalizePlatformPrices(value={}, categories=[]){
+  const out = {};
+  if(value && typeof value === 'object'){
+    Object.entries(value).forEach(([name,row]) => {
+      const label = clean(name);
+      if(!label) return;
+      out[label] = {
+        salePrice: moneyNumber(row?.salePrice),
+        renewalPrice: moneyNumber(row?.renewalPrice),
+        purchaseCost: moneyNumber(row?.purchaseCost)
+      };
+    });
+  }
+  (categories || []).map(clean).filter(Boolean).forEach(label => {
+    if(!out[label]) out[label] = {salePrice:0, renewalPrice:0, purchaseCost:0};
+  });
+  return out;
+}
+function platformPriceFor(platform){
+  const key = clean(platform).toLowerCase();
+  const prices = state.settings?.platformPrices || {};
+  const found = Object.entries(prices).find(([name]) => clean(name).toLowerCase() === key);
+  return found ? found[1] : {salePrice:0, renewalPrice:0, purchaseCost:0};
+}
+function shouldUseDefaultPrice(value){
+  return !String(value ?? '').trim() || moneyNumber(value) === 0;
+}
+function fillDefaultClientPricesInForm(form, platform){
+  const price = platformPriceFor(platform);
+  const saleEl = form.elements?.salePrice;
+  const renewalEl = form.elements?.renewalPrice;
+  if(price.salePrice && saleEl && shouldUseDefaultPrice(saleEl.value)) saleEl.value = price.salePrice;
+  const renewalDefault = price.renewalPrice || price.salePrice;
+  if(renewalDefault && renewalEl && shouldUseDefaultPrice(renewalEl.value)) renewalEl.value = renewalDefault;
 }
 function normalizeComboTemplates(value, categories=[]){
   const source = Array.isArray(value) && value.length ? value : DEFAULT_COMBO_TEMPLATES;
@@ -1103,18 +1139,23 @@ function openAccountClientsSheet(account){
 }
 function openClientSheet(item={}){
   const c = item || {};
+  const selectedAccount = state.accounts.find(a => a.id === c.accountId);
+  const platformValue = c.platform || selectedAccount?.platform || '';
+  const defaultPrice = platformPriceFor(platformValue);
+  const saleValue = moneyNumber(c.salePrice) || defaultPrice.salePrice || '';
+  const renewalValue = moneyNumber(c.renewalPrice) || defaultPrice.renewalPrice || defaultPrice.salePrice || '';
   openSheet(`<div class="sheet-head"><h3>${c.id?'Editar cliente':'Nuevo cliente'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="clientForm" class="grid">
       <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" placeholder="Deros Rafael" required></div>
       <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel" placeholder="999 999 999"></div>
       <div class="grid two">
-        <div class="field"><label>Plataforma</label><input name="platform" value="${esc(c.platform)}"></div>
+        <div class="field"><label>Plataforma</label><input name="platform" value="${esc(platformValue)}"></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
       <div class="field"><label>Cuenta madre</label><select name="accountId"><option value="">Sin cuenta</option>${state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===c.accountId?'selected':''}>${esc(accountName(a))}</option>`).join('')}</select></div>
       <div class="grid two">
-        <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(c.salePrice || '')}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
-        <div class="field"><label>Precio renovacion</label><input name="renewalPrice" value="${esc(c.renewalPrice || '')}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
+        <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(saleValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
+        <div class="field"><label>Precio renovacion</label><input name="renewalPrice" value="${esc(renewalValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
       </div>
       <div class="grid two">
         <div class="field"><label>Perfil</label><input name="profile" value="${esc(c.profile)}"></div>
@@ -1126,6 +1167,13 @@ function openClientSheet(item={}){
       <div class="field"><label>Notas</label><textarea name="notes">${esc(c.notes)}</textarea></div>
       <div class="form-actions"><button type="button" class="btn ${c.id?'bad':''}" id="deleteClient">${c.id?'Eliminar':'Cancelar'}</button><button id="clientSubmitBtn" class="btn ${c.id?'primary':'ok'}">${c.id?'Guardar':'Entregar cuenta'}</button></div>
     </form>`);
+  const form = $('#clientForm');
+  form.elements.accountId.onchange = () => {
+    const account = state.accounts.find(a => a.id === form.elements.accountId.value);
+    if(account?.platform) form.elements.platform.value = account.platform;
+    fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
+  };
+  form.elements.platform.onchange = () => fillDefaultClientPricesInForm(form, form.elements.platform.value);
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
     const submitBtn = $('#clientSubmitBtn');

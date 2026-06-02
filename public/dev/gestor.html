@@ -3926,11 +3926,17 @@ function freeProfiles(account){
   return list;
 }
 function nextProfileSuggestion(accountId){ const acc=state.accounts.find(a=>a.id===accountId); return acc?freeProfiles(acc)[0]||'':''; }
-function applyDefaultClientPrices(platform){
-  if(editingClientId) return;
+function shouldUseDefaultPrice(value){
+  return !String(value ?? '').trim() || moneyNumber(value)===0;
+}
+function applyDefaultClientPrices(platform, options={}){
+  if(editingClientId && !options.fillMissingForExisting) return;
   const price=platformPriceFor(platform);
-  if(price.salePrice && !$('#cSalePrice').value) $('#cSalePrice').value=price.salePrice;
-  if((price.renewalPrice || price.salePrice) && !$('#cRenewalPrice').value) $('#cRenewalPrice').value=price.renewalPrice || price.salePrice;
+  const saleEl=$('#cSalePrice');
+  const renewalEl=$('#cRenewalPrice');
+  if(price.salePrice && saleEl && shouldUseDefaultPrice(saleEl.value)) saleEl.value=price.salePrice;
+  const renewalDefault=price.renewalPrice || price.salePrice;
+  if(renewalDefault && renewalEl && shouldUseDefaultPrice(renewalEl.value)) renewalEl.value=renewalDefault;
 }
 function applyDefaultAccountPurchaseCost(platform){
   if(editingAccountId) return;
@@ -5119,6 +5125,8 @@ window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
+  const acc=state.accounts.find(a=>a.id===c.accountId);
+  applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
 };
 window.editAccount=(id, forceNotify=false)=>{
@@ -5710,8 +5718,8 @@ $('#renewalAccountFilter').onchange=renderRenewals;
 $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
-$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||''); };
-$('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value));
+$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
+$('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value, {fillMissingForExisting:!!editingClientId}));
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
 $('#comboSplitDates').onchange=()=>renderComboRows();
