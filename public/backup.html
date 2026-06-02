@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Backup - Disenos Streaming</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -77,7 +76,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <button class="btn btn-blue" onclick="exportCatalog()" id="btn-export-catalog">Descargar catalogo publico (plantillas + logos)</button>
       <button class="btn btn-ghost" onclick="exportTemplates()" id="btn-export-templates">Solo plantillas</button>
       <button class="btn btn-ghost" onclick="exportLogos()" id="btn-export-logos">Solo logos</button>
-      <div class="note">El backup completo incluye templates, logos, user_designs, user_logos, users, admins y users/{uid}/devices. Tambien incluye un manifiesto de URLs de Cloudinary sin solicitar esas imagenes.</div>
+      <div class="note">El backup completo incluye templates, logos, user_designs, user_logos, users, admins y datos privados del gestor por usuario: cuentas, clientes, ajustes, finanzas y dispositivos. Tambien incluye un manifiesto de URLs de Cloudinary sin solicitar esas imagenes.</div>
     </div>
 
     <div class="section">
@@ -209,20 +208,37 @@ async function fetchCollectionSafe(name, permissionErrors){
     return null;
   }
 }
-async function fetchUserDevices(users){
-  const devices = {};
+async function fetchUserSubcollection(users, subName){
+  const docsByUser = {};
   let total = 0;
   for(const user of users){
     if(!user.id) continue;
-    const snap = await fbDb.collection('users').doc(user.id).collection('devices').get();
+    const snap = await fbDb.collection('users').doc(user.id).collection(subName).get();
     const rows = [];
     snap.forEach(doc=>rows.push({ id: doc.id, ...doc.data() }));
     if(rows.length){
-      devices[user.id] = rows;
+      docsByUser[user.id] = rows;
       total += rows.length;
     }
   }
-  return { devices, total };
+  return { docs: docsByUser, total };
+}
+async function fetchUserGestorSubcollections(users){
+  const names = ['devices','gestor_accounts','gestor_clients','gestor_config','gestor_finance_movements'];
+  const result = {};
+  let total = 0;
+  for(const name of names){
+    try{
+      const pack = await fetchUserSubcollection(users, name);
+      result[name] = pack.docs;
+      total += pack.total;
+      log('  OK users/{uid}/' + name + ': ' + pack.total + ' docs');
+    }catch(e){
+      log('  BLOQUEADO users/{uid}/' + name + ': ' + (e?.message || e));
+      result[name] = {};
+    }
+  }
+  return { result, total };
 }
 function collectCloudinaryUrls(value, out){
   if(!value) return;
@@ -331,13 +347,11 @@ async function exportAll(){
         log('  OK ' + docs.length + ' docs');
       }
     }
-    const devicePack = collections.users ? await fetchUserDevices(collections.users) : {devices:{}, total:0};
+    const gestorPack = collections.users ? await fetchUserGestorSubcollections(collections.users) : {result:{}, total:0};
     const subcollections = {
-      users: {
-        devices: devicePack.devices
-      }
+      users: gestorPack.result
     };
-    log('  OK ' + devicePack.total + ' dispositivos');
+    log('  OK ' + gestorPack.total + ' documentos privados del gestor');
     const backup = backupBase(collections, subcollections, permissionErrors);
     const filename = `backup_emergencia_disenosstreaming_${today()}.json`;
     downloadJSON(backup, filename);
@@ -400,8 +414,11 @@ function handleImport(input){
       const cols = importData.collections || {};
       const sub = importData.subcollections || {};
       const summary = Object.entries(cols).map(([k,v])=>`${k}: ${Array.isArray(v)?v.length:0} documentos`);
-      const deviceCount = Object.values(sub?.users?.devices || {}).reduce((sum,arr)=>sum + (Array.isArray(arr)?arr.length:0), 0);
-      if(deviceCount) summary.push(`users/{uid}/devices: ${deviceCount} documentos`);
+      const userSubs = sub?.users || {};
+      Object.entries(userSubs).forEach(([subName, docsMap])=>{
+        const total = Object.values(docsMap || {}).reduce((sum,arr)=>sum + (Array.isArray(arr)?arr.length:0), 0);
+        if(total) summary.push(`users/{uid}/${subName}: ${total} documentos`);
+      });
       document.getElementById('import-preview').style.display = 'block';
       document.getElementById('import-preview').innerHTML =
         `<strong>Archivo:</strong> ${file.name}<br>` +
@@ -436,20 +453,20 @@ async function importDocsIntoCollection(colName, docs){
   }
   return {ok,skip,err};
 }
-async function importUserDevices(deviceMap){
+async function importUserSubcollection(subName, docsMap){
   let ok=0, skip=0, err=0;
-  for(const [uid, docs] of Object.entries(deviceMap || {})){
+  for(const [uid, docs] of Object.entries(docsMap || {})){
     if(!Array.isArray(docs)) continue;
     for(const doc of docs){
       const { id, ...data } = doc || {};
       if(!id){ skip++; continue; }
       try{
-        const ref = fbDb.collection('users').doc(uid).collection('devices').doc(id);
+        const ref = fbDb.collection('users').doc(uid).collection(subName).doc(id);
         const existing = await ref.get();
         if(existing.exists){ skip++; }
         else { await ref.set(data); ok++; }
       }catch(e){
-        console.warn('Device import error', uid, id, e);
+        console.warn('Subcollection import error', subName, uid, id, e);
         err++;
       }
     }
@@ -469,11 +486,12 @@ async function doImport(){
       const r = await importDocsIntoCollection(colName, docs);
       log(`  OK ${r.ok} nuevos, ${r.skip} omitidos, ${r.err} errores`);
     }
-    const deviceMap = importData.subcollections?.users?.devices || {};
-    const deviceTotal = Object.values(deviceMap).reduce((sum,arr)=>sum + (Array.isArray(arr)?arr.length:0), 0);
-    if(deviceTotal){
-      log('Importando users/{uid}/devices...');
-      const r = await importUserDevices(deviceMap);
+    const userSubs = importData.subcollections?.users || {};
+    for(const [subName, docsMap] of Object.entries(userSubs)){
+      const total = Object.values(docsMap || {}).reduce((sum,arr)=>sum + (Array.isArray(arr)?arr.length:0), 0);
+      if(!total) continue;
+      log('Importando users/{uid}/' + subName + '...');
+      const r = await importUserSubcollection(subName, docsMap);
       log(`  OK ${r.ok} nuevos, ${r.skip} omitidos, ${r.err} errores`);
     }
     log('\nImportacion completada.');

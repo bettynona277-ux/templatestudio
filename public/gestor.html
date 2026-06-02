@@ -14,16 +14,15 @@
     }
   })();
 </script>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, setDoc, deleteDoc,
-  collection, getDocs, writeBatch, onSnapshot
+  initializeFirestore, doc, getDoc, setDoc, deleteDoc,
+  collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -45,19 +44,51 @@ if (APP_CHECK_SITE_KEY) {
   });
 }
 const auth = getAuth(app);
-const db   = getFirestore(app);
+const db   = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 
 window.__db   = db;
 window.__auth = auth;
-window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword };
+window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, signOut, sendPasswordResetEmail };
 
 // ── Helpers de ruta ────────────────────────────────────────────────────────
 function userRef(uid)      { return doc(db, 'users', uid); }
 function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'meta'); }
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
+function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance_movements'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
 function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
+const FINANCE_RECENT_LIMIT = 350;
+
+function financeMonthStartIso() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
+async function getFinanceMovements(uid, scope = 'current') {
+  const col = financeCol(uid);
+  if (scope === 'all') {
+    const snap = await getDocs(col);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+  try {
+    const snap = await getDocs(query(
+      col,
+      where('occurredAt', '>=', financeMonthStartIso()),
+      orderBy('occurredAt', 'desc')
+    ));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn('No se pudo cargar finanzas por periodo; usando carga limitada:', err);
+    try {
+      const snap = await getDocs(query(col, orderBy('occurredAt', 'desc'), limit(FINANCE_RECENT_LIMIT)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (_) {
+      const snap = await getDocs(query(col, limit(FINANCE_RECENT_LIMIT)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+  }
+}
 
 const MAX_GESTOR_DEVICES = 5;
 const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -215,19 +246,14 @@ function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNew
 async function registerGestorDevice(uid) {
   const deviceId = getGestorDeviceId();
   const devRef = doc(db, 'users', uid, 'devices', deviceId);
-  const snap = await getDocs(devicesCol(uid));
-  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
-  await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
-  const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
+  const currentSnap = await getDoc(devRef);
   const fingerprint = await buildGestorDeviceFingerprint();
-  const existing = devices.find(d => d.id === deviceId);
+  const existing = currentSnap.exists() ? { id: currentSnap.id, ...currentSnap.data() } : null;
   const now = Date.now();
 
   if (existing) {
     if (existing.revoked === true) return { ok: false, revoked: true };
-    const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
-    const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, false);
+    const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef, {
       name: fingerprint.label,
       deviceLabel: fingerprint.label,
@@ -243,6 +269,11 @@ async function registerGestorDevice(uid) {
     return { ok: true };
   }
 
+  const snap = await getDocs(devicesCol(uid));
+  const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
+  await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
+  const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
   if (activeDevices.length >= MAX_GESTOR_DEVICES) return { ok: false, count: activeDevices.length };
   const suspicious = detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
@@ -269,19 +300,41 @@ async function migrateIfNeeded(uid) {
 
 // ── Cargar datos desde subcolecciones ─────────────────────────────────────
 async function loadFromSubcollections(uid) {
-  const [accSnap, cliSnap, setSnap] = await Promise.all([
+  const cacheKey = 'gestion_streaming_v5';
+  const cacheTimeKey = cacheKey + '_synced_at';
+  try {
+    const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
+    const cached = localStorage.getItem(cacheKey);
+    if (cached && cachedAt && Date.now() - cachedAt < 60000 && window.__loadFromFirestore) {
+      window.__loadFromFirestore(JSON.parse(cached));
+    }
+  } catch (e) {}
+  const setSnap = await getDoc(settingsRef(uid));
+  const settings = setSnap.exists() ? setSnap.data()
+    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
+  const [accSnap, cliSnap, finSnap] = await Promise.all([
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
-    getDoc(settingsRef(uid))
+    getFinanceMovements(uid, 'current')
   ]);
   const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const settings  = setSnap.exists() ? setSnap.data()
-    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform' };
-  window.__loadFromFirestore({ accounts, clients, settings });
+  const financeMovements = finSnap;
+  window.__loadFromFirestore({ accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings });
+  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
 }
 
 // Carga solo al abrir o al recargar la página para reducir lecturas de Firestore.
+
+window.__reloadFinanceMovementsFromFirestore = async function(scope = 'all') {
+  const user = auth.currentUser;
+  if (!user) return [];
+  const financeMovements = await getFinanceMovements(user.uid, scope);
+  if (window.__replaceFinanceMovementsFromFirestore) {
+    window.__replaceFinanceMovementsFromFirestore(financeMovements, scope === 'all');
+  }
+  return financeMovements;
+};
 
 function isExpiredUser(data) {
   const status = String(data?.subscriptionStatus || data?.status || '').toLowerCase();
@@ -456,6 +509,8 @@ function sanitizeGestorAccountForFirestore(data = {}) {
   let capacity = Number(data.capacity);
   if (!Number.isFinite(capacity)) capacity = 1;
   capacity = Math.max(1, Math.min(500, Math.round(capacity)));
+  const rawPurchaseCost = Number(data.purchaseCost || 0);
+  const purchaseCost = Number.isFinite(rawPurchaseCost) ? Math.max(0, rawPurchaseCost) : 0;
   return {
     id,
     platform: fsString(data.platform, 120, 'Cuenta'),
@@ -467,12 +522,16 @@ function sanitizeGestorAccountForFirestore(data = {}) {
     dueDate: fsOptionalString(data.dueDate, 20),
     notes: fsOptionalString(data.notes, 1000),
     category: fsOptionalString(data.category, 120),
+    purchaseCost,
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true,
     createdAt: fsOptionalString(data.createdAt, 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
 }
 function sanitizeGestorClientForFirestore(data = {}) {
   const id = fsValidId(data.id);
+  const salePrice = Number(data.salePrice || 0);
+  const renewalPrice = Number(data.renewalPrice || data.salePrice || 0);
   return {
     id,
     name: fsString(data.name, 120, 'Cliente'),
@@ -488,6 +547,10 @@ function sanitizeGestorClientForFirestore(data = {}) {
     comboName: fsOptionalString(data.comboName, 120),
     comboSize: Math.max(0, Math.min(20, Number(data.comboSize || 0))),
     comboCreatedAt: fsOptionalString(data.comboCreatedAt, 40),
+    comboTotalPrice: Math.max(0, Number(data.comboTotalPrice || 0)),
+    comboRenewalPrice: Math.max(0, Number(data.comboRenewalPrice || data.comboTotalPrice || 0)),
+    salePrice: Number.isFinite(salePrice) ? Math.max(0, salePrice) : 0,
+    renewalPrice: Number.isFinite(renewalPrice) ? Math.max(0, renewalPrice) : 0,
     lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
     createdAt: fsOptionalString(data.createdAt, 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
@@ -509,18 +572,53 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
       platforms: Array.isArray(t?.platforms) ? t.platforms.map(p => fsOptionalString(p, 80)).filter(Boolean).slice(0, 8) : []
     })).filter(t => t.name && t.platforms.length)
     : [];
+  const platformPrices = {};
+  if (settings.platformPrices && typeof settings.platformPrices === 'object') {
+    Object.keys(settings.platformPrices).slice(0, 80).forEach(key => {
+      const row = settings.platformPrices[key] || {};
+      platformPrices[fsString(key, 120, 'Plataforma')] = {
+        salePrice: Math.max(0, Number(row.salePrice || 0)),
+        renewalPrice: Math.max(0, Number(row.renewalPrice || 0)),
+        purchaseCost: Math.max(0, Number(row.purchaseCost || 0))
+      };
+    });
+  }
   return {
     paymentMethods,
     whatsappPrefix: fsOptionalString(String(settings.whatsappPrefix || '51').replace(/\D+/g, ''), 6),
     freeSort: fsOptionalString(settings.freeSort || 'platform', 30),
     categories,
     comboTemplates,
+    financeMode: settings.financeMode === true,
+    financeCurrency: fsOptionalString(settings.financeCurrency || 'PEN', 8),
+    financeSymbol: fsOptionalString(settings.financeSymbol || 'S/', 8),
+    platformPrices,
     finalMessage: fsOptionalString(settings.finalMessage, 500),
     security: settings.security && typeof settings.security === 'object'
       ? {
         passwordChangedAt: fsOptionalString(settings.security.passwordChangedAt, 40)
       }
       : {}
+  };
+}
+function sanitizeFinanceMovementForFirestore(data = {}) {
+  const amount = Number(data.amount || 0);
+  const source = fsString(data.source, 40, 'manual');
+  return {
+    id: fsValidId(data.id || `${source}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`),
+    type: data.type === 'expense' ? 'expense' : 'income',
+    source,
+    amount: Number.isFinite(amount) ? Math.max(0, amount) : 0,
+    currency: fsOptionalString(data.currency || 'PEN', 8),
+    symbol: fsOptionalString(data.symbol || 'S/', 8),
+    description: fsString(data.description, 180, 'Movimiento'),
+    platform: fsOptionalString(data.platform, 80),
+    clientId: fsOptionalString(data.clientId, 80),
+    accountId: fsOptionalString(data.accountId, 80),
+    comboId: fsOptionalString(data.comboId, 80),
+    occurredAt: fsOptionalString(data.occurredAt || new Date().toISOString(), 40),
+    createdAt: fsOptionalString(data.createdAt || new Date().toISOString(), 40),
+    updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
 }
 function sanitizeGestorDocForFirestore(colName, data) {
@@ -663,6 +761,61 @@ window.__persistSettingsDoc = async function(settingsData) {
   } catch (err) {
     console.error('❌ Error guardando settings:', err);
     notifySaveStatus('error', friendlySaveError(err));
+  }
+};
+
+window.__persistManyDocs = async function(colName, docsData) {
+  const user = auth.currentUser;
+  if (!user || !Array.isArray(docsData) || !docsData.length) return false;
+  try {
+    const uid = user.uid;
+    const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
+    notifySaveStatus('saving', 'Guardando datos...');
+    for (let i = 0; i < docsData.length; i += 450) {
+      const batch = writeBatch(db);
+      for (const item of docsData.slice(i, i + 450)) {
+        const safeData = sanitizeGestorDocForFirestore(colName, item);
+        batch.set(doc(colRef, safeData.id), safeData);
+      }
+      await batch.commit();
+    }
+    notifySaveStatus('success', 'Datos guardados correctamente.');
+    return true;
+  } catch (err) {
+    console.error('Error guardando datos en lote:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
+window.__persistFinanceMovementDoc = async function(docData) {
+  const user = auth.currentUser;
+  if (!user) return false;
+  try {
+    const safeData = sanitizeFinanceMovementForFirestore(docData);
+    notifySaveStatus('saving', 'Guardando movimiento...');
+    await setDoc(doc(financeCol(user.uid), safeData.id), safeData);
+    notifySaveStatus('success', safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
+    return safeData;
+  } catch (err) {
+    console.error('Error guardando movimiento financiero:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
+window.__persistDeleteFinanceMovementDoc = async function(docId) {
+  const user = auth.currentUser;
+  if (!user || !docId) return false;
+  try {
+    notifySaveStatus('saving', 'Eliminando movimiento...');
+    await deleteDoc(doc(financeCol(user.uid), docId));
+    notifySaveStatus('success', 'Movimiento eliminado.');
+    return true;
+  } catch (err) {
+    console.error('Error eliminando movimiento financiero:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
   }
 };
 </script>
@@ -858,13 +1011,38 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   flex-direction:column;
   gap:4px;
 }
-.config-title{
-  padding:0 12px 6px;
-  color:var(--muted-2);
-  font-size:10px;
+.config-menu summary{
+  min-height:42px;
+  padding:9px 10px;
+  border-radius:13px;
+  color:var(--text-2);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-size:12.5px;
   font-weight:800;
-  letter-spacing:.08em;
-  text-transform:uppercase;
+  list-style:none;
+  border:1px solid rgba(255,255,255,.06);
+  background:rgba(255,255,255,.025);
+}
+.config-menu summary::-webkit-details-marker{display:none}
+.config-menu summary:after{
+  content:"";
+  margin-left:auto;
+  width:7px;height:7px;
+  border-right:2px solid currentColor;
+  border-bottom:2px solid currentColor;
+  transform:rotate(45deg);
+  opacity:.55;
+  transition:transform .16s var(--ease);
+}
+.config-menu[open] summary:after{transform:rotate(225deg)}
+.config-menu summary svg{width:17px;height:17px;stroke-width:2.1;flex-shrink:0}
+.config-menu-options{
+  display:grid;
+  gap:4px;
+  padding-top:6px;
 }
 .config-menu .ghost-btn{
   min-height:42px;
@@ -1144,6 +1322,55 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
 }
 .panel-head.compact{
   display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;
+}
+.checkline{
+  min-height:48px;
+  display:flex!important;
+  align-items:center;
+  gap:10px;
+  padding:0 14px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.035);
+  color:var(--text-2);
+  font-weight:800;
+}
+.checkline input{width:18px;height:18px;accent-color:var(--accent)}
+.finance-head{align-items:center}
+.finance-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.finance-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 18px}
+.finance-card{padding:18px;border-radius:18px;border:1px solid var(--border);background:rgba(255,255,255,.035)}
+.finance-card span{display:block;color:var(--muted);font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
+.finance-card strong{display:block;margin-top:8px;font-size:24px;line-height:1.05}
+.finance-card.income strong,.finance-row.income .finance-amount{color:#53f0b8}
+.finance-card.expense strong,.finance-row.expense .finance-amount{color:#ff8ca0}
+.finance-card.profit strong{color:#9ad6ff}
+.finance-card.renewals strong{color:#c9c0ff}
+.finance-list-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 10px}
+.finance-list-head h4{margin:0;font-size:16px}
+.finance-list-head span{color:var(--muted);font-size:12px;font-weight:800}
+.finance-movements{display:grid;gap:8px}
+.finance-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.025)}
+.finance-app{position:relative;width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.16)}
+.finance-app.expense{background:rgba(251,113,133,.08);border-color:rgba(251,113,133,.18)}
+.finance-app .platform-logo{margin-right:0!important}
+.finance-type-indicator{position:absolute;right:-4px;bottom:-4px;width:18px;height:18px;border-radius:7px;display:grid;place-items:center;background:#0b1425;border:1px solid rgba(255,255,255,.12);color:#7fffe3}
+.finance-row.expense .finance-type-indicator{color:#ffb8c5}
+.finance-type-indicator svg{width:12px;height:12px;stroke-width:2.6}
+.finance-dot{width:36px;height:36px;border-radius:13px;display:grid;place-items:center;background:rgba(45,212,191,.10);color:#7fffe3}
+.finance-row.expense .finance-dot{background:rgba(251,113,133,.12);color:#ffb8c5}
+.finance-main strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.finance-main span{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;color:var(--muted);font-size:12px}
+.finance-source-pill{display:inline-flex;align-items:center;min-height:20px;padding:0 7px;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06);color:#a9bbde;font-size:11px;font-weight:800}
+.finance-amount{font-weight:950;white-space:nowrap}
+.finance-delete{width:34px;height:34px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#9fb0d7;cursor:pointer}
+.renew-price-box{margin-top:12px;padding:12px;border-radius:16px;border:1px solid rgba(45,212,191,.20);background:rgba(45,212,191,.06);display:grid;gap:6px}
+.renew-price-box span{color:var(--muted);font-size:12px}
+@media (max-width:900px){
+  .finance-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .finance-row{grid-template-columns:auto minmax(0,1fr);gap:10px}
+  .finance-amount{grid-column:2}
+  .finance-delete{grid-column:2;justify-self:start}
 }
 
 /* Quick Sale Panel */
@@ -2016,6 +2243,15 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-size:12.5px;
 }
 .settings-single-note.show{display:block}
+.setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.035)}
+.setting-toggle strong{display:block}
+.setting-toggle span{display:block;margin-top:3px;color:var(--muted);font-size:12.5px;line-height:1.35}
+.switch{position:relative;width:52px;height:30px;flex:0 0 auto}
+.switch input{position:absolute;opacity:0;inset:0}
+.switch i{position:absolute;inset:0;border-radius:999px;background:rgba(148,163,184,.22);border:1px solid rgba(255,255,255,.1);transition:.18s ease}
+.switch i:before{content:"";position:absolute;width:22px;height:22px;left:4px;top:3px;border-radius:50%;background:#dbe7ff;transition:.18s ease}
+.switch input:checked + i{background:linear-gradient(135deg,var(--primary),var(--primary2));border-color:transparent}
+.switch input:checked + i:before{transform:translateX(21px);background:#fff}
 .settings-section-head{
   display:flex;
   justify-content:space-between;
@@ -2562,17 +2798,20 @@ i[data-lucide="search"]::before{content:"⌕"}
       <button class="nav-btn" data-view="cuentasView"><i data-lucide="key-round"></i><span>Cuentas</span><span class="count" id="navCuentas">0</span></button>
       <button class="nav-btn" data-view="libresView"><i data-lucide="badge-check"></i><span>Libres</span><span class="count" id="navLibres">0</span></button>
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
+      <button class="nav-btn" data-view="finanzasView" data-finance-only><i data-lucide="wallet-cards"></i><span>Finanzas</span></button>
       <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
     </nav>
-    <div class="config-menu">
-      <div class="config-title">Configuracion</div>
-      <button class="ghost-btn" data-settings-section="general"><i data-lucide="code"></i><span>Codigo por defecto de los clientes</span></button>
-      <button class="ghost-btn" data-settings-section="message"><i data-lucide="message-square"></i><span>Mensaje final para entrega de cuentas</span></button>
-      <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
-      <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categoria de cuentas</span></button>
-      <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos personalizados</span></button>
-      <button class="ghost-btn" id="openSecurityBtn"><i data-lucide="shield-check"></i><span>Seguridad de cuenta</span></button>
-    </div>
+    <details class="config-menu">
+      <summary><i data-lucide="settings-2"></i><span>Configuracion</span></summary>
+      <div class="config-menu-options">
+        <button class="ghost-btn" data-settings-section="general"><i data-lucide="code"></i><span>Codigo por defecto</span></button>
+        <button class="ghost-btn" data-settings-section="message"><i data-lucide="message-square"></i><span>Mensaje de entrega</span></button>
+        <button class="ghost-btn" data-settings-section="payments"><i data-lucide="credit-card"></i><span>Medios de pago</span></button>
+        <button class="ghost-btn" data-settings-section="categories"><i data-lucide="folder"></i><span>Categorias</span></button>
+        <button class="ghost-btn" data-settings-section="prices" data-finance-only><i data-lucide="badge-dollar-sign"></i><span>Precios</span></button>
+        <button class="ghost-btn" data-settings-section="combos"><i data-lucide="package"></i><span>Combos</span></button>
+      </div>
+    </details>
 
     <div class="sidebar-bottom">
       <div style="padding:10px 14px;border-radius:14px;background:rgba(138,161,255,.06);border:1px solid rgba(138,161,255,.12);font-size:12px;color:#95a5cb;word-break:break-all">
@@ -2617,7 +2856,7 @@ i[data-lucide="search"]::before{content:"⌕"}
         <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
         <div>
           <h3>Datos protegidos</h3>
-          <p>Tu gestor es privado, esta limitado por dispositivo y puedes cambiar tu contrasena inicial.</p>
+          <p>Tu gestor es privado, esta limitado por dispositivo y el cambio de contrasena se hace por correo.</p>
         </div>
         <button class="btn soft small" id="openSecurityHomeBtn" type="button"><i data-lucide="lock-keyhole"></i><span>Ver seguridad</span></button>
       </section>
@@ -2751,12 +2990,41 @@ i[data-lucide="search"]::before{content:"⌕"}
       <div class="renewals-summary" id="renewalsSummary"></div>
     </section>
 
+    <section id="finanzasView" class="view panel finance-panel">
+      <div class="panel-head finance-head">
+        <div>
+          <h3>Finanzas</h3>
+          <div class="sub">Ingresos, gastos y ganancia del gestor sin mezclar tus cuentas.</div>
+        </div>
+        <div class="finance-actions">
+          <select class="select" id="financeRange">
+            <option value="today">Hoy</option>
+            <option value="7days">7 dias</option>
+            <option value="month" selected>Este mes</option>
+            <option value="all">Todo</option>
+          </select>
+          <button class="btn primary small" id="openFinanceExpenseBtn" type="button"><i data-lucide="plus"></i><span>Gasto</span></button>
+        </div>
+      </div>
+      <div class="finance-cards">
+        <article class="finance-card income"><span>Ingresos</span><strong id="financeIncome">S/ 0.00</strong></article>
+        <article class="finance-card expense"><span>Gastos</span><strong id="financeExpense">S/ 0.00</strong></article>
+        <article class="finance-card profit"><span>Ganancia</span><strong id="financeProfit">S/ 0.00</strong></article>
+        <article class="finance-card renewals"><span>Renovaciones cobradas</span><strong id="financeRenewals">0</strong></article>
+      </div>
+      <div class="finance-list-head">
+        <h4>Movimientos</h4>
+        <span id="financeMovementCount">0 movimientos</span>
+      </div>
+      <div id="financeMovementsList" class="finance-movements"></div>
+    </section>
+
     <section id="seguridadView" class="view security-page">
       <div class="security-page-head">
         <div class="security-banner-icon"><i data-lucide="shield-check"></i></div>
         <div>
           <h3>Seguridad</h3>
-          <p>Controla tu contrasena y los dispositivos donde esta abierta tu cuenta.</p>
+          <p>Controla el acceso por correo y los dispositivos donde esta abierta tu cuenta.</p>
         </div>
       </div>
       <div class="security-layout">
@@ -2774,7 +3042,7 @@ i[data-lucide="search"]::before{content:"⌕"}
             <div class="security-card"><strong id="securityViewDevices">-</strong><span>Dispositivos activos</span></div>
           </div>
           <button class="btn primary" id="sendPasswordResetBtn" type="button"><i data-lucide="mail-check"></i><span>Enviar cambio de contrasena</span></button>
-          <p class="security-footnote">Si no reconoces algun acceso, cierra ese dispositivo y cambia tu contrasena.</p>
+          <p class="security-footnote">Si no reconoces algun acceso, cierra ese dispositivo y solicita el cambio por correo.</p>
         </article>
         <article class="security-panel-card">
           <div class="security-card-title">
@@ -2803,6 +3071,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
       <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
       <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
+      <label data-finance-only>Precio venta<input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio renovacion<input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></label>
       <label>Vencimiento<input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></label>
       <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></label>
       <label class="full">Notas<textarea id="cNotes" placeholder="Opcional"></textarea></label>
@@ -2829,6 +3099,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>Correo<input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></label>
       <label>Contraseña<input class="input" id="aPassword" placeholder="contraseña de la cuenta" /></label>
       <label>Capacidad<input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></label>
+      <label data-finance-only>Costo compra<input class="input" type="number" min="0" step="0.01" id="aPurchaseCost" placeholder="0.00" /></label>
+      <label class="checkline" data-finance-only><input type="checkbox" id="aPurchaseCostRegistered" /> Registrar como gasto</label>
       <label>Vencimiento<input class="input date-input" id="aDueDisplay" placeholder="Elige una fecha" /></label>
       <label class="full">Notas<textarea id="aNotes" placeholder="Opcional"></textarea></label>
     </div>
@@ -2885,8 +3157,34 @@ i[data-lucide="search"]::before{content:"⌕"}
 
     <div class="renew-preview" id="renewPreviewText"></div>
 
+    <div class="renew-price-box">
+      <label data-finance-only>Precio de renovacion
+        <input class="input" id="renewPrice" type="number" min="0" step="0.01" placeholder="0.00" />
+      </label>
+      <span>Este monto se guardara como ingreso al renovar.</span>
+    </div>
+
     <div class="modal-actions">
       <button class="btn" data-close="renewModalWrap">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="financeExpenseModalWrap">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Nuevo gasto</h3>
+      <button class="x" data-close="financeExpenseModalWrap">x</button>
+    </div>
+    <div class="form">
+      <label>Descripcion<input class="input" id="financeExpenseDescription" placeholder="Compra cuenta, publicidad, soporte..." /></label>
+      <label>Monto<input class="input" type="number" min="0" step="0.01" id="financeExpenseAmount" placeholder="0.00" /></label>
+      <label>Plataforma<input class="input" id="financeExpensePlatform" placeholder="Opcional" /></label>
+      <label>Fecha<input class="input date-input" id="financeExpenseDate" placeholder="Elige una fecha" /></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" data-close="financeExpenseModalWrap">Cancelar</button>
+      <button class="btn primary" id="saveFinanceExpenseBtn">Guardar gasto</button>
     </div>
   </div>
 </div>
@@ -2912,7 +3210,39 @@ i[data-lucide="search"]::before{content:"⌕"}
           <option value="34">Espana +34</option>
         </datalist>
       </label>
+      <div class="setting-toggle full">
+        <div>
+          <strong>Modo finanzas</strong>
+          <span>Activa precios, gastos, ingresos, ganancias y reportes financieros.</span>
+        </div>
+        <label class="switch" title="Activar modo finanzas"><input type="checkbox" id="financeModeToggle" /><i></i></label>
+      </div>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por más libres</option></select></label>
+      <label data-finance-only>Moneda de finanzas
+        <select class="select" id="financeCurrencySelect">
+          <option value="PEN">PEN - Sol peruano</option>
+          <option value="ARS">ARS - Peso argentino</option>
+          <option value="BOB">BOB - Boliviano</option>
+          <option value="BRL">BRL - Real brasileno</option>
+          <option value="CLP">CLP - Peso chileno</option>
+          <option value="COP">COP - Peso colombiano</option>
+          <option value="CRC">CRC - Colon costarricense</option>
+          <option value="CUP">CUP - Peso cubano</option>
+          <option value="DOP">DOP - Peso dominicano</option>
+          <option value="GTQ">GTQ - Quetzal guatemalteco</option>
+          <option value="HNL">HNL - Lempira hondurena</option>
+          <option value="MXN">MXN - Peso mexicano</option>
+          <option value="NIO">NIO - Cordoba nicaraguense</option>
+          <option value="PAB">PAB - Balboa panameno</option>
+          <option value="PYG">PYG - Guarani paraguayo</option>
+          <option value="UYU">UYU - Peso uruguayo</option>
+          <option value="VES">VES - Bolivar venezolano</option>
+          <option value="BZD">BZD - Dolar beliceno</option>
+          <option value="HTG">HTG - Gourde haitiano</option>
+          <option value="USD">USD - Dolar estadounidense</option>
+          <option value="EUR">EUR - Euro</option>
+        </select>
+      </label>
       <label class="full">Mensaje final para entregar cuentas<textarea id="finalMessage" placeholder="Gracias por tu compra. Cualquier duda me escribes."></textarea></label>
       <div class="full">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
@@ -2937,6 +3267,15 @@ i[data-lucide="search"]::before{content:"⌕"}
         </div>
         <div class="payment-list" id="categoryList"></div>
       </div>
+      <div class="full" id="settingsSectionPrices">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:800">Precios por plataforma</div>
+            <div style="color:var(--muted);font-size:13px">Valores por defecto para venta, renovacion y compra.</div>
+          </div>
+        </div>
+        <div class="payment-list" id="platformPriceList"></div>
+      </div>
       <div class="settings-section" id="settingsSectionCombos">
         <div class="settings-section-head"><div><div class="settings-section-title">Combos personalizados</div><div class="settings-section-note">Arma plantillas para vender varios perfiles en un solo mensaje.</div></div></div>
         <div class="combo-template-row" style="margin-bottom:10px">
@@ -2954,43 +3293,6 @@ i[data-lucide="search"]::before{content:"⌕"}
   </div>
 </div>
 
-<div class="modal-backdrop" id="securityModalWrap">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>Seguridad de cuenta</h3>
-      <button class="x" data-close="securityModalWrap">x</button>
-    </div>
-    <div class="form">
-      <div class="security-tip">
-        <i data-lucide="shield-check"></i>
-        <div>
-          <strong>Datos seguros y privados</strong>
-          <p>Tu informacion se guarda separada por usuario. Cambia tu contrasena inicial para que solo tu la conozcas.</p>
-        </div>
-      </div>
-      <div class="security-grid">
-        <div class="security-card"><strong id="securityEmail">-</strong><span>Correo de acceso</span></div>
-        <div class="security-card"><strong id="securityLastLogin">-</strong><span>Ultimo ingreso</span></div>
-        <div class="security-card"><strong id="securityDevices">-</strong><span>Dispositivos registrados</span></div>
-      </div>
-      <label>Contrasena actual<input class="input" id="securityCurrentPassword" type="password" autocomplete="current-password" placeholder="Tu contrasena actual" /></label>
-      <label>Nueva contrasena<input class="input" id="securityNewPassword" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" /></label>
-      <label>Repetir nueva contrasena<input class="input" id="securityConfirmPassword" type="password" autocomplete="new-password" placeholder="Repite la nueva contrasena" /></label>
-      <div class="security-tip">
-        <i data-lucide="info"></i>
-        <div>
-          <strong>Recomendacion</strong>
-          <p>Usa una contrasena unica. Si sospechas que alguien entro, cambia la contrasena y cierra sesion.</p>
-        </div>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" data-close="securityModalWrap">Cancelar</button>
-      <button class="btn primary" id="changePasswordBtn">Cambiar contrasena</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-backdrop" id="comboModalWrap">
   <div class="modal combo-modal">
     <div class="modal-head">
@@ -3003,6 +3305,8 @@ i[data-lucide="search"]::before{content:"⌕"}
       <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
       <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
       <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
+      <label data-finance-only>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
+      <label data-finance-only>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
       <div class="combo-tools">
         <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
         <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
@@ -3085,6 +3389,11 @@ const DEFAULT_COMBO_TEMPLATES=[
   {id:'combo_familiar',name:'Combo Familiar',platforms:['Netflix','Disney+']},
   {id:'combo_premium',name:'Combo Premium',platforms:['Netflix','Disney+','Max']}
 ];
+const CURRENCY_SYMBOLS={
+  PEN:'S/', ARS:'$', BOB:'Bs', BRL:'R$', CLP:'$', COP:'$', CRC:'₡', CUP:'$', DOP:'RD$',
+  GTQ:'Q', HNL:'L', MXN:'$', NIO:'C$', PAB:'B/.', PYG:'₲', UYU:'$U', VES:'Bs',
+  BZD:'BZ$', HTG:'G', USD:'$', EUR:'€'
+};
 const PLATFORM_OPTIONS=DEFAULT_CATEGORIES;
 const PLATFORM_URLS={
   'Netflix':'https://www.netflix.com/login',
@@ -3108,6 +3417,7 @@ let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
 let renewingClientId=null;
+let financeRange='month';
 
 function load(){
   // Intentar cargar desde localStorage como respaldo (Firebase lo sobreescribirá al cargar)
@@ -3117,57 +3427,94 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE}};
+  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,financeMode:false,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
 function normalizeLoaded(data){
   data.accounts=(data.accounts||[]).map(a=>({
     id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'',
     capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'',
-    notes:a.notes||''
+    notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true
   }));
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
+    comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
+    salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
     lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
   }));
+  data.financeMovements=(data.financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
+  data.financeMovementsFullLoaded=data.financeMovementsFullLoaded===true;
   let paymentMethods=[];
   if(Array.isArray(data.settings?.paymentMethods)) paymentMethods=data.settings.paymentMethods;
   else if(typeof data.settings?.paymentMethods==='string' && data.settings.paymentMethods.trim()) paymentMethods=[{method:'Pago',number:data.settings.paymentMethods.trim(),holder:''}];
   const savedCategories=Array.isArray(data.settings?.categories) ? data.settings.categories : [];
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
+  const financeCurrency=String(data.settings?.financeCurrency||'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode===true, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
 window.__loadFromFirestore = function(data){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
   // Actualizar localStorage como respaldo
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
 };
+window.__replaceFinanceMovementsFromFirestore = function(financeMovements, fullLoaded=false){
+  state.financeMovements=(financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
+  state.financeMovementsFullLoaded=fullLoaded===true;
+  state.financeMovementsFullLoadError=false;
+  touchLocalStateCache();
+  if(isFinanceModeEnabled()) renderFinance();
+};
+let financeFullLoadPromise=null;
+async function ensureFullFinanceMovements(){
+  if(!isFinanceModeEnabled() || state.financeMovementsFullLoaded) return state.financeMovements || [];
+  if(!window.__reloadFinanceMovementsFromFirestore) return state.financeMovements || [];
+  state.financeMovementsFullLoadError=false;
+  if(!financeFullLoadPromise){
+    financeFullLoadPromise=window.__reloadFinanceMovementsFromFirestore('all')
+      .catch(err=>{
+        console.warn('No se pudo cargar el historial completo de finanzas:', err);
+        state.financeMovementsFullLoadError=true;
+        if(financeRange==='all') renderFinance();
+        return state.financeMovements || [];
+      })
+      .finally(()=>{ financeFullLoadPromise=null; });
+  }
+  return financeFullLoadPromise;
+}
+window.retryFinanceHistoryLoad=function(){
+  state.financeMovementsFullLoadError=false;
+  renderFinance();
+};
+function touchLocalStateCache(){
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
+}
 function persist(){
   if(window.__loadingFromFirestore) return;
   // Guardar en localStorage como respaldo inmediato
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   // Marcar INMEDIATAMENTE que hay escritura pendiente para bloquear onSnapshot
   window.__saving = true;
   if(window.__persistToFirestore) window.__persistToFirestore(JSON.parse(JSON.stringify(state)));
 }
 // ── Guardar UN solo documento (1-2 ops en vez de 468) ──
 function persistDoc(colName, docData){
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
   return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistDeleteDoc) window.__persistDeleteDoc(colName, docId);
 }
 function sanitizeSettingsForSave(settings={}){
+  const financeCurrencyValue=String(settings.financeCurrency || 'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
   return {
     paymentMethods: Array.isArray(settings.paymentMethods)
       ? settings.paymentMethods
@@ -3182,17 +3529,212 @@ function sanitizeSettingsForSave(settings={}){
     whatsappPrefix: String(settings.whatsappPrefix || '51').replace(/\D+/g,'').slice(0, 6),
     freeSort: String(settings.freeSort || 'platform').slice(0, 30),
     categories: uniqueClean(settings.categories || DEFAULT_CATEGORIES).slice(0, 50),
+    platformPrices: normalizePlatformPrices(settings.platformPrices || {}, settings.categories || DEFAULT_CATEGORIES),
     comboTemplates: normalizeComboTemplates(settings.comboTemplates, settings.categories || DEFAULT_CATEGORIES),
+    financeMode: settings.financeMode === true,
+    financeCurrency: financeCurrencyValue,
+    financeSymbol: String(settings.financeSymbol || CURRENCY_SYMBOLS[financeCurrencyValue] || financeCurrencyValue).trim().slice(0,8),
     finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 500),
     security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
 function persistSettings(){
   state.settings = sanitizeSettingsForSave(state.settings);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
+function moneyNumber(value){
+  const n=Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(n) ? Math.max(0, Math.round(n * 100) / 100) : 0;
+}
+function isFinanceModeEnabled(){
+  return state.settings?.financeMode === true;
+}
+function syncFinanceModeUI(){
+  const enabled=isFinanceModeEnabled();
+  document.querySelectorAll('[data-finance-only]').forEach(el=>el.classList.toggle('is-hidden', !enabled));
+  const toggle=document.getElementById('financeModeToggle');
+  if(toggle) toggle.checked=enabled;
+  const financeView=document.getElementById('finanzasView');
+  if(financeView?.classList.contains('active') && !enabled) switchView('inicioView');
+}
+function financeCurrency(){
+  return String(state.settings?.financeCurrency || 'PEN').toUpperCase();
+}
+function financeSymbol(){
+  return String(state.settings?.financeSymbol || CURRENCY_SYMBOLS[financeCurrency()] || financeCurrency());
+}
+function formatMoney(value){
+  return `${financeSymbol()} ${moneyNumber(value).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+}
+function normalizeFinanceMovement(data={}){
+  const id=String(data.id||uid()).trim();
+  const amount=moneyNumber(data.amount);
+  if(!id) return null;
+  return {
+    id,
+    type:data.type==='expense'?'expense':'income',
+    source:String(data.source||'manual').trim().slice(0,40),
+    amount,
+    currency:String(data.currency||financeCurrency()).trim().toUpperCase().slice(0,8),
+    symbol:String(data.symbol||financeSymbol()).trim().slice(0,8),
+    description:String(data.description||'Movimiento').trim().slice(0,180),
+    platform:String(data.platform||'').trim().slice(0,80),
+    clientId:String(data.clientId||'').trim().slice(0,80),
+    accountId:String(data.accountId||'').trim().slice(0,80),
+    comboId:String(data.comboId||'').trim().slice(0,80),
+    occurredAt:String(data.occurredAt||new Date().toISOString()).trim().slice(0,40),
+    createdAt:String(data.createdAt||new Date().toISOString()).trim().slice(0,40),
+    updatedAt:String(data.updatedAt||new Date().toISOString()).trim().slice(0,40)
+  };
+}
+function financeMovementId(source, id){
+  return `${source}_${String(id||uid()).replace(/[^a-zA-Z0-9_-]/g,'_')}`;
+}
+function financeMovementTime(movement){
+  const t=new Date(movement?.occurredAt||movement?.createdAt||0).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+async function persistFinanceMovement(data){
+  if(!isFinanceModeEnabled()) return false;
+  const movement=normalizeFinanceMovement(data);
+  if(!movement || !movement.amount) return false;
+  const saved=window.__persistFinanceMovementDoc ? await window.__persistFinanceMovementDoc(movement) : movement;
+  if(!saved) return false;
+  const clean=normalizeFinanceMovement(saved);
+  state.financeMovements=state.financeMovements.filter(m=>m.id!==clean.id);
+  state.financeMovements.unshift(clean);
+  touchLocalStateCache();
+  renderFinance();
+  return clean;
+}
+async function deleteFinanceMovement(id){
+  if(!isFinanceModeEnabled()) return;
+  if(!confirm('Eliminar este movimiento?')) return;
+  const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
+  if(!ok) return;
+  state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
+  touchLocalStateCache();
+  renderFinance();
+}
+async function removeFinanceMovement(id){
+  if(!isFinanceModeEnabled()) return false;
+  if(!id) return false;
+  const ok=window.__persistDeleteFinanceMovementDoc ? await window.__persistDeleteFinanceMovementDoc(id) : true;
+  if(!ok) return false;
+  state.financeMovements=state.financeMovements.filter(m=>m.id!==id);
+  touchLocalStateCache();
+  renderFinance();
+  return true;
+}
+function clientFinanceLabel(client, prefix){
+  const account=state.accounts.find(a=>a.id===client.accountId);
+  const platform=friendlyPlatform(client.platform || account?.platform);
+  return `${prefix} ${platform || 'cuenta'} - ${client.name || 'Cliente'}`.trim();
+}
+function comboFinanceTotal(clients){
+  const first=(clients||[])[0] || {};
+  return moneyNumber(first.comboTotalPrice || first.comboRenewalPrice || (clients||[]).reduce((sum,c)=>sum+moneyNumber(c.salePrice||c.renewalPrice),0));
+}
+async function recordSaleIncome(client){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(client.salePrice);
+  if(!amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('sale', client.id),
+    type:'income',
+    source:'sale',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:clientFinanceLabel(client,'Venta'),
+    platform:client.platform,
+    clientId:client.id,
+    accountId:client.accountId,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function recordComboSaleIncome(clients){
+  if(!isFinanceModeEnabled()) return;
+  const list=(clients||[]).filter(Boolean);
+  const first=list[0];
+  const amount=moneyNumber(first?.comboTotalPrice || comboFinanceTotal(list));
+  if(!first || !amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('combo_sale', first.comboId),
+    type:'income',
+    source:'combo_sale',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:`Venta combo ${first.comboName || ''} - ${first.name || 'Cliente'}`.trim(),
+    platform:'Combo',
+    clientId:first.id,
+    comboId:first.comboId,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function recordRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('renewal', `${client.id}_${Date.now()}`),
+    type:'income',
+    source:'renewal',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:clientFinanceLabel(client,'Renovacion'),
+    platform:client.platform,
+    clientId:client.id,
+    accountId:client.accountId,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function recordComboRenewalIncome(clients, amountOverride){
+  if(!isFinanceModeEnabled()) return;
+  const list=(clients||[]).filter(Boolean);
+  const first=list[0];
+  const amount=moneyNumber(amountOverride || first?.comboRenewalPrice || first?.comboTotalPrice || comboFinanceTotal(list));
+  if(!first || !amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('combo_renewal', `${first.comboId}_${Date.now()}`),
+    type:'income',
+    source:'combo_renewal',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:`Renovacion combo ${first.comboName || ''} - ${first.name || 'Cliente'}`.trim(),
+    platform:'Combo',
+    clientId:first.id,
+    comboId:first.comboId,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function upsertAccountPurchaseExpense(account){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(account.purchaseCost);
+  const movementId=financeMovementId('account_purchase', account.id);
+  if(!amount){
+    await removeFinanceMovement(movementId).catch(()=>{});
+    return;
+  }
+  await persistFinanceMovement({
+    id:movementId,
+    type:'expense',
+    source:'account_purchase',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:`Compra cuenta madre - ${friendlyPlatform(account.platform) || account.email || 'Cuenta'}`,
+    platform:account.platform,
+    accountId:account.id,
+    occurredAt:new Date().toISOString()
+  });
+}
 function sanitizeAccountForSave(data={}){
+  const purchaseCost=moneyNumber(data.purchaseCost);
   return {
     id: String(data.id || uid()).trim().slice(0,80),
     platform: String(data.platform || '').trim().slice(0,120),
@@ -3202,7 +3744,9 @@ function sanitizeAccountForSave(data={}){
     password: String(data.password || '').trim().slice(0,240),
     capacity: Math.max(1, Math.min(500, Number(data.capacity || 1))),
     dueDate: String(data.dueDate || '').trim().slice(0,20),
-    notes: String(data.notes || '').trim().slice(0,1000)
+    notes: String(data.notes || '').trim().slice(0,1000),
+    purchaseCost,
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true
   };
 }
 function updateExpiredSummary(){
@@ -3239,6 +3783,28 @@ function normalizeComboTemplates(value, categories=[]){
     }).filter(Boolean)).slice(0,8);
     return {id:String(t?.id||uid()).trim().slice(0,80),name:String(t?.name||'Combo').trim().slice(0,120),platforms};
   }).filter(t=>t.name && t.platforms.length).slice(0,30);
+}
+function normalizePlatformPrices(value={}, categories=[]){
+  const out={};
+  if(value && typeof value==='object'){
+    Object.entries(value).slice(0,80).forEach(([key,row])=>{
+      const label=String(key||'').trim();
+      if(!label) return;
+      out[label]={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+    });
+  }
+  (categories||[]).forEach(cat=>{
+    const label=String(cat||'').trim();
+    if(label && !out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
+  });
+  return out;
+}
+function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
+function platformPriceFor(platform){
+  const target=platformPriceKey(platform);
+  const prices=state.settings?.platformPrices || {};
+  const found=Object.entries(prices).find(([key])=>platformPriceKey(key)===target);
+  return found ? found[1] : {salePrice:0,renewalPrice:0,purchaseCost:0};
 }
 function excelColumnXml(widths, count){
   const cols=[];
@@ -3297,10 +3863,12 @@ function excelSummaryWorksheet(accountRows, clientRows){
     </Table>
   </Worksheet>`;
 }
-function downloadGestorExcel(){
+async function downloadGestorExcel(){
+  if(isFinanceModeEnabled()) await ensureFullFinanceMovements();
   const accountsById=new Map(state.accounts.map(a=>[a.id,a]));
   const accountHeaders=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contraseña','Capacidad','Vencimiento','Notas'];
   const clientHeaders=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Cuenta madre contraseña','Perfil','PIN','Vencimiento','Estado','Notas'];
+  const financeHeaders=['Fecha','Tipo','Origen','Descripcion','Plataforma','Monto','Moneda'];
   const accountRows=state.accounts.map(a=>({
     'Plataforma':a.platform,
     'Proveedor':a.provider,
@@ -3326,6 +3894,18 @@ function downloadGestorExcel(){
       'Notas':c.notes
     };
   });
+  const financeRows=isFinanceModeEnabled() ? (state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a)).map(m=>({
+    'Fecha':m.occurredAt ? new Date(m.occurredAt).toLocaleDateString('es-PE') : '',
+    'Tipo':m.type==='expense'?'Gasto':'Ingreso',
+    'Origen':m.source,
+    'Descripcion':m.description,
+    'Plataforma':m.platform,
+    'Monto':`${m.type==='expense'?'-':'+'}${moneyNumber(m.amount).toFixed(2)}`,
+    'Moneda':m.currency || financeCurrency()
+  })) : [];
+  const financeWorksheet=isFinanceModeEnabled()
+    ? excelWorksheet('Finanzas', financeHeaders, financeRows, { subtitle:'Ingresos, gastos y ganancias registrados por el gestor.', widths:[100,90,120,260,120,100,90] })
+    : '';
   const xml=`<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -3358,6 +3938,7 @@ function downloadGestorExcel(){
 ${excelSummaryWorksheet(accountRows, clientRows)}
 ${excelWorksheet('Cuentas madre', accountHeaders, accountRows, { subtitle:'Tus cuentas principales ordenadas para recuperacion o respaldo.', widths:[120,150,130,190,150,80,110,260] })}
 ${excelWorksheet('Clientes', clientHeaders, clientRows, { subtitle:'Clientes, accesos asignados y vencimientos.', widths:[170,120,120,190,150,90,80,110,100,260] })}
+${financeWorksheet}
 </Workbook>`;
   const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'});
   const a=document.createElement('a');
@@ -3371,12 +3952,14 @@ window.downloadGestorExcel=downloadGestorExcel;
 // ── Refresh sin persistir (cuando ya se guardó el doc individual) ──
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
+  syncFinanceModeUI();
   renderStats();
   renderHome();
   renderClients();
   renderAccounts();
   renderFree();
   renderRenewals();
+  if(isFinanceModeEnabled()) renderFinance();
   initDatepickers();
 }
 function uid(){ return Math.random().toString(36).slice(2,10); }
@@ -3408,6 +3991,32 @@ function secretMask(v){ return v ? '•'.repeat(Math.max(6,String(v).length)) : 
 function escapeHtml(str){ return String(str??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escapeAttr(str){ return String(str??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escapeJs(str){ return String(str??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function cleanDisplayText(value){
+  return String(value ?? '')
+    .replace(/Ã‚Â·|Ã‚·|Â·/g,'·')
+    .replace(/â€”/g,'—')
+    .replace(/â€“/g,'–')
+    .replace(/â€¢/g,'•')
+    .replace(/â‚¬/g,'€')
+    .replace(/Ã¡/g,'á').replace(/Ã©/g,'é').replace(/Ã­/g,'í').replace(/Ã³/g,'ó').replace(/Ãº/g,'ú').replace(/Ã±/g,'ñ')
+    .replace(/Ã/g,'Á').replace(/Ã‰/g,'É').replace(/Ã/g,'Í').replace(/Ã“/g,'Ó').replace(/Ãš/g,'Ú').replace(/Ã‘/g,'Ñ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function putText(sel,val){ const el=$(sel); if(el) el.textContent=val; }
+function financeCleanText(value){
+  const map = {
+    '\u00c3\u201a\u00c2\u00b7':'\u00b7','\u00c3\u201a\u00b7':'\u00b7','\u00c2\u00b7':'\u00b7',
+    '\u00c3\u00a1':'\u00e1','\u00c3\u00a9':'\u00e9','\u00c3\u00ad':'\u00ed','\u00c3\u00b3':'\u00f3','\u00c3\u00ba':'\u00fa','\u00c3\u00b1':'\u00f1',
+    '\u00c3\u0081':'\u00c1','\u00c3\u0089':'\u00c9','\u00c3\u008d':'\u00cd','\u00c3\u0093':'\u00d3','\u00c3\u009a':'\u00da','\u00c3\u0091':'\u00d1',
+    '\u00e2\u20ac\u201d':'\u2014','\u00e2\u20ac\u201c':'\u2013','\u00e2\u20ac\u00a2':'\u2022','\u00e2\u201a\u00ac':'\u20ac'
+  };
+  return String(value ?? '')
+    .replace(/\u00c3\u201a\u00c2\u00b7|\u00c3\u201a\u00b7|\u00c2\u00b7|\u00c3[\u0081\u0089\u008d\u0091\u0093\u009a\u00a1\u00a9\u00ad\u00b1\u00b3\u00ba]|\u00e2\u20ac[\u201c\u201d\u00a2]|\u00e2\u201a\u00ac/g, token => map[token] || token)
+    .replace(/\bRenovacion\b/g,'Renovaci\u00f3n')
+    .replace(/\s+/g,' ')
+    .trim();
+}
 function accountLabel(a){
   return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' · ');
 }
@@ -3432,6 +4041,23 @@ function freeProfiles(account){
   return list;
 }
 function nextProfileSuggestion(accountId){ const acc=state.accounts.find(a=>a.id===accountId); return acc?freeProfiles(acc)[0]||'':''; }
+function shouldUseDefaultPrice(value){
+  return !String(value ?? '').trim() || moneyNumber(value)===0;
+}
+function applyDefaultClientPrices(platform, options={}){
+  if(editingClientId && !options.fillMissingForExisting) return;
+  const price=platformPriceFor(platform);
+  const saleEl=$('#cSalePrice');
+  const renewalEl=$('#cRenewalPrice');
+  if(price.salePrice && saleEl && shouldUseDefaultPrice(saleEl.value)) saleEl.value=price.salePrice;
+  const renewalDefault=price.renewalPrice || price.salePrice;
+  if(renewalDefault && renewalEl && shouldUseDefaultPrice(renewalEl.value)) renewalEl.value=renewalDefault;
+}
+function applyDefaultAccountPurchaseCost(platform){
+  if(editingAccountId) return;
+  const price=platformPriceFor(platform);
+  if(price.purchaseCost && !$('#aPurchaseCost').value) $('#aPurchaseCost').value=price.purchaseCost;
+}
 function chipForState(s){ const cls=s==='Activo'?'ok':s==='Por vencer'?'warn':s==='Vencido'?'danger':'free'; return `<span class="chip ${cls}">${s}</span>`; }
 function accountStateChip(a){
   const dd=daysUntil(a.dueDate);
@@ -3581,6 +4207,7 @@ function renderStats(){
 
 
 function switchView(viewId){
+  if(viewId==='finanzasView' && !isFinanceModeEnabled()) viewId='inicioView';
   $$('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.view===viewId));
   $$('.view').forEach(v=>v.classList.remove('active'));
   const view=$('#'+viewId);
@@ -3590,6 +4217,7 @@ function switchView(viewId){
   if(viewId==='cuentasView') renderAccounts();
   if(viewId==='libresView') renderFree();
   if(viewId==='renovacionesView') renderRenewals();
+  if(viewId==='finanzasView' && isFinanceModeEnabled()) renderFinance();
   if(viewId==='seguridadView') renderSecurityView();
 }
 
@@ -4179,9 +4807,114 @@ function renderRenewals(){
   }
 }
 
+function movementInRange(m){
+  if(financeRange==='all') return true;
+  const d=new Date(String(m.occurredAt||m.createdAt||''));
+  if(Number.isNaN(d.getTime())) return false;
+  const now=new Date();
+  const start=new Date(now);
+  start.setHours(0,0,0,0);
+  if(financeRange==='today') return d>=start;
+  if(financeRange==='7days'){
+    const week=new Date(start);
+    week.setDate(week.getDate()-6);
+    return d>=week;
+  }
+  const month=new Date(now.getFullYear(),now.getMonth(),1);
+  return d>=month;
+}
+function financeMovementPlatform(m){
+  if(m?.platform) return financeCleanText(m.platform);
+  if(m?.accountId){
+    const account=state.accounts.find(a=>a.id===m.accountId);
+    if(account?.platform) return financeCleanText(account.platform);
+  }
+  if(m?.clientId){
+    const client=state.clients.find(c=>c.id===m.clientId);
+    if(client?.platform) return financeCleanText(client.platform);
+  }
+  if(m?.comboId){
+    const client=state.clients.find(c=>c.comboId===m.comboId);
+    if(client?.platform) return financeCleanText(client.platform);
+  }
+  return '';
+}
+function financeSourceLabel(source){
+  const labels={
+    sale:'Venta',
+    combo_sale:'Venta combo',
+    renewal:'Renovacion',
+    combo_renewal:'Renovacion combo',
+    account_purchase:'Compra cuenta madre',
+    manual:'Gasto manual',
+    manual_expense:'Gasto manual'
+  };
+  return financeCleanText(labels[source] || source || 'Movimiento');
+}
+function financeDescription(m){
+  const description=financeCleanText(m?.description || '');
+  return description || financeSourceLabel(m?.source);
+}
+function renderFinance(){
+  const rangeEl=$('#financeRange');
+  if(rangeEl) financeRange=rangeEl.value||financeRange||'month';
+  if(financeRange==='all' && !state.financeMovementsFullLoaded){
+    const wrap=$('#financeMovementsList');
+    if(state.financeMovementsFullLoadError){
+      if(wrap) wrap.innerHTML='<div class="empty">No se pudo cargar todo el historial. Puedes seguir viendo este mes o reintentarlo.<br><button class="btn soft" type="button" style="margin-top:12px" onclick="retryFinanceHistoryLoad()">Reintentar historial</button></div>';
+      putText('#financeMovementCount','Historial no cargado');
+    }else{
+      if(wrap) wrap.innerHTML='<div class="empty">Cargando historial completo de finanzas...</div>';
+      putText('#financeMovementCount','Cargando historial...');
+      ensureFullFinanceMovements();
+    }
+    return;
+  }
+  const list=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
+  const income=list.filter(m=>m.type==='income').reduce((n,m)=>n+moneyNumber(m.amount),0);
+  const expense=list.filter(m=>m.type==='expense').reduce((n,m)=>n+moneyNumber(m.amount),0);
+  const renewals=list.filter(m=>m.source==='renewal'||m.source==='combo_renewal');
+  putText('#financeIncome',formatMoney(income));
+  putText('#financeExpense',formatMoney(expense));
+  putText('#financeProfit',formatMoney(income-expense));
+  putText('#financeRenewals',String(renewals.length));
+  putText('#financeMovementCount',`${list.length} movimiento${list.length===1?'':'s'}`);
+  const wrap=$('#financeMovementsList');
+  if(!wrap) return;
+  wrap.innerHTML=list.length?list.map(m=>{
+    const date=new Date(m.occurredAt||m.createdAt);
+    const dateText=Number.isNaN(date.getTime())?'Sin fecha':date.toLocaleDateString('es-PE',{day:'2-digit',month:'short'});
+    const sign=m.type==='expense'?'-':'+';
+    const platform=financeMovementPlatform(m);
+    const source=financeSourceLabel(m.source);
+    const description=financeDescription(m);
+    return `<div class="finance-row ${m.type}">
+      <div class="finance-app ${m.type}" title="${escapeAttr(platform || source)}">
+        ${platform ? platformLogo(platform,'icon') : `<i data-lucide="${m.type==='expense'?'receipt':'wallet'}"></i>`}
+        <span class="finance-type-indicator"><i data-lucide="${m.type==='expense'?'arrow-down':'arrow-up'}"></i></span>
+      </div>
+      <div class="finance-main"><strong>${escapeHtml(description)}</strong><span><span class="finance-source-pill">${escapeHtml(source)}</span>${platform?`<span>${escapeHtml(platform)}</span>`:''}<span>${dateText}</span></span></div>
+      <div class="finance-amount">${sign} ${formatMoney(m.amount)}</div>
+      <button class="finance-delete" title="Eliminar" onclick="deleteFinanceMovement('${escapeJs(m.id)}')"><i data-lucide="trash-2"></i></button>
+    </div>`;
+  }).join(''):`<div class="empty">Aun no hay movimientos en este periodo. Las ventas, renovaciones y gastos apareceran aqui.</div>`;
+  if(window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons();
+}
+
 function paymentTextBlock(){
   const lines=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder).map(p=>`${p.method||'Pago'} ${p.number?`" ${p.number}`:''} ${p.holder?`A nombre de ${p.holder}`:''}`.trim());
   return lines.length?`\n\nNuestros medios de pago son:\n${lines.join('\n')}`:'';
+}
+function renewalPaymentLines(){
+  return (state.settings.paymentMethods||[])
+    .filter(p=>p.method||p.number||p.holder)
+    .map(p=>{
+      const method=String(p.method||'Medio de pago').trim();
+      const number=String(p.number||'').trim();
+      const holder=String(p.holder||'').trim();
+      return `\ud83d\udcf1 ${method}${number?`: ${number}`:''}${holder?` - ${holder}`:''}`;
+    })
+    .join('\n');
 }
 function credentialsText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
@@ -4220,6 +4953,38 @@ function whatsappText(client){
   }
   if(dd===1){
     return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el día de mañana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
+  }
+  return credentialsText(client, account);
+}
+
+function whatsappText(client){
+  const account=state.accounts.find(a=>a.id===client.accountId);
+  const platform=friendlyPlatform(client.platform||account?.platform);
+  const dd=daysUntil(client.dueDate);
+  const payment=renewalPaymentLines();
+  const status=dd===0
+    ? 'vence hoy'
+    : dd===1
+      ? 'vence el d\u00eda de ma\u00f1ana'
+      : dd!==null && dd<0
+        ? `venci\u00f3 el ${fmtDateLong(client.dueDate) || client.dueDate || 'd\u00eda indicado'}`
+        : 'est\u00e1 pr\u00f3xima a vencer';
+  if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
+    return [
+      `Hola, ${client.name || ''} \ud83d\udc4b\u2728`,
+      '',
+      `\ud83d\udccc Tu cuenta de ${platform} ${status}.`,
+      '',
+      `\ud83c\udfac Perfil: ${client.profile || '-'}`,
+      `\ud83d\udce7 Correo: ${account?.email || '-'}`,
+      `\ud83d\udd11 Contrase\u00f1a: ${account?.password || '-'}`,
+      `\ud83d\udd10 PIN: ${client.pin || '-'}`,
+      '',
+      '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
+      ...(payment ? ['', payment] : []),
+      '',
+      '\u2705 Gracias por tu preferencia.'
+    ].join('\n');
   }
   return credentialsText(client, account);
 }
@@ -4348,6 +5113,32 @@ function renderCategoryRows(){
     </div>`;
   }).join('') : `<div class="empty">Sin categorias</div>`;
 }
+function renderPlatformPriceRows(){
+  const list=$('#platformPriceList');
+  if(!list) return;
+  const categories=categoryOptions();
+  state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{}, categories);
+  list.innerHTML=categories.length ? categories.map(cat=>{
+    const row=platformPriceFor(cat);
+    return `<div class="payment-row" style="grid-template-columns:minmax(120px,1.1fr) repeat(3,minmax(90px,.8fr))">
+      <label>Plataforma<input class="input" value="${escapeAttr(cat)}" readonly /></label>
+      <label>Venta<input class="input" data-platform-price="salePrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.salePrice||'')}" placeholder="0.00" /></label>
+      <label>Renovacion<input class="input" data-platform-price="renewalPrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.renewalPrice||'')}" placeholder="0.00" /></label>
+      <label>Costo compra<input class="input" data-platform-price="purchaseCost" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.purchaseCost||'')}" placeholder="0.00" /></label>
+    </div>`;
+  }).join('') : `<div class="empty">Crea categorias para configurar precios.</div>`;
+}
+function readPlatformPricesFromUI(){
+  const next=normalizePlatformPrices(state.settings.platformPrices || {}, categoryOptions());
+  $$('[data-platform-price]').forEach(input=>{
+    const platform=input.dataset.platform || '';
+    const field=input.dataset.platformPrice;
+    if(!platform || !field) return;
+    if(!next[platform]) next[platform]={salePrice:0,renewalPrice:0,purchaseCost:0};
+    next[platform][field]=moneyNumber(input.value);
+  });
+  state.settings.platformPrices=next;
+}
 function renderComboTemplateRows(){
   const list=$('#comboTemplateList');
   if(!list) return;
@@ -4382,6 +5173,7 @@ function addCategory(value){
   state.settings.categories=uniqueClean([...(state.settings.categories||DEFAULT_CATEGORIES), category]);
   persistSettings();
   renderCategoryRows();
+  renderPlatformPriceRows();
   syncAccountPlatformOptions(category);
   renderAccounts();
   renderFree();
@@ -4393,6 +5185,7 @@ window.removeCategory=(category)=>{
   state.settings.categories=(state.settings.categories||[]).filter(c=>String(c||'').trim().toLowerCase()!==key);
   persistSettings();
   renderCategoryRows();
+  renderPlatformPriceRows();
   syncAccountPlatformOptions();
   renderAccounts();
   renderFree();
@@ -4400,12 +5193,14 @@ window.removeCategory=(category)=>{
 
 function refresh(){
   cleanupFloatingActionMenusBeforeRender();
+  syncFinanceModeUI();
   renderStats();
   renderHome();
   renderClients();
   renderAccounts();
   renderFree();
   renderRenewals();
+  if(isFinanceModeEnabled()) renderFinance();
   initDatepickers();
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); }
@@ -4417,7 +5212,7 @@ function setClientSubmitMode(isNewSale){
   btn.classList.toggle('ok', !!isNewSale);
   btn.classList.toggle('primary', !isNewSale);
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -4426,7 +5221,7 @@ function syncAccountPlatformOptions(selected=''){
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aPurchaseCost').value=''; $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -4458,7 +5253,9 @@ window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
-  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
+  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
+  const acc=state.accounts.find(a=>a.id===c.accountId);
+  applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
 };
 window.editAccount=(id, forceNotify=false)=>{
@@ -4466,7 +5263,7 @@ window.editAccount=(id, forceNotify=false)=>{
   editingAccountId=id; pendingNotifyAfterSave=!!forceNotify;
   $('#accountModalTitle').textContent=forceNotify ? 'Reemplazar acceso' : 'Editar cuenta madre';
   syncAccountPlatformOptions();
-  $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
+  $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aPurchaseCost').value=a.purchaseCost||''; $('#aPurchaseCostRegistered').checked=a.purchaseCostRegistered===true; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
   const notifyEl=$('#aNotifyClients'); if(notifyEl) notifyEl.checked=true;
   if(a.platform && !categoryOptions().includes(a.platform)) addCategory(a.platform);
   syncAccountPlatformOptions(a.platform);
@@ -4520,18 +5317,37 @@ function renewalDateFor(client, amount, unit){
   else next=addMonthsClamped(next, qty);
   return dateToLocalString(next);
 }
-function applyRenewalDate(clientId, newDate){
+async function applyRenewalDate(clientId, newDate){
   const c=state.clients.find(x=>x.id===clientId);
   if(!c) return;
   if(!safeDateFromYMD(newDate)){
     alert('Elige una fecha válida para renovar.');
     return;
   }
+  const targetWindow=openWhatsappPendingWindow('Renovaci\u00f3n lista', 'Estamos armando el mensaje de agradecimiento para tu cliente.');
   c.dueDate=newDate;
   c.state='Activo';
+  const renewalAmount=moneyNumber($('#renewPrice')?.value || c.renewalPrice || c.salePrice);
+  c.renewalPrice=renewalAmount;
   renewingClientId=null;
   closeModal('renewModalWrap');
-  persistDoc('clients', c); refreshUI();
+  await persistDoc('clients', c);
+  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
+  if(comboList.length>1){
+    comboList.forEach(item=>{ item.dueDate=newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; });
+    const rest=comboList.filter(item=>item.id!==c.id);
+    if(rest.length){
+      const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients', rest) : false;
+      if(!ok){
+        for(const item of rest) await persistDoc('clients', item);
+      }
+    }
+    await recordComboRenewalIncome(comboList, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion de combo en finanzas:', err));
+  }else{
+    await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
+  }
+  refreshUI();
+  sendWhatsapp(c.id,'renewed',targetWindow);
 }
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;
@@ -4568,6 +5384,8 @@ function openRenewModal(id){
   if(amountEl) amountEl.value='1';
   if(unitEl) unitEl.value='months';
   if(exactEl) exactEl.value=renewalDateFor(c,1,'months');
+  const priceEl=$('#renewPrice');
+  if(priceEl) priceEl.value=moneyNumber(c.comboRenewalPrice || c.renewalPrice || c.salePrice) || '';
   updateRenewPreview();
   openModal('renewModalWrap');
   initDatepickers();
@@ -4593,7 +5411,7 @@ window.applyExactRenewClient=()=>{
 };
 window.setNoRenew=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='No renovó'; persistDoc('clients', c); refreshUI(); };
 window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
-window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
+window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
   const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
@@ -4645,6 +5463,8 @@ function openComboModal(){
   $('#comboClientName').value='';
   $('#comboWhatsapp').value='';
   $('#comboCustomPlatforms').value='';
+  $('#comboTotalPrice').value='';
+  $('#comboRenewalPrice').value='';
   $('#comboNotes').value='';
   $('#comboSplitDates').checked=false;
   $('#comboDueDate').value=todayPlus(30);
@@ -4659,6 +5479,16 @@ function openDeliveryPendingWindow(){
   try{
     win.document.open();
     win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Preparando WhatsApp</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>Preparando WhatsApp</h1><p>Estamos guardando la venta y armando el mensaje de entrega.</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
+    win.document.close();
+  }catch(err){}
+  return win;
+}
+function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos armando el mensaje.'){
+  const win=window.open('', '_blank');
+  if(!win) return null;
+  try{
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
     win.document.close();
   }catch(err){}
   return win;
@@ -4690,7 +5520,7 @@ function whatsappUrlForClient(client,context=''){
   const phone=normalizePhone(client?.whatsapp);
   if(!phone) return '';
   const account=state.accounts.find(a=>a.id===client.accountId);
-  const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : whatsappText(client));
+  const text=fixSurrogates(context==='delivery' ? credentialsText(client, account) : context==='renewed' ? renewedText(client, account) : whatsappText(client));
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
 function activeComboClients(comboId){
@@ -4699,6 +5529,22 @@ function activeComboClients(comboId){
 function comboText(clients, context='delivery'){
   const list=(clients||[]).filter(Boolean);
   const first=list[0]||{};
+  if(context==='renewed'){
+    const due=fmtDateLong(first.dueDate) || first.dueDate || '';
+    const apps=list.map(client=>{
+      const account=state.accounts.find(a=>a.id===client.accountId);
+      return friendlyPlatform(client.platform||account?.platform);
+    }).filter(Boolean).join(', ');
+    return [
+      `Hola ${first.name || ''} \u2728`,
+      '',
+      `Muchas gracias por tu renovaci\u00f3n \u2705`,
+      '',
+      `Tu combo${apps ? ` (${apps})` : ''} fue renovado correctamente hasta el ${due}.`,
+      '',
+      'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+    ].join('\n').trim();
+  }
   const lines=[`Hola ${first.name || ''}, ${context==='renewal'?'te aviso sobre tu combo.':'te paso los datos de tu combo:'}`,''];
   list.forEach((client,index)=>{
     const account=state.accounts.find(a=>a.id===client.accountId);
@@ -4718,6 +5564,20 @@ function comboText(clients, context='delivery'){
     lines.push(String(state.settings.finalMessage).trim());
   }
   return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function renewedText(client, account){
+  const platform=friendlyPlatform(client.platform||account?.platform);
+  const email=account?.email ? ` ${account.email}` : '';
+  const due=fmtDateLong(client.dueDate) || client.dueDate || '';
+  return [
+    `Hola ${client.name || ''} \u2728`,
+    '',
+    `Muchas gracias por tu renovaci\u00f3n \u2705`,
+    '',
+    `Tu cuenta de ${platform || 'streaming'}${email} fue renovada correctamente hasta el ${due}.`,
+    '',
+    'Gracias por tu confianza. Seguimos atentos para ayudarte con cualquier consulta \ud83d\ude4c'
+  ].join('\n').trim();
 }
 function whatsappUrlForCombo(clients,context='delivery'){
   const list=(clients||[]).filter(Boolean);
@@ -4754,6 +5614,8 @@ async function saveComboSale(e){
   const dueDate=$('#comboDueDate').value.trim();
   const tpl=selectedComboTemplate();
   const split=!!$('#comboSplitDates')?.checked;
+  const comboTotalPrice=moneyNumber($('#comboTotalPrice').value);
+  const comboRenewalPrice=moneyNumber($('#comboRenewalPrice').value || $('#comboTotalPrice').value);
   const comboId=uid();
   const comboCreatedAt=new Date().toISOString();
   const rows=$$('.combo-app-card').map(row=>{
@@ -4773,6 +5635,10 @@ async function saveComboSale(e){
       comboId,
       comboName:tpl?.name || 'Combo',
       comboSize:tpl?.platforms?.length || 0,
+      comboTotalPrice,
+      comboRenewalPrice,
+      salePrice:0,
+      renewalPrice:0,
       comboCreatedAt,
       lastRenewalWhatsAppNoticeDate:''
     };
@@ -4786,11 +5652,15 @@ async function saveComboSale(e){
     return;
   }
   try{
-    for(const client of rows){
-      const ok=await persistDoc('clients',client);
-      if(!ok) throw new Error('No se pudo guardar una app del combo.');
+    const batchOk=window.__persistManyDocs ? await window.__persistManyDocs('clients', rows) : false;
+    if(!batchOk){
+      for(const client of rows){
+        const ok=await persistDoc('clients',client);
+        if(!ok) throw new Error('No se pudo guardar una app del combo.');
+      }
     }
     state.clients=[...rows,...state.clients];
+    await recordComboSaleIncome(rows).catch(err=>console.warn('No se pudo registrar venta de combo en finanzas:', err));
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
     closeModal('comboModalWrap');
     refreshUI();
@@ -4984,7 +5854,8 @@ $('#renewalAccountFilter').onchange=renderRenewals;
 $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
-$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; };
+$('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
+$('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value, {fillMissingForExisting:!!editingClientId}));
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
 $('#comboSplitDates').onchange=()=>renderComboRows();
@@ -4999,6 +5870,7 @@ $('#aPlatformSelect').onchange=()=>{
     if(platform) $('#aPlatformSelect').value=platform;
     else syncAccountPlatformOptions();
   }
+  applyDefaultAccountPurchaseCost(platform);
   if(platform==='ViX' && !$('#aCapacity').value) $('#aCapacity').value='5';
 };
 $('#addPaymentBtn').onclick=()=>{ state.settings.paymentMethods.push({method:'',number:'',holder:''}); renderPaymentRows(); };
@@ -5013,6 +5885,37 @@ document.addEventListener('input',e=>{
 document.addEventListener('change',e=>{
   if(e.target && (e.target.id==='renewCustomAmount' || e.target.id==='renewCustomUnit')) updateRenewPreview();
 });
+document.addEventListener('change',e=>{
+  if(e.target && e.target.id==='financeRange') renderFinance();
+});
+
+function openFinanceExpenseModal(){
+  if(!isFinanceModeEnabled()) return;
+  $('#financeExpenseDescription').value='';
+  $('#financeExpenseAmount').value='';
+  $('#financeExpensePlatform').value='';
+  $('#financeExpenseDate').value=todayStr();
+  openModal('financeExpenseModalWrap');
+  initDatepickers();
+}
+async function saveManualFinanceExpense(){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber($('#financeExpenseAmount').value);
+  const description=String($('#financeExpenseDescription').value||'').trim();
+  if(!amount || !description){ alert('Completa descripcion y monto.'); return; }
+  await persistFinanceMovement({
+    id:financeMovementId('manual_expense', Date.now()),
+    type:'expense',
+    source:'manual',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description,
+    platform:$('#financeExpensePlatform').value.trim(),
+    occurredAt:($('#financeExpenseDate').value||todayStr())+'T12:00:00'
+  });
+  closeModal('financeExpenseModalWrap');
+}
 
 
 $('#saveAccountBtn').onclick=async ()=>{
@@ -5020,15 +5923,18 @@ $('#saveAccountBtn').onclick=async ()=>{
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
+  const financeOn=isFinanceModeEnabled();
   const data=sanitizeAccountForSave({
     id:editingAccountId||uid(), platform, provider:$('#aProvider').value.trim(), providerWhatsapp:$('#aProviderWhatsapp').value.trim(), capacity,
-    email:$('#aEmail').value.trim(), password:$('#aPassword').value.trim(), dueDate:$('#aDueDisplay').value.trim(), notes:$('#aNotes').value.trim()
+    email:$('#aEmail').value.trim(), password:$('#aPassword').value.trim(), dueDate:$('#aDueDisplay').value.trim(), notes:$('#aNotes').value.trim(),
+    purchaseCost:financeOn ? $('#aPurchaseCost').value : (oldAccount?.purchaseCost || 0), purchaseCostRegistered:financeOn && $('#aPurchaseCostRegistered').checked
   });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
   const ok = await persistDoc('accounts', data);
   if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
+  await upsertAccountPurchaseExpense(data).catch(err=>console.warn('No se pudo registrar compra en finanzas:', err));
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   closeModal('accountModalWrap'); clearAccountForm(); refreshUI();
   if(credentialsChanged && accountClientsForNotify(data.id).length && (shouldNotify || pendingNotifyAfterSave)){
@@ -5053,11 +5959,15 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   const account=state.accounts.find(a=>a.id===accountId);
+  const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
+  const financeOn=isFinanceModeEnabled();
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
     platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
-    lastRenewalWhatsAppNoticeDate:state.clients.find(c=>c.id===editingClientId)?.lastRenewalWhatsAppNoticeDate||''
+    salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
+    renewalPrice:financeOn ? moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value) : moneyNumber(previousClient?.renewalPrice),
+    lastRenewalWhatsAppNoticeDate:previousClient?.lastRenewalWhatsAppNoticeDate||''
   };
   const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
   if(wasNewSale && !deliveryUrl){
@@ -5074,6 +5984,7 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
+  if(wasNewSale) await recordSaleIncome(data).catch(err=>console.warn('No se pudo registrar venta en finanzas:', err));
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   saveBtn.disabled=false;
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
@@ -5087,12 +5998,14 @@ function setSettingsSectionVisibility(section=''){
   if(!form) return;
   const children=[...form.children];
   const groups={
-    general:[children[0],children[1]],
-    message:[children[2]],
-    payments:[children[3]],
-    categories:[children[4]],
-    combos:[document.getElementById('settingsSectionCombos')||children[5]]
+    general:[children[0],children[1],children[2],children[3]],
+    message:[children[4]],
+    payments:[children[5]],
+    categories:[children[6]],
+    prices:[document.getElementById('settingsSectionPrices')||children[7]],
+    combos:[document.getElementById('settingsSectionCombos')||children[8]]
   };
+  if(section==='prices' && !isFinanceModeEnabled()) section='general';
   const only=!!section && groups[section];
   children.forEach(el=>{ if(el) el.classList.remove('is-hidden'); });
   if(only){
@@ -5145,13 +6058,7 @@ async function updateSecuritySummary(user){
   if(!user) return;
   const email = user.email || '-';
   const lastLogin = formatSecurityDate(user.metadata?.lastSignInTime);
-  let deviceText = 'Este dispositivo';
-  try{
-    const active = (await getSecurityDevices(user)).filter(d=>d.revoked !== true);
-    deviceText = `${active.length || 1} de 5`;
-  }catch(_){
-    deviceText = 'Privado';
-  }
+  const deviceText = window.__securityDeviceCountText || 'Este dispositivo';
   Object.entries({
     securityEmail:email,
     securityLastLogin:lastLogin,
@@ -5180,6 +6087,8 @@ async function renderSecurityView(){
   const current=currentDeviceId();
   const activeDevices=devices.filter(d=>d.revoked !== true);
   const bannedDevices=devices.filter(d=>d.revoked === true);
+  window.__securityDeviceCountText = `${activeDevices.length || 1} de 5`;
+  await updateSecuritySummary(user);
   const activeHtml=activeDevices.length ? activeDevices.map(d=>`
     <div class="device-row">
       <div>
@@ -5264,84 +6173,49 @@ async function sendPasswordResetFromSecurity(){
     if(btn) btn.disabled=false;
   }
 }
-function clearPasswordFields(){
-  ['securityCurrentPassword','securityNewPassword','securityConfirmPassword'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.value='';
-  });
-}
-function openSecurityModal(){
-  updateSecuritySummary(window.__auth?.currentUser);
-  clearPasswordFields();
-  openModal('securityModalWrap');
-  if(window.lucide?.createIcons) window.lucide.createIcons();
-}
-async function changeCurrentPassword(){
-  const fns = window.__firebaseFns || {};
-  const user=window.__auth?.currentUser;
-  if(!user || !user.email) return notifySaveStatus('error','No hay sesion activa.');
-  const current=$('#securityCurrentPassword')?.value || '';
-  const next=$('#securityNewPassword')?.value || '';
-  const confirm=$('#securityConfirmPassword')?.value || '';
-  if(!current || !next || !confirm) return notifySaveStatus('error','Completa las tres casillas de seguridad.');
-  if(next.length < 8) return notifySaveStatus('error','La nueva contrasena debe tener minimo 8 caracteres.');
-  if(next !== confirm) return notifySaveStatus('error','La nueva contrasena no coincide.');
-  const btn=$('#changePasswordBtn');
-  if(btn) btn.disabled=true;
-  try{
-    notifySaveStatus('saving','Actualizando contrasena...');
-    const credential=fns.EmailAuthProvider.credential(user.email,current);
-    await fns.reauthenticateWithCredential(user,credential);
-    await fns.updatePassword(user,next);
-    state.settings.security={...(state.settings.security||{}),passwordChangedAt:new Date().toISOString()};
-    persistSettings();
-    clearPasswordFields();
-    closeModal('securityModalWrap');
-    notifySaveStatus('success','Contrasena actualizada correctamente.');
-  }catch(err){
-    const code=err?.code || '';
-    const msg=code.includes('wrong-password') || code.includes('invalid-credential')
-      ? 'La contrasena actual no es correcta.'
-      : code.includes('requires-recent-login')
-        ? 'Vuelve a iniciar sesion y prueba de nuevo.'
-        : 'No se pudo cambiar la contrasena. Intenta nuevamente.';
-    notifySaveStatus('error',msg);
-  }finally{
-    if(btn) btn.disabled=false;
-  }
-}
 function openSettingsSection(section=''){
+  if(section==='prices' && !isFinanceModeEnabled()) section='general';
   const titles={
     general:'Codigo por defecto',
     message:'Mensaje final',
     payments:'Medios de pago',
     categories:'Categoria de cuentas',
+    prices:'Precios por plataforma',
     combos:'Combos personalizados'
   };
   if(!state.settings.paymentMethods) state.settings.paymentMethods=[];
   if(!state.settings.categories) state.settings.categories=[...DEFAULT_CATEGORIES];
+  if(!state.settings.platformPrices) state.settings.platformPrices={};
   state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices,state.settings.categories);
   $('#waPrefix').value=state.settings.whatsappPrefix||'51';
+  $('#financeCurrencySelect').value=financeCurrency();
+  const financeToggle=$('#financeModeToggle');
+  if(financeToggle) financeToggle.checked=isFinanceModeEnabled();
   $('#settingsFreeSort').value=state.settings.freeSort||'platform';
   $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
   renderPaymentRows();
   renderCategoryRows();
+  renderPlatformPriceRows();
   renderComboTemplateRows();
   const titleEl=document.getElementById('settingsModalTitle');
   if(titleEl) titleEl.textContent=titles[section]||'Ajustes';
   setSettingsSectionVisibility(section);
+  syncFinanceModeUI();
   openModal('settingsModalWrap');
-  const map={combos:'settingsSectionCombos'};
+  const map={prices:'settingsSectionPrices',combos:'settingsSectionCombos'};
   const target=document.getElementById(map[section]||'settingsModalWrap');
   if(target && section) setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
 }
 const openSettingsBtn=$('#openSettingsBtn');
 if(openSettingsBtn) openSettingsBtn.onclick=()=>openSettingsSection('general');
-$('#openSecurityBtn').onclick=()=>switchView('seguridadView');
+const openSecurityBtn=$('#openSecurityBtn');
+if(openSecurityBtn) openSecurityBtn.onclick=()=>switchView('seguridadView');
 $('#openSecurityHomeBtn').onclick=()=>switchView('seguridadView');
-$('#changePasswordBtn').onclick=changeCurrentPassword;
+$('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
+$('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
-$('#saveSettingsBtn').onclick=()=>{ state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 

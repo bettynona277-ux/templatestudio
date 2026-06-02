@@ -15,7 +15,6 @@
 })();
 </script>
 <title>Diseños Streaming — Editor</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
@@ -3472,6 +3471,20 @@ function waitForFirebaseUser(timeoutMs=3500){
   });
 }
 
+async function verifyCurrentAdminSession(timeoutMs=4500){
+  const user = await waitForFirebaseUser(timeoutMs);
+  if(!user || !fbDb){
+    window.__isVerifiedAdmin = false;
+    window.__adminCheckDebug = {uid:user?.uid||null,email:user?.email||null,isVerifiedAdmin:false,reason:'no-user-or-db'};
+    return {ok:false,user};
+  }
+  const adminDoc = await getFreshDoc('admins', user.uid);
+  const ok = !!adminDoc?.exists;
+  window.__isVerifiedAdmin = ok;
+  window.__adminCheckDebug = {uid:user.uid,email:user.email,isVerifiedAdmin:ok};
+  return {ok,user};
+}
+
 window.addEventListener('load',async()=>{
   await initFB();
   const p=new URLSearchParams(window.location.search);
@@ -3551,12 +3564,13 @@ window.addEventListener('load',async()=>{
     let isVerifiedAdmin = false;
     window.__isVerifiedAdmin = false;
     try{
-      const currentUser = fbAuth?.currentUser;
+      const currentUser = await waitForFirebaseUser(4500);
       if(currentUser && fbDb){
-        const adminDoc = await fbDb.collection('admins').doc(currentUser.uid).get();
+        const adminDoc = await getFreshDoc('admins', currentUser.uid);
         isVerifiedAdmin = adminDoc.exists;
         window.__isVerifiedAdmin = isVerifiedAdmin;
       }
+      window.__adminCheckDebug = currentUser ? {uid:currentUser.uid,email:currentUser.email,isVerifiedAdmin} : {uid:null,email:null,isVerifiedAdmin:false};
     }catch(e){ console.warn('Verificación admin falló:', e.message); }
 
     if(!isVerifiedAdmin){
@@ -3841,13 +3855,6 @@ async function loadLogoLibrary(){
       if(parsed.ts && (now - parsed.ts) < LOGO_CACHE_TTL && parsed.logos?.length){
         logoLibCache = parsed.logos; _logoLibLoadedAt = parsed.ts;
         renderLogoLibrary(); loadOwnLogosPC();
-        // Verificar en background si hay logos nuevos
-        fbDb.collection('_config').doc('logo_version').get().then(doc=>{
-          if(doc.exists && doc.data().updatedAt > parsed.ts){
-            localStorage.removeItem('ds_logo_lib_cache');
-            logoLibCache=[]; _logoLibLoadedAt=0; loadLogoLibrary();
-          }
-        }).catch(()=>{});
         return;
       }
     }
@@ -8670,6 +8677,14 @@ async function doSave(status){
   // Verificar sesión activa antes de guardar
   if(!fbAuth?.currentUser){
     alert('No hay sesión activa. Cierra y vuelve a abrir el editor desde el panel de admin.');
+    return;
+  }
+  const adminCheck = await verifyCurrentAdminSession(4500);
+  if(!adminCheck.ok){
+    const uid = adminCheck.user?.uid || 'sin-uid';
+    const email = adminCheck.user?.email || 'sin-email';
+    alert(`Ya no tienes permiso de administrador en este editor.\n\nSesion actual: ${email}\nUID: ${uid}\n\nAbre admin.html, cierra sesion e inicia de nuevo para sincronizar esta PC.`);
+    console.warn('Admin debug:', window.__adminCheckDebug);
     return;
   }
   // Si el modal no está abierto (guardado directo de publicada), usar tplName como fallback
