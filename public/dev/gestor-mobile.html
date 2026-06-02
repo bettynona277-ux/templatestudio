@@ -9,7 +9,6 @@
 <link rel="manifest" href="/manifest-gestor.json?v=30" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
@@ -169,8 +168,8 @@ button{border:0;cursor:pointer}
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -188,22 +187,26 @@ if (siteKey) {
   initializeAppCheck(app, { provider:new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled:true });
 }
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
-const CURRENCY_SYMBOLS = { PEN:'S/', USD:'$', MXN:'MX$', COP:'COL$', CLP:'CLP$', ARS:'ARS$', BOB:'Bs', GTQ:'Q' };
+const CURRENCY_SYMBOLS = {
+  PEN:'S/', ARS:'$', BOB:'Bs', BRL:'R$', CLP:'$', COP:'$', CRC:'₡', CUP:'$', DOP:'RD$',
+  GTQ:'Q', HNL:'L', MXN:'$', NIO:'C$', PAB:'B/.', PYG:'₲', UYU:'$U', VES:'Bs',
+  BZD:'BZ$', HTG:'G', USD:'$', EUR:'€'
+};
 const DEFAULT_COMBO_TEMPLATES = [
   { id:'combo_familiar', name:'Combo Familiar', platforms:['Netflix','Disney'] },
   { id:'combo_premium', name:'Combo Premium', platforms:['Netflix','Disney','HBO Max'] }
 ];
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
-  accounts:[], clients:[], financeMovements:[], unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:true, financeCurrency:'PEN', financeSymbol:'S/' },
+  accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
@@ -214,6 +217,7 @@ function cacheMobileState(){
       accounts:state.accounts,
       clients:state.clients,
       financeMovements:state.financeMovements,
+      financeMovementsFullLoaded:state.financeMovementsFullLoaded===true,
       settings:state.settings
     }));
     localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
@@ -229,6 +233,7 @@ function restoreMobileStateFromCache(maxAgeMs=60000){
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
+    state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
     return true;
   }catch(_){ return false; }
 }
@@ -258,6 +263,76 @@ const devicesCol = uid => collection(db,'users',uid,'devices');
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 const financeRef = itemId => doc(db,'users',state.uid,'gestor_finance_movements',itemId);
+const FINANCE_RECENT_LIMIT = 250;
+
+function financeMonthStartIso(){
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
+async function getFinanceMovements(uid, scope='current'){
+  const col = financeCol(uid);
+  if(scope === 'all'){
+    const snap = await getDocs(col);
+    return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+  }
+  try{
+    const snap = await getDocs(query(
+      col,
+      where('occurredAt','>=',financeMonthStartIso()),
+      orderBy('occurredAt','desc')
+    ));
+    return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+  }catch(err){
+    console.warn('No se pudo cargar finanzas por periodo; usando carga limitada:', err);
+    try{
+      const snap = await getDocs(query(col, orderBy('occurredAt','desc'), limit(FINANCE_RECENT_LIMIT)));
+      return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+    }catch(_){
+      const snap = await getDocs(query(col, limit(FINANCE_RECENT_LIMIT)));
+      return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+    }
+  }
+}
+
+let financeFullLoadPromise = null;
+async function ensureFullFinanceMovements(){
+  if(!isFinanceModeEnabled() || state.financeMovementsFullLoaded) return state.financeMovements || [];
+  if(!state.uid) return state.financeMovements || [];
+  if(!financeFullLoadPromise){
+    financeFullLoadPromise = getFinanceMovements(state.uid, 'all')
+      .then(movements => {
+        state.financeMovements = movements.filter(Boolean);
+        state.financeMovementsFullLoaded = true;
+        state.financeMovementsFullLoadError = false;
+        cacheMobileState();
+        if(state.view === 'finance') render();
+        return state.financeMovements;
+      })
+      .catch(err => {
+        console.warn('No se pudo cargar historial completo de finanzas:', err);
+        state.financeMovementsFullLoadError = true;
+        if(state.view === 'finance') render();
+        return state.financeMovements || [];
+      })
+      .finally(() => { financeFullLoadPromise = null; });
+  }
+  return financeFullLoadPromise;
+}
+window.retryFinanceHistoryLoad = function(){
+  state.financeMovementsFullLoadError = false;
+  render();
+};
+
+async function setClientsBatch(clients){
+  const rows = (clients || []).filter(Boolean);
+  if(!rows.length) return;
+  for(let i = 0; i < rows.length; i += 450){
+    const batch = writeBatch(db);
+    rows.slice(i, i + 450).forEach(client => batch.set(clientRef(client.id), client, { merge:true }));
+    await batch.commit();
+  }
+}
 
 const MAX_GESTOR_DEVICES = 5;
 const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -439,7 +514,7 @@ function normalizeSettings(data={}){
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
     categories: [...new Set(categories)],
     defaultCountryCode: clean(data.defaultCountryCode) || '51',
-    financeMode: data.financeMode !== false,
+    financeMode: data.financeMode === true,
     financeCurrency,
     financeSymbol: clean(data.financeSymbol) || CURRENCY_SYMBOLS[financeCurrency] || financeCurrency,
     platformPrices: normalizePlatformPrices(data.platformPrices, categories),
@@ -595,7 +670,7 @@ function moneyNumber(value){
 function financeCurrency(){ return clean(state.settings.financeCurrency) || 'PEN'; }
 function financeSymbol(){ return clean(state.settings.financeSymbol) || CURRENCY_SYMBOLS[financeCurrency()] || financeCurrency(); }
 function formatMoney(value){ return `${financeSymbol()} ${moneyNumber(value).toFixed(2)}`; }
-function isFinanceModeEnabled(){ return state.settings?.financeMode !== false; }
+function isFinanceModeEnabled(){ return state.settings?.financeMode === true; }
 function financeMovementId(source, entityId){ return [source, entityId].map(clean).filter(Boolean).join('_') || id(); }
 function financeMovementTime(movement){
   const time = new Date(movement?.occurredAt || movement?.createdAt || 0).getTime();
@@ -817,6 +892,17 @@ function renderDue(){
   bindCards();
 }
 function renderFinance(){
+  if(state.financeRange === 'all' && !state.financeMovementsFullLoaded){
+    if(!state.financeMovementsFullLoadError) ensureFullFinanceMovements();
+    const content = state.financeMovementsFullLoadError
+      ? `<div class="empty">No se pudo cargar todo el historial. Puedes seguir viendo este mes o reintentarlo.</div>
+         <button class="btn" onclick="retryFinanceHistoryLoad()">${icon('refresh')}<span>Reintentar historial</span></button>`
+      : `<div class="empty">Cargando historial completo de finanzas...</div>`;
+    return `<section class="section">
+      <div class="section-head"><h2>Finanzas</h2><span>${state.financeMovementsFullLoadError?'Historial no cargado':'Cargando historial...'}</span></div>
+      ${content}
+    </section>`;
+  }
   const movements = state.financeMovements.map(normalizeFinanceMovement).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income = movements.filter(m=>m.type==='income').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
   const expense = movements.filter(m=>m.type==='expense').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
@@ -855,7 +941,7 @@ function renderSettings(){
     <div class="security-box">
       <div>
         <h3>${icon('shield')} Cuenta protegida</h3>
-        <p>Tus datos estan separados por usuario. Cambia tu contrasena inicial para que solo tu la conozcas.</p>
+        <p>Tus datos estan separados por usuario. El cambio de contrasena se hace con un enlace oficial enviado a tu correo.</p>
       </div>
       <div class="security-metrics">
         <div class="security-metric"><b>${esc(state.email || '-')}</b><span>Correo de acceso</span></div>
@@ -865,12 +951,6 @@ function renderSettings(){
       </div>
       <button class="btn primary" id="sendMobilePasswordReset" type="button">${icon('save')}<span>Enviar cambio por correo</span></button>
       <div class="device-list" id="mobileDeviceList"></div>
-      <form class="grid" id="passwordForm">
-        <div class="field"><label>Contrasena actual</label><input name="current" type="password" autocomplete="current-password" placeholder="Actual" required></div>
-        <div class="field"><label>Nueva contrasena</label><input name="next" type="password" autocomplete="new-password" placeholder="Minimo 8 caracteres" required></div>
-        <div class="field"><label>Repetir nueva contrasena</label><input name="confirm" type="password" autocomplete="new-password" placeholder="Repite la nueva" required></div>
-        <button class="btn ok">${icon('shield')}<span>Cambiar contrasena</span></button>
-      </form>
     </div>
     <form class="settings-card" id="settingsForm">
       <div class="setting-toggle">
@@ -901,7 +981,6 @@ function renderSettings(){
       <div class="list">${s.comboTemplates.map(t => `<div class="category-row"><b>${esc(t.name)} <span class="combo-badge">${esc(t.platforms.join(' + '))}</span></b><button class="danger-icon" data-del-combo="${esc(t.id)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
     </div>
   </section>`;
-  $('#passwordForm').onsubmit = changePasswordFromForm;
   $('#sendMobilePasswordReset').onclick = sendMobilePasswordReset;
   renderMobileDeviceList();
   if(!state.security.devicesLoaded){
@@ -1341,7 +1420,7 @@ async function saveComboFromForm(e){
     return;
   }
   try{
-    for(const client of rows) await setDoc(clientRef(client.id), client);
+    await setClientsBatch(rows);
     state.clients = [...rows, ...state.clients.filter(c => !rows.some(row => row.id === c.id))];
     await recordComboSaleIncome(rows);
     cacheMobileState();
@@ -1487,8 +1566,8 @@ async function saveSettings(next){
   try{
     await setDoc(settingsRef(state.uid), state.settings);
     if(!wasFinanceOn && isFinanceModeEnabled()){
-      const fin = await getDocs(financeCol(state.uid));
-      state.financeMovements = fin.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+      state.financeMovements = (await getFinanceMovements(state.uid, 'all')).filter(Boolean);
+      state.financeMovementsFullLoaded = true;
     }
     cacheMobileState();
     toast('Ajustes guardados');
@@ -1605,32 +1684,6 @@ async function sendMobilePasswordReset(){
     toast('Enlace enviado al correo');
   }catch(err){
     toast('No se pudo enviar el correo.','bad');
-  }
-}
-async function changePasswordFromForm(e){
-  e.preventDefault();
-  const user = auth.currentUser;
-  if(!user || !user.email) return toast('No hay sesion activa.','bad');
-  const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
-  const current = clean(fd.current);
-  const next = clean(fd.next);
-  const confirmPass = clean(fd.confirm);
-  if(next.length < 8) return toast('La nueva contrasena debe tener minimo 8 caracteres.','bad');
-  if(next !== confirmPass) return toast('La nueva contrasena no coincide.','bad');
-  const btn = e.currentTarget.querySelector('button');
-  if(btn) btn.disabled = true;
-  try{
-    const credential = EmailAuthProvider.credential(user.email, current);
-    await reauthenticateWithCredential(user, credential);
-    await updatePassword(user, next);
-    await saveSettings({...state.settings, security:{...(state.settings.security||{}), passwordChangedAt:new Date().toISOString()}});
-    e.currentTarget.reset();
-    toast('Contrasena actualizada');
-  }catch(err){
-    const code = err?.code || '';
-    toast(code.includes('wrong-password') || code.includes('invalid-credential') ? 'La contrasena actual no es correcta.' : 'No se pudo cambiar la contrasena.', 'bad');
-  }finally{
-    if(btn) btn.disabled = false;
   }
 }
 async function saveSettingsFromForm(e){
@@ -1778,9 +1831,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     if(c.comboId){
       const combo = activeComboClients(c.comboId);
       const updatedCombo = combo.map(item => ({...item, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString()}));
-      for(const item of combo){
-        await setDoc(clientRef(item.id), { ...item, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() }, { merge:true });
-      }
+      await setClientsBatch(updatedCombo);
       state.clients = [...updatedCombo, ...state.clients.filter(item => item.comboId !== c.comboId)];
       await recordComboRenewalIncome(updatedCombo, renewalAmount);
       sendRenewedMessage = () => openWhatsAppCombo(updatedCombo, 'renewed');
@@ -2010,7 +2061,8 @@ function navigatePreparedWhatsapp(targetWindow, url){
   }
   window.open(url, '_blank', 'noopener');
 }
-function exportExcel(){
+async function exportExcel(){
+  if(isFinanceModeEnabled()) await ensureFullFinanceMovements();
   const rows = [];
   rows.push(['Disenos Streaming','Excel con amor hecho por Disenos Streaming','WhatsApp: +51974834197']);
   rows.push([]);
@@ -2067,11 +2119,12 @@ async function loadOnce(showToast=true){
     const [acc, cli, fin] = await Promise.all([
       getDocs(accountsCol(state.uid)),
       getDocs(clientsCol(state.uid)),
-      getDocs(financeCol(state.uid))
+      getFinanceMovements(state.uid, 'current')
     ]);
     state.accounts = acc.docs.map(d => ({id:d.id,...d.data()}));
     state.clients = cli.docs.map(d => ({id:d.id,...d.data()}));
-    state.financeMovements = fin.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+    state.financeMovements = fin.filter(Boolean);
+    state.financeMovementsFullLoaded = false;
     state.settings = nextSettings;
     cacheMobileState();
     render();
