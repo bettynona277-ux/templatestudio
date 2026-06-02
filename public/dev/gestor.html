@@ -277,17 +277,15 @@ async function loadFromSubcollections(uid) {
     const cached = localStorage.getItem(cacheKey);
     if (cached && cachedAt && Date.now() - cachedAt < 60000 && window.__loadFromFirestore) {
       window.__loadFromFirestore(JSON.parse(cached));
-      return;
     }
   } catch (e) {}
   const setSnap = await getDoc(settingsRef(uid));
   const settings = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: true };
-  const financeEnabled = settings.financeMode !== false;
   const [accSnap, cliSnap, finSnap] = await Promise.all([
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
-    financeEnabled ? getDocs(financeCol(uid)) : Promise.resolve({ docs: [] })
+    getDocs(financeCol(uid))
   ]);
   const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -297,6 +295,17 @@ async function loadFromSubcollections(uid) {
 }
 
 // Carga solo al abrir o al recargar la página para reducir lecturas de Firestore.
+
+window.__reloadFinanceMovementsFromFirestore = async function() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  const snap = await getDocs(financeCol(user.uid));
+  const financeMovements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (window.__replaceFinanceMovementsFromFirestore) {
+    window.__replaceFinanceMovementsFromFirestore(financeMovements);
+  }
+  return financeMovements;
+};
 
 function isExpiredUser(data) {
   const status = String(data?.subscriptionStatus || data?.status || '').toLowerCase();
@@ -3409,7 +3418,6 @@ function normalizeLoaded(data){
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
   const financeCurrency=String(data.settings?.financeCurrency||'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
   data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode!==false, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
-  if(data.settings.financeMode===false) data.financeMovements=[];
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -3420,6 +3428,11 @@ window.__loadFromFirestore = function(data){
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
+};
+window.__replaceFinanceMovementsFromFirestore = function(financeMovements){
+  state.financeMovements=(financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
+  touchLocalStateCache();
+  if(isFinanceModeEnabled()) renderFinance();
 };
 function touchLocalStateCache(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
@@ -3469,7 +3482,6 @@ function sanitizeSettingsForSave(settings={}){
 }
 function persistSettings(){
   state.settings = sanitizeSettingsForSave(state.settings);
-  if(state.settings.financeMode===false) state.financeMovements=[];
   touchLocalStateCache();
   if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
 }
@@ -6173,7 +6185,7 @@ $('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
 $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#changePasswordBtn').onclick=changeCurrentPassword;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
-$('#saveSettingsBtn').onclick=()=>{ readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked!==false; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); };
+$('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked!==false; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 

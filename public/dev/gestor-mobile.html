@@ -228,7 +228,7 @@ function restoreMobileStateFromCache(maxAgeMs=60000){
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
-    state.financeMovements = state.settings.financeMode !== false && Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
+    state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     return true;
   }catch(_){ return false; }
 }
@@ -1479,13 +1479,17 @@ async function removeItem(kind,itemId){
   }
 }
 async function saveSettings(next){
+  const wasFinanceOn = isFinanceModeEnabled();
   state.settings = normalizeSettings(next);
   if(state.settings.financeMode === false){
-    state.financeMovements = [];
     if(state.view === 'finance') state.view = 'home';
   }
   try{
     await setDoc(settingsRef(state.uid), state.settings);
+    if(!wasFinanceOn && isFinanceModeEnabled()){
+      const fin = await getDocs(financeCol(state.uid));
+      state.financeMovements = fin.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
+    }
     cacheMobileState();
     toast('Ajustes guardados');
     renderSettings();
@@ -2063,7 +2067,7 @@ async function loadOnce(showToast=true){
     const [acc, cli, fin] = await Promise.all([
       getDocs(accountsCol(state.uid)),
       getDocs(clientsCol(state.uid)),
-      nextSettings.financeMode !== false ? getDocs(financeCol(state.uid)) : Promise.resolve({ docs: [] })
+      getDocs(financeCol(state.uid))
     ]);
     state.accounts = acc.docs.map(d => ({id:d.id,...d.data()}));
     state.clients = cli.docs.map(d => ({id:d.id,...d.data()}));
