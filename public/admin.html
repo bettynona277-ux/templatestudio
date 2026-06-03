@@ -576,6 +576,7 @@ function doAdminLogout() {
 // Optimizar URLs Cloudinary — menos ancho de banda
 function stripCloudinaryTransforms(url){
   if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  url = String(url).split('#')[0].split('?')[0];
   const uploadIdx = url.indexOf('/image/upload/');
   const base = url.substring(0, uploadIdx + '/image/upload/'.length);
   const parts = url.substring(base.length).split('/');
@@ -610,7 +611,7 @@ const __lazyImgObserver = ('IntersectionObserver' in window) ? new IntersectionO
       obs.unobserve(img);
     }
   });
-}, { rootMargin: '200px 0px', threshold: 0.01 }) : null;
+}, { rootMargin: '90px 0px', threshold: 0.01 }) : null;
 
 function observeLazyImages(root) {
   if (!__lazyImgObserver) {
@@ -726,6 +727,7 @@ async function draftTemplate(id) {
 // ══════════════════════════════════════════
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
+let adminUsageCache = { at:0, rows:null };
 
 function normalizeNewUserEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -1006,6 +1008,29 @@ function adminUsageDayLabel(day) {
   return date.toLocaleDateString('es-PE', { day:'2-digit', month:'short' });
 }
 
+function adminUsageDayFromMs(ms) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Lima',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(new Date(ms));
+}
+
+async function loadGestorUsageFromDevices(days) {
+  const byDay = new Map(days.map(day => [day, new Set()]));
+  const start = new Date(days[days.length - 1] + 'T00:00:00-05:00').getTime();
+  const snap = await fbDb.collectionGroup('devices').where('lastSeen','>=',start).get();
+  snap.forEach(doc => {
+    const data = doc.data() || {};
+    const seen = Number(data.lastSeen || data.lastLoginAt || data.registeredAt || 0);
+    const day = seen ? adminUsageDayFromMs(seen) : '';
+    const uid = doc.ref.parent.parent?.id || '';
+    if(byDay.has(day) && uid && data.revoked !== true) byDay.get(day).add(uid);
+  });
+  return days.map(day => ({ day, users:[...byDay.get(day)] }));
+}
+
 async function loadGestorUsageMetrics() {
   const todayEl = document.getElementById('usage-today');
   const yesterdayEl = document.getElementById('usage-yesterday');
@@ -1019,17 +1044,42 @@ async function loadGestorUsageMetrics() {
   daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
   try {
     const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
-    const rows = await Promise.all(days.map(async day => {
-      const hits = await Promise.all(users.map(async user => {
-        try {
-          const doc = await fbDb.collection('users').doc(user.id).collection('gestor_usage').doc(day).get();
-          return doc.exists ? user.id : null;
-        } catch(_) {
-          return null;
-        }
-      }));
-      return { day, users:hits.filter(Boolean) };
-    }));
+    let rows = days.map(day => ({ day, users:[] }));
+    if(adminUsageCache.rows && Date.now() - adminUsageCache.at < 60000){
+      rows = adminUsageCache.rows;
+    } else {
+    try {
+      const snap = await fbDb.collectionGroup('gestor_usage').where('day','in',days).get();
+      const byDay = new Map(days.map(day => [day, new Set()]));
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        const day = data.day || doc.id;
+        const uid = data.uid || doc.ref.parent.parent?.id || '';
+        if(byDay.has(day) && uid) byDay.get(day).add(uid);
+      });
+      rows = days.map(day => ({ day, users:[...byDay.get(day)] }));
+      if(!rows.some(row => row.users.length)) rows = await loadGestorUsageFromDevices(days);
+    } catch(groupErr) {
+      console.warn('Uso diario: gestor_usage no disponible, usando dispositivos recientes.', groupErr);
+      try {
+        rows = await loadGestorUsageFromDevices(days);
+      } catch(deviceErr) {
+        console.warn('Uso diario: dispositivos no disponible, usando lectura por cliente.', deviceErr);
+        rows = await Promise.all(days.map(async day => {
+          const hits = await Promise.all(users.map(async user => {
+            try {
+              const doc = await fbDb.collection('users').doc(user.id).collection('gestor_usage').doc(day).get();
+              return doc.exists ? user.id : null;
+            } catch(_) {
+              return null;
+            }
+          }));
+          return { day, users:hits.filter(Boolean) };
+        }));
+      }
+    }
+    adminUsageCache = { at:Date.now(), rows };
+    }
     const uniqueWeek = new Set(rows.flatMap(row => row.users));
     if(todayEl) todayEl.textContent = rows[0]?.users.length || 0;
     if(yesterdayEl) yesterdayEl.textContent = rows[1]?.users.length || 0;
