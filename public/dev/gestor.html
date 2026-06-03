@@ -58,7 +58,39 @@ function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients
 function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance_movements'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
 function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
+function gestorUsageRef(uid, day){ return doc(db, 'users', uid, 'gestor_usage', day); }
 const FINANCE_RECENT_LIMIT = 350;
+
+function usageDayId(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Lima',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(date);
+}
+
+async function trackGestorDailyUsage(user, surface='desktop') {
+  if(!user?.uid) return;
+  const day = usageDayId();
+  const cacheKey = `gestor_usage_${user.uid}_${day}`;
+  try {
+    if(localStorage.getItem(cacheKey)) return;
+    const now = Date.now();
+    await setDoc(gestorUsageRef(user.uid, day), {
+      uid:user.uid,
+      email:user.email || '',
+      day,
+      surface,
+      lastSeenAt:now,
+      updatedAt:now
+    }, { merge:true });
+    localStorage.setItem(cacheKey, String(now));
+  } catch (err) {
+    try { localStorage.setItem(cacheKey, 'blocked'); } catch(_) {}
+    console.warn('No se pudo registrar actividad diaria del gestor:', err);
+  }
+}
 
 function financeMonthStartIso() {
   const now = new Date();
@@ -474,6 +506,7 @@ onAuthStateChanged(auth, async user => {
   if (el) el.textContent = user.email;
   updateSecuritySummary(user);
   startSecurityDeviceListener(user.uid);
+  trackGestorDailyUsage(user, 'desktop');
 
   document.getElementById('authLoader').style.display = 'none';
   document.getElementById('appRoot').style.display    = '';
@@ -1667,6 +1700,35 @@ select option:checked{
   padding:18px 28px 14px;
   border-bottom:1px solid rgba(255,255,255,.06);
 }
+.renewals-copy-bar{
+  margin:16px 28px 20px;
+  padding:14px;
+  border:1px solid rgba(138,161,255,.16);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) auto;
+  gap:14px;
+  align-items:center;
+}
+.renewals-copy-title strong{display:block;font-size:14px}
+.renewals-copy-title span{display:block;margin-top:3px;color:var(--muted);font-size:12px;font-weight:700}
+.renewals-copy-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.renewals-copy-chip{
+  min-height:38px;
+  border-radius:13px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.035);
+  color:var(--muted);
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:0 11px;
+  font-size:12.5px;
+  font-weight:850;
+}
+.renewals-copy-chip input{width:15px;height:15px;accent-color:#22d3a6}
+.renewals-copy-chip:has(input:checked){color:var(--text);border-color:rgba(34,211,166,.34);background:rgba(34,211,166,.09)}
 .renewals-table{
   margin:0 28px 22px;
   border:1px solid rgba(255,255,255,.08);
@@ -1802,6 +1864,10 @@ select option:checked{
 .renewal-metric strong{display:block;font-size:22px;line-height:1}
 .renewal-metric span{display:block;margin-top:4px;color:var(--text-2);font-weight:800}
 .renewal-metric small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+@media(max-width:980px){
+  .renewals-copy-bar{grid-template-columns:1fr}
+  .renewals-copy-actions{justify-content:flex-start}
+}
 .filter-chip{
   height:34px;
   padding:0 13px;
@@ -2977,6 +3043,18 @@ i[data-lucide="search"]::before{content:"⌕"}
       <div class="renewals-filter-strip">
         <div class="renewal-platform-tabs" id="renewalPlatformTabs"></div>
       </div>
+      <div class="renewals-copy-bar">
+        <div class="renewals-copy-title">
+          <strong>Copiar numeros para envios masivos</strong>
+          <span>Uno por linea, con codigo de pais y sin duplicados.</span>
+        </div>
+        <div class="renewals-copy-actions">
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="expired" checked><span>Vencidos <b id="copyExpiredCount">0</b></span></label>
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="today"><span>Hoy <b id="copyTodayCount">0</b></span></label>
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="tomorrow"><span>Manana <b id="copyTomorrowCount">0</b></span></label>
+          <button class="btn primary small" type="button" onclick="copyRenewalPhones()"><i data-lucide="copy"></i><span>Copiar</span></button>
+        </div>
+      </div>
       <div class="renewals-table">
         <div class="renewals-head">
           <span>Cuenta</span>
@@ -3201,6 +3279,7 @@ i[data-lucide="search"]::before{content:"⌕"}
         <datalist id="waPrefixOptions">
           <option value="51">Peru +51</option>
           <option value="502">Guatemala +502</option>
+          <option value="505">Nicaragua +505</option>
           <option value="57">Colombia +57</option>
           <option value="56">Chile +56</option>
           <option value="54">Argentina +54</option>
@@ -3987,6 +4066,63 @@ function normalizePhone(v){
   if(prefix && digits.length<=10) return prefix+digits;
   return digits;
 }
+function copyTextToClipboard(text){
+  if(navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const area=document.createElement('textarea');
+  area.value=text;
+  area.setAttribute('readonly','');
+  area.style.position='fixed';
+  area.style.left='-9999px';
+  document.body.appendChild(area);
+  area.select();
+  try{
+    document.execCommand('copy');
+    return Promise.resolve();
+  }catch(err){
+    return Promise.reject(err);
+  }finally{
+    area.remove();
+  }
+}
+function renewalPhoneGroupMatches(dd, groups){
+  return (groups.includes('expired') && dd<0)
+    || (groups.includes('today') && dd===0)
+    || (groups.includes('tomorrow') && dd===1);
+}
+function currentRenewalRows(){
+  const currentFilter=$('#renewalAccountFilter')?.value||'';
+  const q=($('#renewalSearch')?.value||'').trim().toLowerCase();
+  const qDigits=q.replace(/\D+/g,'');
+  return state.clients.map(c=>{
+    const account=state.accounts.find(a=>a.id===c.accountId);
+    return {client:c,account,platform:c.platform || account?.platform || '',dd:daysUntil(c.dueDate),st:effectiveClientState(c)};
+  })
+    .filter(x=>{
+      const phone=String(x.client.whatsapp||'');
+      const phoneDigits=phone.replace(/\D+/g,'');
+      const blob=[x.client.name,phone,x.platform,x.client.profile,x.account?.email,x.account?.provider,x.account?.notes,accountLabel(x.account||{})].join(' ').toLowerCase();
+      return !isNoRenewState(x.client.state)
+        && renewalAlertDays(x.dd)
+        && (!currentFilter || x.platform===currentFilter)
+        && (!q || blob.includes(q) || (qDigits && phoneDigits.includes(qDigits)));
+    })
+    .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
+}
+window.copyRenewalPhones=async function(){
+  const groups=Array.from(document.querySelectorAll('[data-renewal-copy]:checked')).map(el=>el.dataset.renewalCopy);
+  if(!groups.length){ notifySaveStatus('error','Elige al menos un grupo.'); return; }
+  const phones=[...new Set(currentRenewalRows()
+    .filter(x=>renewalPhoneGroupMatches(x.dd, groups))
+    .map(x=>normalizePhone(x.client.whatsapp))
+    .filter(Boolean))];
+  if(!phones.length){ notifySaveStatus('error','No hay numeros para copiar.'); return; }
+  try{
+    await copyTextToClipboard(phones.join('\n'));
+    notifySaveStatus('success',`${phones.length} numeros copiados.`);
+  }catch(_){
+    notifySaveStatus('error','No se pudo copiar.');
+  }
+};
 function secretMask(v){ return v ? '•'.repeat(Math.max(6,String(v).length)) : '—'; }
 function escapeHtml(str){ return String(str??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escapeAttr(str){ return String(str??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -4759,7 +4895,11 @@ function renderRenewals(){
     .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
   const expiredCount=rows.filter(x=>x.dd<0).length;
   const todayCount=rows.filter(x=>x.dd===0).length;
+  const tomorrowCount=rows.filter(x=>x.dd===1).length;
   const totalCount=rows.length;
+  putText('#copyExpiredCount', expiredCount);
+  putText('#copyTodayCount', todayCount);
+  putText('#copyTomorrowCount', tomorrowCount);
   $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
     let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon';
     if(dd<0){ dueLabel='Vencido'; dueSub=`Hace ${Math.abs(dd)} dia${Math.abs(dd)===1?'':'s'}`; dueClass='expired'; }

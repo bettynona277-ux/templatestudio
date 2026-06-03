@@ -86,6 +86,9 @@ button{border:0;cursor:pointer}
 .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.finance-mini{min-height:96px;padding:14px;border-radius:22px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(19,30,51,.9),rgba(9,18,32,.92));display:grid;align-content:center;gap:4px}.finance-mini b{font-size:22px}.finance-mini span{font-size:12px;color:var(--muted);font-weight:850}.finance-mini.good{border-color:rgba(34,216,154,.26)}.finance-mini.bad{border-color:rgba(255,93,125,.26)}.finance-mini.warn{border-color:rgba(251,191,36,.25)}.finance-row{padding:13px;border-radius:19px;border:1px solid rgba(255,255,255,.08);background:rgba(13,23,38,.72);display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;content-visibility:auto}.finance-dot{width:36px;height:36px;border-radius:14px;display:grid;place-items:center;font-weight:950}.finance-dot.income{background:rgba(34,216,154,.14);color:#22d89a}.finance-dot.expense{background:rgba(255,93,125,.14);color:#ff6f8f}.finance-row strong{display:block;font-size:14px}.finance-row small{display:block;color:var(--muted);font-weight:750;margin-top:3px}.finance-amount{font-weight:950}.finance-amount.income{color:#22d89a}.finance-amount.expense{color:#ff6f8f}
 .security-box{padding:14px;border:1px solid rgba(45,212,191,.22);border-radius:20px;background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(118,92,255,.07));display:grid;gap:12px}
 .security-box h3{margin:0;font-size:16px}.security-box p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
+.due-copy-box{padding:13px;border:1px solid rgba(138,161,255,.18);border-radius:20px;background:rgba(255,255,255,.045);display:grid;gap:10px;margin-bottom:12px}
+.due-copy-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.due-copy-head strong{font-size:14px}.due-copy-head span{color:var(--muted);font-size:11px;font-weight:800}
+.due-copy-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.due-copy-chip{min-height:42px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:900;text-align:center}.due-copy-chip input{width:16px;height:16px;accent-color:var(--brand2);flex:0 0 auto}.due-copy-chip:has(input:checked){color:#fff;border-color:rgba(24,213,162,.36);background:rgba(24,213,162,.10)}
 .security-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}.security-metric{padding:11px;border-radius:15px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);min-width:0}.security-metric b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.security-metric span{display:block;margin-top:3px;color:var(--muted);font-size:11px}
 .device-list{display:grid;gap:8px}.device-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.device-row b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.device-row span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.3}.device-row .iconbtn{width:36px;height:36px;border-radius:12px;color:#ffb8c6;border-color:rgba(255,93,125,.24);background:rgba(255,93,125,.09)}
 .device-section{display:grid;gap:8px}.device-section+.device-section{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}.device-section-title{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8aa1ff}
@@ -260,10 +263,42 @@ const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
 const devicesCol = uid => collection(db,'users',uid,'devices');
+const gestorUsageRef = (uid, day) => doc(db,'users',uid,'gestor_usage',day);
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 const financeRef = itemId => doc(db,'users',state.uid,'gestor_finance_movements',itemId);
 const FINANCE_RECENT_LIMIT = 250;
+
+function usageDayId(date = new Date()){
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Lima',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(date);
+}
+
+async function trackGestorDailyUsage(user, surface='mobile'){
+  if(!user?.uid) return;
+  const day = usageDayId();
+  const cacheKey = `gestor_usage_${user.uid}_${day}`;
+  try{
+    if(localStorage.getItem(cacheKey)) return;
+    const now = Date.now();
+    await setDoc(gestorUsageRef(user.uid, day), {
+      uid:user.uid,
+      email:user.email || '',
+      day,
+      surface,
+      lastSeenAt:now,
+      updatedAt:now
+    }, { merge:true });
+    localStorage.setItem(cacheKey, String(now));
+  }catch(err){
+    try{ localStorage.setItem(cacheKey, 'blocked'); }catch(_){}
+    console.warn('No se pudo registrar actividad diaria del gestor:', err);
+  }
+}
 
 function financeMonthStartIso(){
   const now = new Date();
@@ -888,7 +923,23 @@ function renderAccounts(listOnly=false){
 }
 function renderDue(){
   const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && c.state !== 'No renovo').sort((a,b)=>a.due.days-b.due.days);
-  $('#view').innerHTML = `<section class="section"><div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div><div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div></section>`;
+  const expired = list.filter(c => c.due.days < 0).length;
+  const today = list.filter(c => c.due.days === 0).length;
+  const tomorrow = list.filter(c => c.due.days === 1).length;
+  $('#view').innerHTML = `<section class="section">
+    <div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div>
+    <div class="due-copy-box">
+      <div class="due-copy-head"><strong>${icon('copy')} Copiar numeros</strong><span>Para envios masivos</span></div>
+      <div class="due-copy-options">
+        <label class="due-copy-chip"><input type="checkbox" data-due-copy="expired" checked><span>Vencidos (${expired})</span></label>
+        <label class="due-copy-chip"><input type="checkbox" data-due-copy="today"><span>Hoy (${today})</span></label>
+        <label class="due-copy-chip"><input type="checkbox" data-due-copy="tomorrow"><span>Manana (${tomorrow})</span></label>
+      </div>
+      <button class="btn primary" id="copyDuePhonesMobile" type="button">${icon('copy')}<span>Copiar</span></button>
+    </div>
+    <div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div>
+  </section>`;
+  $('#copyDuePhonesMobile').onclick = copyDuePhonesMobile;
   bindCards();
 }
 function renderFinance(){
@@ -1756,6 +1807,7 @@ const COUNTRY_CODES = [
   {code:'57',flag:'🇨🇴',name:'Colombia',digits:10},
   {code:'56',flag:'🇨🇱',name:'Chile',digits:9},
   {code:'502',flag:'🇬🇹',name:'Guatemala',digits:8},
+  {code:'505',flag:'🇳🇮',name:'Nicaragua',digits:8},
   {code:'54',flag:'🇦🇷',name:'Argentina',digits:10},
   {code:'52',flag:'🇲🇽',name:'Mexico',digits:10},
   {code:'593',flag:'🇪🇨',name:'Ecuador',digits:9},
@@ -1786,6 +1838,46 @@ function normalizePhone(phone){
   // Apply configured default country code
   const defaultCode = clean(state?.settings?.defaultCountryCode) || '51';
   return defaultCode + p;
+}
+function copyTextToClipboard(text){
+  if(navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly','');
+  area.style.position = 'fixed';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.select();
+  try{
+    document.execCommand('copy');
+    return Promise.resolve();
+  }catch(err){
+    return Promise.reject(err);
+  }finally{
+    area.remove();
+  }
+}
+function duePhoneMatches(days, groups){
+  return (groups.includes('expired') && days < 0)
+    || (groups.includes('today') && days === 0)
+    || (groups.includes('tomorrow') && days === 1);
+}
+function dueCopyClients(groups){
+  return state.clients
+    .map(c => ({...c, due:dueState(c.dueDate)}))
+    .filter(c => c.state !== 'No renovo' && duePhoneMatches(c.due.days, groups));
+}
+async function copyDuePhonesMobile(){
+  const groups = Array.from(document.querySelectorAll('[data-due-copy]:checked')).map(el => el.dataset.dueCopy);
+  if(!groups.length) return toast('Elige al menos un grupo.','bad');
+  const phones = [...new Set(dueCopyClients(groups).map(c => normalizePhone(c.whatsapp)).filter(Boolean))];
+  if(!phones.length) return toast('No hay numeros para copiar.','bad');
+  try{
+    await copyTextToClipboard(phones.join('\n'));
+    toast(`${phones.length} numeros copiados`);
+  }catch(_){
+    toast('No se pudo copiar.','bad');
+  }
 }
 function addDaysISO(date, days){
   const d = new Date((date || todayISO()) + 'T00:00:00');
@@ -2193,6 +2285,7 @@ onAuthStateChanged(auth, async user => {
       return;
     }
     startSecurityDeviceListener(user.uid);
+    trackGestorDailyUsage(user, 'mobile');
     await updateSecuritySummary(user);
     startLive();
     render();
