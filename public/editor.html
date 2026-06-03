@@ -252,6 +252,9 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 #multi-box .mrh.bm{bottom:-6px;left:calc(50% - 6px);cursor:ns-resize;}
 #multi-box .mrh.ml{left:-6px;top:calc(50% - 6px);cursor:ew-resize;}
 #multi-box .mrh.mr{right:-6px;top:calc(50% - 6px);cursor:ew-resize;}
+#multi-box .mrot-line{position:absolute;left:50%;top:-30px;width:2px;height:18px;transform:translateX(-50%);background:rgba(35,225,178,.9);border-radius:999px;pointer-events:none;z-index:8001;}
+#multi-box .mrot-handle{position:absolute;left:50%;top:-48px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:grab;pointer-events:all;z-index:8002;box-shadow:0 2px 10px rgba(0,0,0,.24);}
+#multi-box .mrot-handle:active{cursor:grabbing;}
 #multi-box .m-label{display:none !important;}
 
 /* LOADING STATE */
@@ -1364,6 +1367,13 @@ input[type=range]{filter:none !important;}
 #multi-box .mrh.bm{bottom:var(--ds-multi-handle-offset) !important;left:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
 #multi-box .mrh.ml{left:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
 #multi-box .mrh.mr{right:var(--ds-multi-handle-offset) !important;top:calc(50% - (var(--ds-multi-handle-size) / 2)) !important;}
+#multi-box .mrot-line{top:var(--ds-multi-rotate-line-top) !important;height:var(--ds-multi-rotate-line-height) !important;}
+#multi-box .mrot-handle{
+  top:var(--ds-multi-rotate-handle-top) !important;
+  width:var(--ds-multi-rotate-size) !important;
+  height:var(--ds-multi-rotate-size) !important;
+  margin-left:var(--ds-multi-rotate-offset) !important;
+}
 </style>
 
 
@@ -1610,6 +1620,8 @@ input[type=range]{filter:none !important;}
         <div class="mrh bm" id="mrh-bm"></div>
         <div class="mrh ml" id="mrh-ml"></div>
         <div class="mrh mr" id="mrh-mr"></div>
+        <div class="mrot-line"></div>
+        <div class="mrot-handle" id="multi-rot-handle" title="Rotar grupo"></div>
       </div>
     </div>
     <div class="loading" id="loading">
@@ -2612,6 +2624,8 @@ function selMulti(ids){
 // ── MULTI-TRANSFORM BOX ───────────────────────────────────────
 let isMultiRes=false;
 let mResSt={};  // {c, mx,my, box:{x,y,w,h}, layers:[{id,x,y,w,h}]}
+let isMultiRot=false;
+let mRotSt={};  // {cx,cy,startMouseAngle,layers:[{id,x,y,w,h,rotation,relX,relY}]}
 
 function getMultiBounds(ids){
   const ls_=ids.map(id=>layers.find(x=>x.id===id)).filter(Boolean);
@@ -2655,6 +2669,12 @@ function initMultiBoxHandles(){
       };
     });
   });
+  const rot=document.getElementById('multi-rot-handle');
+  if(rot) rot.addEventListener('mousedown',ev=>{
+    ev.stopPropagation();
+    ev.preventDefault();
+    startMultiRotate(ev);
+  });
 }
 // Call immediately (script runs at end of body, DOM already exists)
 initMultiBoxHandles();
@@ -2696,6 +2716,11 @@ function updateControlScale(){
   cvsEl.style.setProperty('--ds-rotate-handle-top', `${(-42 / z).toFixed(3)}px`);
   cvsEl.style.setProperty('--ds-multi-handle-size', `${(multiPx / z).toFixed(3)}px`);
   cvsEl.style.setProperty('--ds-multi-handle-offset', `${(-(multiPx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-rotate-size', `${(rotatePx / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-rotate-offset', `${(-(rotatePx / 2) / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-rotate-line-top', `${(-30 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-rotate-line-height', `${(18 / z).toFixed(3)}px`);
+  cvsEl.style.setProperty('--ds-multi-rotate-handle-top', `${(-48 / z).toFixed(3)}px`);
   if(typeof syncSelectionControls === 'function') syncSelectionControls();
 }
 
@@ -4737,6 +4762,41 @@ function startRotate(ev, id){
   updateRotationTooltip(ev.clientX, ev.clientY, getLayerRotation(l));
 }
 
+function startMultiRotate(ev){
+  if(selIds.length < 2) return;
+  const b = getMultiBounds(selIds);
+  if(!b) return;
+  const selectedLayers = selIds.map(id=>layers.find(x=>x.id===id)).filter(l=>l?.el && !l.locked && l.visible !== false);
+  if(selectedLayers.length < 2) return;
+  const centerCanvas = { x:b.x + b.w/2, y:b.y + b.h/2 };
+  const cr = cvs.getBoundingClientRect();
+  const cx = centerCanvas.x * zoom_ + cr.left;
+  const cy = centerCanvas.y * zoom_ + cr.top;
+  const startMouseAngle = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+  isMultiRot = true;
+  mRotSt = {
+    cx,
+    cy,
+    centerCanvas,
+    startMouseAngle,
+    layers: selectedLayers.map(l=>{
+      const layerCx = l.x + l.w/2;
+      const layerCy = l.y + l.h/2;
+      return {
+        id:l.id,
+        x:l.x,
+        y:l.y,
+        w:l.w,
+        h:l.h,
+        rotation:getLayerRotation(l),
+        relX:layerCx - centerCanvas.x,
+        relY:layerCy - centerCanvas.y
+      };
+    })
+  };
+  updateRotationTooltip(ev.clientX, ev.clientY, 0);
+}
+
 // CREATE DOM EL
 function mkEl(l){
   const el=document.createElement('div');
@@ -5314,6 +5374,29 @@ document.addEventListener('mousemove',ev=>{
     updateRotationTooltip(ev.clientX, ev.clientY, next);
     return;
   }
+  if(isMultiRot && mRotSt.layers?.length){
+    const angle = Math.atan2(ev.clientY - mRotSt.cy, ev.clientX - mRotSt.cx) * 180 / Math.PI;
+    let delta = angle - mRotSt.startMouseAngle;
+    if(ev.shiftKey) delta = Math.round(delta / 15) * 15;
+    const rad = delta * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    mRotSt.layers.forEach(item=>{
+      const l = layers.find(x=>x.id===item.id);
+      if(!l?.el) return;
+      const nextCx = mRotSt.centerCanvas.x + item.relX * cos - item.relY * sin;
+      const nextCy = mRotSt.centerCanvas.y + item.relX * sin + item.relY * cos;
+      l.x = Math.round(nextCx - item.w/2);
+      l.y = Math.round(nextCy - item.h/2);
+      l.rotation = normalizeRotation(item.rotation + delta);
+      l.el.style.left = l.x + 'px';
+      l.el.style.top = l.y + 'px';
+      applyLayerTransform(l);
+    });
+    updateMultiBox();
+    syncP();
+    updateRotationTooltip(ev.clientX, ev.clientY, normalizeRotation(delta));
+    return;
+  }
   if(isMarquee){
     const cr=cvs.getBoundingClientRect();
     // Coordenadas en espacio canvas (sin zoom) para intersección con capas
@@ -5512,6 +5595,7 @@ window.addEventListener('blur', ()=>{
   }
   if(isDrag){ isDrag=false; }
   if(isRot){ isRot=false; rotSt={}; hideRotationTooltip(); }
+  if(isMultiRot){ isMultiRot=false; mRotSt={}; hideRotationTooltip(); }
 });
 
 document.addEventListener('mouseup',ev=>{
@@ -5520,6 +5604,14 @@ document.addEventListener('mouseup',ev=>{
     hideRotationTooltip();
     snapshotState();
     rotSt = {};
+    return;
+  }
+  if(isMultiRot){
+    isMultiRot = false;
+    hideRotationTooltip();
+    snapshotState();
+    mRotSt = {};
+    updateMultiBox();
     return;
   }
   if(isMarquee){
