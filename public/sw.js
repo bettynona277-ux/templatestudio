@@ -1,4 +1,4 @@
-const CACHE_NAME = 'disenos-streaming-v96';
+const CACHE_NAME = 'disenos-streaming-v97';
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
   '/index-mobile.html',
