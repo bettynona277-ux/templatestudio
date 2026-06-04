@@ -172,7 +172,7 @@ button{border:0;cursor:pointer}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -264,6 +264,7 @@ const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
 const devicesCol = uid => collection(db,'users',uid,'devices');
 const gestorUsageRef = (uid, day) => doc(db,'users',uid,'gestor_usage',day);
+const adminGestorUsageRef = day => doc(db,'admin_metrics',`gestor_usage_${day}`);
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 const financeRef = itemId => doc(db,'users',state.uid,'gestor_finance_movements',itemId);
@@ -285,14 +286,30 @@ async function trackGestorDailyUsage(user, surface='mobile'){
   try{
     if(localStorage.getItem(cacheKey)) return;
     const now = Date.now();
-    await setDoc(gestorUsageRef(user.uid, day), {
+    const userUsage = {
       uid:user.uid,
       email:user.email || '',
       day,
       surface,
       lastSeenAt:now,
       updatedAt:now
-    }, { merge:true });
+    };
+    const adminUsage = {
+      day,
+      updatedAt:now,
+      countApprox:increment(1),
+      users:{
+        [user.uid]:{
+          email:user.email || '',
+          lastSeenAt:now,
+          surfaces:{ [surface]:true }
+        }
+      }
+    };
+    await Promise.allSettled([
+      setDoc(gestorUsageRef(user.uid, day), userUsage, { merge:true }),
+      setDoc(adminGestorUsageRef(day), adminUsage, { merge:true })
+    ]);
     localStorage.setItem(cacheKey, String(now));
   }catch(err){
     try{ localStorage.setItem(cacheKey, 'blocked'); }catch(_){}
@@ -695,7 +712,16 @@ function setView(view){
 }
 function matches(item,q){
   if(!q) return true;
-  return JSON.stringify(item).toLowerCase().includes(q.toLowerCase());
+  const query = q.toLowerCase();
+  const account = item?.accountId && item?.state !== 'No renovo' ? state.accounts.find(a => a.id === item.accountId) : null;
+  const accountSearch = account ? [
+    accountName(account),
+    account.email,
+    account.provider,
+    account.platform,
+    account.notes
+  ].join(' ') : '';
+  return `${JSON.stringify(item)} ${accountSearch}`.toLowerCase().includes(query);
 }
 function moneyNumber(value){
   const raw = String(value ?? '').replace(',', '.').replace(/[^\d.-]/g, '');
@@ -1011,7 +1037,7 @@ function renderSettings(){
       <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
-      <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
+      <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" maxlength="1500" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
     <div class="section">
@@ -1893,14 +1919,14 @@ function addDaysISO(date, days){
 function renewClient(c){
   if(!c) return;
   const currentDue = clean(c.dueDate) || todayISO();
-  const base = dueState(currentDue).days > 0 ? currentDue : todayISO();
+  const base = clean(c.dueDate) || todayISO();
   const oneMonth = addMonthsISO(base, 1);
   const threeMonths = addMonthsISO(base, 3);
   openSheet(`<div class="sheet-head"><h3>Renovar cliente</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <div class="grid">
       <div class="settings-card">
         <strong>${esc(clientName(c))}</strong>
-        <span class="beta-note">Vence actual: ${esc(currentDue || 'Sin fecha')}. Elige cuanto tiempo aumentar antes de guardar.</span>
+        <span class="beta-note">Vence actual: ${esc(currentDue || 'Sin fecha')}. La renovacion se calcula desde su fecha original.</span>
       </div>
       <button class="btn ok" id="renewOneMonth">${icon('calendar')}<span>Renovar 1 mes</span></button>
       <button class="btn primary" id="renewThreeMonths">${icon('calendar')}<span>Renovar 3 meses</span></button>
