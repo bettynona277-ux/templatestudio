@@ -692,6 +692,12 @@ function dueState(date){
   if (days <= 3) return { label:days+' dias', cls:'warn', days };
   return { label:days+' dias', cls:'ok', days };
 }
+function fmtDateLong(date){
+  if(!date) return '';
+  const due = new Date(date+'T00:00:00');
+  if(Number.isNaN(due.getTime())) return clean(date);
+  return due.toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'});
+}
 function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
@@ -1325,6 +1331,7 @@ function openClientSheet(item={}){
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
       <div class="field"><label>Cuenta madre</label><select name="accountId"><option value="">Sin cuenta</option>${state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===c.accountId?'selected':''}>${esc(accountName(a))}</option>`).join('')}</select></div>
+      <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
         <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(saleValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
         <div class="field"><label>Precio renovacion</label><input name="renewalPrice" value="${esc(renewalValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
@@ -1345,6 +1352,13 @@ function openClientSheet(item={}){
     if(account?.platform) form.elements.platform.value = account.platform;
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
+  const syncFullAccountSale = () => {
+    const on = !!form.elements.fullAccountSale?.checked;
+    if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = on ? 'Cuenta completa' : ''; }
+    if(form.elements.pin){ form.elements.pin.disabled = on; form.elements.pin.placeholder = on ? 'No aplica' : ''; }
+  };
+  form.elements.fullAccountSale?.addEventListener('change', syncFullAccountSale);
+  syncFullAccountSale();
   if(form.elements.platform) form.elements.platform.onchange = () => fillDefaultClientPricesInForm(form, form.elements.platform.value);
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
@@ -1357,7 +1371,8 @@ function openClientSheet(item={}){
     const pricePatch = isFinanceModeEnabled()
       ? {}
       : { salePrice:c.salePrice || 0, renewalPrice:c.renewalPrice || 0 };
-    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || ''});
+    const fullAccountSale = fd.fullAccountSale === '1' || fd.fullAccountSale === 'on';
+    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, profile:fullAccountSale ? '' : fd.profile, pin:fullAccountSale ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
       submitBtn.disabled = false;
@@ -1592,6 +1607,7 @@ function sanitizeClientForSave(data={}){
     platform: clean(data.platform),
     profile: clean(data.profile),
     pin: clean(data.pin),
+    fullAccountSale: data.fullAccountSale === true || data.fullAccountSale === '1' || data.fullAccountSale === 'on',
     dueDate: clean(data.dueDate),
     state: clean(data.state) || 'Activo',
     notes: clean(data.notes).slice(0,1000),
@@ -2131,10 +2147,20 @@ function whatsappPayloadForClient(c, mode='delivery'){
       vence:'📅',
       nota:'✅'
     };
-    const final = clean(state.settings.finalMessage) ? `\n\n${emoji.nota} ${state.settings.finalMessage}` : '';
+    const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
     const password = clean(acc?.password);
-    text = `Hola ${clientName(c)} ${emoji.saludo}\n\n${emoji.brillo} Te envio nuevamente los datos de tu cuenta de ${service}:\n\n${emoji.correo} Correo: ${email || '-'}\n${emoji.clave} Contrasena: ${password || '-'}\n${emoji.perfil} Perfil: ${clean(c.profile) || '-'}\n${emoji.pin} PIN: ${clean(c.pin) || '-'}\n${emoji.vence} Vence: ${clean(c.dueDate) || '-'}${final}`;
+    const isFullAccount = c.fullAccountSale === true;
+    text = [
+      `¡Hola ${clientName(c)}! \ud83c\udfac\u2728 Aquí tienes tus datos de ${service} listos para que disfrutes de tu entretenimiento favorito \ud83c\udf7f\ud83c\udfa5:`,
+      '',
+      isFullAccount ? `\ud83d\udc64 Cuenta completa` : `\ud83d\udc64 Perfil: ${clean(c.profile) || '-'}`,
+      `\ud83d\udce7 Correo: ${email || '-'}`,
+      `\ud83d\udd11 Contraseña: ${password || '-'}`,
+      ...(!isFullAccount && clean(c.pin) ? [`\ud83d\udd10 PIN: ${clean(c.pin)}`] : []),
+      `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
+      final
+    ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;

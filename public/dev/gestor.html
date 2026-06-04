@@ -590,6 +590,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     platform: fsOptionalString(data.platform, 80),
     profile: fsOptionalString(data.profile, 50),
     pin: fsOptionalString(data.pin, 50),
+    fullAccountSale: data.fullAccountSale === true,
     dueDate: fsOptionalString(data.dueDate, 20),
     state: fsOptionalString(data.state, 30),
     notes: fsOptionalString(data.notes, 1000),
@@ -3164,6 +3165,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       <label>WhatsApp<input class="input" id="cWhatsapp" placeholder="974834197" /></label>
       <label>Cuenta madre<select class="select" id="cAccount"></select></label>
       <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
+      <label class="checkline full"><input type="checkbox" id="cFullAccountSale" /> Vendo la cuenta completa</label>
       <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
       <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
       <label data-finance-only>Precio venta<input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></label>
@@ -3533,7 +3535,7 @@ function normalizeLoaded(data){
   }));
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
-    profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
+    profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
@@ -5086,14 +5088,15 @@ function renewalPaymentLines(){
 function credentialsText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
   const finalMessage=String(state.settings?.finalMessage || '').trim();
+  const isFullAccount=client.fullAccountSale===true;
   return [
-    `Hola ${client.name || ''}, te paso tus datos de ${platform}:`,
+    `¡Hola ${client.name || 'Cliente'}! \ud83c\udfac\u2728 Aquí tienes tus datos de ${platform} listos para que disfrutes de tu entretenimiento favorito \ud83c\udf7f\ud83c\udfa5:`,
     '',
-    `Perfil: ${client.profile || '-'}`,
-    `Correo: ${account?.email || '-'}`,
-    `Contrasena: ${account?.password || '-'}`,
-    ...(client.pin ? [`Pin: ${client.pin}`] : []),
-    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '-'}`,
+    isFullAccount ? `\ud83d\udc64 Cuenta completa` : `\ud83d\udc64 Perfil: ${client.profile || '-'}`,
+    `\ud83d\udce7 Correo: ${account?.email || '-'}`,
+    `\ud83d\udd11 Contraseña: ${account?.password || '-'}`,
+    ...(!isFullAccount && client.pin ? [`\ud83d\udd10 PIN: ${client.pin}`] : []),
+    `\ud83d\udcc5 Vencimiento: ${fmtDateLong(client.dueDate) || '-'}`,
     ...(finalMessage ? ['', finalMessage] : [])
   ].join('\n');
 }
@@ -5379,7 +5382,14 @@ function setClientSubmitMode(isNewSale){
   btn.classList.toggle('ok', !!isNewSale);
   btn.classList.toggle('primary', !isNewSale);
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function setClientFullAccountMode(enabled){
+  const on=!!enabled;
+  const profile=$('#cProfile');
+  const pin=$('#cPin');
+  if(profile){ profile.disabled=on; profile.placeholder=on ? 'Cuenta completa' : '1'; }
+  if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
+}
+function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; setClientFullAccountMode(false); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -5420,7 +5430,7 @@ window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
-  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
+  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; setClientFullAccountMode(c.fullAccountSale===true);
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
@@ -6030,6 +6040,7 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
+$('#cFullAccountSale')?.addEventListener('change',e=>setClientFullAccountMode(e.currentTarget.checked));
 $('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value, {fillMissingForExisting:!!editingClientId}));
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
@@ -6136,9 +6147,10 @@ $('#saveClientBtn').onclick=async ()=>{
   const account=state.accounts.find(a=>a.id===accountId);
   const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
   const financeOn=isFinanceModeEnabled();
+  const fullAccountSale=$('#cFullAccountSale')?.checked===true;
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
-    platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
+    platform:account?.platform||$('#cPlatform').value.trim(), profile:fullAccountSale ? '' : $('#cProfile').value.trim(), pin:fullAccountSale ? '' : $('#cPin').value.trim(), fullAccountSale,
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
     renewalPrice:financeOn ? moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value) : moneyNumber(previousClient?.renewalPrice),
