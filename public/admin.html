@@ -728,6 +728,8 @@ async function draftTemplate(id) {
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
+const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
+const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
 
 function normalizeNewUserEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -1017,18 +1019,44 @@ function adminUsageDayFromMs(ms) {
   }).format(new Date(ms));
 }
 
-async function loadGestorUsageFromDevices(days) {
-  const byDay = new Map(days.map(day => [day, new Set()]));
-  const start = new Date(days[days.length - 1] + 'T00:00:00-05:00').getTime();
-  const snap = await fbDb.collectionGroup('devices').where('lastSeen','>=',start).get();
-  snap.forEach(doc => {
-    const data = doc.data() || {};
-    const seen = Number(data.lastSeen || data.lastLoginAt || data.registeredAt || 0);
-    const day = seen ? adminUsageDayFromMs(seen) : '';
-    const uid = doc.ref.parent.parent?.id || '';
-    if(byDay.has(day) && uid && data.revoked !== true) byDay.get(day).add(uid);
-  });
-  return days.map(day => ({ day, users:[...byDay.get(day)] }));
+function readAdminUsageCache(days) {
+  if(adminUsageCache.rows && Date.now() - adminUsageCache.at < ADMIN_USAGE_CACHE_TTL) return adminUsageCache.rows;
+  try {
+    const cached = JSON.parse(localStorage.getItem(ADMIN_USAGE_CACHE_KEY) || 'null');
+    if(!cached || Date.now() - Number(cached.at || 0) >= ADMIN_USAGE_CACHE_TTL) return null;
+    const expected = days.join('|');
+    if(cached.days !== expected || !Array.isArray(cached.rows)) return null;
+    adminUsageCache = { at:cached.at, rows:cached.rows };
+    return cached.rows;
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminUsageCache(days, rows) {
+  adminUsageCache = { at:Date.now(), rows };
+  try {
+    localStorage.setItem(ADMIN_USAGE_CACHE_KEY, JSON.stringify({
+      at:adminUsageCache.at,
+      days:days.join('|'),
+      rows
+    }));
+  } catch(_) {}
+}
+
+function usersFromUsageDoc(data) {
+  if(!data || typeof data !== 'object') return [];
+  if(Array.isArray(data.userIds)) return data.userIds.filter(Boolean);
+  if(data.users && typeof data.users === 'object') return Object.keys(data.users).filter(Boolean);
+  return [];
+}
+
+async function loadGestorUsageFromAggregates(days) {
+  const docs = await Promise.all(days.map(day =>
+    fbDb.collection('admin_metrics').doc(`gestor_usage_${day}`).get()
+      .then(doc => ({ day, users:doc.exists ? usersFromUsageDoc(doc.data() || {}) : [] }))
+  ));
+  return docs;
 }
 
 async function loadGestorUsageMetrics() {
@@ -1037,48 +1065,16 @@ async function loadGestorUsageMetrics() {
   const weekEl = document.getElementById('usage-week');
   const daysEl = document.getElementById('usage-days-list');
   if(!fbConnected || !daysEl) return;
-  const users = adminUsersCache || [];
   if(todayEl) todayEl.textContent = '...';
   if(yesterdayEl) yesterdayEl.textContent = '...';
   if(weekEl) weekEl.textContent = '...';
   daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
+  const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
   try {
-    const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
-    let rows = days.map(day => ({ day, users:[] }));
-    if(adminUsageCache.rows && Date.now() - adminUsageCache.at < 60000){
-      rows = adminUsageCache.rows;
-    } else {
-    try {
-      const snap = await fbDb.collectionGroup('gestor_usage').where('day','in',days).get();
-      const byDay = new Map(days.map(day => [day, new Set()]));
-      snap.forEach(doc => {
-        const data = doc.data() || {};
-        const day = data.day || doc.id;
-        const uid = data.uid || doc.ref.parent.parent?.id || '';
-        if(byDay.has(day) && uid) byDay.get(day).add(uid);
-      });
-      rows = days.map(day => ({ day, users:[...byDay.get(day)] }));
-      if(!rows.some(row => row.users.length)) rows = await loadGestorUsageFromDevices(days);
-    } catch(groupErr) {
-      console.warn('Uso diario: gestor_usage no disponible, usando dispositivos recientes.', groupErr);
-      try {
-        rows = await loadGestorUsageFromDevices(days);
-      } catch(deviceErr) {
-        console.warn('Uso diario: dispositivos no disponible, usando lectura por cliente.', deviceErr);
-        rows = await Promise.all(days.map(async day => {
-          const hits = await Promise.all(users.map(async user => {
-            try {
-              const doc = await fbDb.collection('users').doc(user.id).collection('gestor_usage').doc(day).get();
-              return doc.exists ? user.id : null;
-            } catch(_) {
-              return null;
-            }
-          }));
-          return { day, users:hits.filter(Boolean) };
-        }));
-      }
-    }
-    adminUsageCache = { at:Date.now(), rows };
+    let rows = readAdminUsageCache(days);
+    if(!rows) {
+      rows = await loadGestorUsageFromAggregates(days);
+      writeAdminUsageCache(days, rows);
     }
     const uniqueWeek = new Set(rows.flatMap(row => row.users));
     if(todayEl) todayEl.textContent = rows[0]?.users.length || 0;
@@ -1090,11 +1086,15 @@ async function loadGestorUsageMetrics() {
         <span>${adminUsageDayLabel(row.day)}</span>
       </div>`).join('');
   } catch(e) {
-    console.error(e);
-    if(todayEl) todayEl.textContent = '-';
-    if(yesterdayEl) yesterdayEl.textContent = '-';
-    if(weekEl) weekEl.textContent = '-';
-    daysEl.innerHTML = '<div class="usage-day"><b>-</b><span>Sin permiso</span></div>';
+    console.warn('Uso diario agregado no disponible:', e);
+    if(todayEl) todayEl.textContent = 'Sin datos';
+    if(yesterdayEl) yesterdayEl.textContent = 'Sin datos';
+    if(weekEl) weekEl.textContent = 'Sin datos';
+    daysEl.innerHTML = days.map(day => `
+      <div class="usage-day">
+        <b>-</b>
+        <span>${adminUsageDayLabel(day)}</span>
+      </div>`).join('');
   }
 }
 

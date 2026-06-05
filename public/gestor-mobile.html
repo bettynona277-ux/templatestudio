@@ -172,7 +172,7 @@ button{border:0;cursor:pointer}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -264,6 +264,7 @@ const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
 const devicesCol = uid => collection(db,'users',uid,'devices');
 const gestorUsageRef = (uid, day) => doc(db,'users',uid,'gestor_usage',day);
+const adminGestorUsageRef = day => doc(db,'admin_metrics',`gestor_usage_${day}`);
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
 const financeRef = itemId => doc(db,'users',state.uid,'gestor_finance_movements',itemId);
@@ -285,14 +286,30 @@ async function trackGestorDailyUsage(user, surface='mobile'){
   try{
     if(localStorage.getItem(cacheKey)) return;
     const now = Date.now();
-    await setDoc(gestorUsageRef(user.uid, day), {
+    const userUsage = {
       uid:user.uid,
       email:user.email || '',
       day,
       surface,
       lastSeenAt:now,
       updatedAt:now
-    }, { merge:true });
+    };
+    const adminUsage = {
+      day,
+      updatedAt:now,
+      countApprox:increment(1),
+      users:{
+        [user.uid]:{
+          email:user.email || '',
+          lastSeenAt:now,
+          surfaces:{ [surface]:true }
+        }
+      }
+    };
+    await Promise.allSettled([
+      setDoc(gestorUsageRef(user.uid, day), userUsage, { merge:true }),
+      setDoc(adminGestorUsageRef(day), adminUsage, { merge:true })
+    ]);
     localStorage.setItem(cacheKey, String(now));
   }catch(err){
     try{ localStorage.setItem(cacheKey, 'blocked'); }catch(_){}
@@ -675,10 +692,22 @@ function dueState(date){
   if (days <= 3) return { label:days+' dias', cls:'warn', days };
   return { label:days+' dias', cls:'ok', days };
 }
+function fmtDateLong(date){
+  if(!date) return '';
+  const due = new Date(date+'T00:00:00');
+  if(Number.isNaN(due.getTime())) return clean(date);
+  return due.toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'});
+}
 function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
-function accountUsed(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').length; }
+function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo'); }
+function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
+function accountUsed(accountId){
+  const acc = state.accounts.find(a => a.id === accountId);
+  const clients = activeAccountClients(accountId);
+  return clients.some(c => c.fullAccountSale === true) ? Number(acc?.capacity || clients.length || 0) : clients.length;
+}
 function toast(msg,type='ok'){
   const el = $('#toast');
   el.textContent = msg;
@@ -932,23 +961,10 @@ function renderAccounts(listOnly=false){
 }
 function renderDue(){
   const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && c.state !== 'No renovo').sort((a,b)=>a.due.days-b.due.days);
-  const expired = list.filter(c => c.due.days < 0).length;
-  const today = list.filter(c => c.due.days === 0).length;
-  const tomorrow = list.filter(c => c.due.days === 1).length;
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div>
-    <div class="due-copy-box">
-      <div class="due-copy-head"><strong>${icon('copy')} Copiar numeros</strong><span>Para envios masivos</span></div>
-      <div class="due-copy-options">
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="expired" checked><span>Vencidos (${expired})</span></label>
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="today"><span>Hoy (${today})</span></label>
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="tomorrow"><span>Manana (${tomorrow})</span></label>
-      </div>
-      <button class="btn primary" id="copyDuePhonesMobile" type="button">${icon('copy')}<span>Copiar</span></button>
-    </div>
     <div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div>
   </section>`;
-  $('#copyDuePhonesMobile').onclick = copyDuePhonesMobile;
   bindCards();
 }
 function renderFinance(){
@@ -1020,7 +1036,7 @@ function renderSettings(){
       <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
-      <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
+      <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" maxlength="1500" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
     <div class="section">
@@ -1102,13 +1118,14 @@ function accountCard(a){
   const used = accountUsed(a.id), cap = Number(a.capacity || 0), free = Math.max(0, cap-used);
   const ds = dueState(a.dueDate);
   const cat = accountCategory(a);
-  const assigned = state.clients.filter(c => c.accountId === a.id && c.state !== 'No renovo').length;
+  const assigned = activeAccountClients(a.id).length;
+  const fullSold = accountHasFullSale(a.id);
   return `<article class="card" data-account="${esc(a.id)}">
     <div class="card-row"><div class="avatar green">${esc(platformShort(a.platform).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
-        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
+        <span class="pill brand">${esc(cat)}</span><span class="pill ${fullSold?'warn':'ok'}">${fullSold?'Cuenta completa':free+' libres'}</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button></div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button>${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
   </article>`;
 }
 function bindSearch(){
@@ -1308,6 +1325,7 @@ function openClientSheet(item={}){
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
       <div class="field"><label>Cuenta madre</label><select name="accountId"><option value="">Sin cuenta</option>${state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===c.accountId?'selected':''}>${esc(accountName(a))}</option>`).join('')}</select></div>
+      <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
         <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(saleValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
         <div class="field"><label>Precio renovacion</label><input name="renewalPrice" value="${esc(renewalValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
@@ -1328,6 +1346,13 @@ function openClientSheet(item={}){
     if(account?.platform) form.elements.platform.value = account.platform;
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
+  const syncFullAccountSale = () => {
+    const on = !!form.elements.fullAccountSale?.checked;
+    if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = on ? 'Cuenta completa' : ''; }
+    if(form.elements.pin){ form.elements.pin.disabled = on; form.elements.pin.placeholder = on ? 'No aplica' : ''; }
+  };
+  form.elements.fullAccountSale?.addEventListener('change', syncFullAccountSale);
+  syncFullAccountSale();
   if(form.elements.platform) form.elements.platform.onchange = () => fillDefaultClientPricesInForm(form, form.elements.platform.value);
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
@@ -1340,7 +1365,8 @@ function openClientSheet(item={}){
     const pricePatch = isFinanceModeEnabled()
       ? {}
       : { salePrice:c.salePrice || 0, renewalPrice:c.renewalPrice || 0 };
-    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || ''});
+    const fullAccountSale = fd.fullAccountSale === '1' || fd.fullAccountSale === 'on';
+    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, profile:fullAccountSale ? '' : fd.profile, pin:fullAccountSale ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
       submitBtn.disabled = false;
@@ -1408,6 +1434,7 @@ function selectedMobileComboTemplate(templates){
 }
 function nextProfileSuggestionMobile(accountId){
   const acc = state.accounts.find(a => a.id === accountId);
+  if(accountHasFullSale(accountId)) return '';
   const used = new Set(state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').map(c => clean(c.profile)).filter(Boolean));
   for(let i=1;i<=Number(acc?.capacity||0);i++) if(!used.has(String(i))) return String(i);
   return '';
@@ -1575,6 +1602,7 @@ function sanitizeClientForSave(data={}){
     platform: clean(data.platform),
     profile: clean(data.profile),
     pin: clean(data.pin),
+    fullAccountSale: data.fullAccountSale === true || data.fullAccountSale === '1' || data.fullAccountSale === 'on',
     dueDate: clean(data.dueDate),
     state: clean(data.state) || 'Activo',
     notes: clean(data.notes).slice(0,1000),
@@ -2114,10 +2142,20 @@ function whatsappPayloadForClient(c, mode='delivery'){
       vence:'📅',
       nota:'✅'
     };
-    const final = clean(state.settings.finalMessage) ? `\n\n${emoji.nota} ${state.settings.finalMessage}` : '';
+    const final = clean(state.settings.finalMessage) ? `\n\n${state.settings.finalMessage}` : '';
     const email = clean(acc?.email);
     const password = clean(acc?.password);
-    text = `Hola ${clientName(c)} ${emoji.saludo}\n\n${emoji.brillo} Te envio nuevamente los datos de tu cuenta de ${service}:\n\n${emoji.correo} Correo: ${email || '-'}\n${emoji.clave} Contrasena: ${password || '-'}\n${emoji.perfil} Perfil: ${clean(c.profile) || '-'}\n${emoji.pin} PIN: ${clean(c.pin) || '-'}\n${emoji.vence} Vence: ${clean(c.dueDate) || '-'}${final}`;
+    const isFullAccount = c.fullAccountSale === true;
+    text = [
+      `¡Hola ${clientName(c)}! \ud83c\udfac\u2728 Aquí tienes tus datos de ${service} listos para que disfrutes de tu entretenimiento favorito \ud83c\udf7f\ud83c\udfa5:`,
+      '',
+      isFullAccount ? `\ud83d\udc64 Cuenta completa` : `\ud83d\udc64 Perfil: ${clean(c.profile) || '-'}`,
+      `\ud83d\udce7 Correo: ${email || '-'}`,
+      `\ud83d\udd11 Contraseña: ${password || '-'}`,
+      ...(!isFullAccount && clean(c.pin) ? [`\ud83d\udd10 PIN: ${clean(c.pin)}`] : []),
+      `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
+      final
+    ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;

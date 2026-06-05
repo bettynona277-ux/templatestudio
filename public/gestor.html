@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
@@ -22,7 +22,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   initializeFirestore, doc, getDoc, setDoc, deleteDoc,
-  collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit
+  collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -59,6 +59,7 @@ function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
 function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
 function gestorUsageRef(uid, day){ return doc(db, 'users', uid, 'gestor_usage', day); }
+function adminGestorUsageRef(day){ return doc(db, 'admin_metrics', `gestor_usage_${day}`); }
 const FINANCE_RECENT_LIMIT = 350;
 
 function usageDayId(date = new Date()) {
@@ -77,14 +78,30 @@ async function trackGestorDailyUsage(user, surface='desktop') {
   try {
     if(localStorage.getItem(cacheKey)) return;
     const now = Date.now();
-    await setDoc(gestorUsageRef(user.uid, day), {
+    const userUsage = {
       uid:user.uid,
       email:user.email || '',
       day,
       surface,
       lastSeenAt:now,
       updatedAt:now
-    }, { merge:true });
+    };
+    const adminUsage = {
+      day,
+      updatedAt:now,
+      countApprox:increment(1),
+      users:{
+        [user.uid]:{
+          email:user.email || '',
+          lastSeenAt:now,
+          surfaces:{ [surface]:true }
+        }
+      }
+    };
+    await Promise.allSettled([
+      setDoc(gestorUsageRef(user.uid, day), userUsage, { merge:true }),
+      setDoc(adminGestorUsageRef(day), adminUsage, { merge:true })
+    ]);
     localStorage.setItem(cacheKey, String(now));
   } catch (err) {
     try { localStorage.setItem(cacheKey, 'blocked'); } catch(_) {}
@@ -573,6 +590,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     platform: fsOptionalString(data.platform, 80),
     profile: fsOptionalString(data.profile, 50),
     pin: fsOptionalString(data.pin, 50),
+    fullAccountSale: data.fullAccountSale === true,
     dueDate: fsOptionalString(data.dueDate, 20),
     state: fsOptionalString(data.state, 30),
     notes: fsOptionalString(data.notes, 1000),
@@ -1702,33 +1720,123 @@ select option:checked{
 }
 .renewals-copy-bar{
   margin:16px 28px 20px;
-  padding:14px;
-  border:1px solid rgba(138,161,255,.16);
-  border-radius:18px;
-  background:rgba(255,255,255,.035);
+  padding:20px;
+  border:1px solid rgba(138,161,255,.20);
+  border-radius:22px;
+  background:
+    radial-gradient(circle at 8% 20%,rgba(124,92,255,.13),transparent 34%),
+    linear-gradient(145deg,rgba(15,23,42,.74),rgba(10,18,32,.88));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 14px 42px rgba(0,0,0,.18);
   display:grid;
-  grid-template-columns:minmax(180px,1fr) auto;
-  gap:14px;
+  grid-template-columns:minmax(280px,1fr) auto;
+  gap:18px;
   align-items:center;
 }
-.renewals-copy-title strong{display:block;font-size:14px}
-.renewals-copy-title span{display:block;margin-top:3px;color:var(--muted);font-size:12px;font-weight:700}
-.renewals-copy-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.renewals-copy-intro{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  gap:16px;
+  min-width:0;
+}
+.renewals-copy-icon{
+  width:54px;
+  height:54px;
+  border-radius:17px;
+  display:grid;
+  place-items:center;
+  color:#d8ccff;
+  background:linear-gradient(145deg,rgba(124,92,255,.36),rgba(37,99,235,.18));
+  border:1px solid rgba(167,139,250,.25);
+  box-shadow:0 14px 34px rgba(124,92,255,.18);
+}
+.renewals-copy-icon svg{width:25px;height:25px;stroke-width:2.25}
+.renewals-copy-title strong{display:block;font-size:16px;font-weight:950;letter-spacing:0;color:#f8fbff}
+.renewals-copy-title span{display:block;margin-top:5px;color:#bdc9e4;font-size:13px;font-weight:700;line-height:1.35}
+.renewals-copy-title small{display:block;margin-top:4px;color:#8fa2c5;font-size:12px;font-weight:750;line-height:1.35}
+.renewals-copy-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .renewals-copy-chip{
-  min-height:38px;
-  border-radius:13px;
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.035);
-  color:var(--muted);
+  min-height:46px;
+  border-radius:14px;
+  border:1px solid rgba(148,163,184,.16);
+  background:rgba(15,23,42,.58);
+  color:#dbe7ff;
   display:inline-flex;
   align-items:center;
-  gap:7px;
-  padding:0 11px;
-  font-size:12.5px;
-  font-weight:850;
+  gap:10px;
+  padding:0 14px;
+  font-size:13px;
+  font-weight:900;
+  cursor:pointer;
+  user-select:none;
+  transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease,box-shadow .16s ease;
 }
-.renewals-copy-chip input{width:15px;height:15px;accent-color:#22d3a6}
-.renewals-copy-chip:has(input:checked){color:var(--text);border-color:rgba(34,211,166,.34);background:rgba(34,211,166,.09)}
+.renewals-copy-chip:hover{
+  transform:translateY(-1px);
+  border-color:rgba(139,125,255,.34);
+  background:rgba(30,41,59,.72);
+}
+.renewals-copy-chip input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+.renewals-copy-chip .chip-check{
+  width:22px;
+  height:22px;
+  border-radius:7px;
+  display:grid;
+  place-items:center;
+  flex:0 0 22px;
+  color:transparent;
+  background:rgba(15,23,42,.86);
+  border:1px solid rgba(148,163,184,.22);
+  transition:all .16s ease;
+}
+.renewals-copy-chip .chip-check svg{
+  width:15px;
+  height:15px;
+  stroke-width:3;
+}
+.renewals-copy-chip b{
+  margin-left:6px;
+  color:#aebeff;
+  font-weight:950;
+}
+.renewals-copy-chip:has(input:checked){
+  color:#fff;
+  border-color:rgba(124,92,255,.72);
+  background:linear-gradient(145deg,rgba(124,92,255,.22),rgba(37,99,235,.10));
+  box-shadow:0 0 0 1px rgba(124,92,255,.18),0 12px 28px rgba(124,92,255,.12);
+}
+.renewals-copy-chip:has(input:checked) .chip-check{
+  color:#fff;
+  background:linear-gradient(135deg,#8b7dff,#6756ff);
+  border-color:transparent;
+  box-shadow:0 6px 16px rgba(124,92,255,.28);
+}
+.renewals-copy-chip:has(input:checked) b{
+  color:#cfc7ff;
+}
+#copyRenewalPhonesBtn{
+  min-height:48px;
+  padding:0 18px;
+  border-radius:15px;
+  font-size:14px;
+  font-weight:950;
+  background:linear-gradient(135deg,#8b5cf6,#6d5dfc);
+  border-color:rgba(167,139,250,.35);
+  box-shadow:0 14px 34px rgba(124,92,255,.24);
+}
+#copyRenewalPhonesBtn:hover{
+  background:linear-gradient(135deg,#9b6cff,#7264ff);
+  box-shadow:0 18px 42px rgba(124,92,255,.32);
+}
+#copyRenewalPhonesBtn svg{
+  width:18px;
+  height:18px;
+  stroke-width:2.5;
+}
 .renewals-table{
   margin:0 28px 22px;
   border:1px solid rgba(255,255,255,.08);
@@ -1865,8 +1973,13 @@ select option:checked{
 .renewal-metric span{display:block;margin-top:4px;color:var(--text-2);font-weight:800}
 .renewal-metric small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 @media(max-width:980px){
-  .renewals-copy-bar{grid-template-columns:1fr}
-  .renewals-copy-actions{justify-content:flex-start}
+  .renewals-copy-bar{
+    grid-template-columns:1fr;
+    align-items:stretch;
+  }
+  .renewals-copy-actions{
+    justify-content:flex-start;
+  }
 }
 .filter-chip{
   height:34px;
@@ -2265,6 +2378,278 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .modal .helper{color:var(--muted);font-size:12px;margin-top:-4px}
 
+/* Client sale modal */
+#clientModalWrap{
+  background:rgba(2,6,17,.78);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+#clientModalWrap .client-sale-modal{
+  width:min(1080px,calc(100vw - 32px));
+  padding:30px 30px 24px;
+  border-radius:26px;
+  background:
+    radial-gradient(circle at 20% 0%,rgba(59,130,246,.14),transparent 32%),
+    linear-gradient(145deg,#0f172a,#111827 58%,#0b1220);
+  border:1px solid rgba(148,163,184,.18);
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+}
+#clientModalWrap .modal-head{
+  align-items:flex-start;
+  margin:0 0 26px;
+  padding:0 0 20px;
+  border-bottom:1px solid rgba(148,163,184,.12);
+}
+#clientModalWrap .client-modal-title{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  min-width:0;
+}
+#clientModalWrap .client-modal-icon{
+  width:52px;
+  height:52px;
+  border-radius:16px;
+  display:grid;
+  place-items:center;
+  color:#dbeafe;
+  background:linear-gradient(145deg,#2563eb,#38bdf8);
+  border:1px solid rgba(147,197,253,.28);
+  box-shadow:0 16px 38px rgba(37,99,235,.28);
+}
+#clientModalWrap .client-modal-icon svg{width:25px;height:25px;stroke-width:2.4}
+#clientModalWrap .client-modal-icon i[data-lucide]{
+  width:25px;
+  height:25px;
+  display:block;
+  font-size:0;
+}
+#clientModalWrap .modal-head h3{
+  margin:0;
+  font-size:26px;
+  line-height:1.1;
+  font-weight:900;
+  letter-spacing:0;
+}
+#clientModalWrap .modal-head small{
+  display:block;
+  margin-top:7px;
+  color:#9fb1d1;
+  font-size:14px;
+  font-weight:700;
+  line-height:1.35;
+}
+#clientModalWrap .x{
+  width:40px;
+  height:40px;
+  border-radius:14px;
+  display:grid;
+  place-items:center;
+  color:#9fb1d1;
+  background:rgba(15,23,42,.45);
+  border:1px solid rgba(148,163,184,.12);
+  font-size:28px;
+  line-height:1;
+}
+#clientModalWrap .x:hover{
+  color:#f8fafc;
+  background:rgba(30,41,59,.82);
+  border-color:rgba(148,163,184,.24);
+  transform:translateY(-1px);
+}
+#clientModalWrap .form{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:18px 28px;
+}
+#clientModalWrap .form label{
+  gap:9px;
+  color:#9fb1d1;
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:0;
+}
+#clientModalWrap .field-control{
+  min-height:54px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  width:100%;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(15,23,42,.78);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease,transform .18s ease;
+}
+#clientModalWrap .field-control:focus-within{
+  border-color:rgba(59,130,246,.72);
+  background:rgba(15,23,42,.92);
+  box-shadow:0 0 0 4px rgba(59,130,246,.12), inset 0 1px 0 rgba(255,255,255,.04);
+}
+#clientModalWrap .field-control > svg{
+  width:20px;
+  height:20px;
+  margin-left:16px;
+  color:#dbeafe;
+  opacity:.95;
+  flex:0 0 auto;
+  stroke-width:2.2;
+}
+#clientModalWrap .field-control > i[data-lucide]{
+  width:20px;
+  height:20px;
+  margin-left:16px;
+  display:block;
+  flex:0 0 auto;
+  color:#dbeafe;
+  font-size:0;
+}
+#clientModalWrap .field-control .input,
+#clientModalWrap .field-control .select,
+#clientModalWrap .field-control textarea{
+  min-height:52px;
+  height:52px;
+  flex:1;
+  border:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  border-radius:0!important;
+  padding:0 16px 0 0!important;
+  color:#f8fafc!important;
+  font-size:16px;
+  font-weight:750;
+}
+#clientModalWrap .field-control .select{
+  background:
+    linear-gradient(45deg,transparent 50%,#9fb1d1 50%) calc(100% - 20px) 50%/7px 7px no-repeat,
+    linear-gradient(135deg,#9fb1d1 50%,transparent 50%) calc(100% - 14px) 50%/7px 7px no-repeat!important;
+  padding-right:46px!important;
+}
+#clientModalWrap .field-control .input::placeholder,
+#clientModalWrap .field-control textarea::placeholder{color:#7184a8}
+#clientModalWrap .field-control .input:disabled{
+  color:#7082a4!important;
+  opacity:1;
+  cursor:not-allowed;
+}
+#clientModalWrap .textarea-control{
+  align-items:flex-start;
+  min-height:104px;
+}
+#clientModalWrap .textarea-control > svg{margin-top:16px}
+#clientModalWrap .textarea-control textarea{
+  min-height:102px;
+  height:auto;
+  padding:14px 16px 14px 0!important;
+  line-height:1.45;
+}
+#clientModalWrap .client-full-sale-toggle{
+  min-height:78px;
+  flex-direction:row;
+  align-items:center;
+  gap:16px;
+  padding:16px 18px;
+  border-radius:18px;
+  border:1px solid rgba(59,130,246,.36);
+  background:linear-gradient(145deg,rgba(37,99,235,.13),rgba(15,23,42,.76));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+  color:#f8fafc;
+}
+#clientModalWrap .client-full-sale-toggle input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+#clientModalWrap .client-full-sale-toggle .switch-ui{
+  position:relative;
+  width:58px;
+  height:34px;
+  flex:0 0 58px;
+  pointer-events:none;
+  border-radius:999px;
+  background:rgba(51,65,85,.95);
+  border:1px solid rgba(148,163,184,.20);
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.24);
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+#clientModalWrap .client-full-sale-toggle .switch-ui::after{
+  content:"";
+  position:absolute;
+  width:26px;
+  height:26px;
+  left:3px;
+  top:3px;
+  border-radius:50%;
+  background:#e2e8f0;
+  box-shadow:0 6px 14px rgba(0,0,0,.28);
+  transition:transform .18s ease,background .18s ease;
+}
+#clientModalWrap .client-full-sale-toggle input:checked + .switch-ui{
+  background:linear-gradient(135deg,#22c55e,#38bdf8);
+  border-color:rgba(125,211,252,.42);
+  box-shadow:0 0 0 4px rgba(34,197,94,.10), inset 0 1px 0 rgba(255,255,255,.15);
+}
+#clientModalWrap .client-full-sale-toggle input:checked + .switch-ui::after{
+  transform:translateX(24px);
+  background:#fff;
+}
+#clientModalWrap .client-full-sale-toggle strong{
+  display:block;
+  font-size:16px;
+  font-weight:900;
+  line-height:1.25;
+}
+#clientModalWrap .client-full-sale-toggle small{
+  display:block;
+  margin-top:5px;
+  color:#aab9d4;
+  font-size:13px;
+  font-weight:700;
+  line-height:1.35;
+}
+#clientModalWrap .modal-actions{
+  margin:26px -30px -24px;
+  padding:22px 30px;
+  border-top:1px solid rgba(148,163,184,.12);
+  background:rgba(8,13,24,.35);
+}
+#clientModalWrap .modal-actions .btn{
+  min-height:54px;
+  padding:0 28px;
+  border-radius:16px;
+  font-size:15px;
+  font-weight:900;
+}
+#clientModalWrap .modal-actions .btn:not(.ok):not(.primary){
+  background:rgba(15,23,42,.72);
+  border-color:rgba(148,163,184,.22);
+  color:#f8fafc;
+}
+#clientModalWrap .modal-actions .btn:not(.ok):not(.primary):hover{
+  background:rgba(30,41,59,.9);
+  border-color:rgba(148,163,184,.34);
+}
+#clientModalWrap #saveClientBtn.ok{
+  min-width:230px;
+  background:linear-gradient(135deg,#22c55e,#16a34a);
+  border-color:rgba(74,222,128,.35);
+  color:#f0fdf4;
+  box-shadow:0 12px 30px rgba(34,197,94,.25);
+}
+#clientModalWrap #saveClientBtn.ok::before{
+  content:"";
+  width:18px;
+  height:18px;
+  margin-right:8px;
+  border-radius:5px;
+  background:currentColor;
+  opacity:.95;
+  clip-path:path("M9 0C4.04 0 0 3.65 0 8.14c0 1.52.47 2.95 1.29 4.17L.22 16l3.98-1.02A9.8 9.8 0 0 0 9 16c4.96 0 9-3.65 9-8.14S13.96 0 9 0Zm4.98 11.27c-.21.56-1.21 1.06-1.69 1.1-.45.04-1.02.06-1.64-.1-.38-.1-.86-.28-1.48-.54-2.6-1.11-4.3-3.69-4.43-3.86-.13-.17-1.06-1.4-1.06-2.67 0-1.27.67-1.9.9-2.16.23-.25.5-.32.67-.32h.48c.15 0 .36-.06.56.43.21.5.72 1.74.78 1.86.06.13.1.28.02.45-.07.17-.11.28-.23.43-.11.15-.24.34-.34.45-.11.11-.23.24-.1.49.13.25.58.96 1.25 1.55.86.77 1.58 1.01 1.83 1.13.25.13.39.11.54-.06.15-.17.62-.72.79-.97.17-.25.34-.21.57-.13.23.08 1.48.69 1.73.82.25.13.42.19.48.3.06.1.06.6-.15 1.16Z");
+}
+#clientModalWrap #saveClientBtn.ok:hover{
+  background:linear-gradient(135deg,#34d399,#16a34a);
+  box-shadow:0 16px 36px rgba(34,197,94,.32);
+}
+
 /* Renew modal */
 .renew-modal{max-width:720px}
 .renew-summary{text-align:left!important;padding:14px 16px!important;margin-bottom:14px;border-style:solid!important}
@@ -2328,6 +2713,231 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .settings-section-title{font-weight:850;color:var(--text)}
 .settings-section-note{color:var(--muted);font-size:12.5px;margin-top:3px}
+#settingsModalWrap.prices-mode{
+  background:rgba(2,6,17,.80);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+#settingsModalWrap.prices-mode .modal{
+  width:min(1100px,calc(100vw - 32px));
+  padding:30px;
+  border-radius:26px;
+  background:
+    radial-gradient(circle at 18% 0%,rgba(59,130,246,.14),transparent 34%),
+    linear-gradient(145deg,#0f172a,#111827 58%,#0b1220);
+  border:1px solid rgba(148,163,184,.18);
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+}
+#settingsModalWrap.prices-mode .modal-head{
+  margin:0 0 22px;
+  padding:0 0 18px;
+  border-bottom:1px solid rgba(148,163,184,.12);
+}
+#settingsModalWrap.prices-mode #settingsModalTitle{
+  font-size:0;
+}
+#settingsModalWrap.prices-mode #settingsModalTitle::before{
+  content:"Precios por plataforma";
+  font-size:28px;
+  line-height:1.1;
+  font-weight:950;
+  letter-spacing:0;
+}
+#settingsModalWrap.prices-mode .modal-head::after{
+  content:"Valores por defecto para venta, renovación y compra.";
+  position:absolute;
+  left:30px;
+  top:70px;
+  color:#9fb1d1;
+  font-size:15px;
+  font-weight:700;
+}
+#settingsModalWrap.prices-mode .modal-head{position:relative;padding-bottom:48px}
+#settingsModalWrap.prices-mode .x{
+  width:40px;
+  height:40px;
+  display:grid;
+  place-items:center;
+  border-radius:14px;
+  background:rgba(15,23,42,.55);
+  border:1px solid rgba(148,163,184,.14);
+  color:#aab9d4;
+  font-size:28px;
+}
+#settingsModalWrap.prices-mode .x:hover{
+  color:#fff;
+  background:rgba(30,41,59,.88);
+  border-color:rgba(148,163,184,.28);
+}
+#settingsModalWrap.prices-mode .form{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:24px;
+}
+#settingsModalWrap.prices-mode .finance-currency-field{
+  max-width:420px;
+  gap:10px;
+  color:#d9e6ff;
+  font-size:15px;
+  font-weight:850;
+}
+.finance-currency-field > span{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+}
+.finance-currency-field > span svg{
+  width:20px;
+  height:20px;
+  color:#60a5fa;
+}
+#settingsModalWrap.prices-mode .finance-currency-field .select{
+  height:52px;
+  border-radius:14px!important;
+  background:
+    linear-gradient(45deg,transparent 50%,#cbd5e1 50%) calc(100% - 20px) 50%/7px 7px no-repeat,
+    linear-gradient(135deg,#cbd5e1 50%,transparent 50%) calc(100% - 14px) 50%/7px 7px no-repeat,
+    rgba(15,23,42,.85)!important;
+  border:1px solid rgba(148,163,184,.20)!important;
+  color:#f8fafc!important;
+  padding:0 46px 0 16px!important;
+  font-size:15px;
+  font-weight:800;
+}
+#settingsModalWrap.prices-mode #settingsSectionPrices{
+  grid-column:1/-1;
+}
+.price-settings-shell{
+  display:grid;
+  gap:20px;
+}
+.price-settings-head{
+  display:none;
+}
+.price-settings-head h3{
+  margin:0;
+  font-size:28px;
+  font-weight:950;
+  letter-spacing:0;
+}
+.price-settings-head p{
+  margin:8px 0 0;
+  color:#9fb1d1;
+  font-size:15px;
+  font-weight:700;
+}
+.price-currency-mount{display:none}
+.price-table-card{
+  overflow:hidden;
+  border-radius:18px;
+  border:1px solid rgba(148,163,184,.16);
+  background:rgba(15,23,42,.42);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+.price-table-head,
+.price-row{
+  display:grid;
+  grid-template-columns:minmax(260px,2fr) repeat(3,minmax(150px,1fr));
+  gap:16px;
+  align-items:center;
+}
+.price-table-head{
+  min-height:52px;
+  padding:0 22px;
+  background:linear-gradient(180deg,rgba(59,130,246,.10),rgba(148,163,184,.04));
+  border-bottom:1px solid rgba(148,163,184,.14);
+  color:#a9c1eb;
+  font-size:13px;
+  font-weight:950;
+}
+.platform-price-list{
+  gap:0;
+}
+.price-row{
+  padding:12px 18px 12px 22px;
+  border-bottom:1px solid rgba(148,163,184,.10);
+  transition:background .16s ease;
+}
+.price-row:last-child{border-bottom:0}
+.price-row:hover{
+  background:rgba(59,130,246,.06);
+}
+.price-platform-info{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+  color:#f8fafc;
+  font-weight:900;
+  font-size:15px;
+}
+.price-platform-badge{
+  width:44px;
+  height:44px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  flex:0 0 44px;
+  overflow:hidden;
+  background:rgba(15,23,42,.86);
+  border:1px solid rgba(148,163,184,.14);
+}
+.price-platform-badge .platform-logo,
+.price-platform-badge svg{
+  width:100%!important;
+  height:100%!important;
+  margin:0!important;
+}
+.price-row label{
+  display:block;
+  min-width:0;
+}
+.price-input{
+  width:100%;
+  height:44px;
+  min-height:44px;
+  background:rgba(15,23,42,.75)!important;
+  border:1px solid rgba(148,163,184,.18)!important;
+  border-radius:12px!important;
+  padding:0 14px!important;
+  color:#dbeafe!important;
+  font-size:15px!important;
+  font-weight:800!important;
+}
+.price-input:focus{
+  outline:none;
+  border-color:rgba(59,130,246,.75)!important;
+  box-shadow:0 0 0 3px rgba(59,130,246,.15)!important;
+  background:rgba(15,23,42,.95)!important;
+}
+#settingsModalWrap.prices-mode .modal-actions{
+  margin:26px -30px -30px;
+  padding:22px 30px;
+  border-top:1px solid rgba(148,163,184,.12);
+  background:rgba(8,13,24,.34);
+}
+#settingsModalWrap.prices-mode .modal-actions .btn{
+  min-height:52px;
+  min-width:150px;
+  border-radius:14px;
+  font-size:15px;
+  font-weight:900;
+}
+#settingsModalWrap.prices-mode .modal-actions .btn:not(.primary){
+  background:rgba(15,23,42,.75);
+  border:1px solid rgba(148,163,184,.20);
+  color:#e5e7eb;
+}
+#settingsModalWrap.prices-mode .modal-actions .btn.primary{
+  min-width:190px;
+  background:linear-gradient(135deg,#2563eb,#3b82f6);
+  border-color:transparent;
+  box-shadow:0 12px 30px rgba(37,99,235,.25);
+}
+#settingsModalWrap.prices-mode .modal-actions .btn.primary:hover{
+  background:linear-gradient(135deg,#1d4ed8,#3b82f6);
+  box-shadow:0 16px 38px rgba(37,99,235,.32);
+}
 .security-grid{
   grid-column:1/-1;
   display:grid;
@@ -2773,6 +3383,125 @@ i[data-lucide="search"]::before{content:"âŒ•"}
     display:grid;grid-template-columns:1fr!important;gap:8px;
   }
   .modal-actions .btn{width:100%;min-height:46px;justify-content:center}
+  #clientModalWrap .client-sale-modal{
+    width:100vw!important;
+    max-width:100vw!important;
+    max-height:92dvh!important;
+    padding:22px 18px 0!important;
+    border-radius:26px 26px 0 0!important;
+  }
+  #clientModalWrap .modal-head{
+    margin:0 0 18px!important;
+    padding:0 0 16px!important;
+    border-radius:0!important;
+  }
+  #clientModalWrap .client-modal-icon{
+    width:46px;
+    height:46px;
+    border-radius:15px;
+  }
+  #clientModalWrap .modal-head h3{font-size:22px}
+  #clientModalWrap .modal-head small{font-size:12.5px}
+  #clientModalWrap .form{
+    grid-template-columns:1fr!important;
+    gap:15px!important;
+    padding-bottom:0;
+  }
+  #clientModalWrap .field-control{min-height:52px}
+  #clientModalWrap .field-control .input,
+  #clientModalWrap .field-control .select{height:50px;min-height:50px;font-size:15px}
+  #clientModalWrap .client-full-sale-toggle{
+    min-height:76px;
+    padding:14px;
+  }
+  #clientModalWrap .modal-actions{
+    position:static;
+    margin:22px -18px 0!important;
+    padding:14px 18px calc(18px + env(safe-area-inset-bottom,0px))!important;
+    grid-template-columns:1fr!important;
+  }
+  #clientModalWrap .modal-actions .btn{min-height:50px!important;width:100%}
+  #clientModalWrap #saveClientBtn.ok{min-width:0}
+  #settingsModalWrap.prices-mode .modal{
+    width:100vw!important;
+    max-width:100vw!important;
+    max-height:92dvh!important;
+    padding:22px 18px 0!important;
+    border-radius:26px 26px 0 0!important;
+  }
+  #settingsModalWrap.prices-mode .modal-head{
+    margin:0 0 18px!important;
+    padding:0 0 50px!important;
+    border-radius:0!important;
+  }
+  #settingsModalWrap.prices-mode #settingsModalTitle::before{
+    font-size:24px;
+  }
+  #settingsModalWrap.prices-mode .modal-head::after{
+    left:0;
+    top:36px;
+    font-size:13px;
+    line-height:1.35;
+    max-width:260px;
+  }
+  #settingsModalWrap.prices-mode .form{
+    gap:18px!important;
+  }
+  #settingsModalWrap.prices-mode .finance-currency-field{
+    max-width:none;
+  }
+  .price-table-card{
+    border-radius:18px;
+    background:transparent;
+    border:0;
+    box-shadow:none;
+    overflow:visible;
+  }
+  .price-table-head{display:none}
+  .platform-price-list{gap:12px}
+  .price-row{
+    grid-template-columns:1fr;
+    gap:12px;
+    padding:14px;
+    border:1px solid rgba(148,163,184,.14);
+    border-radius:18px;
+    background:rgba(15,23,42,.50);
+  }
+  .price-platform-info{
+    padding-bottom:2px;
+  }
+  .price-platform-badge{
+    width:42px;
+    height:42px;
+    flex-basis:42px;
+  }
+  .price-row label{
+    display:grid;
+    grid-template-columns:116px minmax(0,1fr);
+    align-items:center;
+    gap:10px;
+  }
+  .price-row label::before{
+    content:attr(data-price-label);
+    color:#9fb1d1;
+    font-size:12px;
+    font-weight:900;
+  }
+  .price-input{
+    height:46px;
+    min-height:46px;
+  }
+  #settingsModalWrap.prices-mode .modal-actions{
+    position:static;
+    margin:20px -18px 0!important;
+    padding:14px 18px calc(18px + env(safe-area-inset-bottom,0px))!important;
+    display:grid;
+    grid-template-columns:1fr!important;
+  }
+  #settingsModalWrap.prices-mode .modal-actions .btn{
+    width:100%;
+    min-height:50px;
+  }
 
   .hero-pill,.card{min-height:88px}
   .hero-number,.card .value{font-size:28px}
@@ -2780,6 +3509,34 @@ i[data-lucide="search"]::before{content:"âŒ•"}
   .renewals-hero{padding:20px 16px}
   .renewals-tools{grid-template-columns:1fr}
   .renewals-filter-strip{padding:14px 16px 10px}
+  .renewals-copy-bar{
+    margin:14px 16px 18px;
+    padding:16px;
+    border-radius:20px;
+  }
+  .renewals-copy-intro{
+    grid-template-columns:1fr;
+    gap:12px;
+  }
+  .renewals-copy-icon{
+    width:48px;
+    height:48px;
+    border-radius:16px;
+  }
+  .renewals-copy-actions{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:9px;
+  }
+  .renewals-copy-chip{
+    width:100%;
+    justify-content:flex-start;
+    min-height:46px;
+  }
+  #copyRenewalPhonesBtn{
+    width:100%;
+    min-height:50px;
+  }
   .renewals-table,.renewals-summary{margin-left:16px;margin-right:16px}
   .renewals-summary{grid-template-columns:1fr}
   .renewal-metric{border-right:none!important;border-top:1px solid rgba(255,255,255,.06)}
@@ -3044,15 +3801,19 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <div class="renewal-platform-tabs" id="renewalPlatformTabs"></div>
       </div>
       <div class="renewals-copy-bar">
-        <div class="renewals-copy-title">
-          <strong>Copiar numeros para envios masivos</strong>
-          <span>Uno por linea, con codigo de pais y sin duplicados.</span>
+        <div class="renewals-copy-intro">
+          <div class="renewals-copy-icon"><i data-lucide="send"></i></div>
+          <div class="renewals-copy-title">
+            <strong>Copiar números para envíos masivos</strong>
+            <span>Selecciona qué números quieres copiar y presiona copiar.</span>
+            <small>Puedes seleccionar una o varias opciones.</small>
+          </div>
         </div>
         <div class="renewals-copy-actions">
-          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="expired" checked><span>Vencidos <b id="copyExpiredCount">0</b></span></label>
-          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="today"><span>Hoy <b id="copyTodayCount">0</b></span></label>
-          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="tomorrow"><span>Manana <b id="copyTomorrowCount">0</b></span></label>
-          <button class="btn primary small" type="button" id="copyRenewalPhonesBtn" onclick="copyRenewalPhones()"><i data-lucide="copy"></i><span>Copiar</span></button>
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="expired" checked><span class="chip-check"><i data-lucide="check"></i></span><span>Vencidos <b id="copyExpiredCount">0</b></span></label>
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="today"><span class="chip-check"><i data-lucide="check"></i></span><span>Hoy <b id="copyTodayCount">0</b></span></label>
+          <label class="renewals-copy-chip"><input type="checkbox" data-renewal-copy="tomorrow"><span class="chip-check"><i data-lucide="check"></i></span><span>Mañana <b id="copyTomorrowCount">0</b></span></label>
+          <button class="btn primary small" type="button" id="copyRenewalPhonesBtn" onclick="copyRenewalPhones()"><i data-lucide="copy"></i><span>Copiar números</span></button>
         </div>
       </div>
       <div class="renewals-table">
@@ -3137,23 +3898,30 @@ i[data-lucide="search"]::before{content:"âŒ•"}
 </div>
 
 <div class="modal-backdrop" id="clientModalWrap">
-  <div class="modal">
+  <div class="modal client-sale-modal">
     <div class="modal-head">
-      <h3 id="clientModalTitle">Nuevo cliente</h3>
-      <button class="x" data-close="clientModalWrap">x</button>
+      <div class="client-modal-title">
+        <span class="client-modal-icon"><i data-lucide="user-round-plus"></i></span>
+        <span>
+          <h3 id="clientModalTitle">Nuevo cliente</h3>
+          <small>Crea y entrega una nueva cuenta a tu cliente.</small>
+        </span>
+      </div>
+      <button class="x" data-close="clientModalWrap" aria-label="Cerrar">×</button>
     </div>
     <div class="form">
-      <label>Nombre<input class="input" id="cName" placeholder="Deros Rafael" /></label>
-      <label>WhatsApp<input class="input" id="cWhatsapp" placeholder="974834197" /></label>
-      <label>Cuenta madre<select class="select" id="cAccount"></select></label>
-      <label>Plataforma<input class="input" id="cPlatform" placeholder="Netflix" readonly /></label>
-      <label>Perfil<input class="input" id="cProfile" placeholder="1" /></label>
-      <label>Pin<input class="input" id="cPin" placeholder="1234" /></label>
-      <label data-finance-only>Precio venta<input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></label>
-      <label data-finance-only>Precio renovacion<input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></label>
-      <label>Vencimiento<input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></label>
-      <label>Estado<select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></label>
-      <label class="full">Notas<textarea id="cNotes" placeholder="Opcional"></textarea></label>
+      <label>Nombre<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="cName" placeholder="Deros Rafael" /></span></label>
+      <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
+      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
+      <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><input class="input" id="cPlatform" placeholder="Netflix" readonly /></span></label>
+      <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
+      <label>Perfil<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="cProfile" placeholder="1" /></span></label>
+      <label>Pin<span class="field-control"><i data-lucide="lock-keyhole"></i><input class="input" id="cPin" placeholder="1234" /></span></label>
+      <label data-finance-only>Precio venta<span class="field-control"><i data-lucide="badge-dollar-sign"></i><input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></span></label>
+      <label data-finance-only>Precio renovacion<span class="field-control"><i data-lucide="refresh-cw"></i><input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></span></label>
+      <label>Vencimiento<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></span></label>
+      <label>Estado<span class="field-control"><i data-lucide="shield-check"></i><select class="select" id="cState"><option>Activo</option><option>No renovó</option></select></span></label>
+      <label class="full">Notas<span class="field-control textarea-control"><i data-lucide="message-square-text"></i><textarea id="cNotes" placeholder="Opcional"></textarea></span></label>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="clientModalWrap">Cancelar</button>
@@ -3297,7 +4065,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <label class="switch" title="Activar modo finanzas"><input type="checkbox" id="financeModeToggle" /><i></i></label>
       </div>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por mas libres</option></select></label>
-      <label data-finance-only>Moneda de finanzas
+      <label class="finance-currency-field" data-finance-only><span><i data-lucide="circle-dollar-sign"></i>Moneda de finanzas</span>
         <select class="select" id="financeCurrencySelect">
           <option value="PEN">PEN - Sol peruano</option>
           <option value="ARS">ARS - Peso argentino</option>
@@ -3322,10 +4090,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
           <option value="EUR">EUR - Euro</option>
         </select>
       </label>
-      <label class="full">Mensaje final para entregar cuentas
-        <textarea id="finalMessage" maxlength="1500" placeholder="Gracias por tu compra. Cualquier duda me escribes." oninput="updateFinalMsgCounter(this)"></textarea>
-        <span id="finalMsgCounter" style="display:block;text-align:right;font-size:11px;color:var(--muted);margin-top:4px">1500 caracteres restantes</span>
-      </label>
+      <label class="full">Mensaje final para entregar cuentas<textarea id="finalMessage" maxlength="1500" placeholder="Gracias por tu compra. Cualquier duda me escribes."></textarea></label>
       <div class="full">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
           <div>
@@ -3350,13 +4115,24 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <div class="payment-list" id="categoryList"></div>
       </div>
       <div class="full" id="settingsSectionPrices">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:800">Precios por plataforma</div>
-            <div style="color:var(--muted);font-size:13px">Valores por defecto para venta, renovacion y compra.</div>
+        <div class="price-settings-shell">
+          <div class="price-settings-head">
+            <div>
+              <h3>Precios por plataforma</h3>
+              <p>Valores por defecto para venta, renovación y compra.</p>
+            </div>
+          </div>
+          <div id="priceCurrencyMount" class="price-currency-mount"></div>
+          <div class="price-table-card">
+            <div class="price-table-head">
+              <span>Plataforma</span>
+              <span>Venta</span>
+              <span>Renovación</span>
+              <span>Costo compra</span>
+            </div>
+            <div class="payment-list platform-price-list" id="platformPriceList"></div>
           </div>
         </div>
-        <div class="payment-list" id="platformPriceList"></div>
       </div>
       <div class="settings-section" id="settingsSectionCombos">
         <div class="settings-section-head"><div><div class="settings-section-title">Combos personalizados</div><div class="settings-section-note">Arma plantillas para vender varios perfiles en un solo mensaje.</div></div></div>
@@ -3370,7 +4146,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="settingsModalWrap">Cancelar</button>
-      <button class="btn primary" id="saveSettingsBtn">Guardar</button>
+      <button class="btn primary" id="saveSettingsBtn">Guardar cambios</button>
     </div>
   </div>
 </div>
@@ -3519,7 +4295,7 @@ function normalizeLoaded(data){
   }));
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
-    profile:c.profile||'', pin:c.pin||'', dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
+    profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
@@ -4182,8 +4958,16 @@ function effectiveClientState(c){
   return 'Activo';
 }
 function activeOccupants(accountId){ return state.clients.filter(c=>c.accountId===accountId && !isNoRenewState(c.state)); }
-function accountAvailability(account){ const used=activeOccupants(account.id).length; return {used,free:Math.max(0,Number(account.capacity||0)-used)}; }
+function accountHasFullSale(accountId){ return activeOccupants(accountId).some(c=>c.fullAccountSale===true); }
+function accountAvailability(account){
+  const capacity=Number(account.capacity||0);
+  const occupants=activeOccupants(account.id);
+  const hasFullSale=occupants.some(c=>c.fullAccountSale===true);
+  const used=hasFullSale ? capacity : occupants.length;
+  return {used,free:Math.max(0,capacity-used),hasFullSale};
+}
 function freeProfiles(account){
+  if(accountHasFullSale(account.id)) return [];
   const used=new Set(activeOccupants(account.id).map(c=>String(c.profile).trim()).filter(Boolean));
   const list=[];
   for(let i=1;i<=Number(account.capacity||0);i++) if(!used.has(String(i))) list.push(String(i));
@@ -5072,14 +5856,15 @@ function renewalPaymentLines(){
 function credentialsText(client, account){
   const platform=friendlyPlatform(client.platform||account?.platform);
   const finalMessage=String(state.settings?.finalMessage || '').trim();
+  const isFullAccount=client.fullAccountSale===true;
   return [
-    `Hola ${client.name || ''}, te paso tus datos de ${platform}:`,
+    `¡Hola ${client.name || 'Cliente'}! \ud83c\udfac\u2728 Aquí tienes tus datos de ${platform} listos para que disfrutes de tu entretenimiento favorito \ud83c\udf7f\ud83c\udfa5:`,
     '',
-    `Perfil: ${client.profile || '-'}`,
-    `Correo: ${account?.email || '-'}`,
-    `Contrasena: ${account?.password || '-'}`,
-    ...(client.pin ? [`Pin: ${client.pin}`] : []),
-    `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '-'}`,
+    isFullAccount ? `\ud83d\udc64 Cuenta completa` : `\ud83d\udc64 Perfil: ${client.profile || '-'}`,
+    `\ud83d\udce7 Correo: ${account?.email || '-'}`,
+    `\ud83d\udd11 Contraseña: ${account?.password || '-'}`,
+    ...(!isFullAccount && client.pin ? [`\ud83d\udd10 PIN: ${client.pin}`] : []),
+    `\ud83d\udcc5 Vencimiento: ${fmtDateLong(client.dueDate) || '-'}`,
     ...(finalMessage ? ['', finalMessage] : [])
   ].join('\n');
 }
@@ -5273,11 +6058,14 @@ function renderPlatformPriceRows(){
   state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{}, categories);
   list.innerHTML=categories.length ? categories.map(cat=>{
     const row=platformPriceFor(cat);
-    return `<div class="payment-row" style="grid-template-columns:minmax(120px,1.1fr) repeat(3,minmax(90px,.8fr))">
-      <label>Plataforma<input class="input" value="${escapeAttr(cat)}" readonly /></label>
-      <label>Venta<input class="input" data-platform-price="salePrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.salePrice||'')}" placeholder="0.00" /></label>
-      <label>Renovacion<input class="input" data-platform-price="renewalPrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.renewalPrice||'')}" placeholder="0.00" /></label>
-      <label>Costo compra<input class="input" data-platform-price="purchaseCost" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.purchaseCost||'')}" placeholder="0.00" /></label>
+    return `<div class="price-row">
+      <div class="price-platform-info">
+        <span class="price-platform-badge">${platformLogo(cat,'icon')}</span>
+        <span>${escapeHtml(cat)}</span>
+      </div>
+      <label data-price-label="Venta"><input class="input price-input" data-platform-price="salePrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.salePrice||'')}" placeholder="0.00" /></label>
+      <label data-price-label="Renovación"><input class="input price-input" data-platform-price="renewalPrice" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.renewalPrice||'')}" placeholder="0.00" /></label>
+      <label data-price-label="Costo compra"><input class="input price-input" data-platform-price="purchaseCost" data-platform="${escapeAttr(cat)}" type="number" min="0" step="0.01" value="${escapeAttr(row.purchaseCost||'')}" placeholder="0.00" /></label>
     </div>`;
   }).join('') : `<div class="empty">Crea categorias para configurar precios.</div>`;
 }
@@ -5365,7 +6153,14 @@ function setClientSubmitMode(isNewSale){
   btn.classList.toggle('ok', !!isNewSale);
   btn.classList.toggle('primary', !isNewSale);
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function setClientFullAccountMode(enabled){
+  const on=!!enabled;
+  const profile=$('#cProfile');
+  const pin=$('#cPin');
+  if(profile){ profile.disabled=on; profile.placeholder=on ? 'Cuenta completa' : '1'; }
+  if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
+}
+function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; setClientFullAccountMode(false); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -5406,7 +6201,7 @@ window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
-  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||'';
+  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; setClientFullAccountMode(c.fullAccountSale===true);
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
@@ -6016,6 +6811,7 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
+$('#cFullAccountSale')?.addEventListener('change',e=>setClientFullAccountMode(e.currentTarget.checked));
 $('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value, {fillMissingForExisting:!!editingClientId}));
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
@@ -6122,9 +6918,10 @@ $('#saveClientBtn').onclick=async ()=>{
   const account=state.accounts.find(a=>a.id===accountId);
   const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
   const financeOn=isFinanceModeEnabled();
+  const fullAccountSale=$('#cFullAccountSale')?.checked===true;
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
-    platform:account?.platform||$('#cPlatform').value.trim(), profile:$('#cProfile').value.trim(), pin:$('#cPin').value.trim(),
+    platform:account?.platform||$('#cPlatform').value.trim(), profile:fullAccountSale ? '' : $('#cProfile').value.trim(), pin:fullAccountSale ? '' : $('#cPin').value.trim(), fullAccountSale,
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
     renewalPrice:financeOn ? moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value) : moneyNumber(previousClient?.renewalPrice),
@@ -6157,13 +6954,15 @@ $('#saveClientBtn').onclick=async ()=>{
 function setSettingsSectionVisibility(section=''){
   const form=document.querySelector('#settingsModalWrap .form');
   if(!form) return;
+  const wrap=document.getElementById('settingsModalWrap');
+  if(wrap) wrap.classList.toggle('prices-mode', section==='prices');
   const children=[...form.children];
   const groups={
     general:[children[0],children[1],children[2],children[3]],
     message:[children[4]],
     payments:[children[5]],
     categories:[children[6]],
-    prices:[document.getElementById('settingsSectionPrices')||children[7]],
+    prices:[children[3],document.getElementById('settingsSectionPrices')||children[7]],
     combos:[document.getElementById('settingsSectionCombos')||children[8]]
   };
   if(section==='prices' && !isFinanceModeEnabled()) section='general';
@@ -6354,11 +7153,12 @@ function openSettingsSection(section=''){
   const financeToggle=$('#financeModeToggle');
   if(financeToggle) financeToggle.checked=isFinanceModeEnabled();
   $('#settingsFreeSort').value=state.settings.freeSort||'platform';
-  $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE; updateFinalMsgCounter($('#finalMessage'));
+  $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
   renderPaymentRows();
   renderCategoryRows();
   renderPlatformPriceRows();
   renderComboTemplateRows();
+  if(window.lucide?.createIcons) window.lucide.createIcons();
   const titleEl=document.getElementById('settingsModalTitle');
   if(titleEl) titleEl.textContent=titles[section]||'Ajustes';
   setSettingsSectionVisibility(section);
@@ -6366,7 +7166,7 @@ function openSettingsSection(section=''){
   openModal('settingsModalWrap');
   const map={prices:'settingsSectionPrices',combos:'settingsSectionCombos'};
   const target=document.getElementById(map[section]||'settingsModalWrap');
-  if(target && section) setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
+  if(target && section && section!=='prices') setTimeout(()=>target.scrollIntoView({block:'center',behavior:'smooth'}),80);
 }
 const openSettingsBtn=$('#openSettingsBtn');
 if(openSettingsBtn) openSettingsBtn.onclick=()=>openSettingsSection('general');
@@ -6376,12 +7176,6 @@ $('#openSecurityHomeBtn').onclick=()=>switchView('seguridadView');
 $('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
 $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
-
-function updateFinalMsgCounter(el){
-  const max=1500, rem=max-Array.from(el.value).length;
-  const counter=$('#finalMsgCounter');
-  if(counter){ counter.textContent=rem+' caracteres restantes'; counter.style.color=rem<100?'var(--danger)':rem<300?'#f59e0b':'var(--muted)'; }
-}
 $('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
@@ -6402,3 +7196,9 @@ window.addEventListener('load', () => {
 </div><!-- /appRoot -->
 </body>
 </html>
+
+
+
+
+
+
