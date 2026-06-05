@@ -701,7 +701,13 @@ function fmtDateLong(date){
 function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
-function accountUsed(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').length; }
+function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo'); }
+function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
+function accountUsed(accountId){
+  const acc = state.accounts.find(a => a.id === accountId);
+  const clients = activeAccountClients(accountId);
+  return clients.some(c => c.fullAccountSale === true) ? Number(acc?.capacity || clients.length || 0) : clients.length;
+}
 function toast(msg,type='ok'){
   const el = $('#toast');
   el.textContent = msg;
@@ -955,23 +961,10 @@ function renderAccounts(listOnly=false){
 }
 function renderDue(){
   const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && c.state !== 'No renovo').sort((a,b)=>a.due.days-b.due.days);
-  const expired = list.filter(c => c.due.days < 0).length;
-  const today = list.filter(c => c.due.days === 0).length;
-  const tomorrow = list.filter(c => c.due.days === 1).length;
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div>
-    <div class="due-copy-box">
-      <div class="due-copy-head"><strong>${icon('copy')} Copiar numeros</strong><span>Para envios masivos</span></div>
-      <div class="due-copy-options">
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="expired" checked><span>Vencidos (${expired})</span></label>
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="today"><span>Hoy (${today})</span></label>
-        <label class="due-copy-chip"><input type="checkbox" data-due-copy="tomorrow"><span>Manana (${tomorrow})</span></label>
-      </div>
-      <button class="btn primary" id="copyDuePhonesMobile" type="button">${icon('copy')}<span>Copiar</span></button>
-    </div>
     <div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div>
   </section>`;
-  $('#copyDuePhonesMobile').onclick = copyDuePhonesMobile;
   bindCards();
 }
 function renderFinance(){
@@ -1125,13 +1118,14 @@ function accountCard(a){
   const used = accountUsed(a.id), cap = Number(a.capacity || 0), free = Math.max(0, cap-used);
   const ds = dueState(a.dueDate);
   const cat = accountCategory(a);
-  const assigned = state.clients.filter(c => c.accountId === a.id && c.state !== 'No renovo').length;
+  const assigned = activeAccountClients(a.id).length;
+  const fullSold = accountHasFullSale(a.id);
   return `<article class="card" data-account="${esc(a.id)}">
     <div class="card-row"><div class="avatar green">${esc(platformShort(a.platform).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
-        <span class="pill brand">${esc(cat)}</span><span class="pill ok">${free} libres</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
+        <span class="pill brand">${esc(cat)}</span><span class="pill ${fullSold?'warn':'ok'}">${fullSold?'Cuenta completa':free+' libres'}</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button></div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button>${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
   </article>`;
 }
 function bindSearch(){
@@ -1440,6 +1434,7 @@ function selectedMobileComboTemplate(templates){
 }
 function nextProfileSuggestionMobile(accountId){
   const acc = state.accounts.find(a => a.id === accountId);
+  if(accountHasFullSale(accountId)) return '';
   const used = new Set(state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').map(c => clean(c.profile)).filter(Boolean));
   for(let i=1;i<=Number(acc?.capacity||0);i++) if(!used.has(String(i))) return String(i);
   return '';
