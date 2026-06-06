@@ -626,15 +626,40 @@ function observeLazyImages(root) {
 
 let _allTemplates = [];
 let _currentFilter = 'all';
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
+const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v1';
+const ADMIN_COLLECTION_CACHE_TTL = 10 * 60 * 1000;
 
-async function loadTemplates() {
+function readAdminCollectionCache(key) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(key) || 'null');
+    if(!cached || Date.now() - Number(cached.at || 0) >= ADMIN_COLLECTION_CACHE_TTL) return null;
+    return Array.isArray(cached.rows) ? cached.rows : null;
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminCollectionCache(key, rows) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ at:Date.now(), rows }));
+  } catch(_) {}
+}
+
+async function loadTemplates(force=false) {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
-    const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-    _allTemplates = [];
-    snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+    const cached = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
+    if(cached) {
+      _allTemplates = cached;
+    } else {
+      const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+      _allTemplates = [];
+      snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+      writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+    }
     updateTemplateCounts();
     renderTemplates();
   } catch(e) {
@@ -706,20 +731,31 @@ function renderTemplates() {
 
 function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
 
+function refreshTemplateCacheAndRender() {
+  updateTemplateCounts();
+  writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  renderTemplates();
+}
+
 async function deleteTpl(id) {
   if(!confirm('¿Borrar esta plantilla? No se puede deshacer.')) return;
   await fbDb.collection('templates').doc(id).delete();
-  loadTemplates();
+  _allTemplates = _allTemplates.filter(t => t.id !== id);
+  refreshTemplateCacheAndRender();
 }
 
 async function publishTemplate(id) {
-  await fbDb.collection('templates').doc(id).update({ status: 'published', updatedAt: Date.now() });
-  loadTemplates();
+  const updatedAt = Date.now();
+  await fbDb.collection('templates').doc(id).update({ status: 'published', updatedAt });
+  _allTemplates = _allTemplates.map(t => t.id === id ? { ...t, status:'published', updatedAt } : t);
+  refreshTemplateCacheAndRender();
 }
 
 async function draftTemplate(id) {
-  await fbDb.collection('templates').doc(id).update({ status: 'draft', updatedAt: Date.now() });
-  loadTemplates();
+  const updatedAt = Date.now();
+  await fbDb.collection('templates').doc(id).update({ status: 'draft', updatedAt });
+  _allTemplates = _allTemplates.map(t => t.id === id ? { ...t, status:'draft', updatedAt } : t);
+  refreshTemplateCacheAndRender();
 }
 
 // ══════════════════════════════════════════
@@ -857,7 +893,7 @@ async function createUser() {
     document.getElementById('new-user-email').value = '';
     document.getElementById('new-user-pass').value = '';
     document.getElementById('new-user-name').value = '';
-    loadUsers();
+    loadUsers(true);
   } catch(e) {
     showStatus('create-user-status', '✗ ' + e.message, 'err');
   }
@@ -912,7 +948,7 @@ async function legacyLoadUsers() {
 async function hardDeleteUser(id) {
   if(!confirm('¿Borrar este cliente? Solo se elimina de Firestore, no de Firebase Auth.')) return;
   await fbDb.collection('users').doc(id).delete();
-  loadUsers();
+  loadUsers(true);
 }
 
 // ══════════════════════════════════════════
@@ -977,15 +1013,21 @@ function renderUsersTable(users) {
     </table>`;
 }
 
-async function loadUsers() {
+async function loadUsers(force=false) {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
-    const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
-    adminUsersCache = [];
-    snap.forEach(doc => {
-      adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
-    });
+    const cached = force ? null : readAdminCollectionCache(ADMIN_USERS_CACHE_KEY);
+    if(cached) {
+      adminUsersCache = cached;
+    } else {
+      const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
+      adminUsersCache = [];
+      snap.forEach(doc => {
+        adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
+      });
+      writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+    }
     renderUsersTable(adminUsersCache);
     loadGestorUsageMetrics();
   } catch(e) {
@@ -1109,7 +1151,7 @@ async function deactivateUser(id) {
     updatedAt: Date.now()
   }, { merge: true });
   showToast('Cliente inhabilitado. Firebase Auth queda activo para exportar Excel.');
-  loadUsers();
+  loadUsers(true);
 }
 
 async function reactivateUser(id) {
@@ -1121,7 +1163,7 @@ async function reactivateUser(id) {
     updatedAt: Date.now()
   }, { merge: true });
   showToast('Cliente reactivado.');
-  loadUsers();
+  loadUsers(true);
 }
 
 function showTemplateLink(id, name, isDraft) {
@@ -1396,6 +1438,20 @@ function deviceStatusClass(status){
   return String(status || '').toLowerCase();
 }
 
+async function fetchUserDevices(uid){
+  const col = fbDb.collection('users').doc(uid).collection('devices');
+  try {
+    const ordered = await col.orderBy('lastSeen','desc').get();
+    if(!ordered.empty) return ordered.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
+  } catch(e) {
+    console.warn('devices ordered query fallback:', e);
+  }
+  const snap = await col.get();
+  return snap.docs
+    .map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
+    .sort((a,b) => getDeviceSeenAt(b) - getDeviceSeenAt(a));
+}
+
 async function showDevices(uid, name) {
   _devicesUserId = uid;
   document.getElementById('devices-modal-subtitle').textContent = name + ' — máximo 5 dispositivos';
@@ -1436,12 +1492,11 @@ async function refreshDevicesListLegacy(uid) {
 async function refreshDevicesList(uid) {
   const list = document.getElementById('devices-list');
   try {
-    const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
-    if(snap.empty){
+    const docs = await fetchUserDevices(uid);
+    if(!docs.length){
       list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
       return;
     }
-    const docs = snap.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
     const activeCount = docs.filter(d => !d.revoked && !isDeviceExpiredAdmin(d)).length;
     const expiredCount = docs.filter(d => !d.revoked && isDeviceExpiredAdmin(d)).length;
     let html = '';
