@@ -69,6 +69,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="stat"><div class="stat-n" id="stat-users">-</div><div class="stat-l">Clientes</div></div>
       <div class="stat"><div class="stat-n" id="stat-devices">-</div><div class="stat-l">Dispositivos</div></div>
     </div>
+    <button class="btn btn-ghost" onclick="loadStats()" id="btn-load-stats">Calcular estadisticas</button>
+    <div class="note">Para ahorrar lecturas de Firestore, los conteos se calculan solo cuando presionas el boton. El backup completo tambien es una accion pesada y debe usarse solo cuando realmente necesites descargar un respaldo.</div>
 
     <div class="section">
       <div class="section-title">Exportar backup</div>
@@ -176,12 +178,18 @@ async function doLogin(){
     document.getElementById('user-badge').textContent = email;
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('main-section').style.display = 'block';
-    loadStats();
+    resetStats('Bajo demanda');
   }catch(e){
     st.textContent = e.code === 'auth/too-many-requests' ? 'Demasiados intentos.' : 'Email o contrasena incorrectos.';
     btn.disabled = false;
     btn.textContent = 'Entrar';
   }
+}
+function resetStats(label='-'){
+  ['stat-tpl','stat-logos','stat-designs','stat-user-logos','stat-users','stat-devices'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = label;
+  });
 }
 function doLogout(){
   fbAuth?.signOut();
@@ -297,7 +305,9 @@ function backupBase(collections, subcollections={}, permissionErrors=[]){
 }
 
 async function loadStats(){
+  const btn = document.getElementById('btn-load-stats');
   try{
+    if(btn){ btn.disabled = true; btn.innerHTML = '<div class="spin"></div> Calculando...'; }
     const safeSize = async (name)=>{
       try{ return (await fbDb.collection(name).get()).size; }
       catch(_){ return 'sin permiso'; }
@@ -329,6 +339,8 @@ async function loadStats(){
     document.getElementById('stat-devices').textContent = typeof users === 'number' ? deviceTotal : 'sin permiso';
   }catch(e){
     log('Error cargando stats: ' + e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Calcular estadisticas'; }
   }
 }
 

@@ -278,7 +278,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <div class="card-title" style="margin-bottom:4px;">Uso diario del gestor</div>
               <div class="helper-mini">Conteo privado para admin. Se actualiza cuando un cliente abre el gestor.</div>
             </div>
-            <button class="btn btn-ghost" type="button" onclick="loadGestorUsageMetrics()">Actualizar uso</button>
+            <button class="btn btn-ghost" type="button" onclick="loadGestorUsageMetrics(true)">Actualizar uso</button>
           </div>
           <div class="usage-grid">
             <div class="usage-pill"><strong id="usage-today">-</strong><span>Activos hoy</span></div>
@@ -504,8 +504,7 @@ window.addEventListener('load', async () => {
         const adminDoc = await fbDb.collection('admins').doc(user.uid).get();
         if (adminDoc.exists) {
           showAdminPanel(user.email);
-          loadTemplates();
-          loadUsers();
+          loadInitialAdminSection();
         } else {
           await fbAuth.signOut();
         }
@@ -628,6 +627,7 @@ let _allTemplates = [];
 let _currentFilter = 'all';
 const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v1';
+const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 10 * 60 * 1000;
 
 function readAdminCollectionCache(key) {
@@ -644,6 +644,10 @@ function writeAdminCollectionCache(key, rows) {
   try {
     localStorage.setItem(key, JSON.stringify({ at:Date.now(), rows }));
   } catch(_) {}
+}
+
+function invalidateAdminCollectionCache(key) {
+  try { localStorage.removeItem(key); } catch(_) {}
 }
 
 async function loadTemplates(force=false) {
@@ -846,6 +850,29 @@ function clearUsersSearch() {
   if(input) input.focus();
 }
 
+function refreshAdminUsersCache(mutator) {
+  adminUsersCache = Array.isArray(adminUsersCache) ? adminUsersCache.slice() : [];
+  mutator(adminUsersCache);
+  adminUsersCache.sort((a,b) => Number(b.data?.createdAt || 0) - Number(a.data?.createdAt || 0));
+  writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+  renderUsersTable(adminUsersCache);
+}
+
+function upsertAdminUserCache(id, patch) {
+  refreshAdminUsersCache(rows => {
+    const idx = rows.findIndex(item => item.id === id);
+    if(idx >= 0) rows[idx] = { id, data:{ ...(rows[idx].data || {}), ...patch } };
+    else rows.unshift({ id, data:{ ...patch } });
+  });
+}
+
+function removeAdminUserCache(id) {
+  refreshAdminUsersCache(rows => {
+    const idx = rows.findIndex(item => item.id === id);
+    if(idx >= 0) rows.splice(idx, 1);
+  });
+}
+
 async function createUser() {
   if(!fbConnected) return;
   const emailInput = document.getElementById('new-user-email');
@@ -877,7 +904,8 @@ async function createUser() {
     const data = await res.json();
     if(!res.ok) throw new Error(data.error?.message || 'Error al crear');
 
-    await fbDb.collection('users').doc(data.localId).set({
+    const createdAt = Date.now();
+    const newUserData = {
       uid: data.localId,
       email: email,
       name: displayName,
@@ -885,15 +913,16 @@ async function createUser() {
       status: 'active',
       subscriptionStatus: 'active',
       initialPassword: pass,
-      createdAt: Date.now()
-    });
+      createdAt
+    };
+    await fbDb.collection('users').doc(data.localId).set(newUserData);
 
     showStatus('create-user-status', '✓ Cliente creado correctamente', 'ok');
     showCreatedCredentials(email, displayName);
     document.getElementById('new-user-email').value = '';
     document.getElementById('new-user-pass').value = '';
     document.getElementById('new-user-name').value = '';
-    loadUsers(true);
+    upsertAdminUserCache(data.localId, newUserData);
   } catch(e) {
     showStatus('create-user-status', '✗ ' + e.message, 'err');
   }
@@ -902,6 +931,7 @@ async function createUser() {
 }
 
 async function legacyLoadUsers() {
+  return;
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
@@ -948,7 +978,7 @@ async function legacyLoadUsers() {
 async function hardDeleteUser(id) {
   if(!confirm('¿Borrar este cliente? Solo se elimina de Firestore, no de Firebase Auth.')) return;
   await fbDb.collection('users').doc(id).delete();
-  loadUsers(true);
+  removeAdminUserCache(id);
 }
 
 // ══════════════════════════════════════════
@@ -1101,7 +1131,7 @@ async function loadGestorUsageFromAggregates(days) {
   return docs;
 }
 
-async function loadGestorUsageMetrics() {
+async function loadGestorUsageMetrics(force=false) {
   const todayEl = document.getElementById('usage-today');
   const yesterdayEl = document.getElementById('usage-yesterday');
   const weekEl = document.getElementById('usage-week');
@@ -1113,7 +1143,7 @@ async function loadGestorUsageMetrics() {
   daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
   const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
   try {
-    let rows = readAdminUsageCache(days);
+    let rows = force ? null : readAdminUsageCache(days);
     if(!rows) {
       rows = await loadGestorUsageFromAggregates(days);
       writeAdminUsageCache(days, rows);
@@ -1142,28 +1172,32 @@ async function loadGestorUsageMetrics() {
 
 async function deactivateUser(id) {
   if(!confirm('Inhabilitar este cliente? Podra iniciar sesion solo para exportar sus datos, pero no podra usar el editor ni guardar cuentas.')) return;
-  await fbDb.collection('users').doc(id).set({
+  const updatedAt = Date.now();
+  const patch = {
     active: false,
     status: 'vencido',
     subscriptionStatus: 'vencido',
-    disabledAt: Date.now(),
+    disabledAt: updatedAt,
     disabledBy: fbAuth.currentUser ? fbAuth.currentUser.uid : null,
-    updatedAt: Date.now()
-  }, { merge: true });
+    updatedAt
+  };
+  await fbDb.collection('users').doc(id).set(patch, { merge: true });
   showToast('Cliente inhabilitado. Firebase Auth queda activo para exportar Excel.');
-  loadUsers(true);
+  upsertAdminUserCache(id, patch);
 }
 
 async function reactivateUser(id) {
-  await fbDb.collection('users').doc(id).set({
+  const updatedAt = Date.now();
+  const patch = {
     active: true,
     status: 'active',
     subscriptionStatus: 'active',
-    reactivatedAt: Date.now(),
-    updatedAt: Date.now()
-  }, { merge: true });
+    reactivatedAt: updatedAt,
+    updatedAt
+  };
+  await fbDb.collection('users').doc(id).set(patch, { merge: true });
   showToast('Cliente reactivado.');
-  loadUsers(true);
+  upsertAdminUserCache(id, patch);
 }
 
 function showTemplateLink(id, name, isDraft) {
@@ -1234,13 +1268,34 @@ function showToast(msg) {
 // ══════════════════════════════════════════
 // NAVEGACIÓN
 // ══════════════════════════════════════════
+function getAdminNavForSection(id) {
+  return Array.from(document.querySelectorAll('.nav-item')).find(item =>
+    (item.getAttribute('onclick') || '').includes(`'${id}'`)
+  );
+}
+
+function loadAdminSectionData(id, force=false) {
+  if(id === 'templates') loadTemplates(force);
+  if(id === 'users') loadUsers(force);
+  if(id === 'logos') loadAdminLogos(force);
+}
+
+function loadInitialAdminSection() {
+  const saved = localStorage.getItem('ds_admin_active_section') || '';
+  const activeSection = saved && document.getElementById('section-' + saved)
+    ? saved
+    : (document.querySelector('.section.active')?.id || 'section-templates').replace('section-', '');
+  showSection(activeSection, getAdminNavForSection(activeSection));
+}
+
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('section-' + id).classList.add('active');
-  if(el) el.classList.add('active');
-  if(id === 'logos') loadAdminLogos();
-  if(id === 'users') loadGestorUsageMetrics();
+  const nav = el || getAdminNavForSection(id);
+  if(nav) nav.classList.add('active');
+  try { localStorage.setItem('ds_admin_active_section', id); } catch(_) {}
+  loadAdminSectionData(id);
 }
 
 // ══════════════════════════════════════════
@@ -1325,17 +1380,24 @@ async function uploadAdminLogos(){
   adminLogoFiles = [];
   document.getElementById('admin-logo-preview').innerHTML = '';
   document.getElementById('admin-logo-files').value = '';
-  if(ok > 0) loadAdminLogos();
+  if(ok > 0) {
+    invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    loadAdminLogos(true);
+  }
 }
 
-async function loadAdminLogos(){
+async function loadAdminLogos(force=false){
   const container = document.getElementById('admin-logos-list');
   if(!container || !fbDb) return;
   container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
   try{
-    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
-    const all = [];
-    snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+    let all = force ? null : readAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    if(!all) {
+      const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      all = [];
+      snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+      writeAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY, all);
+    }
 
     if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
 
@@ -1390,6 +1452,7 @@ async function deleteAdminLogo(id, btn){
   if(!confirm('¿Eliminar este logo?')) return;
   try{
     await fbDb.collection('logos').doc(id).delete();
+    invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
     btn.closest('div[style*="aspect-ratio"]').remove();
     showStatus && showStatus('','','');
   }catch(e){ alert('Error: '+e.message); }
@@ -1440,12 +1503,6 @@ function deviceStatusClass(status){
 
 async function fetchUserDevices(uid){
   const col = fbDb.collection('users').doc(uid).collection('devices');
-  try {
-    const ordered = await col.orderBy('lastSeen','desc').get();
-    if(!ordered.empty) return ordered.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
-  } catch(e) {
-    console.warn('devices ordered query fallback:', e);
-  }
   const snap = await col.get();
   return snap.docs
     .map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
@@ -1461,6 +1518,7 @@ async function showDevices(uid, name) {
 }
 
 async function refreshDevicesListLegacy(uid) {
+  return;
   const list = document.getElementById('devices-list');
   try {
     const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
