@@ -356,6 +356,7 @@ async function loadFromSubcollections(uid) {
     const cached = localStorage.getItem(cacheKey);
     if (cached && cachedAt && Date.now() - cachedAt < 60000 && window.__loadFromFirestore) {
       window.__loadFromFirestore(JSON.parse(cached));
+      return;
     }
   } catch (e) {}
   const setSnap = await getDoc(settingsRef(uid));
@@ -6879,6 +6880,7 @@ $('#saveAccountBtn').onclick=async ()=>{
   const platform=$('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
+  const isNewAccount=!editingAccountId;
   const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
   const financeOn=isFinanceModeEnabled();
   const data=sanitizeAccountForSave({
@@ -6891,6 +6893,11 @@ $('#saveAccountBtn').onclick=async ()=>{
   const ok = await persistDoc('accounts', data);
   if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
+  if(isNewAccount){
+    accountPlatformFilter=data.platform || '__all__';
+    const accountSearch=$('#accountSearch');
+    if(accountSearch) accountSearch.value='';
+  }
   await upsertAccountPurchaseExpense(data).catch(err=>console.warn('No se pudo registrar compra en finanzas:', err));
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   closeModal('accountModalWrap'); clearAccountForm(); refreshUI();
