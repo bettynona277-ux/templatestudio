@@ -776,7 +776,7 @@ let fbApp, fbDb, fbAuth;
 let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
-const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v3';
+const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v4';
 const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
 const MOB_DESIGN_FETCH_LIMIT = 24;
 const ENABLE_USER_DOC_LIVE_STATUS = false;
@@ -786,7 +786,7 @@ try{
   const keysToRemove = [];
   for(let i=0; i<localStorage.length; i++){
     const k = localStorage.key(i);
-    if(k && (k.includes('_cache_v1') || k.includes('_cache_v2') || k.includes('ts_dash_cache_v') || k === 'ts_mobile_templates_cache')) keysToRemove.push(k);
+    if(k && (k.includes('_cache_v1') || k.includes('_cache_v2') || k.includes('ts_dash_cache_v') || k === 'ts_mobile_templates_cache' || k === 'ts_mobile_templates_cache_v3')) keysToRemove.push(k);
   }
   keysToRemove.forEach(k => localStorage.removeItem(k));
 }catch(_){}
@@ -830,6 +830,7 @@ function switchTab(tab){
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('content-'+t).classList.toggle('active', t===tab);
   });
+  if(tab === 'tpl') ensureTemplatesVisible();
 }
 
 function openGestorMobile(){
@@ -1544,6 +1545,17 @@ let lastTplDoc = null;     // cursor de Firestore para paginación
 let noMoreTpls = false;    // true cuando ya no hay más páginas
 let tplsLoading = false;   // evitar doble carga
 
+function isPublishedTemplate(d){
+  return (d?.status || 'published') === 'published';
+}
+
+function ensureTemplatesVisible(){
+  const grid = document.getElementById('tpl-grid');
+  const hasCards = !!grid?.querySelector('.tpl-card');
+  const hasFilters = !!((document.getElementById('tpl-search')?.value || '').trim() || (document.getElementById('tpl-cat')?.value || ''));
+  if(!hasCards && !tplsLoading && fbDb && currentUser && !hasFilters) loadTemplates();
+}
+
 async function loadTemplates(){
   const grid = document.getElementById('tpl-grid');
   // Reset paginación
@@ -1593,7 +1605,7 @@ async function loadTemplatesPage(isFirst){
     const newDocs = [];
     snap.forEach(doc => {
       const d = doc.data() || {};
-      if(d.status === 'published') newDocs.push({id:doc.id, ...d});
+      if(isPublishedTemplate(d)) newDocs.push({id:doc.id, ...d});
     });
 
     if(snap.docs.length > 0){
@@ -1601,6 +1613,10 @@ async function loadTemplatesPage(isFirst){
     }
     if(snap.docs.length < TPL_PAGE_SIZE * 2){
       noMoreTpls = true;
+    }
+    if(!newDocs.length && !noMoreTpls && !allTemplates.length){
+      tplsLoading = false;
+      return loadTemplatesPage(false);
     }
 
     if(isFirst){
@@ -1619,6 +1635,7 @@ async function loadTemplatesPage(isFirst){
       renderTemplates(allTemplates);
     } else {
       // Solo agregar las nuevas cards sin re-renderizar todo
+      if(!grid.querySelector('.tpl-card') && newDocs.length) grid.innerHTML = '';
       newDocs.forEach(t => {
         const card = document.createElement('div');
         card.className = 'tpl-card';
@@ -1669,7 +1686,7 @@ async function filterTemplates(){
     try{
       const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
       allTemplates = [];
-      snap.forEach(doc => { const d = doc.data() || {}; if(d.status === 'published') allTemplates.push({id:doc.id, ...d}); });
+      snap.forEach(doc => { const d = doc.data() || {}; if(isPublishedTemplate(d)) allTemplates.push({id:doc.id, ...d}); });
       noMoreTpls = true;
       try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
     }catch(e){}
@@ -1690,7 +1707,7 @@ async function filterTemplates(){
 function renderTemplates(list){
   const grid = document.getElementById('tpl-grid');
   if(!list.length){
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">No se encontraron plantillas.</div>';
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">No se encontraron plantillas.<br><button style="margin-top:12px;background:var(--accent,#7c5cfc);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-size:0.9rem;font-weight:700;" onclick="loadTemplates()">Actualizar</button></div>';
     return;
   }
   grid.innerHTML = '';
