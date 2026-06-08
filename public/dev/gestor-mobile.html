@@ -696,6 +696,36 @@ function accountUsed(accountId){
   const clients = activeAccountClients(accountId);
   return clients.some(c => c.fullAccountSale === true) ? Number(acc?.capacity || clients.length || 0) : clients.length;
 }
+function accountFreeSlots(accountId){
+  const acc = state.accounts.find(a => a.id === accountId);
+  return Math.max(0, Number(acc?.capacity || 0) - accountUsed(accountId));
+}
+function accountCanSellProfile(accountId, selectedClientId=''){
+  if(!accountId) return false;
+  const active = activeAccountClients(accountId).filter(c => c.id !== selectedClientId);
+  const acc = state.accounts.find(a => a.id === accountId);
+  const used = active.some(c => c.fullAccountSale === true) ? Number(acc?.capacity || active.length || 0) : active.length;
+  return !active.some(c => c.fullAccountSale === true) && used < Number(acc?.capacity || 0);
+}
+function accountCanSellFull(accountId, selectedClientId=''){
+  if(!accountId) return false;
+  return !activeAccountClients(accountId).filter(c => c.id !== selectedClientId).length;
+}
+function accountSelectableForSale(accountId, selectedClientId='', fullAccountSale=false){
+  return fullAccountSale ? accountCanSellFull(accountId, selectedClientId) : accountCanSellProfile(accountId, selectedClientId);
+}
+function saleAccountOptions(selected='', selectedClientId='', fullAccountSale=false){
+  const list = state.accounts
+    .filter(a => a.id === selected || accountSelectableForSale(a.id, selectedClientId, fullAccountSale))
+    .sort((a,b)=>accountUsed(a.id)-accountUsed(b.id));
+  const emptyText = fullAccountSale ? 'No hay cuentas vacias para vender completa' : 'No hay cuentas con perfiles libres';
+  return `<option value="">${list.length ? 'Elige cuenta madre' : emptyText}</option>${list.map(a=>{
+    const fullSold = accountHasFullSale(a.id);
+    const free = accountFreeSlots(a.id);
+    const suffix = fullSold ? 'cuenta completa vendida' : `${free} libres`;
+    return `<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountName(a))} - ${suffix}</option>`;
+  }).join('')}`;
+}
 function toast(msg,type='ok'){
   const el = $('#toast');
   el.textContent = msg;
@@ -906,8 +936,8 @@ function renderHome(){
       <div class="section-head"><h2>Proximos vencimientos</h2><span>${due.length} clientes</span></div>
       <div class="list">${due.slice(0,8).map(clientCard).join('') || empty('No tienes vencimientos pendientes.')}</div>
     </section>`;
-  $('#newClient').onclick = () => openClientSheet();
-  $('#newCombo').onclick = () => openComboSheet();
+  $('#newClient').onclick = () => openClientSheetWhenReady();
+  $('#newCombo').onclick = () => openComboSheetWhenReady();
   $('#newAccount').onclick = () => openAccountSheet();
   if($('#openFinance')) $('#openFinance').onclick = () => setView('finance');
   bindCards();
@@ -1144,8 +1174,27 @@ function bindCards(){
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
     if(!a) return;
-    openClientSheet({ accountId:a.id, platform:a.platform, dueDate:addMonthsISO(todayISO(), 1), state:'Activo' });
+    openClientSheetWhenReady({ accountId:a.id, platform:a.platform, dueDate:addMonthsISO(todayISO(), 1), state:'Activo' });
   });
+}
+
+async function ensureAccountsForSale(){
+  if(state.accounts.length) return true;
+  toast('Cargando cuentas...');
+  await loadOnce(false);
+  if(state.accounts.length) return true;
+  toast('Primero agrega una cuenta madre.','bad');
+  return false;
+}
+
+async function openClientSheetWhenReady(item={}){
+  if(!(await ensureAccountsForSale())) return;
+  openClientSheet(item);
+}
+
+async function openComboSheetWhenReady(){
+  if(!(await ensureAccountsForSale())) return;
+  openComboSheet();
 }
 
 function openSheet(html){
@@ -1312,7 +1361,7 @@ function openClientSheet(item={}){
         <div class="field"><label>Plataforma</label><input name="platform" value="${esc(platformValue)}"></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
-      <div class="field"><label>Cuenta madre</label><select name="accountId"><option value="">Sin cuenta</option>${state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===c.accountId?'selected':''}>${esc(accountName(a))}</option>`).join('')}</select></div>
+      <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale)}</select></div>
       <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
         <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(saleValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
@@ -1329,13 +1378,25 @@ function openClientSheet(item={}){
       <div class="form-actions"><button type="button" class="btn ${c.id?'bad':''}" id="deleteClient">${c.id?'Eliminar':'Cancelar'}</button><button id="clientSubmitBtn" class="btn ${c.id?'primary':'ok'}">${c.id?'Guardar':'Entregar cuenta'}</button></div>
     </form>`);
   const form = $('#clientForm');
+  const refreshClientAccountOptions = () => {
+    if(!form.elements.accountId) return;
+    const selected = form.elements.accountId.value;
+    const fullSale = !!form.elements.fullAccountSale?.checked;
+    form.elements.accountId.innerHTML = saleAccountOptions(selected, c.id || '', fullSale);
+    if(selected && !accountSelectableForSale(selected, c.id || '', fullSale)){
+      form.elements.accountId.value = '';
+      if(form.elements.profile && !fullSale) form.elements.profile.value = '';
+    }
+  };
   if(form.elements.accountId) form.elements.accountId.onchange = () => {
     const account = state.accounts.find(a => a.id === form.elements.accountId.value);
     if(account?.platform) form.elements.platform.value = account.platform;
+    if(account?.id && !form.elements.fullAccountSale?.checked && form.elements.profile && !form.elements.profile.value) form.elements.profile.value = nextProfileSuggestionMobile(account.id);
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
   const syncFullAccountSale = () => {
     const on = !!form.elements.fullAccountSale?.checked;
+    refreshClientAccountOptions();
     if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = on ? 'Cuenta completa' : ''; }
     if(form.elements.pin){ form.elements.pin.disabled = on; form.elements.pin.placeholder = on ? 'No aplica' : ''; }
   };
@@ -1357,6 +1418,12 @@ function openClientSheet(item={}){
     const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, profile:fullAccountSale ? '' : fd.profile, pin:fullAccountSale ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
+      return;
+    }
+    if(!accountSelectableForSale(data.accountId, c.id || '', fullAccountSale)){
+      toast(fullAccountSale ? 'Esa cuenta ya tiene perfiles vendidos.' : 'Esa cuenta ya esta llena. Elige otra con perfiles libres.','bad');
       submitBtn.disabled = false;
       submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
       return;
@@ -1383,13 +1450,13 @@ function accountMatchesComboPlatform(account, platform){
 function comboAccountOptions(platform, selected=''){
   const matches = state.accounts
     .filter(a => accountMatchesComboPlatform(a, platform))
+    .filter(a => a.id === selected || accountCanSellProfile(a.id))
     .sort((a,b)=>accountUsed(a.id)-accountUsed(b.id));
-  const list = matches.length ? matches : state.accounts;
-  return `<option value="">Elige cuenta para ${esc(platform)}</option>${list.map(a=>`<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountName(a))} - ${Math.max(0, Number(a.capacity||0)-accountUsed(a.id))} libres</option>`).join('')}`;
+  return `<option value="">${matches.length ? `Elige cuenta para ${esc(platform)}` : `Sin cuentas libres para ${esc(platform)}`}</option>${matches.map(a=>`<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountName(a))} - ${accountFreeSlots(a.id)} libres</option>`).join('')}`;
 }
 function renderComboRows(template, splitDates=false, baseDate=''){
   return template.platforms.map(platform => {
-    const first = state.accounts.find(a => accountMatchesComboPlatform(a, platform) && Number(a.capacity||0) > accountUsed(a.id)) || state.accounts.find(a => accountMatchesComboPlatform(a, platform));
+    const first = state.accounts.find(a => accountMatchesComboPlatform(a, platform) && accountCanSellProfile(a.id));
     return `<div class="combo-app-card" style="--pcolor:${esc(platformColorMobile(platform))}" data-platform="${esc(platform)}">
       <div class="combo-title"><span>${esc(platform)}</span><span class="combo-badge">App combo</span></div>
       <div class="field"><label>Cuenta madre</label><select class="combo-account">${comboAccountOptions(platform, first?.id || '')}</select></div>
@@ -1426,6 +1493,17 @@ function nextProfileSuggestionMobile(accountId){
   const used = new Set(state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').map(c => clean(c.profile)).filter(Boolean));
   for(let i=1;i<=Number(acc?.capacity||0);i++) if(!used.has(String(i))) return String(i);
   return '';
+}
+function comboRowsHaveCapacity(rows){
+  const pending = {};
+  for(const row of rows || []){
+    if(!row.accountId) return false;
+    const acc = state.accounts.find(a => a.id === row.accountId);
+    if(!acc || accountHasFullSale(row.accountId)) return false;
+    pending[row.accountId] = (pending[row.accountId] || 0) + 1;
+    if(accountUsed(row.accountId) + pending[row.accountId] > Number(acc.capacity || 0)) return false;
+  }
+  return true;
 }
 function openComboSheet(){
   const templates = normalizeComboTemplates(state.settings.comboTemplates, state.settings.categories);
@@ -1491,6 +1569,11 @@ async function saveComboFromForm(e){
   }).map(sanitizeClientForSave);
   if(!rows.length || rows.some(c => !c.accountId)){
     toast('Elige una cuenta para cada app.','bad');
+    btn.disabled = false;
+    return;
+  }
+  if(!comboRowsHaveCapacity(rows)){
+    toast('Una cuenta del combo ya no tiene perfiles libres. Elige otra cuenta.','bad');
     btn.disabled = false;
     return;
   }
@@ -2281,7 +2364,7 @@ function startLive(){
 
 document.querySelectorAll('.navbtn').forEach(b => b.onclick = () => setView(b.dataset.view));
 registerGestorServiceWorker();
-$('#fab').onclick = () => state.view === 'finance' ? openFinanceExpenseSheet() : (state.view === 'accounts' ? openAccountSheet() : openClientSheet());
+$('#fab').onclick = () => state.view === 'finance' ? openFinanceExpenseSheet() : (state.view === 'accounts' ? openAccountSheet() : openClientSheetWhenReady());
 $('#installBtn').onclick = installGestorApp;
 $('#installBannerBtn').onclick = installGestorApp;
 $('#installDismissBtn').onclick = dismissInstallBanner;
