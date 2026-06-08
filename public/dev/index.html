@@ -41,7 +41,6 @@ if('serviceWorker' in navigator && (location.protocol === 'http:' || location.pr
 })();
 </script>
 <title>Diseños Streaming</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check-compat.js"></script>
@@ -1771,6 +1770,7 @@ async function saveUserProfile(){
 // Optimizar URLs Cloudinary — menos ancho de banda
 function stripCloudinaryTransforms(url){
   if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  url = String(url).split('#')[0].split('?')[0];
   const uploadIdx = url.indexOf('/image/upload/');
   const base = url.substring(0, uploadIdx + '/image/upload/'.length);
   const parts = url.substring(base.length).split('/');
@@ -1807,7 +1807,7 @@ const __lazyImgObserver = ('IntersectionObserver' in window) ? new IntersectionO
       obs.unobserve(img);
     }
   });
-}, { rootMargin: '200px 0px', threshold: 0.01 }) : null;
+}, { rootMargin: '90px 0px', threshold: 0.01 }) : null;
 
 function observeLazyImages(root) {
   if (!__lazyImgObserver) {
@@ -1934,8 +1934,8 @@ window.addEventListener('load', async () => {
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
             // Cargar datos frescos de Firestore en segundo plano
-            loadMyDesigns();
-            loadAdminTemplates();
+            if(!readDashCache('designs')) loadMyDesigns();
+            if(!readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
             localStorage.removeItem('ts_session');
@@ -2219,6 +2219,64 @@ function startDeviceRevokeListener(uid) {
     }, () => {});
 }
 
+let _postLoginCompleting = false;
+
+async function completePostLogin(user, errEl) {
+  if(!user || !fbDb) return false;
+  if(_postLoginCompleting) return true;
+  _postLoginCompleting = true;
+  try {
+    const doc = await fbDb.collection('users').doc(user.uid).get();
+    if(!doc.exists || doc.data().active === false) {
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      showScreen('login');
+      if(errEl) errEl.textContent = 'Cuenta desactivada. Contacta al administrador.';
+      return false;
+    }
+
+    const devResult = await registerDevice(user.uid);
+    if(!devResult.ok) {
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      showScreen('login');
+      if(errEl) {
+        errEl.textContent = devResult.revoked
+          ? 'Este dispositivo fue revocado. Contacta al administrador.'
+          : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador para liberar un dispositivo.';
+      }
+      return false;
+    }
+
+    currentUser = { uid: user.uid, ...doc.data() };
+    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    startDeviceRevokeListener(user.uid);
+    loadUserProfile();
+
+    const urlTpl = new URLSearchParams(window.location.search).get('tpl');
+    const redirect = getSafePostLoginRedirect();
+    if(redirect) {
+      window.location.href = redirect;
+      return true;
+    }
+    if(urlTpl) {
+      openEditorFromTemplate(urlTpl);
+      return true;
+    }
+    showDashboard();
+    return true;
+  } catch(e) {
+    console.error('post login error:', e);
+    if(errEl) errEl.textContent = 'No se pudo cargar tu cuenta. Intenta otra vez.';
+    showScreen('login');
+    return false;
+  } finally {
+    _postLoginCompleting = false;
+  }
+}
+
 async function doLogin() {
   const phone = document.getElementById('login-phone').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -2231,9 +2289,12 @@ async function doLogin() {
   btn.innerHTML = '<span class="spinner"></span>';
   try {
     const email = phone; // ya es el email completo
-    await fbAuth.signInWithEmailAndPassword(email, pass);
-    // onAuthStateChanged will handle navigation
-    btn.textContent = 'Entrar'; btn.disabled = false;
+    const credential = await fbAuth.signInWithEmailAndPassword(email, pass);
+    const completed = await completePostLogin(credential.user, err);
+    if(!completed) {
+      btn.textContent = 'Entrar';
+      btn.disabled = false;
+    }
   } catch(e) {
     let msg = '✗ Correo o contraseña incorrectos';
     if(e.code === 'auth/too-many-requests') msg = '✗ Demasiados intentos. Espera un momento.';
@@ -2339,6 +2400,8 @@ function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
 const DASH_CACHE_TTL = 1000 * 60 * 120; // 2 horas — plantillas/diseños raramente cambian
+const DASH_DESIGN_FETCH_LIMIT = 24;
+const DASH_TEMPLATE_FETCH_LIMIT = 160;
 function dashCacheKey(scope){ return `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
@@ -2446,7 +2509,9 @@ async function loadMyDesigns() {
   try {
     const snap = await fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
-      .orderBy('updatedAt', 'desc').get();
+      .orderBy('updatedAt', 'desc')
+      .limit(DASH_DESIGN_FETCH_LIMIT)
+      .get();
     const docs = snap.docs.map(doc => ({ id: doc.id, d: doc.data() || {} }));
     renderMyDesignCards({ items: docs, total: snap.size });
     writeDashCache('designs', {
@@ -2561,7 +2626,10 @@ async function loadAdminTemplates() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('templates').get();
+    const snap = await fbDb.collection('templates')
+      .orderBy('createdAt', 'desc')
+      .limit(DASH_TEMPLATE_FETCH_LIMIT)
+      .get();
     const rawDocs = [];
     snap.forEach(doc => {
       const d = doc.data() || {};

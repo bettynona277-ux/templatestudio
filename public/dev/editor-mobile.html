@@ -5,8 +5,14 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
+<script>
+if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/sw.js').catch(e=>console.warn('SW editor mobile error:', e));
+  });
+}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Oswald:wght@400;700&family=Raleway:wght@400;700&family=Nunito:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -2281,11 +2287,25 @@ function toggleAccordion(accEl){
 }
 
 // ── Cargar logos propios del cliente ──
+const OWN_LOGO_CACHE_TTL = 2 * 60 * 60 * 1000;
+function ownLogoCacheKey(uid){ return `ds_own_logo_cache_${uid}`; }
+function writeOwnLogoCache(uid){
+  try{ localStorage.setItem(ownLogoCacheKey(uid), JSON.stringify({ts:Date.now(), logos:ownLogoCache})); }catch(_){}
+}
+function readOwnLogoCache(uid){
+  try{
+    const cached = JSON.parse(localStorage.getItem(ownLogoCacheKey(uid)) || 'null');
+    if(cached?.logos && cached.ts && Date.now() - Number(cached.ts) < OWN_LOGO_CACHE_TTL) return cached.logos;
+  }catch(_){}
+  return null;
+}
 async function loadOwnLogos(){
   const grid = document.getElementById('own-logos-grid');
   const empty = document.getElementById('own-logos-empty');
   const uid = fbAuth?.currentUser?.uid;
   if(!fbDb||!uid){ if(empty){ empty.textContent='Inicia sesión para ver tus logos.'; empty.style.display='block'; } return; }
+  const cached = readOwnLogoCache(uid);
+  if(cached){ ownLogoCache = cached; renderOwnLogos(); return; }
   try{
     // Sin orderBy para evitar requerir índice compuesto en Firestore
     const snap = await fbDb.collection('user_logos').where('uid','==',uid).get();
@@ -2293,6 +2313,7 @@ async function loadOwnLogos(){
     snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
     // Ordenar localmente por createdAt desc
     ownLogoCache.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    writeOwnLogoCache(uid);
     renderOwnLogos();
   }catch(e){
     console.error('Own logos error:', e.code, e.message);
@@ -2367,6 +2388,7 @@ async function uploadOwnLogos(ev){
       const docRef = await fbDb.collection('user_logos').add(logoData);
       // Agregar al cache local directamente (sin re-query)
       ownLogoCache.unshift({id: docRef.id, ...logoData});
+      writeOwnLogoCache(uid);
       ok++;
     }catch(e){ console.error('Upload own logo error:', e.code, e.message); }
   }
@@ -2385,6 +2407,8 @@ async function deleteOwnLogo(id, ev){
   try{
     await fbDb.collection('user_logos').doc(id).delete();
     ownLogoCache = ownLogoCache.filter(l=>l.id!==id);
+    const uid = fbAuth?.currentUser?.uid;
+    if(uid) writeOwnLogoCache(uid);
     renderOwnLogos();
     toast('Logo eliminado');
   }catch(e){ toast('Error al eliminar'); }
@@ -2965,6 +2989,7 @@ function canvasShapePath(ctx,layer,x,y,w,h){
 
 function stripCloudinaryTransforms(url){
   if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  url = String(url).split('#')[0].split('?')[0];
   const uploadIdx = url.indexOf('/image/upload/');
   const base = url.substring(0, uploadIdx + '/image/upload/'.length);
   const parts = url.substring(base.length).split('/');

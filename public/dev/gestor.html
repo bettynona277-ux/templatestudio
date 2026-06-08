@@ -58,7 +58,6 @@ function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients
 function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance_movements'); }
 function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'settings'); }
 function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
-function gestorUsageRef(uid, day){ return doc(db, 'users', uid, 'gestor_usage', day); }
 function adminGestorUsageRef(day){ return doc(db, 'admin_metrics', `gestor_usage_${day}`); }
 const FINANCE_RECENT_LIMIT = 350;
 
@@ -78,14 +77,6 @@ async function trackGestorDailyUsage(user, surface='desktop') {
   try {
     if(localStorage.getItem(cacheKey)) return;
     const now = Date.now();
-    const userUsage = {
-      uid:user.uid,
-      email:user.email || '',
-      day,
-      surface,
-      lastSeenAt:now,
-      updatedAt:now
-    };
     const adminUsage = {
       day,
       updatedAt:now,
@@ -98,10 +89,7 @@ async function trackGestorDailyUsage(user, surface='desktop') {
         }
       }
     };
-    await Promise.allSettled([
-      setDoc(gestorUsageRef(user.uid, day), userUsage, { merge:true }),
-      setDoc(adminGestorUsageRef(day), adminUsage, { merge:true })
-    ]);
+    await setDoc(adminGestorUsageRef(day), adminUsage, { merge:true });
     localStorage.setItem(cacheKey, String(now));
   } catch (err) {
     try { localStorage.setItem(cacheKey, 'blocked'); } catch(_) {}

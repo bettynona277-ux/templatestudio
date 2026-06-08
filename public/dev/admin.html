@@ -154,6 +154,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .users-search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;display:none;}
 .users-search-clear.show{display:block;}
 .users-search-clear:hover{background:rgba(255,255,255,0.08);color:var(--text);}
+.users-page-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:0.78rem;}
+.users-page-foot .btn{font-size:0.76rem;padding:7px 14px;}
 .users-empty{color:var(--muted);font-size:0.82rem;padding:18px 0;}
 .users-table{width:100%;border-collapse:collapse;font-size:0.82rem;}
 .users-table th{text-align:left;font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:8px 12px;border-bottom:1px solid var(--border);}
@@ -278,7 +280,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <div class="card-title" style="margin-bottom:4px;">Uso diario del gestor</div>
               <div class="helper-mini">Conteo privado para admin. Se actualiza cuando un cliente abre el gestor.</div>
             </div>
-            <button class="btn btn-ghost" type="button" onclick="loadGestorUsageMetrics()">Actualizar uso</button>
+            <button class="btn btn-ghost" type="button" onclick="loadGestorUsageMetrics(true)">Actualizar uso</button>
           </div>
           <div class="usage-grid">
             <div class="usage-pill"><strong id="usage-today">-</strong><span>Activos hoy</span></div>
@@ -504,8 +506,7 @@ window.addEventListener('load', async () => {
         const adminDoc = await fbDb.collection('admins').doc(user.uid).get();
         if (adminDoc.exists) {
           showAdminPanel(user.email);
-          loadTemplates();
-          loadUsers();
+          loadInitialAdminSection();
         } else {
           await fbAuth.signOut();
         }
@@ -626,15 +627,46 @@ function observeLazyImages(root) {
 
 let _allTemplates = [];
 let _currentFilter = 'all';
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
+const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
+const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
+const ADMIN_COLLECTION_CACHE_TTL = 10 * 60 * 1000;
+const ADMIN_USERS_PAGE_SIZE = 120;
 
-async function loadTemplates() {
+function readAdminCollectionCache(key) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(key) || 'null');
+    if(!cached || Date.now() - Number(cached.at || 0) >= ADMIN_COLLECTION_CACHE_TTL) return null;
+    return Array.isArray(cached.rows) ? cached.rows : null;
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminCollectionCache(key, rows) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ at:Date.now(), rows }));
+  } catch(_) {}
+}
+
+function invalidateAdminCollectionCache(key) {
+  try { localStorage.removeItem(key); } catch(_) {}
+}
+
+async function loadTemplates(force=false) {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
-    const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-    _allTemplates = [];
-    snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+    const cached = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
+    if(cached) {
+      _allTemplates = cached;
+    } else {
+      const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+      _allTemplates = [];
+      snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+      writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+    }
     updateTemplateCounts();
     renderTemplates();
   } catch(e) {
@@ -706,20 +738,31 @@ function renderTemplates() {
 
 function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
 
+function refreshTemplateCacheAndRender() {
+  updateTemplateCounts();
+  writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  renderTemplates();
+}
+
 async function deleteTpl(id) {
   if(!confirm('¿Borrar esta plantilla? No se puede deshacer.')) return;
   await fbDb.collection('templates').doc(id).delete();
-  loadTemplates();
+  _allTemplates = _allTemplates.filter(t => t.id !== id);
+  refreshTemplateCacheAndRender();
 }
 
 async function publishTemplate(id) {
-  await fbDb.collection('templates').doc(id).update({ status: 'published', updatedAt: Date.now() });
-  loadTemplates();
+  const updatedAt = Date.now();
+  await fbDb.collection('templates').doc(id).update({ status: 'published', updatedAt });
+  _allTemplates = _allTemplates.map(t => t.id === id ? { ...t, status:'published', updatedAt } : t);
+  refreshTemplateCacheAndRender();
 }
 
 async function draftTemplate(id) {
-  await fbDb.collection('templates').doc(id).update({ status: 'draft', updatedAt: Date.now() });
-  loadTemplates();
+  const updatedAt = Date.now();
+  await fbDb.collection('templates').doc(id).update({ status: 'draft', updatedAt });
+  _allTemplates = _allTemplates.map(t => t.id === id ? { ...t, status:'draft', updatedAt } : t);
+  refreshTemplateCacheAndRender();
 }
 
 // ══════════════════════════════════════════
@@ -728,6 +771,7 @@ async function draftTemplate(id) {
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
+let adminUsersPage = { lastCreatedAt:null, noMore:false, loading:false };
 const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
 const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
 
@@ -810,6 +854,29 @@ function clearUsersSearch() {
   if(input) input.focus();
 }
 
+function refreshAdminUsersCache(mutator) {
+  adminUsersCache = Array.isArray(adminUsersCache) ? adminUsersCache.slice() : [];
+  mutator(adminUsersCache);
+  adminUsersCache.sort((a,b) => Number(b.data?.createdAt || 0) - Number(a.data?.createdAt || 0));
+  writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+  renderUsersTable(adminUsersCache);
+}
+
+function upsertAdminUserCache(id, patch) {
+  refreshAdminUsersCache(rows => {
+    const idx = rows.findIndex(item => item.id === id);
+    if(idx >= 0) rows[idx] = { id, data:{ ...(rows[idx].data || {}), ...patch } };
+    else rows.unshift({ id, data:{ ...patch } });
+  });
+}
+
+function removeAdminUserCache(id) {
+  refreshAdminUsersCache(rows => {
+    const idx = rows.findIndex(item => item.id === id);
+    if(idx >= 0) rows.splice(idx, 1);
+  });
+}
+
 async function createUser() {
   if(!fbConnected) return;
   const emailInput = document.getElementById('new-user-email');
@@ -841,7 +908,8 @@ async function createUser() {
     const data = await res.json();
     if(!res.ok) throw new Error(data.error?.message || 'Error al crear');
 
-    await fbDb.collection('users').doc(data.localId).set({
+    const createdAt = Date.now();
+    const newUserData = {
       uid: data.localId,
       email: email,
       name: displayName,
@@ -849,15 +917,16 @@ async function createUser() {
       status: 'active',
       subscriptionStatus: 'active',
       initialPassword: pass,
-      createdAt: Date.now()
-    });
+      createdAt
+    };
+    await fbDb.collection('users').doc(data.localId).set(newUserData);
 
     showStatus('create-user-status', '✓ Cliente creado correctamente', 'ok');
     showCreatedCredentials(email, displayName);
     document.getElementById('new-user-email').value = '';
     document.getElementById('new-user-pass').value = '';
     document.getElementById('new-user-name').value = '';
-    loadUsers();
+    upsertAdminUserCache(data.localId, newUserData);
   } catch(e) {
     showStatus('create-user-status', '✗ ' + e.message, 'err');
   }
@@ -866,6 +935,7 @@ async function createUser() {
 }
 
 async function legacyLoadUsers() {
+  return;
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
@@ -912,7 +982,7 @@ async function legacyLoadUsers() {
 async function hardDeleteUser(id) {
   if(!confirm('¿Borrar este cliente? Solo se elimina de Firestore, no de Firebase Auth.')) return;
   await fbDb.collection('users').doc(id).delete();
-  loadUsers();
+  removeAdminUserCache(id);
 }
 
 // ══════════════════════════════════════════
@@ -932,7 +1002,8 @@ function renderUsersTable(users) {
     return;
   }
   if(!list.length) {
-    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda.</p>';
+    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda en los clientes cargados.</p>';
+    renderUsersPager(wrap, search);
     return;
   }
   const inactiveStatuses = ['expired','Expired','vencido','Vencido','inactive','Inactive','inactivo','Inactivo','blocked','Blocked','bloqueado','Bloqueado'];
@@ -975,22 +1046,90 @@ function renderUsersTable(users) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+  renderUsersPager(wrap, search, list.length);
 }
 
-async function loadUsers() {
+function renderUsersPager(wrap, search, visibleCount=0) {
+  if(!wrap) return;
+  const totalLoaded = adminUsersCache.length;
+  const note = search
+    ? `Mostrando ${visibleCount} resultado(s) entre ${totalLoaded} cliente(s) cargados.`
+    : `Mostrando ${totalLoaded} cliente(s) cargados.`;
+  const canLoadMore = !adminUsersPage.noMore && !adminUsersPage.loading;
+  const foot = document.createElement('div');
+  foot.className = 'users-page-foot';
+  foot.innerHTML = `
+    <span>${note}${adminUsersPage.noMore ? ' No hay mas paginas.' : ''}</span>
+    ${canLoadMore ? '<button class="btn btn-ghost" type="button" onclick="loadMoreUsers()">Cargar mas clientes</button>' : ''}
+  `;
+  wrap.appendChild(foot);
+}
+
+async function loadUsers(force=false) {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
+  if(adminUsersPage.loading) return;
+  adminUsersPage.loading = true;
   try {
-    const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
-    adminUsersCache = [];
-    snap.forEach(doc => {
-      adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
-    });
+    const cached = force ? null : readAdminCollectionCache(ADMIN_USERS_CACHE_KEY);
+    if(cached) {
+      adminUsersCache = cached;
+      const last = adminUsersCache[adminUsersCache.length - 1];
+      adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || null;
+      adminUsersPage.noMore = adminUsersCache.length < ADMIN_USERS_PAGE_SIZE;
+    } else {
+      adminUsersCache = [];
+      adminUsersPage = { lastCreatedAt:null, noMore:false, loading:true };
+      const snap = await fbDb.collection('users')
+        .orderBy('createdAt','desc')
+        .limit(ADMIN_USERS_PAGE_SIZE)
+        .get();
+      adminUsersCache = [];
+      snap.forEach(doc => {
+        adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
+      });
+      const last = adminUsersCache[adminUsersCache.length - 1];
+      adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || null;
+      adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
+      writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+    }
     renderUsersTable(adminUsersCache);
     loadGestorUsageMetrics();
   } catch(e) {
     wrap.innerHTML = '<p style="color:var(--accent2);">Error al cargar clientes.</p>';
     console.error(e);
+  } finally {
+    adminUsersPage.loading = false;
+    if(adminUsersCache.length) renderUsersTable(adminUsersCache);
+  }
+}
+
+async function loadMoreUsers() {
+  if(!fbConnected || adminUsersPage.loading || adminUsersPage.noMore) return;
+  const wrap = document.getElementById('users-table-wrap');
+  adminUsersPage.loading = true;
+  renderUsersTable(adminUsersCache);
+  try {
+    let q = fbDb.collection('users')
+      .orderBy('createdAt','desc')
+      .limit(ADMIN_USERS_PAGE_SIZE);
+    if(adminUsersPage.lastCreatedAt) q = q.startAfter(adminUsersPage.lastCreatedAt);
+    const snap = await q.get();
+    const seen = new Set(adminUsersCache.map(item => item.id));
+    snap.forEach(doc => {
+      if(!seen.has(doc.id)) adminUsersCache.push({ id:doc.id, data:doc.data() || {} });
+    });
+    const last = adminUsersCache[adminUsersCache.length - 1];
+    adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || adminUsersPage.lastCreatedAt;
+    adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
+    writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+    renderUsersTable(adminUsersCache);
+  } catch(e) {
+    if(wrap) wrap.insertAdjacentHTML('beforeend', '<p style="color:var(--accent2);font-size:0.8rem;margin-top:10px;">No se pudo cargar mas clientes.</p>');
+    console.error(e);
+  } finally {
+    adminUsersPage.loading = false;
+    renderUsersTable(adminUsersCache);
   }
 }
 
@@ -1059,7 +1198,7 @@ async function loadGestorUsageFromAggregates(days) {
   return docs;
 }
 
-async function loadGestorUsageMetrics() {
+async function loadGestorUsageMetrics(force=false) {
   const todayEl = document.getElementById('usage-today');
   const yesterdayEl = document.getElementById('usage-yesterday');
   const weekEl = document.getElementById('usage-week');
@@ -1071,7 +1210,7 @@ async function loadGestorUsageMetrics() {
   daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
   const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
   try {
-    let rows = readAdminUsageCache(days);
+    let rows = force ? null : readAdminUsageCache(days);
     if(!rows) {
       rows = await loadGestorUsageFromAggregates(days);
       writeAdminUsageCache(days, rows);
@@ -1100,28 +1239,32 @@ async function loadGestorUsageMetrics() {
 
 async function deactivateUser(id) {
   if(!confirm('Inhabilitar este cliente? Podra iniciar sesion solo para exportar sus datos, pero no podra usar el editor ni guardar cuentas.')) return;
-  await fbDb.collection('users').doc(id).set({
+  const updatedAt = Date.now();
+  const patch = {
     active: false,
     status: 'vencido',
     subscriptionStatus: 'vencido',
-    disabledAt: Date.now(),
+    disabledAt: updatedAt,
     disabledBy: fbAuth.currentUser ? fbAuth.currentUser.uid : null,
-    updatedAt: Date.now()
-  }, { merge: true });
+    updatedAt
+  };
+  await fbDb.collection('users').doc(id).set(patch, { merge: true });
   showToast('Cliente inhabilitado. Firebase Auth queda activo para exportar Excel.');
-  loadUsers();
+  upsertAdminUserCache(id, patch);
 }
 
 async function reactivateUser(id) {
-  await fbDb.collection('users').doc(id).set({
+  const updatedAt = Date.now();
+  const patch = {
     active: true,
     status: 'active',
     subscriptionStatus: 'active',
-    reactivatedAt: Date.now(),
-    updatedAt: Date.now()
-  }, { merge: true });
+    reactivatedAt: updatedAt,
+    updatedAt
+  };
+  await fbDb.collection('users').doc(id).set(patch, { merge: true });
   showToast('Cliente reactivado.');
-  loadUsers();
+  upsertAdminUserCache(id, patch);
 }
 
 function showTemplateLink(id, name, isDraft) {
@@ -1192,13 +1335,34 @@ function showToast(msg) {
 // ══════════════════════════════════════════
 // NAVEGACIÓN
 // ══════════════════════════════════════════
+function getAdminNavForSection(id) {
+  return Array.from(document.querySelectorAll('.nav-item')).find(item =>
+    (item.getAttribute('onclick') || '').includes(`'${id}'`)
+  );
+}
+
+function loadAdminSectionData(id, force=false) {
+  if(id === 'templates') loadTemplates(force);
+  if(id === 'users') loadUsers(force);
+  if(id === 'logos') loadAdminLogos(force);
+}
+
+function loadInitialAdminSection() {
+  const saved = localStorage.getItem('ds_admin_active_section') || '';
+  const activeSection = saved && document.getElementById('section-' + saved)
+    ? saved
+    : (document.querySelector('.section.active')?.id || 'section-templates').replace('section-', '');
+  showSection(activeSection, getAdminNavForSection(activeSection));
+}
+
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('section-' + id).classList.add('active');
-  if(el) el.classList.add('active');
-  if(id === 'logos') loadAdminLogos();
-  if(id === 'users') loadGestorUsageMetrics();
+  const nav = el || getAdminNavForSection(id);
+  if(nav) nav.classList.add('active');
+  try { localStorage.setItem('ds_admin_active_section', id); } catch(_) {}
+  loadAdminSectionData(id);
 }
 
 // ══════════════════════════════════════════
@@ -1283,17 +1447,24 @@ async function uploadAdminLogos(){
   adminLogoFiles = [];
   document.getElementById('admin-logo-preview').innerHTML = '';
   document.getElementById('admin-logo-files').value = '';
-  if(ok > 0) loadAdminLogos();
+  if(ok > 0) {
+    invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    loadAdminLogos(true);
+  }
 }
 
-async function loadAdminLogos(){
+async function loadAdminLogos(force=false){
   const container = document.getElementById('admin-logos-list');
   if(!container || !fbDb) return;
   container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
   try{
-    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
-    const all = [];
-    snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+    let all = force ? null : readAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    if(!all) {
+      const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      all = [];
+      snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
+      writeAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY, all);
+    }
 
     if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
 
@@ -1348,6 +1519,7 @@ async function deleteAdminLogo(id, btn){
   if(!confirm('¿Eliminar este logo?')) return;
   try{
     await fbDb.collection('logos').doc(id).delete();
+    invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
     btn.closest('div[style*="aspect-ratio"]').remove();
     showStatus && showStatus('','','');
   }catch(e){ alert('Error: '+e.message); }
@@ -1396,6 +1568,14 @@ function deviceStatusClass(status){
   return String(status || '').toLowerCase();
 }
 
+async function fetchUserDevices(uid){
+  const col = fbDb.collection('users').doc(uid).collection('devices');
+  const snap = await col.get();
+  return snap.docs
+    .map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
+    .sort((a,b) => getDeviceSeenAt(b) - getDeviceSeenAt(a));
+}
+
 async function showDevices(uid, name) {
   _devicesUserId = uid;
   document.getElementById('devices-modal-subtitle').textContent = name + ' — máximo 5 dispositivos';
@@ -1405,6 +1585,7 @@ async function showDevices(uid, name) {
 }
 
 async function refreshDevicesListLegacy(uid) {
+  return;
   const list = document.getElementById('devices-list');
   try {
     const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
@@ -1436,12 +1617,11 @@ async function refreshDevicesListLegacy(uid) {
 async function refreshDevicesList(uid) {
   const list = document.getElementById('devices-list');
   try {
-    const snap = await fbDb.collection('users').doc(uid).collection('devices').orderBy('lastSeen','desc').get();
-    if(snap.empty){
+    const docs = await fetchUserDevices(uid);
+    if(!docs.length){
       list.innerHTML = '<p class="devices-empty">Sin dispositivos registrados.</p>';
       return;
     }
-    const docs = snap.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
     const activeCount = docs.filter(d => !d.revoked && !isDeviceExpiredAdmin(d)).length;
     const expiredCount = docs.filter(d => !d.revoked && isDeviceExpiredAdmin(d)).length;
     let html = '';

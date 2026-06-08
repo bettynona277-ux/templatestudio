@@ -263,7 +263,6 @@ const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
 const settingsRef = uid => doc(db,'users',uid,'gestor_config','settings');
 const devicesCol = uid => collection(db,'users',uid,'devices');
-const gestorUsageRef = (uid, day) => doc(db,'users',uid,'gestor_usage',day);
 const adminGestorUsageRef = day => doc(db,'admin_metrics',`gestor_usage_${day}`);
 const accountRef = itemId => doc(db,'users',state.uid,'gestor_accounts',itemId);
 const clientRef = itemId => doc(db,'users',state.uid,'gestor_clients',itemId);
@@ -286,14 +285,6 @@ async function trackGestorDailyUsage(user, surface='mobile'){
   try{
     if(localStorage.getItem(cacheKey)) return;
     const now = Date.now();
-    const userUsage = {
-      uid:user.uid,
-      email:user.email || '',
-      day,
-      surface,
-      lastSeenAt:now,
-      updatedAt:now
-    };
     const adminUsage = {
       day,
       updatedAt:now,
@@ -306,10 +297,7 @@ async function trackGestorDailyUsage(user, surface='mobile'){
         }
       }
     };
-    await Promise.allSettled([
-      setDoc(gestorUsageRef(user.uid, day), userUsage, { merge:true }),
-      setDoc(adminGestorUsageRef(day), adminUsage, { merge:true })
-    ]);
+    await setDoc(adminGestorUsageRef(day), adminUsage, { merge:true });
     localStorage.setItem(cacheKey, String(now));
   }catch(err){
     try{ localStorage.setItem(cacheKey, 'blocked'); }catch(_){}

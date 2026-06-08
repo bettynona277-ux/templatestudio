@@ -8,7 +8,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diseños">
 <title>Diseños Streaming</title>
-<script src="app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -723,6 +722,7 @@ const FIREBASE_CONFIG = {
 // Optimizar URLs Cloudinary
 function stripCloudinaryTransforms(url){
   if(!url || !url.includes('res.cloudinary.com/') || !url.includes('/image/upload/')) return url;
+  url = String(url).split('#')[0].split('?')[0];
   const uploadIdx = url.indexOf('/image/upload/');
   const base = url.substring(0, uploadIdx + '/image/upload/'.length);
   const parts = url.substring(base.length).split('/');
@@ -759,7 +759,7 @@ const __lazyImgObserver = ('IntersectionObserver' in window) ? new IntersectionO
       obs.unobserve(img);
     }
   });
-}, { rootMargin: '200px 0px', threshold: 0.01 }) : null;
+}, { rootMargin: '80px 0px', threshold: 0.01 }) : null;
 
 function observeLazyImages(root) {
   if (!__lazyImgObserver) {
@@ -778,6 +778,8 @@ let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v3';
 const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
+const MOB_DESIGN_FETCH_LIMIT = 24;
+const ENABLE_USER_DOC_LIVE_STATUS = false;
 
 // Limpiar cachés viejos para liberar espacio en localStorage
 try{
@@ -792,6 +794,22 @@ try{
 // Solo guardar campos mínimos en caché (ahorra ~80% de espacio)
 function minifyTemplatesForCache(items){
   return items.map(t => ({id:t.id, name:t.name||'', thumb:t.thumb||'', category:t.category||'', createdAt:t.createdAt||0}));
+}
+
+function isFreshMobileCache(key){
+  if(!key) return false;
+  try{
+    const cached = JSON.parse(localStorage.getItem(key) || 'null');
+    return !!(cached?.items?.length && cached.savedAt && Date.now() - Number(cached.savedAt) < MOB_CACHE_TTL);
+  }catch(_){ return false; }
+}
+
+function hasFreshDesignsCache(){
+  return isFreshMobileCache(getDesignsCacheKey());
+}
+
+function hasFreshTemplatesCache(){
+  return isFreshMobileCache(TEMPLATES_CACHE_KEY);
 }
 
 function toast(msg){
@@ -947,7 +965,7 @@ window.addEventListener('load', async()=>{
         if(user){
           // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
           let _snapFirstAutologin = true;
-          fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+          if(ENABLE_USER_DOC_LIVE_STATUS) fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
             if(_snapFirstAutologin){ _snapFirstAutologin = false; return; }
             if(!snap.exists || snap.data()?.active === false){
               fbAuth.signOut();
@@ -978,8 +996,8 @@ window.addEventListener('load', async()=>{
                 if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
               }catch(_){}
               loadMobProfile();
-              try{ loadMyDesigns && loadMyDesigns(); }catch(_){}
-              try{ loadTemplates && loadTemplates(); }catch(_){}
+              try{ if(!hasFreshDesignsCache()) loadMyDesigns && loadMyDesigns(); }catch(_){}
+              try{ if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates(); }catch(_){}
             } else {
               fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
             }
@@ -1006,7 +1024,7 @@ window.addEventListener('load', async()=>{
     if(user){
       // ── LISTENER EN TIEMPO REAL — skip primera emisión para evitar condición de carrera ──
       let _snapFirstNormal = true;
-      fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
+      if(ENABLE_USER_DOC_LIVE_STATUS) fbDb.collection('users').doc(user.uid).onSnapshot(snap => {
         if(_snapFirstNormal){ _snapFirstNormal = false; return; }
         if(!snap.exists || snap.data()?.active === false){
           fbAuth.signOut();
@@ -1256,6 +1274,73 @@ async function unregisterDevice(uid){
   }catch(e){}
 }
 
+let _postLoginCompleting = false;
+
+async function completePostLogin(user, errEl){
+  if(!user || !fbDb) return false;
+  if(_postLoginCompleting) return true;
+  _postLoginCompleting = true;
+  try{
+    const doc = await fbDb.collection('users').doc(user.uid).get();
+    if(!doc.exists || doc.data().active === false){
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      document.getElementById('app-loading').style.display = 'none';
+      showScreen('login');
+      if(errEl) errEl.textContent = 'Cuenta desactivada.';
+      return false;
+    }
+
+    const devResult = await registerDevice(user.uid);
+    if(!devResult.ok){
+      await fbAuth.signOut();
+      localStorage.removeItem('ts_session');
+      currentUser = null;
+      document.getElementById('app-loading').style.display = 'none';
+      showScreen('login');
+      if(errEl){
+        errEl.textContent = devResult.revoked
+          ? 'Este dispositivo fue revocado por el administrador.'
+          : 'Limite de ' + MAX_DEVICES + ' dispositivos alcanzado. Contacta al administrador.';
+      }
+      return false;
+    }
+
+    currentUser = {uid:user.uid, ...doc.data()};
+    localStorage.setItem('ts_session', JSON.stringify(currentUser));
+    try{
+      const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
+      if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
+    }catch(_){}
+    loadMobProfile();
+    try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
+    try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
+
+    const params = new URLSearchParams(window.location.search);
+    const redirectTarget = resolvePostLoginRedirect();
+    if(redirectTarget){
+      try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid:user.uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
+      window.location.href = redirectTarget;
+      return true;
+    }
+    if(params.get('tpl')){
+      openEditorFromTemplate(params.get('tpl'));
+      return true;
+    }
+    showDashboard();
+    return true;
+  }catch(e){
+    console.error('post login error:', e);
+    document.getElementById('app-loading').style.display = 'none';
+    showScreen('login');
+    if(errEl) errEl.textContent = 'No se pudo cargar tu cuenta. Intenta otra vez.';
+    return false;
+  }finally{
+    _postLoginCompleting = false;
+  }
+}
+
 async function doLogin(){
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -1270,9 +1355,12 @@ async function doLogin(){
   try{
     try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
     try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
-    await fbAuth.signInWithEmailAndPassword(email, pass);
-    txt.textContent = 'Entrar ahora';
-    btn.disabled = false;
+    const credential = await fbAuth.signInWithEmailAndPassword(email, pass);
+    const completed = await completePostLogin(credential.user, err);
+    if(!completed){
+      txt.textContent = 'Entrar ahora';
+      btn.disabled = false;
+    }
   }catch(e){
     let msg = '✗ Correo o contraseña incorrectos';
     if(e.code === 'auth/too-many-requests') msg = '✗ Demasiados intentos. Espera un momento.';
@@ -1300,8 +1388,8 @@ function showDashboard(){
   showScreen('dash');
   renderCachedDesigns();
   renderCachedTemplates();
-  loadMyDesigns();
-  loadTemplates();
+  if(!hasFreshDesignsCache()) loadMyDesigns();
+  if(!hasFreshTemplatesCache()) loadTemplates();
 }
 
 function getDesignsCacheKey(){
@@ -1356,7 +1444,11 @@ async function loadMyDesigns(){
   }
   // Siempre consulta Firestore para detectar cambios
   try{
-    const snap = await fbDb.collection('user_designs').where('uid','==',currentUser.uid).orderBy('updatedAt','desc').get();
+    const snap = await fbDb.collection('user_designs')
+      .where('uid','==',currentUser.uid)
+      .orderBy('updatedAt','desc')
+      .limit(MOB_DESIGN_FETCH_LIMIT)
+      .get();
     const items = [];
     snap.forEach(doc=> items.push({id:doc.id, data:doc.data()}));
     renderDesignsFromList(items);
