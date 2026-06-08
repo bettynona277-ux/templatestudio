@@ -1934,8 +1934,8 @@ window.addEventListener('load', async () => {
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
             // Cargar datos frescos de Firestore en segundo plano
-            loadMyDesigns();
-            loadAdminTemplates();
+            if(!readDashCache('designs')) loadMyDesigns();
+            if(!readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
             localStorage.removeItem('ts_session');
@@ -2400,6 +2400,8 @@ function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
 const DASH_CACHE_TTL = 1000 * 60 * 120; // 2 horas — plantillas/diseños raramente cambian
+const DASH_DESIGN_FETCH_LIMIT = 24;
+const DASH_TEMPLATE_FETCH_LIMIT = 160;
 function dashCacheKey(scope){ return `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
@@ -2507,7 +2509,9 @@ async function loadMyDesigns() {
   try {
     const snap = await fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
-      .orderBy('updatedAt', 'desc').get();
+      .orderBy('updatedAt', 'desc')
+      .limit(DASH_DESIGN_FETCH_LIMIT)
+      .get();
     const docs = snap.docs.map(doc => ({ id: doc.id, d: doc.data() || {} }));
     renderMyDesignCards({ items: docs, total: snap.size });
     writeDashCache('designs', {
@@ -2622,7 +2626,10 @@ async function loadAdminTemplates() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('templates').get();
+    const snap = await fbDb.collection('templates')
+      .orderBy('createdAt', 'desc')
+      .limit(DASH_TEMPLATE_FETCH_LIMIT)
+      .get();
     const rawDocs = [];
     snap.forEach(doc => {
       const d = doc.data() || {};

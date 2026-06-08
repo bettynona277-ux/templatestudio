@@ -4007,11 +4007,25 @@ function renderLogoLibrary(){
 }
 
 // ── Cargar logos propios (PC) ──
+const OWN_LOGO_CACHE_TTL = 2 * 60 * 60 * 1000;
+function ownLogoCacheKey(uid){ return `ds_own_logo_cache_${uid}`; }
+function writeOwnLogoCache(uid){
+  try{ localStorage.setItem(ownLogoCacheKey(uid), JSON.stringify({ts:Date.now(), logos:ownLogoCache})); }catch(_){}
+}
+function readOwnLogoCache(uid){
+  try{
+    const cached = JSON.parse(localStorage.getItem(ownLogoCacheKey(uid)) || 'null');
+    if(cached?.logos && cached.ts && Date.now() - Number(cached.ts) < OWN_LOGO_CACHE_TTL) return cached.logos;
+  }catch(_){}
+  return null;
+}
 async function loadOwnLogosPC(){
   const grid=document.getElementById('own-logo-grid-pc');
   const emptyEl=document.getElementById('own-logos-empty-pc');
   const uid=fbAuth?.currentUser?.uid;
   if(!fbDb||!uid) return;
+  const cached=readOwnLogoCache(uid);
+  if(cached){ ownLogoCache=cached; renderOwnLogosPC(); return; }
   try{
     // Sin orderBy para evitar requerir índice compuesto en Firestore
     const snap=await fbDb.collection('user_logos').where('uid','==',uid).get();
@@ -4019,6 +4033,7 @@ async function loadOwnLogosPC(){
     snap.forEach(doc=>ownLogoCache.push({id:doc.id,...doc.data()}));
     // Ordenar localmente por createdAt desc
     ownLogoCache.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    writeOwnLogoCache(uid);
     renderOwnLogosPC();
   }catch(e){ console.error('Own logos error:',e.code,e.message); }
 }
@@ -4084,6 +4099,7 @@ async function uploadOwnLogos(ev){
       const docRef=await fbDb.collection('user_logos').add(logoData);
       // Agregar al cache local directamente (sin re-query)
       ownLogoCache.unshift({id:docRef.id,...logoData});
+      writeOwnLogoCache(uid);
       ok++;
     }catch(e){ console.error('Own logo upload error:',e.code,e.message); }
   }
@@ -4098,6 +4114,8 @@ async function deleteOwnLogoPC(id,ev){
   try{
     await fbDb.collection('user_logos').doc(id).delete();
     ownLogoCache=ownLogoCache.filter(l=>l.id!==id);
+    const uid=fbAuth?.currentUser?.uid;
+    if(uid) writeOwnLogoCache(uid);
     renderOwnLogosPC();
     showToast('Logo eliminado');
   }catch(e){ alert('Error: '+e.message); }

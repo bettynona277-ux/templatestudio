@@ -154,6 +154,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .users-search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;display:none;}
 .users-search-clear.show{display:block;}
 .users-search-clear:hover{background:rgba(255,255,255,0.08);color:var(--text);}
+.users-page-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:0.78rem;}
+.users-page-foot .btn{font-size:0.76rem;padding:7px 14px;}
 .users-empty{color:var(--muted);font-size:0.82rem;padding:18px 0;}
 .users-table{width:100%;border-collapse:collapse;font-size:0.82rem;}
 .users-table th{text-align:left;font-size:0.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:8px 12px;border-bottom:1px solid var(--border);}
@@ -626,9 +628,10 @@ function observeLazyImages(root) {
 let _allTemplates = [];
 let _currentFilter = 'all';
 const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
-const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v1';
+const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 10 * 60 * 1000;
+const ADMIN_USERS_PAGE_SIZE = 120;
 
 function readAdminCollectionCache(key) {
   try {
@@ -768,6 +771,7 @@ async function draftTemplate(id) {
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
+let adminUsersPage = { lastCreatedAt:null, noMore:false, loading:false };
 const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
 const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
 
@@ -998,7 +1002,8 @@ function renderUsersTable(users) {
     return;
   }
   if(!list.length) {
-    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda.</p>';
+    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda en los clientes cargados.</p>';
+    renderUsersPager(wrap, search);
     return;
   }
   const inactiveStatuses = ['expired','Expired','vencido','Vencido','inactive','Inactive','inactivo','Inactivo','blocked','Blocked','bloqueado','Bloqueado'];
@@ -1041,21 +1046,51 @@ function renderUsersTable(users) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+  renderUsersPager(wrap, search, list.length);
+}
+
+function renderUsersPager(wrap, search, visibleCount=0) {
+  if(!wrap) return;
+  const totalLoaded = adminUsersCache.length;
+  const note = search
+    ? `Mostrando ${visibleCount} resultado(s) entre ${totalLoaded} cliente(s) cargados.`
+    : `Mostrando ${totalLoaded} cliente(s) cargados.`;
+  const canLoadMore = !adminUsersPage.noMore && !adminUsersPage.loading;
+  const foot = document.createElement('div');
+  foot.className = 'users-page-foot';
+  foot.innerHTML = `
+    <span>${note}${adminUsersPage.noMore ? ' No hay mas paginas.' : ''}</span>
+    ${canLoadMore ? '<button class="btn btn-ghost" type="button" onclick="loadMoreUsers()">Cargar mas clientes</button>' : ''}
+  `;
+  wrap.appendChild(foot);
 }
 
 async function loadUsers(force=false) {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
+  if(adminUsersPage.loading) return;
+  adminUsersPage.loading = true;
   try {
     const cached = force ? null : readAdminCollectionCache(ADMIN_USERS_CACHE_KEY);
     if(cached) {
       adminUsersCache = cached;
+      const last = adminUsersCache[adminUsersCache.length - 1];
+      adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || null;
+      adminUsersPage.noMore = adminUsersCache.length < ADMIN_USERS_PAGE_SIZE;
     } else {
-      const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
+      adminUsersCache = [];
+      adminUsersPage = { lastCreatedAt:null, noMore:false, loading:true };
+      const snap = await fbDb.collection('users')
+        .orderBy('createdAt','desc')
+        .limit(ADMIN_USERS_PAGE_SIZE)
+        .get();
       adminUsersCache = [];
       snap.forEach(doc => {
         adminUsersCache.push({ id: doc.id, data: doc.data() || {} });
       });
+      const last = adminUsersCache[adminUsersCache.length - 1];
+      adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || null;
+      adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
       writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
     }
     renderUsersTable(adminUsersCache);
@@ -1063,6 +1098,38 @@ async function loadUsers(force=false) {
   } catch(e) {
     wrap.innerHTML = '<p style="color:var(--accent2);">Error al cargar clientes.</p>';
     console.error(e);
+  } finally {
+    adminUsersPage.loading = false;
+    if(adminUsersCache.length) renderUsersTable(adminUsersCache);
+  }
+}
+
+async function loadMoreUsers() {
+  if(!fbConnected || adminUsersPage.loading || adminUsersPage.noMore) return;
+  const wrap = document.getElementById('users-table-wrap');
+  adminUsersPage.loading = true;
+  renderUsersTable(adminUsersCache);
+  try {
+    let q = fbDb.collection('users')
+      .orderBy('createdAt','desc')
+      .limit(ADMIN_USERS_PAGE_SIZE);
+    if(adminUsersPage.lastCreatedAt) q = q.startAfter(adminUsersPage.lastCreatedAt);
+    const snap = await q.get();
+    const seen = new Set(adminUsersCache.map(item => item.id));
+    snap.forEach(doc => {
+      if(!seen.has(doc.id)) adminUsersCache.push({ id:doc.id, data:doc.data() || {} });
+    });
+    const last = adminUsersCache[adminUsersCache.length - 1];
+    adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || adminUsersPage.lastCreatedAt;
+    adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
+    writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+    renderUsersTable(adminUsersCache);
+  } catch(e) {
+    if(wrap) wrap.insertAdjacentHTML('beforeend', '<p style="color:var(--accent2);font-size:0.8rem;margin-top:10px;">No se pudo cargar mas clientes.</p>');
+    console.error(e);
+  } finally {
+    adminUsersPage.loading = false;
+    renderUsersTable(adminUsersCache);
   }
 }
 
