@@ -39,6 +39,23 @@ if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 body{padding-bottom:calc(78px + env(safe-area-inset-bottom));font-size:15px}
+body.legacy-render *{text-shadow:none!important;filter:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body.legacy-render .card,
+body.legacy-render .settings-card,
+body.legacy-render .finance-mini,
+body.legacy-render .finance-row,
+body.legacy-render .combo-sale-card,
+body.legacy-render .combo-app-card,
+body.legacy-render .security-box,
+body.legacy-render .stat,
+body.legacy-render .hello,
+body.legacy-render .empty,
+body.legacy-render .archived-section{background:#0d1726!important;box-shadow:none!important;transform:none!important;will-change:auto!important;contain:none!important}
+body.legacy-render .bottom-nav,
+body.legacy-render .top,
+body.legacy-render .search{background:#07101d!important;box-shadow:none!important;transform:none!important;will-change:auto!important;contain:none!important}
+body.legacy-render .app{background:#060b14!important}
+body.legacy-render .fab{box-shadow:none!important}
 button,input,select,textarea{font:inherit}
 button{border:0;cursor:pointer}
 .app{min-height:100vh;background:radial-gradient(circle at 0 0,rgba(118,92,255,.16),transparent 34%),linear-gradient(180deg,#091120 0%,#060b14 100%)}
@@ -270,6 +287,26 @@ function addMonthsISO(value, months=1){
 const clean = v => String(v ?? '').trim();
 const esc = v => clean(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = () => (crypto?.randomUUID?.() || ('id_'+Date.now()+'_'+Math.random().toString(16).slice(2)));
+function isLegacyRenderer(){
+  const ua = navigator.userAgent || '';
+  const params = new URLSearchParams(location.search);
+  if(params.get('safeRender') === '1' || params.get('honor') === '1') {
+    try{ localStorage.setItem('gestor_safe_render', '1'); }catch(_){}
+    return true;
+  }
+  if(params.get('safeRender') === '0') {
+    try{ localStorage.removeItem('gestor_safe_render'); }catch(_){}
+    return false;
+  }
+  try{ if(localStorage.getItem('gestor_safe_render') === '1') return true; }catch(_){}
+  return /Android/i.test(ua) && /Chrome|wv|Version\/4/i.test(ua);
+}
+function renderHtmlFragment(html){
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  return tpl.content;
+}
+if(isLegacyRenderer()) document.body.classList.add('legacy-render');
 const accountsCol = uid => collection(db,'users',uid,'gestor_accounts');
 const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
@@ -979,9 +1016,9 @@ function renderClients(listOnly=false){
     </details>` : '';
   if(listOnly){
     const listEl = $('#clients-list');
-    if(listEl) { listEl.innerHTML = `<div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}`; bindCards(); return; }
+    if(listEl && !isLegacyRenderer()) { listEl.replaceChildren(renderHtmlFragment(`<div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}`)); bindCards(); return; }
   }
-  $('#view').innerHTML = searchBlock('Clientes', active.length) + `<div id="clients-list"><div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}</div>`;
+  $('#view').replaceChildren(renderHtmlFragment(searchBlock('Clientes', active.length) + `<div id="clients-list"><div class="list">${active.map(clientCard).join('') || empty('No hay clientes activos.')}</div>${archivedSection}</div>`));
   bindSearch(); bindCards();
 }
 function renderAccounts(listOnly=false){
