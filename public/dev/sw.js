@@ -1,10 +1,7 @@
-const CACHE_NAME = 'disenos-streaming-v136';
+const CACHE_NAME = 'disenos-streaming-v140';
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
-  '/index-mobile.html',
-  '/editor-mobile.html',
   '/manifest.json',
-  '/gestor-mobile.html',
   '/manifest-gestor.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
@@ -32,6 +29,18 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  const isNavigation = e.request.mode === 'navigate';
+  const isHtml = e.request.destination === 'document' ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html');
+
+  if(isNavigation || isHtml || url.pathname.endsWith('/sw.js')) {
+    e.respondWith(
+      fetch(e.request, { cache:'no-store' })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
 
   if(url.hostname.includes('res.cloudinary.com')) {
     const cacheUrl = new URL(e.request.url);
@@ -67,8 +76,8 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        // Cache solo archivos de produccion. /dev/ se maneja para PWA, pero siempre fresco.
-        if(res.ok && !url.pathname.startsWith('/dev/') && (e.request.url.endsWith('.html') || e.request.url.endsWith('.json'))) {
+        // Mantener datos de app frescos; solo cachear manifest/iconos, nunca pantallas HTML.
+        if(res.ok && !url.pathname.startsWith('/dev/') && url.pathname.endsWith('.json')) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
         }
