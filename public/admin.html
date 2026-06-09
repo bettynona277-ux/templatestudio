@@ -772,6 +772,8 @@ let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
 let adminUsersPage = { lastCreatedAt:null, noMore:false, loading:false };
+let adminUsersExactSearch = { term:'', loading:false, notFound:false, error:'' };
+let adminUsersExactSearchTimer = null;
 const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
 const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
 
@@ -840,18 +842,104 @@ function getUsersSearchTerm() {
   return normalizeUserSearch(input ? input.value : '');
 }
 
+function getUsersSearchRaw() {
+  const input = document.getElementById('users-search-input');
+  return String(input ? input.value : '').trim();
+}
+
+function isLikelyEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function userMatchesSearch(item, search) {
+  if(!search) return true;
+  const d = item?.data || {};
+  const haystack = normalizeUserSearch(`${d.name || ''} ${d.email || ''} ${item?.id || ''}`);
+  return haystack.includes(search);
+}
+
+function loadedUsersHaveSearch(search) {
+  return !!search && adminUsersCache.some(item => userMatchesSearch(item, search));
+}
+
 function filterUsers() {
   const clearBtn = document.getElementById('users-search-clear');
   const hasSearch = !!getUsersSearchTerm();
   if(clearBtn) clearBtn.classList.toggle('show', hasSearch);
+  adminUsersExactSearch.notFound = false;
+  adminUsersExactSearch.error = '';
   renderUsersTable(adminUsersCache);
+  scheduleExactUserEmailSearch();
 }
 
 function clearUsersSearch() {
   const input = document.getElementById('users-search-input');
   if(input) input.value = '';
+  adminUsersExactSearch = { term:'', loading:false, notFound:false, error:'' };
+  if(adminUsersExactSearchTimer) clearTimeout(adminUsersExactSearchTimer);
   filterUsers();
   if(input) input.focus();
+}
+
+function scheduleExactUserEmailSearch() {
+  if(adminUsersExactSearchTimer) clearTimeout(adminUsersExactSearchTimer);
+  const raw = getUsersSearchRaw();
+  const search = getUsersSearchTerm();
+  if(!isLikelyEmail(raw) || loadedUsersHaveSearch(search)) return;
+  adminUsersExactSearchTimer = setTimeout(() => findUserByExactEmail(raw), 350);
+}
+
+function exactEmailCandidates(rawEmail) {
+  const raw = String(rawEmail || '').trim();
+  const lower = raw.toLowerCase();
+  return [...new Set([raw, lower])].filter(Boolean);
+}
+
+async function findUserByExactEmail(rawEmail) {
+  if(!fbConnected || !fbDb) return;
+  const currentRaw = getUsersSearchRaw();
+  if(currentRaw !== rawEmail || !isLikelyEmail(rawEmail)) return;
+  const search = getUsersSearchTerm();
+  if(loadedUsersHaveSearch(search)) return;
+  adminUsersExactSearch = { term:rawEmail, loading:true, notFound:false, error:'' };
+  renderUsersTable(adminUsersCache);
+  try {
+    const seen = new Set(adminUsersCache.map(item => item.id));
+    const found = [];
+    for(const email of exactEmailCandidates(rawEmail)) {
+      const snap = await fbDb.collection('users').where('email','==',email).limit(10).get();
+      snap.forEach(doc => {
+        if(!seen.has(doc.id)) {
+          seen.add(doc.id);
+          found.push({ id:doc.id, data:doc.data() || {} });
+        }
+      });
+    }
+    const lower = rawEmail.toLowerCase();
+    const lowerSnap = await fbDb.collection('users').where('emailLower','==',lower).limit(10).get();
+    lowerSnap.forEach(doc => {
+      if(!seen.has(doc.id)) {
+        seen.add(doc.id);
+        found.push({ id:doc.id, data:doc.data() || {} });
+      }
+    });
+    if(found.length) {
+      refreshAdminUsersCache(rows => {
+        found.forEach(item => {
+          const idx = rows.findIndex(row => row.id === item.id);
+          if(idx >= 0) rows[idx] = item;
+          else rows.unshift(item);
+        });
+      });
+      adminUsersExactSearch = { term:rawEmail, loading:false, notFound:false, error:'' };
+    } else {
+      adminUsersExactSearch = { term:rawEmail, loading:false, notFound:true, error:'' };
+      renderUsersTable(adminUsersCache);
+    }
+  } catch(e) {
+    adminUsersExactSearch = { term:rawEmail, loading:false, notFound:false, error:e.message || 'No se pudo buscar ese correo.' };
+    renderUsersTable(adminUsersCache);
+  }
 }
 
 function refreshAdminUsersCache(mutator) {
@@ -917,7 +1005,8 @@ async function createUser() {
       status: 'active',
       subscriptionStatus: 'active',
       initialPassword: pass,
-      createdAt
+      createdAt,
+      emailLower: email.toLowerCase()
     };
     await fbDb.collection('users').doc(data.localId).set(newUserData);
 
@@ -992,17 +1081,27 @@ function renderUsersTable(users) {
   const wrap = document.getElementById('users-table-wrap');
   const search = getUsersSearchTerm();
   const list = (users || []).filter(item => {
-    if(!search) return true;
-    const d = item.data || {};
-    const haystack = normalizeUserSearch(`${d.name || ''} ${d.email || ''}`);
-    return haystack.includes(search);
+    return userMatchesSearch(item, search);
   });
   if(!users || !users.length) {
     wrap.innerHTML = '<p class="users-empty">No hay clientes registrados aun.</p>';
     return;
   }
   if(!list.length) {
-    wrap.innerHTML = '<p class="users-empty">No encontramos clientes con esa busqueda en los clientes cargados.</p>';
+    const raw = getUsersSearchRaw();
+    let msg = 'No encontramos clientes con esa busqueda en los clientes cargados.';
+    if(isLikelyEmail(raw)) {
+      if(adminUsersExactSearch.loading && adminUsersExactSearch.term === raw) {
+        msg = `Buscando ${escHtml(raw)} en Firestore...`;
+      } else if(adminUsersExactSearch.notFound && adminUsersExactSearch.term === raw) {
+        msg = `No encontramos ${escHtml(raw)} en la coleccion users de Firestore. Si aparece en Firebase Authentication, falta sincronizar/crear su documento de cliente.`;
+      } else if(adminUsersExactSearch.error && adminUsersExactSearch.term === raw) {
+        msg = `No se pudo buscar ${escHtml(raw)} en Firestore: ${escHtml(adminUsersExactSearch.error)}`;
+      } else {
+        msg = `No esta entre los clientes cargados. Buscaremos ${escHtml(raw)} directamente en Firestore.`;
+      }
+    }
+    wrap.innerHTML = `<p class="users-empty">${msg}</p>`;
     renderUsersPager(wrap, search);
     return;
   }
