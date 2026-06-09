@@ -2310,7 +2310,7 @@ function doLogout() {
     unregisterDevice(currentUser.uid);
     // Limpiar cache del dashboard para este usuario
     ['designs','templates'].forEach(scope => {
-      try{ localStorage.removeItem(`ts_dash_cache_v4_${currentUser.uid}_${scope}`); }catch(e){}
+      try{ localStorage.removeItem(`ts_dash_cache_v5_${currentUser.uid}_${scope}`); }catch(e){}
     });
   }
   fbAuth.signOut();
@@ -2401,8 +2401,9 @@ function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style
 
 const DASH_CACHE_TTL = 1000 * 60 * 120; // 2 horas — plantillas/diseños raramente cambian
 const DASH_DESIGN_FETCH_LIMIT = 24;
-const DASH_TEMPLATE_FETCH_LIMIT = 160;
-function dashCacheKey(scope){ return `ts_dash_cache_v4_${currentUser?.uid||'guest'}_${scope}`; }
+const DASH_TEMPLATE_PAGE_SIZE = 160;
+const DASH_TEMPLATE_MAX_PAGES = 12;
+function dashCacheKey(scope){ return `ts_dash_cache_v5_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
     const raw = localStorage.getItem(dashCacheKey(scope));
@@ -2626,15 +2627,26 @@ async function loadAdminTemplates() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner spinner-dark"></div></div>';
   }
   try {
-    const snap = await fbDb.collection('templates')
-      .orderBy('createdAt', 'desc')
-      .limit(DASH_TEMPLATE_FETCH_LIMIT)
-      .get();
     const rawDocs = [];
-    snap.forEach(doc => {
-      const d = doc.data() || {};
-      if (d.status === 'published') rawDocs.push({ id: doc.id, d });
-    });
+    let cursor = null;
+    let page = 0;
+    while (page < DASH_TEMPLATE_MAX_PAGES) {
+      let q = fbDb.collection('templates')
+        .orderBy('createdAt', 'desc')
+        .limit(DASH_TEMPLATE_PAGE_SIZE);
+      if (cursor) q = q.startAfter(cursor);
+      const snap = await q.get();
+      if (snap.empty) break;
+      snap.forEach(doc => {
+        const d = doc.data() || {};
+        if (d.status === 'published') rawDocs.push({ id: doc.id, d });
+      });
+      cursor = snap.docs[snap.docs.length - 1];
+      page += 1;
+      if (countEl) countEl.textContent = `${rawDocs.length} encontradas...`;
+      if (heroCountEl) heroCountEl.textContent = String(rawDocs.length);
+      if (snap.size < DASH_TEMPLATE_PAGE_SIZE) break;
+    }
     rawDocs.sort((a, b) => {
       const ta = a.d.updatedAt || a.d.createdAt || 0;
       const tb = b.d.updatedAt || b.d.createdAt || 0;
@@ -2654,7 +2666,7 @@ async function loadAdminTemplates() {
     renderTemplateCards(getFilteredTemplates(rawDocs));
     writeDashCache('templates', {
       total: rawDocs.length,
-      items: rawDocs.slice(0, 120).map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      items: rawDocs.map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {
