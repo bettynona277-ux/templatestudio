@@ -776,6 +776,8 @@ let adminUsersExactSearch = { term:'', loading:false, notFound:false, error:'' }
 let adminUsersExactSearchTimer = null;
 const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
 const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
+const ADMIN_USERS_DEEP_SEARCH_PAGE_SIZE = 250;
+const ADMIN_USERS_DEEP_SEARCH_MAX_READS = 5000;
 
 function normalizeNewUserEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -858,6 +860,10 @@ function userMatchesSearch(item, search) {
   return haystack.includes(search);
 }
 
+function sameEmail(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
 function loadedUsersHaveSearch(search) {
   return !!search && adminUsersCache.some(item => userMatchesSearch(item, search));
 }
@@ -923,6 +929,10 @@ async function findUserByExactEmail(rawEmail) {
         found.push({ id:doc.id, data:doc.data() || {} });
       }
     });
+    if(!found.length) {
+      const scanned = await deepFindUsersByEmail(rawEmail, seen);
+      scanned.forEach(item => found.push(item));
+    }
     if(found.length) {
       refreshAdminUsersCache(rows => {
         found.forEach(item => {
@@ -940,6 +950,32 @@ async function findUserByExactEmail(rawEmail) {
     adminUsersExactSearch = { term:rawEmail, loading:false, notFound:false, error:e.message || 'No se pudo buscar ese correo.' };
     renderUsersTable(adminUsersCache);
   }
+}
+
+async function deepFindUsersByEmail(rawEmail, seen=new Set()) {
+  const found = [];
+  let readCount = 0;
+  let cursor = null;
+  while(readCount < ADMIN_USERS_DEEP_SEARCH_MAX_READS) {
+    let q = fbDb.collection('users')
+      .orderBy('createdAt','desc')
+      .limit(ADMIN_USERS_DEEP_SEARCH_PAGE_SIZE);
+    if(cursor != null) q = q.startAfter(cursor);
+    const snap = await q.get();
+    if(snap.empty) break;
+    snap.forEach(doc => {
+      readCount += 1;
+      const data = doc.data() || {};
+      if(!seen.has(doc.id) && sameEmail(data.email, rawEmail)) {
+        seen.add(doc.id);
+        found.push({ id:doc.id, data });
+      }
+    });
+    const lastDoc = snap.docs[snap.docs.length - 1];
+    cursor = Number(lastDoc?.data()?.createdAt || 0) || null;
+    if(found.length || snap.size < ADMIN_USERS_DEEP_SEARCH_PAGE_SIZE || cursor == null) break;
+  }
+  return found;
 }
 
 function refreshAdminUsersCache(mutator) {
@@ -1017,7 +1053,10 @@ async function createUser() {
     document.getElementById('new-user-name').value = '';
     upsertAdminUserCache(data.localId, newUserData);
   } catch(e) {
-    showStatus('create-user-status', '✗ ' + e.message, 'err');
+    const msg = /EMAIL_EXISTS/i.test(e.message || '')
+      ? 'Ese correo ya existe en Firebase Authentication. Si no aparece aqui, pide al cliente iniciar sesion una vez; la app reparara su documento y luego podras habilitarlo.'
+      : '✗ ' + e.message;
+    showStatus('create-user-status', msg, 'err');
   }
   btn.disabled = false;
   btn.textContent = 'Crear Cuenta';
@@ -1084,6 +1123,24 @@ function renderUsersTable(users) {
     return userMatchesSearch(item, search);
   });
   if(!users || !users.length) {
+    if(search) {
+      const raw = getUsersSearchRaw();
+      let msg = 'No hay clientes cargados con esa busqueda.';
+      if(isLikelyEmail(raw)) {
+        if(adminUsersExactSearch.loading && adminUsersExactSearch.term === raw) {
+          msg = `Buscando ${escHtml(raw)} en Firestore...`;
+        } else if(adminUsersExactSearch.notFound && adminUsersExactSearch.term === raw) {
+          msg = `No encontramos ${escHtml(raw)} en la coleccion users de Firestore. Si aparece en Firebase Authentication, pide al cliente iniciar sesion una vez para reparar/crear su documento.`;
+        } else if(adminUsersExactSearch.error && adminUsersExactSearch.term === raw) {
+          msg = `No se pudo buscar ${escHtml(raw)} en Firestore: ${escHtml(adminUsersExactSearch.error)}`;
+        } else {
+          msg = `Buscaremos ${escHtml(raw)} directamente en Firestore.`;
+        }
+      }
+      wrap.innerHTML = `<p class="users-empty">${msg}</p>`;
+      renderUsersPager(wrap, search);
+      return;
+    }
     wrap.innerHTML = '<p class="users-empty">No hay clientes registrados aun.</p>';
     return;
   }
@@ -1094,7 +1151,7 @@ function renderUsersTable(users) {
       if(adminUsersExactSearch.loading && adminUsersExactSearch.term === raw) {
         msg = `Buscando ${escHtml(raw)} en Firestore...`;
       } else if(adminUsersExactSearch.notFound && adminUsersExactSearch.term === raw) {
-        msg = `No encontramos ${escHtml(raw)} en la coleccion users de Firestore. Si aparece en Firebase Authentication, falta sincronizar/crear su documento de cliente.`;
+        msg = `No encontramos ${escHtml(raw)} en la coleccion users de Firestore despues de buscar por correo y revisar mas paginas. Si aparece en Firebase Authentication, falta que ese cliente inicie sesion una vez para reparar/crear su documento de cliente.`;
       } else if(adminUsersExactSearch.error && adminUsersExactSearch.term === raw) {
         msg = `No se pudo buscar ${escHtml(raw)} en Firestore: ${escHtml(adminUsersExactSearch.error)}`;
       } else {
