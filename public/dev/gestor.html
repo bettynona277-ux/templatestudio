@@ -4978,7 +4978,14 @@ function applyDefaultClientPrices(platform, options={}){
 function applyDefaultAccountPurchaseCost(platform){
   if(editingAccountId) return;
   const price=platformPriceFor(platform);
-  if(price.purchaseCost && !$('#aPurchaseCost').value) $('#aPurchaseCost').value=price.purchaseCost;
+  const el=$('#aPurchaseCost');
+  if(!el) return;
+  const current=String(el.value ?? '').trim();
+  const previousAuto=el.dataset.autoPurchaseCost || '';
+  const canReplace=shouldUseDefaultPrice(current) || (previousAuto && moneyNumber(current)===moneyNumber(previousAuto));
+  if(!canReplace) return;
+  el.value=price.purchaseCost ? price.purchaseCost : '';
+  el.dataset.autoPurchaseCost=price.purchaseCost ? String(price.purchaseCost) : '';
 }
 function chipForState(s){ const cls=s==='Activo'?'ok':s==='Por vencer'?'warn':s==='Vencido'?'danger':'free'; return `<span class="chip ${cls}">${s}</span>`; }
 function accountStateChip(a){
@@ -6158,7 +6165,7 @@ function syncAccountPlatformOptions(selected=''){
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; $('#aPurchaseCost').value=''; $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];

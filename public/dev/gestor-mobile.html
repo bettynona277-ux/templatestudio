@@ -597,6 +597,17 @@ function fillDefaultClientPricesInForm(form, platform){
   const renewalDefault = price.renewalPrice || price.salePrice;
   if(renewalDefault && renewalEl && shouldUseDefaultPrice(renewalEl.value)) renewalEl.value = renewalDefault;
 }
+function fillDefaultAccountPurchaseCostInForm(form, platform){
+  const costEl = form?.elements?.purchaseCost;
+  if(!costEl) return;
+  const cost = platformPriceFor(platform).purchaseCost || 0;
+  const current = String(costEl.value ?? '').trim();
+  const previousAuto = costEl.dataset.autoPurchaseCost || '';
+  const canReplace = shouldUseDefaultPrice(current) || (previousAuto && moneyNumber(current) === moneyNumber(previousAuto));
+  if(!canReplace) return;
+  costEl.value = cost ? cost : '';
+  costEl.dataset.autoPurchaseCost = cost ? String(cost) : '';
+}
 function normalizeComboTemplates(value, categories=[]){
   const source = Array.isArray(value) && value.length ? value : DEFAULT_COMBO_TEMPLATES;
   const allowed = [...new Set([...(categories||[]), ...DEFAULT_CATEGORIES].map(clean).filter(Boolean))];
@@ -1594,10 +1605,13 @@ async function saveComboFromForm(e){
 }
 function openAccountSheet(item={}){
   const a = item || {};
+  const selectedCategory = accountCategory(a) || state.settings.categories[0] || 'Netflix';
+  const defaultPurchaseCost = platformPriceFor(selectedCategory).purchaseCost || '';
+  const initialPurchaseCost = a.purchaseCost || defaultPurchaseCost || '';
   openSheet(`<div class="sheet-head"><h3>${a.id?'Editar cuenta':'Nueva cuenta'}</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <form id="accountForm" class="grid">
       <div class="field"><label>Proveedor</label><input name="provider" value="${esc(a.provider)}" placeholder="Deros Rafael / cuenta propia"></div>
-      <div class="field"><label>Plataforma</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${accountCategory(a)===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
+      <div class="field"><label>Plataforma</label><select name="category">${state.settings.categories.map(cat=>`<option value="${esc(cat)}" ${selectedCategory===cat?'selected':''}>${esc(cat)}</option>`).join('')}</select></div>
       <div class="field"><label>WhatsApp proveedor</label><input name="providerWhatsapp" value="${esc(a.providerWhatsapp)}" inputmode="tel"></div>
       <div class="field"><label>Correo</label><input name="email" value="${esc(a.email)}" inputmode="email"></div>
       <div class="grid two">
@@ -1605,13 +1619,15 @@ function openAccountSheet(item={}){
         <div class="field"><label>Capacidad</label><input name="capacity" type="number" min="1" value="${esc(a.capacity || 5)}"></div>
       </div>
       ${isFinanceModeEnabled() ? `<div class="grid two">
-        <div class="field"><label>Costo de compra</label><input name="purchaseCost" value="${esc(a.purchaseCost || '')}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
+        <div class="field"><label>Costo de compra</label><input name="purchaseCost" value="${esc(initialPurchaseCost)}" data-auto-purchase-cost="${esc(a.purchaseCost ? '' : defaultPurchaseCost)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
         <label class="combo-mobile-toggle"><span>Registrar gasto</span><input type="checkbox" name="purchaseCostRegistered" value="1" ${a.purchaseCostRegistered?'checked':''}></label>
       </div>` : ''}
       <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(a.dueDate || todayISO())}"></div>
       <div class="field"><label>Notas</label><textarea name="notes">${esc(a.notes)}</textarea></div>
       <div class="form-actions"><button type="button" class="btn ${a.id?'bad':''}" id="deleteAccount">${a.id?'Eliminar':'Cancelar'}</button><button class="btn primary">Guardar</button></div>
     </form>`);
+  const form = $('#accountForm');
+  form.elements.category?.addEventListener('change', () => fillDefaultAccountPurchaseCostInForm(form, form.elements.category.value));
   $('#accountForm').onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
