@@ -6669,14 +6669,12 @@ async function saveComboSale(e){
       updatedAt:now
     };
   });
-  const deliveryUrl=whatsappUrlForCombo(rows,'delivery');
-  const targetWindow=deliveryUrl ? openDeliveryPendingWindow() : null;
   if(!name || !whatsapp || !rows.length || rows.some(c=>!c.accountId)){
-    if(targetWindow && !targetWindow.closed) targetWindow.close();
     alert('Completa nombre, WhatsApp y una cuenta madre para cada app.');
     if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
     return;
   }
+  const deliveryUrl=whatsappUrlForCombo(rows,'delivery');
   try{
     const batchOk=window.__persistManyDocs ? await window.__persistManyDocs('clients', rows) : false;
     if(!batchOk){
@@ -6690,11 +6688,10 @@ async function saveComboSale(e){
     touchLocalStateCache();
     closeModal('comboModalWrap');
     refreshUI();
-    navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(rows,'delivery'));
+    if(deliveryUrl) window.open(deliveryUrl,'_blank');
     focusClientAfterSale(rows[0]);
   }catch(err){
     console.error(err);
-    if(targetWindow && !targetWindow.closed) targetWindow.close();
     alert('No se pudo guardar el combo. Revisa permisos o conexion.');
   }finally{
     if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
@@ -7025,7 +7022,6 @@ $('#saveClientBtn').onclick=async ()=>{
     setClientSubmitMode(true);
     return;
   }
-  if(wasNewSale) window.open(deliveryUrl,'_blank');
   const ok = await persistDoc('clients', data);
   if(!ok){
     saveBtn.disabled=false;
