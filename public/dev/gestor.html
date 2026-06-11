@@ -129,6 +129,7 @@ async function getFinanceMovements(uid, scope = 'current') {
 
 const MAX_GESTOR_DEVICES = 5;
 const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GESTOR_DEVICE_TOUCH_COOLDOWN_MS = 10 * 60 * 1000;
 
 function getGestorDeviceId() {
   let id = localStorage.getItem('ts_device_id');
@@ -137,6 +138,20 @@ function getGestorDeviceId() {
     localStorage.setItem('ts_device_id', id);
   }
   return id;
+}
+function gestorDeviceTouchCacheKey(uid, deviceId) {
+  return `gestor_device_touch_${uid}_${deviceId}`;
+}
+function wasGestorDeviceTouchedRecently(uid, deviceId) {
+  try {
+    const at = Number(localStorage.getItem(gestorDeviceTouchCacheKey(uid, deviceId)) || 0);
+    return at && Date.now() - at < GESTOR_DEVICE_TOUCH_COOLDOWN_MS;
+  } catch (_) {
+    return false;
+  }
+}
+function markGestorDeviceTouched(uid, deviceId) {
+  try { localStorage.setItem(gestorDeviceTouchCacheKey(uid, deviceId), String(Date.now())); } catch (_) {}
 }
 
 function detectGestorBrowser(ua = navigator.userAgent || '') {
@@ -284,12 +299,13 @@ async function registerGestorDevice(uid) {
   const deviceId = getGestorDeviceId();
   const devRef = doc(db, 'users', uid, 'devices', deviceId);
   const currentSnap = await getDoc(devRef);
-  const fingerprint = await buildGestorDeviceFingerprint();
   const existing = currentSnap.exists() ? { id: currentSnap.id, ...currentSnap.data() } : null;
   const now = Date.now();
 
   if (existing) {
     if (existing.revoked === true) return { ok: false, revoked: true };
+    if (wasGestorDeviceTouchedRecently(uid, deviceId)) return { ok: true };
+    const fingerprint = await buildGestorDeviceFingerprint();
     const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef, {
       name: fingerprint.label,
@@ -303,9 +319,11 @@ async function registerGestorDevice(uid) {
       suspicious,
       revoked: false
     }, { merge: true });
+    markGestorDeviceTouched(uid, deviceId);
     return { ok: true };
   }
 
+  const fingerprint = await buildGestorDeviceFingerprint();
   const snap = await getDocs(devicesCol(uid));
   const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   const expired = devices.filter(d => d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
@@ -326,7 +344,8 @@ async function registerGestorDevice(uid) {
     loginCount: 1,
     suspicious,
     revoked: false
-  });
+  }, { merge: true });
+  markGestorDeviceTouched(uid, deviceId);
   return { ok: true };
 }
 
@@ -339,10 +358,12 @@ async function migrateIfNeeded(uid) {
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
+  const cacheTtlMs = 5 * 60 * 1000;
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
-    if (cached && cachedAt && Date.now() - cachedAt < 60000 && window.__loadFromFirestore) {
+    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    if (!forceFresh && cached && cachedAt && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
       window.__loadFromFirestore(JSON.parse(cached));
       return;
     }
@@ -563,7 +584,7 @@ function sanitizeGestorAccountForFirestore(data = {}) {
     category: fsOptionalString(data.category, 120),
     purchaseCost,
     purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true,
-    createdAt: fsOptionalString(data.createdAt, 40),
+    createdAt: fsOptionalString(data.createdAt || new Date().toISOString(), 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
 }
@@ -593,7 +614,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     salePrice: Number.isFinite(salePrice) ? Math.max(0, salePrice) : 0,
     renewalPrice: Number.isFinite(renewalPrice) ? Math.max(0, renewalPrice) : 0,
     lastRenewalWhatsAppNoticeDate: fsOptionalString(data.lastRenewalWhatsAppNoticeDate, 20),
-    createdAt: fsOptionalString(data.createdAt, 40),
+    createdAt: fsOptionalString(data.createdAt || new Date().toISOString(), 40),
     updatedAt: fsOptionalString(data.updatedAt || new Date().toISOString(), 40)
   };
 }
@@ -730,7 +751,7 @@ window.__persistToFirestore = async function(stateData) {
         const chunk = ops.slice(i, i + 450);
         const batch = writeBatch(db);
         for (const op of chunk) {
-          if (op.type === 'set') batch.set(op.ref, op.data);
+          if (op.type === 'set') batch.set(op.ref, op.data, { merge: true });
           else batch.delete(op.ref);
         }
         await batch.commit();
@@ -762,7 +783,7 @@ window.__persistSingleDoc = async function(colName, docData) {
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
     console.log('DOC LIMPIO PARA FIRESTORE:', colName, JSON.stringify(safeData, null, 2));
     notifySaveStatus('saving', 'Guardando dato...');
-    await setDoc(doc(colRef, safeData.id), safeData);
+    await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
     console.log('âœ… Doc guardado:', colName, safeData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
@@ -778,7 +799,7 @@ window.__persistSingleDoc = async function(colName, docData) {
 
 window.__persistDeleteDoc = async function(colName, docId) {
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user) return false;
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
@@ -786,23 +807,27 @@ window.__persistDeleteDoc = async function(colName, docId) {
     await deleteDoc(doc(colRef, docId));
     console.log('âœ… Doc eliminado:', colName, docId);
     notifySaveStatus('success', 'Dato eliminado correctamente.');
+    return true;
   } catch (err) {
     console.error('âŒ Error eliminando doc:', err);
     notifySaveStatus('error', friendlySaveError(err));
+    return false;
   }
 };
 
 window.__persistSettingsDoc = async function(settingsData) {
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user) return false;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
-    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}));
+    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}), { merge: true });
     console.log('âœ… Settings guardados');
     notifySaveStatus('success', 'Ajustes guardados.');
+    return true;
   } catch (err) {
     console.error('âŒ Error guardando settings:', err);
     notifySaveStatus('error', friendlySaveError(err));
+    return false;
   }
 };
 
@@ -817,7 +842,7 @@ window.__persistManyDocs = async function(colName, docsData) {
       const batch = writeBatch(db);
       for (const item of docsData.slice(i, i + 450)) {
         const safeData = sanitizeGestorDocForFirestore(colName, item);
-        batch.set(doc(colRef, safeData.id), safeData);
+        batch.set(doc(colRef, safeData.id), safeData, { merge: true });
       }
       await batch.commit();
     }
@@ -4361,13 +4386,12 @@ function persist(){
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
 function persistDoc(colName, docData){
-  touchLocalStateCache();
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
   return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
-  touchLocalStateCache();
-  if(window.__persistDeleteDoc) window.__persistDeleteDoc(colName, docId);
+  if(window.__persistDeleteDoc) return window.__persistDeleteDoc(colName, docId);
+  return Promise.resolve(false);
 }
 function sanitizeSettingsForSave(settings={}){
   const financeCurrencyValue=String(settings.financeCurrency || 'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
@@ -4395,10 +4419,14 @@ function sanitizeSettingsForSave(settings={}){
     security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
-function persistSettings(){
+async function persistSettings(){
   state.settings = sanitizeSettingsForSave(state.settings);
-  touchLocalStateCache();
-  if(window.__persistSettingsDoc) window.__persistSettingsDoc(state.settings);
+  if(window.__persistSettingsDoc){
+    const ok=await window.__persistSettingsDoc(state.settings);
+    if(ok) touchLocalStateCache();
+    return ok;
+  }
+  return false;
 }
 function moneyNumber(value){
   const n=Number(String(value ?? '').replace(',', '.'));
@@ -4592,6 +4620,7 @@ async function upsertAccountPurchaseExpense(account){
 }
 function sanitizeAccountForSave(data={}){
   const purchaseCost=moneyNumber(data.purchaseCost);
+  const now=new Date().toISOString();
   return {
     id: String(data.id || uid()).trim().slice(0,80),
     platform: String(data.platform || '').trim().slice(0,120),
@@ -4603,7 +4632,9 @@ function sanitizeAccountForSave(data={}){
     dueDate: String(data.dueDate || '').trim().slice(0,20),
     notes: String(data.notes || '').trim().slice(0,1000),
     purchaseCost,
-    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true,
+    createdAt: String(data.createdAt || now).trim().slice(0,40),
+    updatedAt: now
   };
 }
 function updateExpiredSummary(){
@@ -6236,21 +6267,27 @@ window.editAccount=(id, forceNotify=false)=>{
   syncAccountPlatformOptions(a.platform);
   openModal('accountModalWrap'); initDatepickers();
 };
-window.deleteClient=(id)=>{
+window.deleteClient=async(id)=>{
   if(!confirm('?Borrar cliente?')) return;
+  const ok=await persistDeleteDoc('clients', id);
+  if(!ok) return;
   state.clients=state.clients.filter(c=>c.id!==id);
-  persistDeleteDoc('clients', id);
+  touchLocalStateCache();
   refreshUI();
   switchView('clientesView');
 };
-window.deleteAccount=(id)=>{
+window.deleteAccount=async(id)=>{
   if(state.clients.some(c=>c.accountId===id && effectiveClientState(c)!=='No renovó')){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
   if(!confirm('?Borrar cuenta madre?')) return;
   const orphanClients=state.clients.filter(c=>c.accountId===id);
+  const results=await Promise.all([
+    persistDeleteDoc('accounts', id),
+    ...orphanClients.map(c=>persistDeleteDoc('clients', c.id))
+  ]);
+  if(results.some(ok=>!ok)) return;
   state.accounts=state.accounts.filter(a=>a.id!==id);
   state.clients=state.clients.filter(c=>c.accountId!==id);
-  persistDeleteDoc('accounts', id);
-  orphanClients.forEach(c=>persistDeleteDoc('clients', c.id));
+  touchLocalStateCache();
   refreshUI();
 };
 function dateToLocalString(d){
@@ -6293,6 +6330,7 @@ async function applyRenewalDate(clientId, newDate){
   const targetWindow=openWhatsappPendingWindow('Renovaci\u00f3n lista', 'Estamos armando el mensaje de agradecimiento para tu cliente.');
   c.dueDate=newDate;
   c.state='Activo';
+  c.updatedAt=new Date().toISOString();
   const renewalAmount=moneyNumber($('#renewPrice')?.value || c.renewalPrice || c.salePrice);
   c.renewalPrice=renewalAmount;
   renewingClientId=null;
@@ -6300,7 +6338,7 @@ async function applyRenewalDate(clientId, newDate){
   await persistDoc('clients', c);
   const comboList=c.comboId ? activeComboClients(c.comboId) : [];
   if(comboList.length>1){
-    comboList.forEach(item=>{ item.dueDate=newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; });
+    comboList.forEach(item=>{ item.dueDate=newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; item.updatedAt=new Date().toISOString(); });
     const rest=comboList.filter(item=>item.id!==c.id);
     if(rest.length){
       const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients', rest) : false;
@@ -6313,6 +6351,7 @@ async function applyRenewalDate(clientId, newDate){
     await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
   }
   refreshUI();
+  touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
 }
 function renewUnitLabel(unit, amount){
@@ -6375,17 +6414,18 @@ window.applyExactRenewClient=()=>{
   if(!c) return;
   applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
 };
-window.setNoRenew=(id)=>{
+window.setNoRenew=async(id)=>{
   const c=state.clients.find(x=>x.id===id);
   if(!c) return;
   const acc=state.accounts.find(a=>a.id===c.accountId);
-  c.platform=c.platform||acc?.platform||'';
-  c.accountId='';
-  c.state='No renovó';
-  persistDoc('clients', c);
+  const updated={...c,platform:c.platform||acc?.platform||'',accountId:'',state:'No renovó',updatedAt:new Date().toISOString()};
+  const ok=await persistDoc('clients', updated);
+  if(!ok) return;
+  Object.assign(c, updated);
+  touchLocalStateCache();
   refreshUI();
 };
-window.restoreClient=(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; c.state='Activo'; if(!c.dueDate) c.dueDate=todayPlus(30); persistDoc('clients', c); refreshUI(); };
+window.restoreClient=async(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; const updated={...c,state:'Activo',dueDate:c.dueDate||todayPlus(30),updatedAt:new Date().toISOString()}; const ok=await persistDoc('clients', updated); if(!ok) return; Object.assign(c, updated); touchLocalStateCache(); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
@@ -6579,6 +6619,7 @@ window.sendWhatsapp=(id,context='',targetWindow=null)=>{
     const markList=comboList.length>1 ? comboList : [client];
     markList.forEach(c=>{
       c.lastRenewalWhatsAppNoticeDate=todayStr();
+      c.updatedAt=new Date().toISOString();
       persistDoc('clients', c);
     });
     refreshUI();
@@ -6598,6 +6639,7 @@ async function saveComboSale(e){
   const comboRenewalPrice=moneyNumber($('#comboRenewalPrice').value || $('#comboTotalPrice').value);
   const comboId=uid();
   const comboCreatedAt=new Date().toISOString();
+  const now=new Date().toISOString();
   const rows=$$('.combo-app-card').map(row=>{
     const accountId=row.querySelector('.combo-account')?.value || '';
     const account=state.accounts.find(a=>a.id===accountId);
@@ -6622,7 +6664,9 @@ async function saveComboSale(e){
       salePrice:0,
       renewalPrice:0,
       comboCreatedAt,
-      lastRenewalWhatsAppNoticeDate:''
+      lastRenewalWhatsAppNoticeDate:'',
+      createdAt:now,
+      updatedAt:now
     };
   });
   const deliveryUrl=whatsappUrlForCombo(rows,'delivery');
@@ -6643,7 +6687,7 @@ async function saveComboSale(e){
     }
     state.clients=[...rows,...state.clients];
     await recordComboSaleIncome(rows).catch(err=>console.warn('No se pudo registrar venta de combo en finanzas:', err));
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+    touchLocalStateCache();
     closeModal('comboModalWrap');
     refreshUI();
     navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(rows,'delivery'));
@@ -6934,7 +6978,7 @@ $('#saveAccountBtn').onclick=async ()=>{
     if(accountSearch) accountSearch.value='';
   }
   await upsertAccountPurchaseExpense(data).catch(err=>console.warn('No se pudo registrar compra en finanzas:', err));
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   closeModal('accountModalWrap'); clearAccountForm(); refreshUI();
   if(credentialsChanged && accountClientsForNotify(data.id).length && (shouldNotify || pendingNotifyAfterSave)){
     setTimeout(()=>openAccountClientsModal(data.id),120);
@@ -6963,13 +7007,16 @@ $('#saveClientBtn').onclick=async ()=>{
   const fullAccountSale=$('#cFullAccountSale')?.checked===true;
   const activationByCode=$('#cActivationByCode')?.checked===true;
   const hidesAccessFields=fullAccountSale || activationByCode;
+  const now=new Date().toISOString();
   const data={
     id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
     platform:account?.platform||$('#cPlatform').value.trim(), profile:hidesAccessFields ? '' : $('#cProfile').value.trim(), pin:hidesAccessFields ? '' : $('#cPin').value.trim(), fullAccountSale, activationByCode,
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
     renewalPrice:financeOn ? moneyNumber($('#cRenewalPrice').value || $('#cSalePrice').value) : moneyNumber(previousClient?.renewalPrice),
-    lastRenewalWhatsAppNoticeDate:previousClient?.lastRenewalWhatsAppNoticeDate||''
+    lastRenewalWhatsAppNoticeDate:previousClient?.lastRenewalWhatsAppNoticeDate||'',
+    createdAt:previousClient?.createdAt||now,
+    updatedAt:now
   };
   const deliveryUrl=wasNewSale ? whatsappUrlForClient(data,'delivery') : '';
   if(wasNewSale && !deliveryUrl){
@@ -6987,7 +7034,7 @@ $('#saveClientBtn').onclick=async ()=>{
   }
   if(editingClientId) state.clients=state.clients.map(c=>c.id===editingClientId?data:c); else state.clients.unshift(data);
   if(wasNewSale) await recordSaleIncome(data).catch(err=>console.warn('No se pudo registrar venta en finanzas:', err));
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  touchLocalStateCache();
   saveBtn.disabled=false;
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){

@@ -1583,6 +1583,7 @@ function applyImageVisuals(layer){
 function buildEl(l){
   const el = document.createElement('div');
   el.className = 'cel';
+  el.dataset.layerId = String(l.id);
   el.style.cssText = `left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex||0};position:absolute;`;
   if(l.opacity !== undefined) el.style.opacity = l.opacity;
   if(!l.visible) el.style.display = 'none';
@@ -1704,6 +1705,41 @@ function buildEl(l){
   applyLayerTransform(l);
   // Aplicar efectos DESPUÉS de que el elemento está en el DOM
   if(l.type === 'text') applyTextStylesMobile(l);
+}
+
+function layerStackNumber(l){
+  const domZ = parseInt(l?.el?.style?.zIndex, 10);
+  if(Number.isFinite(domZ)) return domZ;
+  const dataZ = Number(l?.zIndex);
+  return Number.isFinite(dataZ) ? dataZ : 0;
+}
+
+function syncLayerStackFromDom(){
+  if(!cvs) return new Map();
+  const domOrder = new Map();
+  Array.from(cvs.children || []).forEach((el, index)=>{
+    domOrder.set(el, index);
+  });
+  layers.forEach(l=>{
+    if(!l) return;
+    const z = layerStackNumber(l);
+    l.zIndex = z;
+    l._exportDomOrder = domOrder.has(l.el) ? domOrder.get(l.el) : layers.indexOf(l);
+  });
+  return domOrder;
+}
+
+function getVisibleLayersForExport(){
+  syncLayerStackFromDom();
+  return [...layers]
+    .filter(l=>l && l.visible !== false)
+    .sort((a,b)=>{
+      const zDiff = layerStackNumber(a) - layerStackNumber(b);
+      if(zDiff) return zDiff;
+      const orderDiff = (a._exportDomOrder ?? layers.indexOf(a)) - (b._exportDomOrder ?? layers.indexOf(b));
+      if(orderDiff) return orderDiff;
+      return layers.indexOf(a) - layers.indexOf(b);
+    });
 }
 
 function buildShapeSVG(l){
@@ -3048,7 +3084,7 @@ async function renderDesignToCanvas(scale=3){
   }))];
   for(const f of fontWarmups){ctx.font=f;ctx.fillStyle='rgba(0,0,0,0)';ctx.fillText(' ',-100,-100);}
 
-  const visibleLayers=[...layers].filter(l=>l&&l.visible!==false).sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
+  const visibleLayers=getVisibleLayersForExport();
 
   for(const l of visibleLayers){
     ctx.save();
@@ -3172,6 +3208,7 @@ function mobileExportScale(canvasW, canvasH){
 
 async function downloadPNG(){
   desel();
+  syncLayerStackFromDom();
   const btn = document.querySelector('[onclick="downloadPNG()"]');
   if(btn){ btn.disabled=true; }
   toast('⏳ Generando imagen...');

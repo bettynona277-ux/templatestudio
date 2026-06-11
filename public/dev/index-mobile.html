@@ -777,7 +777,7 @@ let currentUser = null;
 let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v4';
-const MOB_CACHE_TTL = 1000 * 60 * 120; // 2 horas
+const MOB_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 horas para evitar releer en recargas frecuentes
 const MOB_DESIGN_FETCH_LIMIT = 24;
 const ENABLE_USER_DOC_LIVE_STATUS = false;
 
@@ -1532,12 +1532,36 @@ function renderCachedTemplates(){
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
     if(cached?.items?.length){
       allTemplates = cached.items;
+      noMoreTpls = cached.complete === true;
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
       if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
     }
   }catch(e){}
+}
+
+function normalizePublicTemplateCatalogMob(data){
+  if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+  return data.items.map(item => ({
+    id:String(item?.id || ''),
+    name:String(item?.name || 'Plantilla'),
+    thumb:String(item?.thumb || ''),
+    category:String(item?.category || ''),
+    createdAt:Number(item?.createdAt || 0),
+    updatedAt:Number(item?.updatedAt || item?.createdAt || 0),
+    status:'published'
+  })).filter(item => item.id);
+}
+
+async function loadPublicTemplateCatalogMob(){
+  try{
+    const snap = await fbDb.collection('public_catalog').doc('templates').get();
+    return snap.exists ? normalizePublicTemplateCatalogMob(snap.data() || {}) : null;
+  }catch(e){
+    console.warn('Catalogo compacto no disponible:', e.message || e);
+    return null;
+  }
 }
 
 const TPL_PAGE_SIZE = 20;
@@ -1570,6 +1594,7 @@ async function loadTemplates(){
     const cached = JSON.parse(localStorage.getItem(TEMPLATES_CACHE_KEY) || 'null');
     if(cached?.items?.length){
       allTemplates = cached.items;
+      noMoreTpls = cached.complete === true;
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
@@ -1578,6 +1603,16 @@ async function loadTemplates(){
   }catch(e){}
 
   // Cargar primera página desde Firestore
+  const catalogItems = await loadPublicTemplateCatalogMob();
+  if(catalogItems){
+    allTemplates = catalogItems;
+    noMoreTpls = true;
+    document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
+    setHeroCounts(null, allTemplates.length);
+    renderTemplates(allTemplates);
+    try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), complete:true, items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
+    return;
+  }
   await loadTemplatesPage(true);
 }
 
@@ -1665,7 +1700,7 @@ async function loadTemplatesPage(isFirst){
     }
 
     // Guardar caché con lo que tenemos hasta ahora
-    try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
+    try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), complete:noMoreTpls, items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
 
   }catch(e){
     if(isFirst && !grid.children.length){
@@ -1684,11 +1719,17 @@ async function filterTemplates(){
     const grid = document.getElementById('tpl-grid');
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
     try{
-      const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
-      allTemplates = [];
-      snap.forEach(doc => { const d = doc.data() || {}; if(isPublishedTemplate(d)) allTemplates.push({id:doc.id, ...d}); });
-      noMoreTpls = true;
-      try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
+      const catalogItems = await loadPublicTemplateCatalogMob();
+      if(catalogItems){
+        allTemplates = catalogItems;
+        noMoreTpls = true;
+      }else{
+        const snap = await fbDb.collection('templates').orderBy('createdAt','desc').get();
+        allTemplates = [];
+        snap.forEach(doc => { const d = doc.data() || {}; if(isPublishedTemplate(d)) allTemplates.push({id:doc.id, ...d}); });
+        noMoreTpls = true;
+      }
+      try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), complete:true, items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
     }catch(e){}
   }
 

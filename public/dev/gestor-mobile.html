@@ -10,15 +10,6 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
-<script>
-if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('/sw.js').catch(function(err){
-      console.warn('Service worker no disponible:', err);
-    });
-  });
-}
-</script>
 <style>
 :root{
   color-scheme:dark;
@@ -248,6 +239,8 @@ const state = {
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
 const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
+const MOBILE_STATE_CACHE_TTL = 5 * 60 * 1000;
+const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
   try{
     localStorage.setItem(MOBILE_STATE_CACHE_KEY, JSON.stringify({
@@ -260,7 +253,15 @@ function cacheMobileState(){
     localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
   }catch(_){}
 }
-function restoreMobileStateFromCache(maxAgeMs=60000){
+function mobileStateCacheAge(){
+  try{
+    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
+    return cachedAt ? Date.now() - cachedAt : Infinity;
+  }catch(_){
+    return Infinity;
+  }
+}
+function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
   try{
     const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
     const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
@@ -430,6 +431,7 @@ async function setClientsBatch(clients){
 
 const MAX_GESTOR_DEVICES = 5;
 const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GESTOR_DEVICE_TOUCH_COOLDOWN_MS = 10 * 60 * 1000;
 
 function getGestorDeviceId(){
   let id = localStorage.getItem('ts_device_id');
@@ -438,6 +440,20 @@ function getGestorDeviceId(){
     localStorage.setItem('ts_device_id', id);
   }
   return id;
+}
+function gestorDeviceTouchCacheKey(uid, deviceId){
+  return `gestor_device_touch_${uid}_${deviceId}`;
+}
+function wasGestorDeviceTouchedRecently(uid, deviceId){
+  try{
+    const at = Number(localStorage.getItem(gestorDeviceTouchCacheKey(uid, deviceId)) || 0);
+    return at && Date.now() - at < GESTOR_DEVICE_TOUCH_COOLDOWN_MS;
+  }catch(_){
+    return false;
+  }
+}
+function markGestorDeviceTouched(uid, deviceId){
+  try{ localStorage.setItem(gestorDeviceTouchCacheKey(uid, deviceId), String(Date.now())); }catch(_){}
 }
 function detectGestorBrowser(ua=navigator.userAgent || ''){
   if(/Edg/i.test(ua)) return 'Edge';
@@ -555,11 +571,12 @@ async function registerGestorDevice(uid){
   const deviceId=getGestorDeviceId();
   const devRef=doc(db,'users',uid,'devices',deviceId);
   const currentSnap=await getDoc(devRef);
-  const fingerprint=await buildGestorDeviceFingerprint();
   const existing=currentSnap.exists() ? {id:currentSnap.id,...currentSnap.data()} : null;
   const now=Date.now();
   if(existing){
     if(existing.revoked === true) return {ok:false,revoked:true};
+    if(wasGestorDeviceTouchedRecently(uid, deviceId)) return {ok:true};
+    const fingerprint=await buildGestorDeviceFingerprint();
     const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef,{
       name:fingerprint.label,
@@ -573,8 +590,10 @@ async function registerGestorDevice(uid){
       suspicious,
       revoked:false
     },{merge:true});
+    markGestorDeviceTouched(uid, deviceId);
     return {ok:true};
   }
+  const fingerprint=await buildGestorDeviceFingerprint();
   const snap=await getDocs(devicesCol(uid));
   const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
   const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
@@ -595,7 +614,8 @@ async function registerGestorDevice(uid){
     loginCount:1,
     suspicious,
     revoked:false
-  });
+  },{merge:true});
+  markGestorDeviceTouched(uid, deviceId);
   return {ok:true};
 }
 
@@ -1284,10 +1304,6 @@ async function registerGestorServiceWorker(){
   try{
     await navigator.serviceWorker.register('/sw.js');
     await navigator.serviceWorker.ready;
-    if(!navigator.serviceWorker.controller && !sessionStorage.getItem('gestor_sw_reload_done')){
-      sessionStorage.setItem('gestor_sw_reload_done', '1');
-      location.reload();
-    }
   }catch(err){
     console.warn('Service worker no disponible:', err);
   }
@@ -1717,7 +1733,7 @@ function openAccountSheet(item={}){
 async function saveItem(kind,data,opts={}){
   const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
-    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData);
+    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData, { merge:true });
     if(kind === 'account'){
       state.accounts = [cleanData, ...state.accounts.filter(a => a.id !== cleanData.id)];
       state.view = 'accounts';
@@ -1749,6 +1765,7 @@ async function saveItem(kind,data,opts={}){
 }
 function sanitizeAccountForSave(data={}){
   const purchaseCost = moneyNumber(data.purchaseCost);
+  const now = new Date().toISOString();
   return {
     id: clean(data.id) || id(),
     platform: clean(data.platform),
@@ -1760,10 +1777,13 @@ function sanitizeAccountForSave(data={}){
     dueDate: clean(data.dueDate),
     notes: clean(data.notes).slice(0,1000),
     purchaseCost,
-    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on'
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on',
+    createdAt: clean(data.createdAt) || now,
+    updatedAt: now
   };
 }
 function sanitizeClientForSave(data={}){
+  const now = new Date().toISOString();
   return {
     id: clean(data.id) || id(),
     name: clean(data.name),
@@ -1785,7 +1805,9 @@ function sanitizeClientForSave(data={}){
     comboSize: Math.max(0, Math.min(20, Number(data.comboSize || 0))),
     comboCreatedAt: clean(data.comboCreatedAt).slice(0,40),
     comboTotalPrice: moneyNumber(data.comboTotalPrice),
-    comboRenewalPrice: moneyNumber(data.comboRenewalPrice)
+    comboRenewalPrice: moneyNumber(data.comboRenewalPrice),
+    createdAt: clean(data.createdAt) || now,
+    updatedAt: now
   };
 }
 function openSaleDeliverySheet(client){
@@ -2430,8 +2452,14 @@ async function loadOnceForExpired(){
 async function loadOnce(showToast=true){
   if(!state.uid) return;
   try{
+    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    if(showToast && !forceFresh && mobileStateCacheAge() < MOBILE_MANUAL_REFRESH_COOLDOWN && restoreMobileStateFromCache(MOBILE_MANUAL_REFRESH_COOLDOWN)){
+      render();
+      toast('Ya esta actualizado.');
+      return;
+    }
     if(showToast) toast('Actualizando datos...');
-    if(!showToast && restoreMobileStateFromCache()){
+    if(!forceFresh && !showToast && restoreMobileStateFromCache()){
       render();
       return;
     }
