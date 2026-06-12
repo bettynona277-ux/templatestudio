@@ -3252,6 +3252,54 @@ async function reportTemplateHealth(diag, context='runtime', extra={}){
   }
 }
 
+function invalidateTemplateListCaches(){
+  try{
+    const keys = [];
+    for(let i=0;i<localStorage.length;i++){
+      const key = localStorage.key(i);
+      if(!key) continue;
+      if((key.startsWith('ts_dash_cache_v5_') && key.endsWith('_templates')) || key === 'ts_mobile_templates_cache_v4'){
+        keys.push(key);
+      }
+    }
+    keys.forEach(key => localStorage.removeItem(key));
+  }catch(_){}
+}
+
+function compactTemplateCatalogItemFromPayload(id, payload){
+  return {
+    id:String(id || ''),
+    name:String(payload?.name || 'Plantilla').slice(0, 140),
+    thumb:String(payload?.thumb || '').slice(0, 800),
+    category:String(payload?.category || '').slice(0, 80),
+    createdAt:Number(payload?.createdAt || 0),
+    updatedAt:Number(payload?.updatedAt || payload?.createdAt || Date.now())
+  };
+}
+
+async function syncPublicTemplateCatalogAfterSave(id, payload, status){
+  if(!fbDb || !id) return;
+  const ref = fbDb.collection('public_catalog').doc('templates');
+  try{
+    await fbDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const data = snap.exists ? (snap.data() || {}) : null;
+      if(!data || data.complete !== true || !Array.isArray(data.items)) return;
+      let items = data.items.filter(item => String(item?.id || '') !== String(id));
+      if(status !== 'draft'){
+        const compact = compactTemplateCatalogItemFromPayload(id, payload);
+        if(compact.id) items.push(compact);
+      }
+      items = items
+        .filter(item => item && item.id)
+        .sort((a,b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+      tx.set(ref, { complete:true, total:items.length, updatedAt:Date.now(), items }, { merge:false });
+    });
+  }catch(e){
+    console.warn('No se pudo sincronizar catalogo compacto:', e.message || e);
+  }
+}
+
 function updateDiagnosticsBadge(diag){
   const btn = document.getElementById('btn-diagnostics');
   if(!btn || !diag) return;
@@ -8969,6 +9017,8 @@ async function doSave(status){
       console.log('✓ Nuevo doc:', tplId);
     }
 
+    await syncPublicTemplateCatalogAfterSave(tplId, payload, status);
+    invalidateTemplateListCaches();
     if(status==='draft'){
       st.textContent='📁 Borrador guardado — solo visible para ti';
       st.style.color='#F5C842';

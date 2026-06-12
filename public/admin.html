@@ -630,7 +630,7 @@ let _currentFilter = 'all';
 const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
-const ADMIN_COLLECTION_CACHE_TTL = 10 * 60 * 1000;
+const ADMIN_COLLECTION_CACHE_TTL = 6 * 60 * 60 * 1000;
 const ADMIN_USERS_PAGE_SIZE = 120;
 
 function readAdminCollectionCache(key) {
@@ -653,6 +653,36 @@ function invalidateAdminCollectionCache(key) {
   try { localStorage.removeItem(key); } catch(_) {}
 }
 
+function compactTemplateCatalogItems(items) {
+  return (items || [])
+    .filter(t => t && t.status !== 'draft')
+    .map(t => ({
+      id:String(t.id || ''),
+      name:String(t.name || 'Plantilla').slice(0, 140),
+      thumb:String(t.thumb || '').slice(0, 800),
+      category:String(t.category || '').slice(0, 80),
+      createdAt:Number(t.createdAt || 0),
+      updatedAt:Number(t.updatedAt || t.createdAt || 0)
+    }))
+    .filter(t => t.id)
+    .sort((a,b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+}
+
+async function publishTemplateCatalog() {
+  if(!fbConnected || !fbDb) return;
+  const items = compactTemplateCatalogItems(_allTemplates);
+  try {
+    await fbDb.collection('public_catalog').doc('templates').set({
+      complete:true,
+      total:items.length,
+      updatedAt:Date.now(),
+      items
+    }, { merge:false });
+  } catch(e) {
+    console.warn('No se pudo publicar catalogo compacto:', e);
+  }
+}
+
 async function loadTemplates(force=false) {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
@@ -666,6 +696,7 @@ async function loadTemplates(force=false) {
       _allTemplates = [];
       snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
       writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+      publishTemplateCatalog();
     }
     updateTemplateCounts();
     renderTemplates();
@@ -741,6 +772,7 @@ function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
   writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  publishTemplateCatalog();
   renderTemplates();
 }
 
@@ -775,7 +807,10 @@ let adminUsersPage = { lastCreatedAt:null, noMore:false, loading:false };
 let adminUsersExactSearch = { term:'', loading:false, notFound:false, error:'' };
 let adminUsersExactSearchTimer = null;
 const ADMIN_USAGE_CACHE_KEY = 'ds_admin_usage_metrics_v1';
-const ADMIN_USAGE_CACHE_TTL = 10 * 60 * 1000;
+const ADMIN_USAGE_CACHE_TTL = 60 * 60 * 1000;
+const ADMIN_USAGE_MANUAL_REFRESH_COOLDOWN = 5 * 60 * 1000;
+const ADMIN_USER_EMAIL_SEARCH_CACHE_KEY = 'ds_admin_user_email_search_cache_v1';
+const ADMIN_USER_EMAIL_SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000;
 const ADMIN_USERS_DEEP_SEARCH_PAGE_SIZE = 250;
 const ADMIN_USERS_DEEP_SEARCH_MAX_READS = 5000;
 
@@ -901,6 +936,46 @@ function exactEmailCandidates(rawEmail) {
   return [...new Set([raw, lower])].filter(Boolean);
 }
 
+function readAdminEmailSearchCache(rawEmail) {
+  const key = String(rawEmail || '').trim().toLowerCase();
+  if(!key) return null;
+  try {
+    const all = JSON.parse(localStorage.getItem(ADMIN_USER_EMAIL_SEARCH_CACHE_KEY) || '{}');
+    const hit = all && all[key];
+    if(!hit || Date.now() - Number(hit.at || 0) >= ADMIN_USER_EMAIL_SEARCH_CACHE_TTL) return null;
+    return hit.row && hit.row.id ? hit.row : null;
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminEmailSearchCache(row) {
+  const email = String(row?.data?.email || '').trim().toLowerCase();
+  if(!email || !row?.id) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(ADMIN_USER_EMAIL_SEARCH_CACHE_KEY) || '{}') || {};
+    all[email] = { at:Date.now(), row };
+    const entries = Object.entries(all)
+      .sort((a,b) => Number(b[1]?.at || 0) - Number(a[1]?.at || 0))
+      .slice(0, 300);
+    localStorage.setItem(ADMIN_USER_EMAIL_SEARCH_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch(_) {}
+}
+
+function removeAdminEmailSearchCacheById(id) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ADMIN_USER_EMAIL_SEARCH_CACHE_KEY) || '{}') || {};
+    let changed = false;
+    Object.keys(all).forEach(email => {
+      if(all[email]?.row?.id === id) {
+        delete all[email];
+        changed = true;
+      }
+    });
+    if(changed) localStorage.setItem(ADMIN_USER_EMAIL_SEARCH_CACHE_KEY, JSON.stringify(all));
+  } catch(_) {}
+}
+
 async function findUserByExactEmail(rawEmail) {
   if(!fbConnected || !fbDb) return;
   const currentRaw = getUsersSearchRaw();
@@ -912,23 +987,32 @@ async function findUserByExactEmail(rawEmail) {
   try {
     const seen = new Set(adminUsersCache.map(item => item.id));
     const found = [];
-    for(const email of exactEmailCandidates(rawEmail)) {
-      const snap = await fbDb.collection('users').where('email','==',email).limit(10).get();
-      snap.forEach(doc => {
+    const cached = readAdminEmailSearchCache(rawEmail);
+    if(cached && !seen.has(cached.id)) {
+      seen.add(cached.id);
+      found.push(cached);
+    }
+    if(!found.length) {
+      for(const email of exactEmailCandidates(rawEmail)) {
+        const snap = await fbDb.collection('users').where('email','==',email).limit(10).get();
+        snap.forEach(doc => {
+          if(!seen.has(doc.id)) {
+            seen.add(doc.id);
+            found.push({ id:doc.id, data:doc.data() || {} });
+          }
+        });
+      }
+    }
+    if(!found.length) {
+      const lower = rawEmail.toLowerCase();
+      const lowerSnap = await fbDb.collection('users').where('emailLower','==',lower).limit(10).get();
+      lowerSnap.forEach(doc => {
         if(!seen.has(doc.id)) {
           seen.add(doc.id);
           found.push({ id:doc.id, data:doc.data() || {} });
         }
       });
     }
-    const lower = rawEmail.toLowerCase();
-    const lowerSnap = await fbDb.collection('users').where('emailLower','==',lower).limit(10).get();
-    lowerSnap.forEach(doc => {
-      if(!seen.has(doc.id)) {
-        seen.add(doc.id);
-        found.push({ id:doc.id, data:doc.data() || {} });
-      }
-    });
     if(!found.length) {
       const scanned = await deepFindUsersByEmail(rawEmail, seen);
       scanned.forEach(item => found.push(item));
@@ -939,6 +1023,7 @@ async function findUserByExactEmail(rawEmail) {
           const idx = rows.findIndex(row => row.id === item.id);
           if(idx >= 0) rows[idx] = item;
           else rows.unshift(item);
+          writeAdminEmailSearchCache(item);
         });
       });
       adminUsersExactSearch = { term:rawEmail, loading:false, notFound:false, error:'' };
@@ -975,6 +1060,7 @@ async function deepFindUsersByEmail(rawEmail, seen=new Set()) {
     cursor = Number(lastDoc?.data()?.createdAt || 0) || null;
     if(found.length || snap.size < ADMIN_USERS_DEEP_SEARCH_PAGE_SIZE || cursor == null) break;
   }
+  found.forEach(writeAdminEmailSearchCache);
   return found;
 }
 
@@ -983,6 +1069,7 @@ function refreshAdminUsersCache(mutator) {
   mutator(adminUsersCache);
   adminUsersCache.sort((a,b) => Number(b.data?.createdAt || 0) - Number(a.data?.createdAt || 0));
   writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+  adminUsersCache.slice(0, 300).forEach(writeAdminEmailSearchCache);
   renderUsersTable(adminUsersCache);
 }
 
@@ -999,6 +1086,7 @@ function removeAdminUserCache(id) {
     const idx = rows.findIndex(item => item.id === id);
     if(idx >= 0) rows.splice(idx, 1);
   });
+  removeAdminEmailSearchCacheById(id);
 }
 
 async function createUser() {
@@ -1067,7 +1155,7 @@ async function legacyLoadUsers() {
   if(!fbConnected) return;
   const wrap = document.getElementById('users-table-wrap');
   try {
-    const snap = await fbDb.collection('users').orderBy('createdAt','desc').get();
+    const snap = { empty:true, forEach:()=>{} };
     if(snap.empty) {
       wrap.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">No hay clientes registrados aún.</p>';
       return;
@@ -1249,6 +1337,7 @@ async function loadUsers(force=false) {
       adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
       writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
     }
+    adminUsersCache.slice(0, 300).forEach(writeAdminEmailSearchCache);
     renderUsersTable(adminUsersCache);
     loadGestorUsageMetrics();
   } catch(e) {
@@ -1279,6 +1368,7 @@ async function loadMoreUsers() {
     adminUsersPage.lastCreatedAt = Number(last?.data?.createdAt || 0) || adminUsersPage.lastCreatedAt;
     adminUsersPage.noMore = snap.size < ADMIN_USERS_PAGE_SIZE;
     writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+    adminUsersCache.slice(0, 300).forEach(writeAdminEmailSearchCache);
     renderUsersTable(adminUsersCache);
   } catch(e) {
     if(wrap) wrap.insertAdjacentHTML('beforeend', '<p style="color:var(--accent2);font-size:0.8rem;margin-top:10px;">No se pudo cargar mas clientes.</p>');
@@ -1366,7 +1456,12 @@ async function loadGestorUsageMetrics(force=false) {
   daysEl.innerHTML = '<div class="usage-day"><b>...</b><span>Cargando</span></div>';
   const days = Array.from({length:7}, (_,i) => adminUsageDayId(i));
   try {
-    let rows = force ? null : readAdminUsageCache(days);
+    let rows = readAdminUsageCache(days);
+    if(force && rows && Date.now() - Number(adminUsageCache.at || 0) < ADMIN_USAGE_MANUAL_REFRESH_COOLDOWN) {
+      toast('Uso ya actualizado hace poco.');
+    } else if(force) {
+      rows = null;
+    }
     if(!rows) {
       rows = await loadGestorUsageFromAggregates(days);
       writeAdminUsageCache(days, rows);
