@@ -10,15 +10,6 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
-<script>
-if(/^https?:$/i.test(location.protocol) && 'serviceWorker' in navigator){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('/sw.js').catch(function(err){
-      console.warn('Service worker no disponible:', err);
-    });
-  });
-}
-</script>
 <style>
 :root{
   color-scheme:dark;
@@ -226,6 +217,11 @@ const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
+const DEFAULT_CODE_ACTIVATION_MESSAGE = [
+  '\u00a1Muchas gracias por su compra! \ud83d\ude0a',
+  '',
+  'En este momento realizaremos la activaci\u00f3n de forma remota \ud83d\udcbb\u2728. Para continuar, por favor ingrese a la aplicaci\u00f3n y env\u00edenos el c\u00f3digo que aparece en pantalla \ud83d\udcf2\ud83d\udd10.'
+].join('\n');
 const CURRENCY_SYMBOLS = {
   PEN:'S/', ARS:'$', BOB:'Bs', BRL:'R$', CLP:'$', COP:'$', CRC:'₡', CUP:'$', DOP:'RD$',
   GTQ:'Q', HNL:'L', MXN:'$', NIO:'C$', PAB:'B/.', PYG:'₲', UYU:'$U', VES:'Bs',
@@ -238,11 +234,13 @@ const DEFAULT_COMBO_TEMPLATES = [
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
 const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
+const MOBILE_STATE_CACHE_TTL = 5 * 60 * 1000;
+const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
   try{
     localStorage.setItem(MOBILE_STATE_CACHE_KEY, JSON.stringify({
@@ -255,7 +253,15 @@ function cacheMobileState(){
     localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
   }catch(_){}
 }
-function restoreMobileStateFromCache(maxAgeMs=60000){
+function mobileStateCacheAge(){
+  try{
+    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
+    return cachedAt ? Date.now() - cachedAt : Infinity;
+  }catch(_){
+    return Infinity;
+  }
+}
+function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
   try{
     const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
     const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
@@ -425,6 +431,7 @@ async function setClientsBatch(clients){
 
 const MAX_GESTOR_DEVICES = 5;
 const GESTOR_DEVICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GESTOR_DEVICE_TOUCH_COOLDOWN_MS = 10 * 60 * 1000;
 
 function getGestorDeviceId(){
   let id = localStorage.getItem('ts_device_id');
@@ -433,6 +440,20 @@ function getGestorDeviceId(){
     localStorage.setItem('ts_device_id', id);
   }
   return id;
+}
+function gestorDeviceTouchCacheKey(uid, deviceId){
+  return `gestor_device_touch_${uid}_${deviceId}`;
+}
+function wasGestorDeviceTouchedRecently(uid, deviceId){
+  try{
+    const at = Number(localStorage.getItem(gestorDeviceTouchCacheKey(uid, deviceId)) || 0);
+    return at && Date.now() - at < GESTOR_DEVICE_TOUCH_COOLDOWN_MS;
+  }catch(_){
+    return false;
+  }
+}
+function markGestorDeviceTouched(uid, deviceId){
+  try{ localStorage.setItem(gestorDeviceTouchCacheKey(uid, deviceId), String(Date.now())); }catch(_){}
 }
 function detectGestorBrowser(ua=navigator.userAgent || ''){
   if(/Edg/i.test(ua)) return 'Edge';
@@ -550,11 +571,12 @@ async function registerGestorDevice(uid){
   const deviceId=getGestorDeviceId();
   const devRef=doc(db,'users',uid,'devices',deviceId);
   const currentSnap=await getDoc(devRef);
-  const fingerprint=await buildGestorDeviceFingerprint();
   const existing=currentSnap.exists() ? {id:currentSnap.id,...currentSnap.data()} : null;
   const now=Date.now();
   if(existing){
     if(existing.revoked === true) return {ok:false,revoked:true};
+    if(wasGestorDeviceTouchedRecently(uid, deviceId)) return {ok:true};
+    const fingerprint=await buildGestorDeviceFingerprint();
     const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     await setDoc(devRef,{
       name:fingerprint.label,
@@ -568,8 +590,10 @@ async function registerGestorDevice(uid){
       suspicious,
       revoked:false
     },{merge:true});
+    markGestorDeviceTouched(uid, deviceId);
     return {ok:true};
   }
+  const fingerprint=await buildGestorDeviceFingerprint();
   const snap=await getDocs(devicesCol(uid));
   const devices=snap.docs.map(d=>({id:d.id,...d.data()}));
   const expired=devices.filter(d=>d.id !== deviceId && !d.revoked && isGestorDeviceExpired(d));
@@ -590,7 +614,8 @@ async function registerGestorDevice(uid){
     loginCount:1,
     suspicious,
     revoked:false
-  });
+  },{merge:true});
+  markGestorDeviceTouched(uid, deviceId);
   return {ok:true};
 }
 
@@ -601,6 +626,7 @@ function normalizeSettings(data={}){
   return {
     paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
+    codeActivationMessage: clean(data.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE,
     categories: [...new Set(categories)],
     defaultCountryCode: clean(data.defaultCountryCode) || '51',
     financeMode: data.financeMode === true,
@@ -710,6 +736,9 @@ function paymentMethodsText(value=state.settings.paymentMethods){
       .join('\n');
   }
   return clean(value);
+}
+function codeActivationMessageText(){
+  return clean(state.settings?.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
 function renewalPaymentLines(value=state.settings.paymentMethods){
   const methods = normalizePaymentMethods(value);
@@ -1115,6 +1144,7 @@ function renderSettings(){
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" maxlength="1500" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
+      <div class="field"><label>Mensaje para activar por codigo</label><textarea name="codeActivationMessage" maxlength="1500" placeholder="${esc(DEFAULT_CODE_ACTIVATION_MESSAGE)}">${esc(s.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
     <div class="section">
@@ -1274,10 +1304,6 @@ async function registerGestorServiceWorker(){
   try{
     await navigator.serviceWorker.register('/sw.js');
     await navigator.serviceWorker.ready;
-    if(!navigator.serviceWorker.controller && !sessionStorage.getItem('gestor_sw_reload_done')){
-      sessionStorage.setItem('gestor_sw_reload_done', '1');
-      location.reload();
-    }
   }catch(err){
     console.warn('Service worker no disponible:', err);
   }
@@ -1423,6 +1449,7 @@ function openClientSheet(item={}){
       </div>
       <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale)}</select></div>
       <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
+      <label class="combo-mobile-toggle"><span>Activar por codigo</span><input type="checkbox" name="activationByCode" value="1" ${c.activationByCode?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
         <div class="field"><label>Precio de venta</label><input name="salePrice" value="${esc(saleValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
         <div class="field"><label>Precio renovacion</label><input name="renewalPrice" value="${esc(renewalValue)}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>
@@ -1454,14 +1481,17 @@ function openClientSheet(item={}){
     if(account?.id && !form.elements.fullAccountSale?.checked && form.elements.profile && !form.elements.profile.value) form.elements.profile.value = nextProfileSuggestionMobile(account.id);
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
-  const syncFullAccountSale = () => {
-    const on = !!form.elements.fullAccountSale?.checked;
+  const syncClientAccessMode = () => {
+    const fullSale = !!form.elements.fullAccountSale?.checked;
+    const activationByCode = !!form.elements.activationByCode?.checked;
+    const on = fullSale || activationByCode;
     refreshClientAccountOptions();
-    if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = on ? 'Cuenta completa' : ''; }
+    if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = activationByCode ? 'Activacion por codigo' : (fullSale ? 'Cuenta completa' : ''); }
     if(form.elements.pin){ form.elements.pin.disabled = on; form.elements.pin.placeholder = on ? 'No aplica' : ''; }
   };
-  form.elements.fullAccountSale?.addEventListener('change', syncFullAccountSale);
-  syncFullAccountSale();
+  form.elements.fullAccountSale?.addEventListener('change', syncClientAccessMode);
+  form.elements.activationByCode?.addEventListener('change', syncClientAccessMode);
+  syncClientAccessMode();
   if(form.elements.platform) form.elements.platform.onchange = () => fillDefaultClientPricesInForm(form, form.elements.platform.value);
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
@@ -1475,7 +1505,9 @@ function openClientSheet(item={}){
       ? {}
       : { salePrice:c.salePrice || 0, renewalPrice:c.renewalPrice || 0 };
     const fullAccountSale = fd.fullAccountSale === '1' || fd.fullAccountSale === 'on';
-    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, profile:fullAccountSale ? '' : fd.profile, pin:fullAccountSale ? '' : fd.pin});
+    const activationByCode = fd.activationByCode === '1' || fd.activationByCode === 'on';
+    const hidesAccessFields = fullAccountSale || activationByCode;
+    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
       submitBtn.disabled = false;
@@ -1524,6 +1556,7 @@ function renderComboRows(template, splitDates=false, baseDate=''){
         <div class="field"><label>Perfil</label><input class="combo-profile" value="${esc(first ? nextProfileSuggestionMobile(first.id) : '')}" placeholder="1"></div>
         <div class="field"><label>PIN</label><input class="combo-pin" placeholder="1234"></div>
       </div>
+      <label class="combo-mobile-toggle"><span>Activar por codigo</span><input type="checkbox" class="combo-activation-code" value="1"></label>
       <div class="field ${splitDates?'':'hidden'}"><label>Vence esta app</label><input type="date" class="combo-due" value="${esc(baseDate || addMonthsISO(todayISO(), 1))}"></div>
     </div>`;
   }).join('');
@@ -1600,6 +1633,15 @@ function openComboSheet(){
   $('#comboSplitDatesMobile').onchange = rerender;
   $('#applyMobileCustomCombo').onclick = () => { $('#comboTemplatePicker').value='__custom__'; rerender(); };
   $('#cancelCombo').onclick = closeSheet;
+  $('#comboMobileRows').addEventListener('change', e => {
+    if(!e.target.classList.contains('combo-activation-code')) return;
+    const row = e.target.closest('.combo-app-card');
+    const on = !!e.target.checked;
+    const profile = row?.querySelector('.combo-profile');
+    const pin = row?.querySelector('.combo-pin');
+    if(profile){ profile.disabled = on; profile.placeholder = on ? 'Activacion por codigo' : '1'; }
+    if(pin){ pin.disabled = on; pin.placeholder = on ? 'No aplica' : '1234'; }
+  });
   $('#comboForm').onsubmit = saveComboFromForm;
 }
 async function saveComboFromForm(e){
@@ -1616,11 +1658,13 @@ async function saveComboFromForm(e){
   const rows = [...document.querySelectorAll('.combo-app-card')].map(row => {
     const accountId = row.querySelector('.combo-account')?.value || '';
     const account = state.accounts.find(a => a.id === accountId);
+    const activationByCode = row.querySelector('.combo-activation-code')?.checked === true;
     return {
       id:id(), name:fd.name, whatsapp:fd.whatsapp, accountId,
       platform: account?.platform || row.dataset.platform || '',
-      profile: row.querySelector('.combo-profile')?.value || '',
-      pin: row.querySelector('.combo-pin')?.value || '',
+      profile: activationByCode ? '' : (row.querySelector('.combo-profile')?.value || ''),
+      pin: activationByCode ? '' : (row.querySelector('.combo-pin')?.value || ''),
+      activationByCode,
       dueDate: splitDates ? (row.querySelector('.combo-due')?.value || fd.dueDate) : fd.dueDate, state:'Activo', notes:fd.notes || '',
       salePrice:0, renewalPrice:0,
       comboId, comboName:template?.name || 'Combo', comboSize:template?.platforms.length || 0, comboCreatedAt,
@@ -1689,7 +1733,7 @@ function openAccountSheet(item={}){
 async function saveItem(kind,data,opts={}){
   const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
-    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData);
+    await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData, { merge:true });
     if(kind === 'account'){
       state.accounts = [cleanData, ...state.accounts.filter(a => a.id !== cleanData.id)];
       state.view = 'accounts';
@@ -1721,6 +1765,7 @@ async function saveItem(kind,data,opts={}){
 }
 function sanitizeAccountForSave(data={}){
   const purchaseCost = moneyNumber(data.purchaseCost);
+  const now = new Date().toISOString();
   return {
     id: clean(data.id) || id(),
     platform: clean(data.platform),
@@ -1732,10 +1777,13 @@ function sanitizeAccountForSave(data={}){
     dueDate: clean(data.dueDate),
     notes: clean(data.notes).slice(0,1000),
     purchaseCost,
-    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on'
+    purchaseCostRegistered: purchaseCost > 0 || data.purchaseCostRegistered === true || data.purchaseCostRegistered === '1' || data.purchaseCostRegistered === 'on',
+    createdAt: clean(data.createdAt) || now,
+    updatedAt: now
   };
 }
 function sanitizeClientForSave(data={}){
+  const now = new Date().toISOString();
   return {
     id: clean(data.id) || id(),
     name: clean(data.name),
@@ -1745,6 +1793,7 @@ function sanitizeClientForSave(data={}){
     profile: clean(data.profile),
     pin: clean(data.pin),
     fullAccountSale: data.fullAccountSale === true || data.fullAccountSale === '1' || data.fullAccountSale === 'on',
+    activationByCode: data.activationByCode === true || data.activationByCode === '1' || data.activationByCode === 'on',
     dueDate: clean(data.dueDate),
     state: clean(data.state) || 'Activo',
     notes: clean(data.notes).slice(0,1000),
@@ -1756,7 +1805,9 @@ function sanitizeClientForSave(data={}){
     comboSize: Math.max(0, Math.min(20, Number(data.comboSize || 0))),
     comboCreatedAt: clean(data.comboCreatedAt).slice(0,40),
     comboTotalPrice: moneyNumber(data.comboTotalPrice),
-    comboRenewalPrice: moneyNumber(data.comboRenewalPrice)
+    comboRenewalPrice: moneyNumber(data.comboRenewalPrice),
+    createdAt: clean(data.createdAt) || now,
+    updatedAt: now
   };
 }
 function openSaleDeliverySheet(client){
@@ -2177,10 +2228,14 @@ function comboText(clients, mode='delivery'){
   clients.forEach((c,i) => {
     const acc = state.accounts.find(a => a.id === c.accountId);
     lines.push(`${i+1}. ${platformShort(c.platform || acc?.platform)}`);
-    lines.push(`Correo: ${clean(acc?.email) || '-'}`);
-    lines.push(`Contrasena: ${clean(acc?.password) || '-'}`);
-    lines.push(`Perfil: ${clean(c.profile) || '-'}`);
-    if(clean(c.pin)) lines.push(`PIN: ${clean(c.pin)}`);
+    if(c.activationByCode === true){
+      lines.push(codeActivationMessageText());
+    }else{
+      lines.push(`Correo: ${clean(acc?.email) || '-'}`);
+      lines.push(`Contrasena: ${clean(acc?.password) || '-'}`);
+      lines.push(`Perfil: ${clean(c.profile) || '-'}`);
+      if(clean(c.pin)) lines.push(`PIN: ${clean(c.pin)}`);
+    }
     lines.push(`Vence: ${clean(c.dueDate) || '-'}`);
     lines.push('');
   });
@@ -2188,7 +2243,7 @@ function comboText(clients, mode='delivery'){
     const payText = paymentMethodsText();
     lines.push('Si deseas renovar todo el combo, enviame tu comprobante.');
     if(payText) lines.push('', 'Medios de pago:', payText);
-  }else if(clean(state.settings.finalMessage)){
+  }else if(clients.some(c => c.activationByCode !== true) && clean(state.settings.finalMessage)){
     lines.push(state.settings.finalMessage);
   }
   return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
@@ -2298,6 +2353,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
       `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
       final
     ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
+    if(c.activationByCode === true) text = codeActivationMessageText();
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
@@ -2354,10 +2410,10 @@ async function exportExcel(){
   rows.push(['Disenos Streaming','Excel con amor hecho por Disenos Streaming','WhatsApp: +51974834197']);
   rows.push([]);
   rows.push(['CLIENTES']);
-  rows.push(['Nombre','WhatsApp','Plataforma','Perfil','PIN','Vencimiento','Estado','Cuenta madre','Notas']);
+  rows.push(['Nombre','WhatsApp','Plataforma','Perfil','PIN','Vencimiento','Estado','Cuenta madre','Activacion','Notas']);
   state.clients.forEach(c => {
     const a = state.accounts.find(x => x.id === c.accountId);
-    rows.push([c.name,c.whatsapp,c.platform || a?.platform,c.profile,c.pin,c.dueDate,c.state,accountName(a||{}),c.notes]);
+    rows.push([c.name,c.whatsapp,c.platform || a?.platform,c.profile,c.pin,c.dueDate,c.state,accountName(a||{}),c.activationByCode ? 'Por codigo' : 'Normal',c.notes]);
   });
   rows.push([]);
   rows.push(['CUENTAS MADRE']);
@@ -2396,8 +2452,14 @@ async function loadOnceForExpired(){
 async function loadOnce(showToast=true){
   if(!state.uid) return;
   try{
+    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    if(showToast && !forceFresh && mobileStateCacheAge() < MOBILE_MANUAL_REFRESH_COOLDOWN && restoreMobileStateFromCache(MOBILE_MANUAL_REFRESH_COOLDOWN)){
+      render();
+      toast('Ya esta actualizado.');
+      return;
+    }
     if(showToast) toast('Actualizando datos...');
-    if(!showToast && restoreMobileStateFromCache()){
+    if(!forceFresh && !showToast && restoreMobileStateFromCache()){
       render();
       return;
     }
