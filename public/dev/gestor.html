@@ -4515,7 +4515,8 @@ async function removeFinanceMovement(id){
 function clientFinanceLabel(client, prefix){
   const account=state.accounts.find(a=>a.id===client.accountId);
   const platform=friendlyPlatform(client.platform || account?.platform);
-  return `${prefix} ${platform || 'cuenta'} - ${client.name || 'Cliente'}`.trim();
+  const email=accountEmailLabel(account);
+  return `${prefix} ${platform || 'cuenta'}${email ? ` - ${email}` : ''} - ${client.name || 'Cliente'}`.trim();
 }
 function comboFinanceTotal(clients){
   const first=(clients||[])[0] || {};
@@ -4612,7 +4613,7 @@ async function upsertAccountPurchaseExpense(account){
     amount,
     currency:financeCurrency(),
     symbol:financeSymbol(),
-    description:`Compra cuenta madre - ${friendlyPlatform(account.platform) || account.email || 'Cuenta'}`,
+    description:`Compra cuenta madre - ${accountEmailLabel(account) || friendlyPlatform(account.platform) || 'Cuenta'}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -4974,7 +4975,10 @@ function financeCleanText(value){
     .trim();
 }
 function accountLabel(a){
-  return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' - ');
+  return [a.platform, a.email||a.provider||'Sin detalle'].filter(Boolean).join(' - ');
+}
+function accountEmailLabel(a){
+  return String(a?.email||'').trim();
 }
 function isNoRenewState(value){
   const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -5830,6 +5834,19 @@ function financeDescription(m){
   const description=financeCleanText(m?.description || '');
   return description || financeSourceLabel(m?.source);
 }
+function financeMovementAccountEmail(m){
+  let account=null;
+  if(m?.accountId) account=state.accounts.find(a=>a.id===m.accountId);
+  if(!account && m?.clientId){
+    const client=state.clients.find(c=>c.id===m.clientId);
+    account=state.accounts.find(a=>a.id===client?.accountId);
+  }
+  if(!account && m?.comboId){
+    const client=state.clients.find(c=>c.comboId===m.comboId && c.accountId);
+    account=state.accounts.find(a=>a.id===client?.accountId);
+  }
+  return accountEmailLabel(account);
+}
 function renderFinance(){
   const rangeEl=$('#financeRange');
   if(rangeEl) financeRange=rangeEl.value||financeRange||'month';
@@ -5863,12 +5880,13 @@ function renderFinance(){
     const platform=financeMovementPlatform(m);
     const source=financeSourceLabel(m.source);
     const description=financeDescription(m);
+    const accountEmail=financeMovementAccountEmail(m);
     return `<div class="finance-row ${m.type}">
       <div class="finance-app ${m.type}" title="${escapeAttr(platform || source)}">
         ${platform ? platformLogo(platform,'icon') : `<i data-lucide="${m.type==='expense'?'receipt':'wallet'}"></i>`}
         <span class="finance-type-indicator"><i data-lucide="${m.type==='expense'?'arrow-down':'arrow-up'}"></i></span>
       </div>
-      <div class="finance-main"><strong>${escapeHtml(description)}</strong><span><span class="finance-source-pill">${escapeHtml(source)}</span>${platform?`<span>${escapeHtml(platform)}</span>`:''}<span>${dateText}</span></span></div>
+      <div class="finance-main"><strong>${escapeHtml(description)}</strong><span><span class="finance-source-pill">${escapeHtml(source)}</span>${platform?`<span>${escapeHtml(platform)}</span>`:''}${accountEmail?`<span>${escapeHtml(accountEmail)}</span>`:''}<span>${dateText}</span></span></div>
       <div class="finance-amount">${sign} ${formatMoney(m.amount)}</div>
       <button class="finance-delete" title="Eliminar" onclick="deleteFinanceMovement('${escapeJs(m.id)}')"><i data-lucide="trash-2"></i></button>
     </div>`;

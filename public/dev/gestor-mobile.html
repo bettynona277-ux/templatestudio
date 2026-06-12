@@ -776,7 +776,8 @@ function fmtDateLong(date){
   return due.toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'});
 }
 function platformShort(v){ return clean(v) || 'Streaming'; }
-function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
+function accountName(a){ return [a.platform,a.email||a.provider].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
+function accountEmailLabel(a){ return clean(a?.email); }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
 function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo'); }
 function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
@@ -893,7 +894,8 @@ async function deleteFinanceMovement(movementId){
 }
 function clientFinanceLabel(client, prefix){
   const acc = state.accounts.find(a => a.id === client?.accountId);
-  return `${prefix} ${platformShort(client?.platform || acc?.platform)} - ${clientName(client)}`;
+  const email = accountEmailLabel(acc);
+  return `${prefix} ${platformShort(client?.platform || acc?.platform)}${email ? ` - ${email}` : ''} - ${clientName(client)}`;
 }
 async function recordSaleIncome(client){
   if(!isFinanceModeEnabled()) return;
@@ -965,7 +967,7 @@ async function upsertAccountPurchaseExpense(account){
   await persistFinanceMovement({
     id:movementId,
     type:'expense', source:'account_purchase', amount:account.purchaseCost,
-    description:`Compra cuenta madre - ${platformShort(account.platform)}`,
+    description:`Compra cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -1108,14 +1110,30 @@ function renderFinance(){
       <div class="finance-mini warn"><b>${formatMoney(renewals)}</b><span>Renovaciones</span></div>
     </div>
     <div class="actions"><button class="btn primary" id="addFinanceExpense">${icon('plus')}<span>Gasto manual</span></button></div>
-    <div class="list">${movements.map(m => `<div class="finance-row">
+    <div class="list">${movements.map(m => {
+      const accountEmail = financeMovementAccountEmail(m);
+      return `<div class="finance-row">
       <div class="finance-dot ${m.type}">${m.type === 'income' ? '+' : '-'}</div>
-      <div><strong>${esc(m.description)}</strong><small>${esc(platformShort(m.platform))} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
+      <div><strong>${esc(m.description)}</strong><small>${esc(platformShort(m.platform))}${accountEmail ? ` - ${esc(accountEmail)}` : ''} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
       <div class="finance-amount ${m.type}">${m.type === 'income' ? '+' : '-'}${formatMoney(m.amount)}</div>
-    </div>`).join('') || empty('Aun no hay movimientos financieros.')}</div>
+    </div>`;
+    }).join('') || empty('Aun no hay movimientos financieros.')}</div>
   </section>`;
   $('#financeRange').onchange = e => { state.financeRange = e.target.value; renderFinance(); };
   $('#addFinanceExpense').onclick = openFinanceExpenseSheet;
+}
+function financeMovementAccountEmail(m){
+  let account = null;
+  if(m?.accountId) account = state.accounts.find(a => a.id === m.accountId);
+  if(!account && m?.clientId){
+    const client = state.clients.find(c => c.id === m.clientId);
+    account = state.accounts.find(a => a.id === client?.accountId);
+  }
+  if(!account && m?.comboId){
+    const client = state.clients.find(c => c.comboId === m.comboId && c.accountId);
+    account = state.accounts.find(a => a.id === client?.accountId);
+  }
+  return accountEmailLabel(account);
 }
 function renderSettings(){
   const s = state.settings;
