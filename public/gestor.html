@@ -1208,6 +1208,42 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   flex-wrap:wrap;
   align-items:center;
 }
+.finance-quick-toggle{
+  min-height:40px;
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding:6px 10px 6px 14px;
+  border-radius:16px;
+  border:1px solid rgba(124,109,255,.28);
+  background:linear-gradient(135deg,rgba(124,109,255,.14),rgba(34,211,238,.08));
+  color:#dce6ff;
+  font-size:12px;
+  font-weight:900;
+  box-shadow:0 14px 36px rgba(124,109,255,.10);
+}
+.finance-quick-toggle span{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  white-space:nowrap;
+}
+.finance-quick-toggle svg{
+  width:16px;
+  height:16px;
+  color:#8bdcff;
+}
+.finance-quick-toggle .switch{
+  width:46px;
+  height:26px;
+}
+.finance-quick-toggle .switch i:before{
+  width:18px;
+  height:18px;
+}
+.finance-quick-toggle .switch input:checked + i:before{
+  transform:translateX(20px);
+}
 
 /* Beta badge */
 .beta-line{display:inline-flex;align-items:center;gap:7px}
@@ -1910,7 +1946,17 @@ select option:checked{
   white-space:nowrap;
   font-size:15px;
 }
-.renewal-main .sub{margin-top:3px}
+.renewal-main .sub{margin-top:5px}
+.renewal-account-email{
+  display:block;
+  color:#b9c9ff;
+  font-size:14px;
+  font-weight:850;
+  line-height:1.25;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .renewal-platform-pill{
   display:inline-flex;
   align-items:center;
@@ -3669,6 +3715,10 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <p><span id="todayLabel"></span><span class="beta-line"><span class="beta-badge">Beta</span><span class="beta-note">Version en mejora, lista para uso gradual.</span></span></p>
       </div>
       <div class="actions">
+        <div class="finance-quick-toggle" title="Activar o desactivar Finanzas">
+          <span><i data-lucide="wallet-cards"></i> Finanzas</span>
+          <label class="switch"><input type="checkbox" id="financeModeToggle" /><i></i></label>
+        </div>
         <button class="btn primary" id="openClientBtn"><i data-lucide="user-plus"></i><span>Cliente</span></button>
         <button class="btn soft" id="openComboBtn"><i data-lucide="package-plus"></i><span>Combo</span></button>
         <button class="btn soft" id="openAccountBtn"><i data-lucide="key-round"></i><span>Cuenta madre</span></button>
@@ -3834,7 +3884,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       </div>
       <div class="renewals-table">
         <div class="renewals-head">
-          <span>Cuenta</span>
+          <span>Cliente / cuenta madre</span>
           <span>Plataforma</span>
           <span>Vencimiento</span>
           <span>Accion rapida</span>
@@ -4074,13 +4124,6 @@ i[data-lucide="search"]::before{content:"âŒ•"}
           <option value="34">Espana +34</option>
         </datalist>
       </label>
-      <div class="setting-toggle full">
-        <div>
-          <strong>Modo finanzas</strong>
-          <span>Activa precios, gastos, ingresos, ganancias y reportes financieros.</span>
-        </div>
-        <label class="switch" title="Activar modo finanzas"><input type="checkbox" id="financeModeToggle" /><i></i></label>
-      </div>
       <label>Orden de libres<select class="select" id="settingsFreeSort"><option value="platform">Por plataforma</option><option value="free">Por mas libres</option></select></label>
       <label class="finance-currency-field" data-finance-only><span><i data-lucide="circle-dollar-sign"></i>Moneda de finanzas</span>
         <select class="select" id="financeCurrencySelect">
@@ -4443,6 +4486,24 @@ function syncFinanceModeUI(){
   const financeView=document.getElementById('finanzasView');
   if(financeView?.classList.contains('active') && !enabled) switchView('inicioView');
 }
+async function setFinanceModeFromQuickToggle(enabled){
+  const previous=isFinanceModeEnabled();
+  state.settings.financeMode=enabled===true;
+  syncFinanceModeUI();
+  const ok=await persistSettings();
+  if(!ok){
+    state.settings.financeMode=previous;
+    syncFinanceModeUI();
+    notifySaveStatus('error','No se pudo guardar el modo finanzas.');
+    return false;
+  }
+  refreshUI();
+  notifySaveStatus('success', enabled ? 'Finanzas activadas.' : 'Finanzas desactivadas.');
+  if(!previous && enabled && window.__reloadFinanceMovementsFromFirestore){
+    window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err));
+  }
+  return true;
+}
 function financeCurrency(){
   return String(state.settings?.financeCurrency || 'PEN').toUpperCase();
 }
@@ -4515,7 +4576,8 @@ async function removeFinanceMovement(id){
 function clientFinanceLabel(client, prefix){
   const account=state.accounts.find(a=>a.id===client.accountId);
   const platform=friendlyPlatform(client.platform || account?.platform);
-  return `${prefix} ${platform || 'cuenta'} - ${client.name || 'Cliente'}`.trim();
+  const email=accountEmailLabel(account);
+  return `${prefix} ${platform || 'cuenta'}${email ? ` - ${email}` : ''} - ${client.name || 'Cliente'}`.trim();
 }
 function comboFinanceTotal(clients){
   const first=(clients||[])[0] || {};
@@ -4612,7 +4674,7 @@ async function upsertAccountPurchaseExpense(account){
     amount,
     currency:financeCurrency(),
     symbol:financeSymbol(),
-    description:`Compra cuenta madre - ${friendlyPlatform(account.platform) || account.email || 'Cuenta'}`,
+    description:`Compra cuenta madre - ${accountEmailLabel(account) || friendlyPlatform(account.platform) || 'Cuenta'}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -4974,7 +5036,10 @@ function financeCleanText(value){
     .trim();
 }
 function accountLabel(a){
-  return [a.platform, a.provider||a.email||'Sin detalle'].filter(Boolean).join(' - ');
+  return [a.platform, a.email||a.provider||'Sin detalle'].filter(Boolean).join(' - ');
+}
+function accountEmailLabel(a){
+  return String(a?.email||'').trim();
 }
 function isNoRenewState(value){
   const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -5744,12 +5809,13 @@ function renderRenewals(){
     const whatsappClass=alreadyNotified?'mini notified':'mini wa';
     const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
     const initial=String(client.name||client.profile||platform||'?').trim().slice(0,1).toUpperCase() || '?';
+    const accountEmail=accountEmailLabel(account);
     return `<div class="renewal-row">
       <div class="renewal-client">
         <div class="renewal-avatar">${escapeHtml(initial)}</div>
         <div class="renewal-main">
           <strong>${escapeHtml(client.name||'Cliente')}</strong>
-          <div class="sub">${escapeHtml(friendlyPlatform(platform))} - Perfil ${escapeHtml(client.profile||'-')}</div>
+          <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
         </div>
       </div>
       <div><span class="renewal-platform-pill">${platformLogo(platform,'chip')} ${escapeHtml(friendlyPlatform(platform)||'-')}</span></div>
@@ -5830,6 +5896,19 @@ function financeDescription(m){
   const description=financeCleanText(m?.description || '');
   return description || financeSourceLabel(m?.source);
 }
+function financeMovementAccountEmail(m){
+  let account=null;
+  if(m?.accountId) account=state.accounts.find(a=>a.id===m.accountId);
+  if(!account && m?.clientId){
+    const client=state.clients.find(c=>c.id===m.clientId);
+    account=state.accounts.find(a=>a.id===client?.accountId);
+  }
+  if(!account && m?.comboId){
+    const client=state.clients.find(c=>c.comboId===m.comboId && c.accountId);
+    account=state.accounts.find(a=>a.id===client?.accountId);
+  }
+  return accountEmailLabel(account);
+}
 function renderFinance(){
   const rangeEl=$('#financeRange');
   if(rangeEl) financeRange=rangeEl.value||financeRange||'month';
@@ -5863,12 +5942,13 @@ function renderFinance(){
     const platform=financeMovementPlatform(m);
     const source=financeSourceLabel(m.source);
     const description=financeDescription(m);
+    const accountEmail=financeMovementAccountEmail(m);
     return `<div class="finance-row ${m.type}">
       <div class="finance-app ${m.type}" title="${escapeAttr(platform || source)}">
         ${platform ? platformLogo(platform,'icon') : `<i data-lucide="${m.type==='expense'?'receipt':'wallet'}"></i>`}
         <span class="finance-type-indicator"><i data-lucide="${m.type==='expense'?'arrow-down':'arrow-up'}"></i></span>
       </div>
-      <div class="finance-main"><strong>${escapeHtml(description)}</strong><span><span class="finance-source-pill">${escapeHtml(source)}</span>${platform?`<span>${escapeHtml(platform)}</span>`:''}<span>${dateText}</span></span></div>
+      <div class="finance-main"><strong>${escapeHtml(description)}</strong><span><span class="finance-source-pill">${escapeHtml(source)}</span>${platform?`<span>${escapeHtml(platform)}</span>`:''}${accountEmail?`<span>${escapeHtml(accountEmail)}</span>`:''}<span>${dateText}</span></span></div>
       <div class="finance-amount">${sign} ${formatMoney(m.amount)}</div>
       <button class="finance-delete" title="Eliminar" onclick="deleteFinanceMovement('${escapeJs(m.id)}')"><i data-lucide="trash-2"></i></button>
     </div>`;
@@ -7043,13 +7123,14 @@ function setSettingsSectionVisibility(section=''){
   const wrap=document.getElementById('settingsModalWrap');
   if(wrap) wrap.classList.toggle('prices-mode', section==='prices');
   const children=[...form.children];
+  const fieldWrap=id=>document.getElementById(id)?.closest('label,.full,.setting-toggle');
   const groups={
-    general:[children[0],children[1],children[2],children[3]],
-    message:[children[4],children[5]],
-    payments:[children[6]],
-    categories:[children[7]],
-    prices:[children[3],document.getElementById('settingsSectionPrices')||children[8]],
-    combos:[document.getElementById('settingsSectionCombos')||children[9]]
+    general:[fieldWrap('waPrefix'),fieldWrap('settingsFreeSort')],
+    message:[fieldWrap('finalMessage'),fieldWrap('codeActivationMessage')],
+    payments:[fieldWrap('paymentList')],
+    categories:[fieldWrap('categoryList')],
+    prices:[fieldWrap('financeCurrencySelect'),document.getElementById('settingsSectionPrices')],
+    combos:[document.getElementById('settingsSectionCombos')]
   };
   if(section==='prices' && !isFinanceModeEnabled()) section='general';
   const only=!!section && groups[section];
@@ -7263,6 +7344,8 @@ $('#openSecurityHomeBtn').onclick=()=>switchView('seguridadView');
 $('#openFinanceExpenseBtn').onclick=openFinanceExpenseModal;
 $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
+const financeModeToggle=$('#financeModeToggle');
+if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggle(e.target.checked);
 $('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
