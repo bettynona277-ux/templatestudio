@@ -367,7 +367,7 @@ async function loadFromSubcollections(uid) {
       window.__loadFromFirestore(JSON.parse(cached));
       return;
     }
-  } catch (e) {}
+  } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
   const setSnap = await getDoc(settingsRef(uid));
   const settings = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
@@ -415,9 +415,11 @@ function showExpiredAccess(user) {
 
 function notifySaveStatus(type, message) {
   const palette = {
-    saving: ['Guardando', '#fde68a', 'rgba(245,158,11,.14)', 'rgba(245,158,11,.28)'],
-    success: ['Guardado', '#bbf7d0', 'rgba(34,197,94,.16)', 'rgba(34,197,94,.30)'],
-    error: ['No guardado', '#fecdd3', 'rgba(251,113,133,.16)', 'rgba(251,113,133,.30)']
+    saving:    ['Guardando',     '#fde68a', 'rgba(245,158,11,.14)', 'rgba(245,158,11,.28)'],
+    success:   ['Guardado',      '#bbf7d0', 'rgba(34,197,94,.16)',  'rgba(34,197,94,.30)'],
+    error:     ['No guardado',   '#fecdd3', 'rgba(251,113,133,.16)','rgba(251,113,133,.30)'],
+    copy:      ['Copiado',       '#bbf7d0', 'rgba(34,197,94,.16)',  'rgba(34,197,94,.30)'],
+    copyFail:  ['No se copió',   '#fecdd3', 'rgba(251,113,133,.16)','rgba(251,113,133,.30)']
   };
   const [title, color, bg, border] = palette[type] || palette.saving;
   let toast = document.getElementById('gestorSaveToast');
@@ -517,7 +519,9 @@ onAuthStateChanged(auth, async user => {
   try {
     deviceResult = await registerGestorDevice(user.uid);
   } catch (err) {
-    console.warn('No se pudo registrar este dispositivo del gestor:', err);
+    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
+    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
+    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
   }
   if (deviceResult && !deviceResult.ok) {
     const msg = deviceResult.revoked
@@ -1974,8 +1978,29 @@ select option:checked{
   color:#fbbf24;
 }
 .renewal-due.expired .due-state{color:#fb7185}
+.renewal-due.expired-high .due-state{color:#f97316}
+.renewal-due.expired-critical .due-state{color:#ef4444}
 .renewal-due.today .due-state{color:#fbbf24}
 .renewal-due.tomorrow .due-state{color:#34d399}
+.expired-days-badge{
+  display:inline-block;
+  margin-top:5px;
+  padding:2px 7px;
+  border-radius:6px;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.03em;
+  background:rgba(248,113,133,.15);
+  color:#fb7185;
+  border:1px solid rgba(248,113,133,.25);
+}
+.expired-days-badge.high{background:rgba(249,115,22,.15);color:#f97316;border-color:rgba(249,115,22,.28)}
+.expired-days-badge.critical{background:rgba(239,68,68,.18);color:#ef4444;border-color:rgba(239,68,68,.32)}
+@keyframes urgency-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.renewal-row.expired-high{background:rgba(249,115,22,.06)}
+.renewal-row.expired-critical{background:rgba(239,68,68,.09);box-shadow:inset 0 0 0 1px rgba(239,68,68,.14)}
+.renewal-row.expired-critical .due-state{animation:urgency-pulse 1.8s ease-in-out infinite}
+.renewal-avatar.expired-avatar{background:linear-gradient(135deg,rgba(248,113,133,.95),rgba(185,28,28,.72))}
 .renewal-actions{
   display:flex;
   align-items:center;
@@ -5050,7 +5075,7 @@ function effectiveClientState(c){
   const dd=daysUntil(c.dueDate);
   if(dd===null) return c.state||'Activo';
   if(dd<0) return 'Vencido';
-  if(dd<=3) return 'Por vencer';
+  if(dd<=1) return 'Por vencer';
   return 'Activo';
 }
 function activeOccupants(accountId){ return state.clients.filter(c=>c.accountId===accountId && !isNoRenewState(c.state)); }
@@ -5099,7 +5124,7 @@ function accountStateChip(a){
   const dd=daysUntil(a.dueDate);
   if(dd===null) return '<span class="chip platform">Sin fecha</span>';
   if(dd<0) return '<span class="chip danger">Cuenta vencida</span>';
-  if(dd<=3) return '<span class="chip warn">Vence pronto</span>';
+  if(dd<=1) return '<span class="chip warn">Vence pronto</span>';
   return '<span class="chip ok">Al dia</span>';
 }
 // â”€â”€ Platform SVG Logos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -5502,7 +5527,7 @@ function accountCardClass(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 'expired';
-  if(dd!==null && dd<=3) return 'soon';
+  if(dd!==null && dd<=1) return 'soon';
   if(av.free===0) return 'full';
   return 'available';
 }
@@ -5510,7 +5535,7 @@ function accountPriority(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 0;
-  if(dd!==null && dd<=3) return 1;
+  if(dd!==null && dd<=1) return 1;
   if(av.free>0) return 2;
   return 3;
 }
@@ -5520,7 +5545,7 @@ function accountStatusNote(a){
   if(dd!==null && dd<0) return 'Cuenta vencida';
   if(dd===0) return 'Vence hoy';
   if(dd===1) return 'Vence manana';
-  if(dd!==null && dd<=3) return `Vence en ${dd} dias`;
+  if(dd!==null && dd<=1) return `Vence en ${dd} dias`;
   if(av.free===0) return 'Cuenta llena';
   return `${av.free} Perfil${av.free===1?'':'es'} Libre${av.free===1?'':'s'}`;
 }
@@ -5529,7 +5554,7 @@ function accountSectionKey(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 'attention';
-  if(dd!==null && dd<=3) return 'attention';
+  if(dd!==null && dd<=1) return 'attention';
   if(av.free>0) return 'available';
   return 'full';
 }
@@ -5538,8 +5563,8 @@ function accountSectionLabel(key){
   if(key==='available') return ['Disponibles','Con espacio para asignar'];
   return ['Llenas','Sin espacios libres'];
 }
-window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email);}catch(e){} };
-window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider);}catch(e){} };
+window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email); notifySaveStatus('copy','Email copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el email'); console.warn('clipboard email:',e); } };
+window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider); notifySaveStatus('copy','Proveedor copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el proveedor'); console.warn('clipboard provider:',e); } };
 
 function renderAccounts(){
   const q=$('#accountSearch').value.trim().toLowerCase();
@@ -5801,8 +5826,14 @@ function renderRenewals(){
   putText('#copyTodayCount', todayCount);
   putText('#copyTomorrowCount', tomorrowCount);
   $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
-    let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon';
-    if(dd<0){ dueLabel='Vencido'; dueSub=`Hace ${Math.abs(dd)} dia${Math.abs(dd)===1?'':'s'}`; dueClass='expired'; }
+    let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon', rowClass='', daysBadge='';
+    if(dd<0){
+      const absDd=Math.abs(dd);
+      dueLabel='Vencido'; dueSub=`Hace ${absDd} dia${absDd===1?'':'s'}`;
+      if(absDd>=8){ dueClass='expired-critical'; rowClass='expired-critical'; daysBadge=`<span class="expired-days-badge critical">${absDd}d vencido</span>`; }
+      else if(absDd>=4){ dueClass='expired-high'; rowClass='expired-high'; daysBadge=`<span class="expired-days-badge high">${absDd}d vencido</span>`; }
+      else{ dueClass='expired'; daysBadge=`<span class="expired-days-badge">${absDd}d vencido</span>`; }
+    }
     else if(dd===0){ dueLabel='Por vencer'; dueSub='Vence hoy'; dueClass='today'; }
     else if(dd===1){ dueLabel='Por vencer'; dueSub='Vence manana'; dueClass='tomorrow'; }
     const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
@@ -5810,9 +5841,10 @@ function renderRenewals(){
     const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
     const initial=String(client.name||client.profile||platform||'?').trim().slice(0,1).toUpperCase() || '?';
     const accountEmail=accountEmailLabel(account);
-    return `<div class="renewal-row">
+    const isExpiredRow=dd!==null&&dd<0;
+    return `<div class="renewal-row${rowClass?' '+rowClass:''}">
       <div class="renewal-client">
-        <div class="renewal-avatar">${escapeHtml(initial)}</div>
+        <div class="renewal-avatar${isExpiredRow?' expired-avatar':''}">${escapeHtml(initial)}</div>
         <div class="renewal-main">
           <strong>${escapeHtml(client.name||'Cliente')}</strong>
           <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
@@ -5822,6 +5854,7 @@ function renderRenewals(){
       <div class="renewal-due ${dueClass}">
         <span class="due-state">${dueLabel}</span>
         <span class="sub">${dueSub}</span>
+        ${daysBadge}
       </div>
       <div class="renewal-actions">
         <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
@@ -5843,6 +5876,7 @@ function renderRenewals(){
     summary.innerHTML=`
       <div class="renewal-metric danger"><div class="renewal-metric-icon"><i data-lucide="calendar-x"></i></div><div><strong>${expiredCount}</strong><span>Vencidas</span><small>Requieren atencion</small></div></div>
       <div class="renewal-metric warn"><div class="renewal-metric-icon"><i data-lucide="calendar-days"></i></div><div><strong>${todayCount}</strong><span>Por vencer hoy</span><small>Atencion inmediata</small></div></div>
+      <div class="renewal-metric ok"><div class="renewal-metric-icon"><i data-lucide="calendar-check"></i></div><div><strong>${tomorrowCount}</strong><span>Vence manana</span><small>Avisar hoy</small></div></div>
       <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Total cuentas</span><small>En esta vista</small></div></div>`;
     if(window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons();
   }
@@ -6327,7 +6361,7 @@ window.togglePassword=(id)=>{
   el.textContent=showing?secretMask(acc.password):(acc.password||'');
   el.dataset.show=showing?'0':'1';
 };
-window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password);}catch(e){} };
+window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
@@ -6576,7 +6610,7 @@ function openDeliveryPendingWindow(){
     win.document.open();
     win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Preparando WhatsApp</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>Preparando WhatsApp</h1><p>Estamos guardando la venta y armando el mensaje de entrega.</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
     win.document.close();
-  }catch(err){}
+  }catch(err){ console.warn('No se pudo escribir en ventana emergente:', err); }
   return win;
 }
 function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos armando el mensaje.'){
@@ -6586,7 +6620,7 @@ function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos
     win.document.open();
     win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
     win.document.close();
-  }catch(err){}
+  }catch(err){ console.warn('No se pudo escribir en ventana emergente de WhatsApp:', err); }
   return win;
 }
 function navigatePreparedWhatsapp(targetWindow,url){
@@ -6785,7 +6819,7 @@ function cleanupFloatingActionMenusBeforeRender(){
     document.querySelectorAll('.action-more-menu[data-floating="1"]').forEach(menu=>{
       if(menu.parentNode) menu.parentNode.removeChild(menu);
     });
-  }catch(err){}
+  }catch(err){ console.warn('Error limpiando menús flotantes:', err); }
 }
 
 const floatingActionMenus=new Map();
