@@ -1,4 +1,4 @@
-const CACHE_NAME = 'disenos-streaming-v155';
+const CACHE_NAME = 'disenos-streaming-v158';
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
   '/manifest.json',
@@ -77,7 +77,7 @@ self.addEventListener('fetch', e => {
     fetch(e.request)
       .then(res => {
         // Mantener datos de app frescos; solo cachear manifest/iconos, nunca pantallas HTML.
-        if(res.ok && !url.pathname.startsWith('/dev/') && url.pathname.endsWith('.json')) {
+        if(res.ok && url.pathname.endsWith('.json')) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
         }

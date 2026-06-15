@@ -84,7 +84,7 @@ button{border:0;cursor:pointer}
 .avatar.green{background:rgba(34,216,154,.14);color:#8cffd2}.avatar.warn{background:rgba(255,189,74,.15);color:#ffe0a3}.avatar.bad{background:rgba(255,93,125,.14);color:#ffc7d2}
 .info{min-width:0;flex:1}.info b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;color:var(--muted);font-size:12px}
 .pill{display:inline-flex;align-items:center;min-height:24px;border-radius:999px;padding:0 8px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.06);font-weight:800}
-.pill.ok{color:#84ffd1}.pill.warn{color:#ffd88f}.pill.bad{color:#ffbdca}.pill.brand{color:#cfc6ff}
+.pill.ok{color:#84ffd1}.pill.warn{color:#ffd88f}.pill.bad{color:#ffbdca}.pill.brand{color:#cfc6ff}.pill.account-email{color:#b9c9ff;font-size:13px;font-weight:900;padding:2px 9px}
 .chips{display:flex;gap:8px;overflow:auto;padding:0 0 10px;margin:0 -2px 10px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
 .chip{min-height:36px;border-radius:999px;padding:0 12px;background:rgba(255,255,255,.055);border:1px solid var(--line);color:var(--muted);font-weight:900;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .chip.active{color:#fff;background:rgba(118,92,255,.2);border-color:rgba(118,92,255,.42)}
@@ -776,7 +776,8 @@ function fmtDateLong(date){
   return due.toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'});
 }
 function platformShort(v){ return clean(v) || 'Streaming'; }
-function accountName(a){ return [a.platform,a.email].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
+function accountName(a){ return [a.platform,a.email||a.provider].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
+function accountEmailLabel(a){ return clean(a?.email); }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
 function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo'); }
 function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
@@ -893,7 +894,8 @@ async function deleteFinanceMovement(movementId){
 }
 function clientFinanceLabel(client, prefix){
   const acc = state.accounts.find(a => a.id === client?.accountId);
-  return `${prefix} ${platformShort(client?.platform || acc?.platform)} - ${clientName(client)}`;
+  const email = accountEmailLabel(acc);
+  return `${prefix} ${platformShort(client?.platform || acc?.platform)}${email ? ` - ${email}` : ''} - ${clientName(client)}`;
 }
 async function recordSaleIncome(client){
   if(!isFinanceModeEnabled()) return;
@@ -965,7 +967,7 @@ async function upsertAccountPurchaseExpense(account){
   await persistFinanceMovement({
     id:movementId,
     type:'expense', source:'account_purchase', amount:account.purchaseCost,
-    description:`Compra cuenta madre - ${platformShort(account.platform)}`,
+    description:`Compra cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -1108,14 +1110,30 @@ function renderFinance(){
       <div class="finance-mini warn"><b>${formatMoney(renewals)}</b><span>Renovaciones</span></div>
     </div>
     <div class="actions"><button class="btn primary" id="addFinanceExpense">${icon('plus')}<span>Gasto manual</span></button></div>
-    <div class="list">${movements.map(m => `<div class="finance-row">
+    <div class="list">${movements.map(m => {
+      const accountEmail = financeMovementAccountEmail(m);
+      return `<div class="finance-row">
       <div class="finance-dot ${m.type}">${m.type === 'income' ? '+' : '-'}</div>
-      <div><strong>${esc(m.description)}</strong><small>${esc(platformShort(m.platform))} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
+      <div><strong>${esc(m.description)}</strong><small>${esc(platformShort(m.platform))}${accountEmail ? ` - ${esc(accountEmail)}` : ''} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
       <div class="finance-amount ${m.type}">${m.type === 'income' ? '+' : '-'}${formatMoney(m.amount)}</div>
-    </div>`).join('') || empty('Aun no hay movimientos financieros.')}</div>
+    </div>`;
+    }).join('') || empty('Aun no hay movimientos financieros.')}</div>
   </section>`;
   $('#financeRange').onchange = e => { state.financeRange = e.target.value; renderFinance(); };
   $('#addFinanceExpense').onclick = openFinanceExpenseSheet;
+}
+function financeMovementAccountEmail(m){
+  let account = null;
+  if(m?.accountId) account = state.accounts.find(a => a.id === m.accountId);
+  if(!account && m?.clientId){
+    const client = state.clients.find(c => c.id === m.clientId);
+    account = state.accounts.find(a => a.id === client?.accountId);
+  }
+  if(!account && m?.comboId){
+    const client = state.clients.find(c => c.comboId === m.comboId && c.accountId);
+    account = state.accounts.find(a => a.id === client?.accountId);
+  }
+  return accountEmailLabel(account);
 }
 function renderSettings(){
   const s = state.settings;
@@ -1200,10 +1218,11 @@ function clientCard(c){
   const ds = dueState(c.dueDate);
   const acc = state.accounts.find(a => a.id === c.accountId);
   const dueActions = state.view === 'due' && ds.days <= 7;
+  const dueAccountEmail = state.view === 'due' ? accountEmailLabel(acc) : '';
   return `<article class="card" data-client="${esc(c.id)}">
     <div class="card-row"><div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
-        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span><span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${c.comboId ? `<span class="pill brand">${esc(c.comboName || 'Combo')} · ${esc(c.comboSize || '')} apps</span>` : ''}
+        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span>${dueAccountEmail ? `<span class="pill account-email">${esc(dueAccountEmail)}</span>` : ''}<span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${c.comboId ? `<span class="pill brand">${esc(c.comboName || 'Combo')} · ${esc(c.comboSize || '')} apps</span>` : ''}
       </div></div></div>
     <div class="card-actions">
       ${dueActions
