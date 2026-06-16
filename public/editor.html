@@ -3695,7 +3695,7 @@ window.addEventListener('load',async()=>{
       }
     }
   }
-  if(fbDb) loadLogoLibrary();
+  if(fbDb){ watchLogoVersion(); loadLogoLibrary(); }
   ensureDiagnosticsUI();
   const dbtn=document.getElementById('btn-diagnostics');
   if(dbtn) dbtn.style.display = window.__isVerifiedAdmin ? 'inline-flex' : 'none';
@@ -3914,7 +3914,7 @@ async function compressImage(dataUrl, maxKB=400){
 function forceRefreshLogos(){
   try{
     fbDb.collection('_config').doc('logo_version').set({updatedAt:Date.now()}).then(()=>{
-      showToast('✓ Logos actualizados — clientes verán los nuevos al abrir el editor');
+      showToast('✓ Logos actualizados. Clientes verán los nuevos en segundos');
     });
     localStorage.removeItem('ds_logo_lib_cache');
     logoLibCache=[]; _logoLibLoadedAt=0; loadLogoLibrary();
@@ -3926,7 +3926,22 @@ function forceRefreshLogos(){
 }
 
 const LOGO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días
-let _logoLibLoadedAt = 0;
+let _logoLibLoadedAt = (()=>{ try{ const s=localStorage.getItem('ds_logo_lib_cache'); if(s){ const p=JSON.parse(s); return p.ts||0; } }catch(_){} return 0; })();
+let _logoVersionUnsub = null;
+
+function watchLogoVersion(){
+  if(_logoVersionUnsub||!fbDb) return;
+  _logoVersionUnsub=fbDb.collection('_config').doc('logo_version')
+    .onSnapshot(snap=>{
+      if(!snap.exists) return;
+      const remoteTs=snap.data().updatedAt||0;
+      if(remoteTs>_logoLibLoadedAt){
+        // Solo invalida caché — cada cliente descarga al abrir la pestaña
+        logoLibCache=[];_logoLibLoadedAt=0;
+        localStorage.removeItem('ds_logo_lib_cache');
+      }
+    },err=>console.warn('logo_version watch:',err));
+}
 
 async function loadLogoLibrary(){
   const grid=document.getElementById('logo-library-grid');
