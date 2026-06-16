@@ -41,7 +41,7 @@ body.legacy-render .security-box,
 body.legacy-render .stat,
 body.legacy-render .hello,
 body.legacy-render .empty,
-body.legacy-render .archived-section{background:#0d1726!important;box-shadow:none!important;transform:none!important;will-change:auto!important;contain:none!important}
+body.legacy-render .archived-section{background:#0d1726!important;box-shadow:none!important;transform:none!important;will-change:auto!important;contain:none!important;isolation:auto!important}
 body.legacy-render .bottom-nav,
 body.legacy-render .top,
 body.legacy-render .search{background:#07101d!important;box-shadow:none!important;transform:none!important;will-change:auto!important;contain:none!important}
@@ -305,7 +305,7 @@ function isLegacyRenderer(){
     return false;
   }
   try{ if(localStorage.getItem('gestor_safe_render') === '1') return true; }catch(_){}
-  return /Android/i.test(ua) && /Chrome|wv|Version\/4/i.test(ua);
+  return /Android/i.test(ua) && /Chrome|wv|Version\/4|SamsungBrowser|MiuiBrowser|HuaweiBrowser|OPR|EdgA|FBAV|Instagram/i.test(ua);
 }
 function renderHtmlFragment(html){
   const tpl = document.createElement('template');
@@ -313,6 +313,22 @@ function renderHtmlFragment(html){
   return tpl.content;
 }
 if(isLegacyRenderer()) document.body.classList.add('legacy-render');
+// Fuerza repaint al volver de apps externas (WhatsApp, etc.) — evita corrupción del compositor GPU en Android
+(function(){
+  function forceRepaint(){
+    var el = document.body;
+    el.style.transform = 'translateZ(0)';
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ el.style.transform = ''; });
+    });
+  }
+  document.addEventListener('visibilitychange', function(){
+    if(!document.hidden) forceRepaint();
+  });
+  window.addEventListener('pageshow', function(e){
+    if(e.persisted) forceRepaint();
+  });
+})();
 const accountsCol = uid => collection(db,'users',uid,'gestor_accounts');
 const clientsCol = uid => collection(db,'users',uid,'gestor_clients');
 const financeCol = uid => collection(db,'users',uid,'gestor_finance_movements');
@@ -1159,19 +1175,15 @@ function renderSettings(){
         <label class="switch" title="Activar modo finanzas"><input type="checkbox" name="financeMode" value="1" ${isFinanceModeEnabled()?'checked':''}><i></i></label>
       </div>
       <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label>
-        ${(()=>{
-          const cur = s.defaultCountryCode||'51';
-          const isCustom = !COUNTRY_CODES.find(cc=>cc.code===cur);
-          return `<select name="defaultCountryCode" onchange="toggleCustomCountryCode(this)">
-            ${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${cur===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}
-            <option value="custom" ${isCustom?'selected':''}>Otro (escribir manualmente)</option>
-          </select>
-          <input type="text" name="customCountryCode" id="customCountryCodeInput"
-            placeholder="Ej: 503, 44, 55"
-            value="${isCustom?cur:''}"
-            inputmode="numeric" maxlength="4"
-            style="display:${isCustom?'block':'none'};margin-top:8px">`;
-        })()}
+        <select name="defaultCountryCode" onchange="toggleCustomCountryCode(this)">
+          ${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}
+          <option value="custom" ${!COUNTRY_CODES.find(cc=>cc.code===(s.defaultCountryCode||'51'))?'selected':''}>Otro (escribir manualmente)</option>
+        </select>
+        <input type="text" name="customCountryCode"
+          placeholder="Ej: 503, 44, 55"
+          value="${!COUNTRY_CODES.find(cc=>cc.code===(s.defaultCountryCode||'51'))?esc(s.defaultCountryCode||''):''}"
+          inputmode="numeric" maxlength="4"
+          style="display:${!COUNTRY_CODES.find(cc=>cc.code===(s.defaultCountryCode||'51'))?'block':'none'};margin-top:8px">
       </div>
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
@@ -2100,7 +2112,7 @@ function stripCountryCode(phone){
   return p;
 }
 function toggleCustomCountryCode(sel){
-  const inp = document.getElementById('customCountryCodeInput');
+  const inp = sel.parentElement?.querySelector('input[name="customCountryCode"]');
   if(inp) inp.style.display = sel.value === 'custom' ? 'block' : 'none';
 }
 
