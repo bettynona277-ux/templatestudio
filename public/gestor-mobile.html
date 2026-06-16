@@ -1158,7 +1158,21 @@ function renderSettings(){
         <div><strong>Modo finanzas</strong><span>Activa precios, gastos, ingresos y ganancias.</span></div>
         <label class="switch" title="Activar modo finanzas"><input type="checkbox" name="financeMode" value="1" ${isFinanceModeEnabled()?'checked':''}><i></i></label>
       </div>
-      <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label><select name="defaultCountryCode">${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${(s.defaultCountryCode||'51')===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Codigo de pais por defecto (WhatsApp)</label>
+        ${(()=>{
+          const cur = s.defaultCountryCode||'51';
+          const isCustom = !COUNTRY_CODES.find(cc=>cc.code===cur);
+          return `<select name="defaultCountryCode" onchange="toggleCustomCountryCode(this)">
+            ${COUNTRY_CODES.map(cc=>`<option value="${cc.code}" ${cur===cc.code?'selected':''}>+${cc.code} ${cc.flag} ${cc.name}</option>`).join('')}
+            <option value="custom" ${isCustom?'selected':''}>Otro (escribir manualmente)</option>
+          </select>
+          <input type="text" name="customCountryCode" id="customCountryCodeInput"
+            placeholder="Ej: 503, 44, 55"
+            value="${isCustom?cur:''}"
+            inputmode="numeric" maxlength="4"
+            style="display:${isCustom?'block':'none'};margin-top:8px">`;
+        })()}
+      </div>
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" maxlength="1500" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
@@ -1990,6 +2004,10 @@ async function saveSettingsFromForm(e){
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
   const nextCurrency = clean(fd.financeCurrency) || financeCurrency();
+  if(fd.defaultCountryCode === 'custom'){
+    fd.defaultCountryCode = clean(fd.customCountryCode).replace(/\D/g,'') || '51';
+  }
+  delete fd.customCountryCode;
   await saveSettings({ ...state.settings, ...fd, financeMode:fd.financeMode === '1', financeCurrency:nextCurrency, financeSymbol:CURRENCY_SYMBOLS[nextCurrency] || nextCurrency });
 }
 async function addCategoryFromForm(e){
@@ -2055,8 +2073,12 @@ const COUNTRY_CODES = [
   {code:'51',flag:'🇵🇪',name:'Peru',digits:9},
   {code:'57',flag:'🇨🇴',name:'Colombia',digits:10},
   {code:'56',flag:'🇨🇱',name:'Chile',digits:9},
+  {code:'504',flag:'🇭🇳',name:'Honduras',digits:8},
   {code:'502',flag:'🇬🇹',name:'Guatemala',digits:8},
+  {code:'503',flag:'🇸🇻',name:'El Salvador',digits:8},
   {code:'505',flag:'🇳🇮',name:'Nicaragua',digits:8},
+  {code:'506',flag:'🇨🇷',name:'Costa Rica',digits:8},
+  {code:'507',flag:'🇵🇦',name:'Panama',digits:8},
   {code:'54',flag:'🇦🇷',name:'Argentina',digits:10},
   {code:'52',flag:'🇲🇽',name:'Mexico',digits:10},
   {code:'593',flag:'🇪🇨',name:'Ecuador',digits:9},
@@ -2077,15 +2099,20 @@ function stripCountryCode(phone){
   }
   return p;
 }
+function toggleCustomCountryCode(sel){
+  const inp = document.getElementById('customCountryCodeInput');
+  if(inp) inp.style.display = sel.value === 'custom' ? 'block' : 'none';
+}
+
 function normalizePhone(phone){
   let p = clean(phone).replace(/\D/g,'');
   if(!p) return '';
-  // If already has a known country code prefix, return as-is
+  const defaultCode = clean(state?.settings?.defaultCountryCode) || '51';
   for(const cc of COUNTRY_CODES){
     if(p.startsWith(cc.code) && p.length > cc.code.length) return p;
   }
-  // Apply configured default country code
-  const defaultCode = clean(state?.settings?.defaultCountryCode) || '51';
+  // También chequea el código personalizado del usuario
+  if(defaultCode && p.startsWith(defaultCode) && p.length > defaultCode.length) return p;
   return defaultCode + p;
 }
 function copyTextToClipboard(text){
