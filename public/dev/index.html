@@ -1728,22 +1728,31 @@ function filterIdxPlatforms(q){
   });
 }
 
+function applyUserProfileToForm(data){
+  const waEl = document.getElementById('prof-whatsapp');
+  if(waEl && data.whatsapp) waEl.value = data.whatsapp;
+  const monedaEl = document.getElementById('prof-moneda');
+  if(monedaEl) monedaEl.value = data.moneda || 'S/';
+  PROFILE_PLATFORMS.forEach(p=>{
+    const el = document.getElementById('prof-p-'+p);
+    if(el && data['precio_'+p]) el.value = data['precio_'+p];
+  });
+}
 async function loadUserProfile(){
   if(!fbDb || !currentUser?.uid) return;
   try{
-    const doc = await fbDb.collection('user_profiles').doc(currentUser.uid).get();
-    if(!doc.exists) return;
-    const data = doc.data();
-    const waEl = document.getElementById('prof-whatsapp');
-    if(waEl && data.whatsapp) waEl.value = data.whatsapp;
-    const monedaEl = document.getElementById('prof-moneda');
-    if(monedaEl) monedaEl.value = data.moneda || 'S/';
-    PROFILE_PLATFORMS.forEach(p=>{
-      const el = document.getElementById('prof-p-'+p);
-      if(el && data['precio_'+p]) el.value = data['precio_'+p];
-    });
-    // Guardar en localStorage para que el editor lo lea al abrir
+    // Caché local 30 min — evita lectura Firestore en cada sesión
+    const LS_TS = 'ts_user_profile_at';
+    const cachedTs = Number(localStorage.getItem(LS_TS)||0);
+    if(cachedTs && Date.now()-cachedTs < 30*60*1000){
+      try{ const d=JSON.parse(localStorage.getItem('ts_user_profile')||'null'); if(d){ applyUserProfileToForm(d); return; } }catch(_){}
+    }
+    const docSnap = await fbDb.collection('user_profiles').doc(currentUser.uid).get();
+    if(!docSnap.exists) return;
+    const data = docSnap.data();
+    applyUserProfileToForm(data);
     localStorage.setItem('ts_user_profile', JSON.stringify(data));
+    localStorage.setItem(LS_TS, String(Date.now()));
   }catch(e){ console.warn('loadUserProfile:', e); }
 }
 
@@ -1762,6 +1771,7 @@ async function saveUserProfile(){
   try{
     await fbDb.collection('user_profiles').doc(currentUser.uid).set(profile, {merge:true});
     localStorage.setItem('ts_user_profile', JSON.stringify(profile));
+    localStorage.setItem('ts_user_profile_at', String(Date.now()));
     const ok = document.getElementById('profile-save-ok');
     if(ok){ ok.style.display='block'; setTimeout(()=>ok.style.display='none', 3000); }
   }catch(e){ alert('Error al guardar: '+e.message); }

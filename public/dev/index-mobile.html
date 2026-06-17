@@ -842,6 +842,18 @@ function openGestorMobile(){
 // ═══════════════════════════════════
 const MOB_PROFILE_KEYS = ['netflix', 'disney_std', 'disney_prem', 'spotify', 'prime', 'apple', 'paramount', 'crunchyroll', 'hob_max', 'canva', 'youtube', 'vix', 'dgo', 'deezer', 'plex', 'ibo', 'cable_go', 'capcut', 'ufc', 'office', 'st3lla', 'claro', 'flivjo', 'gemini', 'f4n4tiz', 'iptv', 'l1g41m4x', 'movistar', 'kakuten', 'chatgpt', 'wlgtv', 'nmas', 'uno'];
 
+async function fetchAndCacheMobProfile(uid){
+  const LS_TS = 'ts_user_profile_at';
+  try{
+    const cachedTs = Number(localStorage.getItem(LS_TS)||0);
+    if(cachedTs && Date.now()-cachedTs < 30*60*1000 && localStorage.getItem('ts_user_profile')) return;
+    const profileDoc = await fbDb.collection('user_profiles').doc(uid).get();
+    if(profileDoc.exists){
+      localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
+      localStorage.setItem(LS_TS, String(Date.now()));
+    }
+  }catch(_){}
+}
 function loadMobProfile(){
   try{
     const p = JSON.parse(localStorage.getItem('ts_user_profile') || 'null');
@@ -869,6 +881,7 @@ async function saveMobProfile(){
     profile['precio_'+k] = (el?.value||'').trim();
   });
   localStorage.setItem('ts_user_profile', JSON.stringify(profile));
+  localStorage.setItem('ts_user_profile_at', String(Date.now()));
   if(fbDb && currentUser?.uid){
     try{ await fbDb.collection('user_profiles').doc(currentUser.uid).set(profile,{merge:true}); }
     catch(e){ console.warn('Perfil:', e); }
@@ -992,10 +1005,7 @@ window.addEventListener('load', async()=>{
               }
               currentUser = {uid:user.uid, ...doc.data()};
               localStorage.setItem('ts_session', JSON.stringify(currentUser));
-              try{
-                const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
-                if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
-              }catch(_){}
+              await fetchAndCacheMobProfile(user.uid);
               loadMobProfile();
               try{ if(!hasFreshDesignsCache()) loadMyDesigns && loadMyDesigns(); }catch(_){}
               try{ if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates(); }catch(_){}
@@ -1050,14 +1060,7 @@ window.addEventListener('load', async()=>{
           }
           currentUser = {uid:user.uid, ...doc.data()};
           localStorage.setItem('ts_session', JSON.stringify(currentUser));
-          // Cargar perfil guardado (precios, WhatsApp, moneda)
-          try{
-            const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
-            if(profileDoc.exists){
-              const pd = profileDoc.data();
-              localStorage.setItem('ts_user_profile', JSON.stringify(pd));
-            }
-          }catch(_){}
+          await fetchAndCacheMobProfile(user.uid);
           loadMobProfile();
           try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
           try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}
@@ -1310,10 +1313,7 @@ async function completePostLogin(user, errEl){
 
     currentUser = {uid:user.uid, ...doc.data()};
     localStorage.setItem('ts_session', JSON.stringify(currentUser));
-    try{
-      const profileDoc = await fbDb.collection('user_profiles').doc(user.uid).get();
-      if(profileDoc.exists) localStorage.setItem('ts_user_profile', JSON.stringify(profileDoc.data()));
-    }catch(_){}
+    await fetchAndCacheMobProfile(user.uid);
     loadMobProfile();
     try{ localStorage.setItem('ts_last_auth_app', fbApp?.name || 'ts-client'); }catch(_){}
     try{ localStorage.setItem('ts_firebase_config', JSON.stringify(FIREBASE_CONFIG)); }catch(_){}

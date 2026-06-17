@@ -21,7 +21,8 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  initializeFirestore, doc, getDoc, setDoc, deleteDoc,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -44,7 +45,10 @@ if (APP_CHECK_SITE_KEY) {
   });
 }
 const auth = getAuth(app);
-const db   = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+const db   = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+});
 
 window.__db   = db;
 window.__auth = auth;
@@ -358,7 +362,7 @@ async function migrateIfNeeded(uid) {
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
-  const cacheTtlMs = 5 * 60 * 1000;
+  const cacheTtlMs = 30 * 60 * 1000;
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
@@ -368,14 +372,14 @@ async function loadFromSubcollections(uid) {
       return;
     }
   } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
-  const setSnap = await getDoc(settingsRef(uid));
-  const settings = setSnap.exists() ? setSnap.data()
-    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
-  const [accSnap, cliSnap, finSnap] = await Promise.all([
+  const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
+    getDoc(settingsRef(uid)),
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
     getFinanceMovements(uid, 'current')
   ]);
+  const settings = setSnap.exists() ? setSnap.data()
+    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
   const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap;
