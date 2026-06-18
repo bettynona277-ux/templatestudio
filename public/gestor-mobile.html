@@ -162,6 +162,7 @@ button{border:0;cursor:pointer}
     <img class="logo" src="/icons/icon-192.png" alt="Disenos Streaming">
     <div class="title"><b>Gestor <span class="beta-badge">Beta</span></b><span id="userLine">Version en mejora</span></div>
     <button class="iconbtn" id="installBtn" title="Instalar gestor" aria-label="Instalar gestor"><svg class="i"><use href="#i-install"></use></svg></button>
+    <button class="iconbtn" id="syncBtn" title="Sincronizar datos" aria-label="Sincronizar datos"><svg class="i"><use href="#i-refresh"></use></svg></button>
     <button class="iconbtn" id="exportTop" title="Exportar Excel" aria-label="Exportar Excel"><svg class="i"><use href="#i-download"></use></svg></button>
     <button class="iconbtn" id="logoutBtn" title="Cerrar sesion" aria-label="Cerrar sesion"><svg class="i"><use href="#i-log-out"></use></svg></button>
   </header>
@@ -192,7 +193,7 @@ button{border:0;cursor:pointer}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -210,7 +211,10 @@ if (siteKey) {
   initializeAppCheck(app, { provider:new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled:true });
 }
 const auth = getAuth(app);
-const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+});
 
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
@@ -239,7 +243,7 @@ const state = {
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
 const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
-const MOBILE_STATE_CACHE_TTL = 5 * 60 * 1000;
+const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
   try{
@@ -2522,9 +2526,11 @@ async function loadOnce(showToast=true){
       render();
       return;
     }
-    const cfg = await getDoc(settingsRef(state.uid));
-    const nextSettings = normalizeSettings(cfg.data() || {});
-    const [acc, cli, fin] = await Promise.all([
+    if(!showToast && !forceFresh && restoreMobileStateFromCache(Infinity)){
+      render();
+    }
+    const [cfg, acc, cli, fin] = await Promise.all([
+      getDoc(settingsRef(state.uid)),
       getDocs(accountsCol(state.uid)),
       getDocs(clientsCol(state.uid)),
       getFinanceMovements(state.uid, 'current')
@@ -2533,7 +2539,7 @@ async function loadOnce(showToast=true){
     state.clients = cli.docs.map(d => ({id:d.id,...d.data()}));
     state.financeMovements = fin.filter(Boolean);
     state.financeMovementsFullLoaded = false;
-    state.settings = nextSettings;
+    state.settings = normalizeSettings(cfg.data() || {});
     cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
@@ -2554,6 +2560,7 @@ $('#fab').onclick = () => state.view === 'finance' ? openFinanceExpenseSheet() :
 $('#installBtn').onclick = installGestorApp;
 $('#installBannerBtn').onclick = installGestorApp;
 $('#installDismissBtn').onclick = dismissInstallBanner;
+$('#syncBtn').onclick = () => loadOnce(true);
 $('#exportTop').onclick = exportExcel;
 $('#logoutBtn').onclick = () => signOut(auth);
 window.addEventListener('beforeinstallprompt', ev => {

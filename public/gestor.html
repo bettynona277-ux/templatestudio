@@ -21,7 +21,8 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  initializeFirestore, doc, getDoc, setDoc, deleteDoc,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -44,7 +45,10 @@ if (APP_CHECK_SITE_KEY) {
   });
 }
 const auth = getAuth(app);
-const db   = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+const db   = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+});
 
 window.__db   = db;
 window.__auth = auth;
@@ -358,7 +362,7 @@ async function migrateIfNeeded(uid) {
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
-  const cacheTtlMs = 5 * 60 * 1000;
+  const cacheTtlMs = 30 * 60 * 1000;
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
@@ -367,15 +371,15 @@ async function loadFromSubcollections(uid) {
       window.__loadFromFirestore(JSON.parse(cached));
       return;
     }
-  } catch (e) {}
-  const setSnap = await getDoc(settingsRef(uid));
-  const settings = setSnap.exists() ? setSnap.data()
-    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
-  const [accSnap, cliSnap, finSnap] = await Promise.all([
+  } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
+  const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
+    getDoc(settingsRef(uid)),
     getDocs(accountsCol(uid)),
     getDocs(clientsCol(uid)),
     getFinanceMovements(uid, 'current')
   ]);
+  const settings = setSnap.exists() ? setSnap.data()
+    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
   const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap;
@@ -415,9 +419,11 @@ function showExpiredAccess(user) {
 
 function notifySaveStatus(type, message) {
   const palette = {
-    saving: ['Guardando', '#fde68a', 'rgba(245,158,11,.14)', 'rgba(245,158,11,.28)'],
-    success: ['Guardado', '#bbf7d0', 'rgba(34,197,94,.16)', 'rgba(34,197,94,.30)'],
-    error: ['No guardado', '#fecdd3', 'rgba(251,113,133,.16)', 'rgba(251,113,133,.30)']
+    saving:    ['Guardando',     '#fde68a', 'rgba(245,158,11,.14)', 'rgba(245,158,11,.28)'],
+    success:   ['Guardado',      '#bbf7d0', 'rgba(34,197,94,.16)',  'rgba(34,197,94,.30)'],
+    error:     ['No guardado',   '#fecdd3', 'rgba(251,113,133,.16)','rgba(251,113,133,.30)'],
+    copy:      ['Copiado',       '#bbf7d0', 'rgba(34,197,94,.16)',  'rgba(34,197,94,.30)'],
+    copyFail:  ['No se copió',   '#fecdd3', 'rgba(251,113,133,.16)','rgba(251,113,133,.30)']
   };
   const [title, color, bg, border] = palette[type] || palette.saving;
   let toast = document.getElementById('gestorSaveToast');
@@ -517,7 +523,9 @@ onAuthStateChanged(auth, async user => {
   try {
     deviceResult = await registerGestorDevice(user.uid);
   } catch (err) {
-    console.warn('No se pudo registrar este dispositivo del gestor:', err);
+    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
+    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
+    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
   }
   if (deviceResult && !deviceResult.ok) {
     const msg = deviceResult.revoked
@@ -885,6 +893,10 @@ window.__persistDeleteFinanceMovementDoc = async function(docId) {
     return false;
   }
 };
+window.__forceSyncFromFirestore = async () => {
+  const user = auth.currentUser;
+  if(user) await loadFromSubcollections(user.uid);
+};
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1209,18 +1221,30 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   align-items:center;
 }
 .finance-quick-toggle{
-  min-height:40px;
+  height:42px;
   display:inline-flex;
   align-items:center;
-  gap:10px;
-  padding:6px 10px 6px 14px;
-  border-radius:16px;
-  border:1px solid rgba(124,109,255,.28);
-  background:linear-gradient(135deg,rgba(124,109,255,.14),rgba(34,211,238,.08));
+  gap:9px;
+  padding:0 10px 0 13px;
+  border-radius:var(--r-md);
+  border:1px solid rgba(124,109,255,.22);
+  background:rgba(124,109,255,.08);
   color:#dce6ff;
   font-size:12px;
   font-weight:900;
-  box-shadow:0 14px 36px rgba(124,109,255,.10);
+  position:relative;
+}
+.finance-quick-toggle::after{
+  content:'';
+  position:absolute;
+  right:-13px;
+  top:20%;
+  height:60%;
+  width:1px;
+  background:rgba(255,255,255,.09);
+}
+.finance-quick-toggle + .btn{
+  margin-left:10px;
 }
 .finance-quick-toggle span{
   display:inline-flex;
@@ -1229,20 +1253,20 @@ html{scrollbar-color:rgba(124,109,255,.3) transparent;scrollbar-gutter:stable}
   white-space:nowrap;
 }
 .finance-quick-toggle svg{
-  width:16px;
-  height:16px;
-  color:#8bdcff;
+  width:15px;
+  height:15px;
+  color:#a5b4fc;
 }
 .finance-quick-toggle .switch{
-  width:46px;
-  height:26px;
+  width:40px;
+  height:24px;
 }
 .finance-quick-toggle .switch i:before{
-  width:18px;
-  height:18px;
+  width:16px;
+  height:16px;
 }
 .finance-quick-toggle .switch input:checked + i:before{
-  transform:translateX(20px);
+  transform:translateX(16px);
 }
 
 /* Beta badge */
@@ -1771,54 +1795,49 @@ select option:checked{
   border-bottom:1px solid rgba(255,255,255,.06);
 }
 .renewals-copy-bar{
-  margin:16px 28px 20px;
-  padding:20px;
-  border:1px solid rgba(138,161,255,.20);
-  border-radius:22px;
-  background:
-    radial-gradient(circle at 8% 20%,rgba(124,92,255,.13),transparent 34%),
-    linear-gradient(145deg,rgba(15,23,42,.74),rgba(10,18,32,.88));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 14px 42px rgba(0,0,0,.18);
-  display:grid;
-  grid-template-columns:minmax(280px,1fr) auto;
-  gap:18px;
+  margin:0 28px 20px;
+  padding:9px 14px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:12px;
+  background:rgba(255,255,255,.025);
+  display:flex;
   align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
 }
 .renewals-copy-intro{
-  display:grid;
-  grid-template-columns:auto minmax(0,1fr);
+  display:flex;
   align-items:center;
-  gap:16px;
-  min-width:0;
+  gap:8px;
+  flex-shrink:0;
 }
 .renewals-copy-icon{
-  width:54px;
-  height:54px;
-  border-radius:17px;
+  width:30px;
+  height:30px;
+  border-radius:8px;
   display:grid;
   place-items:center;
-  color:#d8ccff;
-  background:linear-gradient(145deg,rgba(124,92,255,.36),rgba(37,99,235,.18));
-  border:1px solid rgba(167,139,250,.25);
-  box-shadow:0 14px 34px rgba(124,92,255,.18);
+  color:#c4b5fd;
+  background:rgba(124,109,255,.18);
+  border:1px solid rgba(124,109,255,.22);
 }
-.renewals-copy-icon svg{width:25px;height:25px;stroke-width:2.25}
-.renewals-copy-title strong{display:block;font-size:16px;font-weight:950;letter-spacing:0;color:#f8fbff}
-.renewals-copy-title span{display:block;margin-top:5px;color:#bdc9e4;font-size:13px;font-weight:700;line-height:1.35}
-.renewals-copy-title small{display:block;margin-top:4px;color:#8fa2c5;font-size:12px;font-weight:750;line-height:1.35}
-.renewals-copy-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.renewals-copy-icon svg{width:14px;height:14px;stroke-width:2.25}
+.renewals-copy-title strong{display:block;font-size:12.5px;font-weight:800;letter-spacing:0;color:#c8d3e8;white-space:nowrap}
+.renewals-copy-title span{display:none}
+.renewals-copy-title small{display:none}
+.renewals-copy-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
 .renewals-copy-chip{
-  min-height:46px;
-  border-radius:14px;
+  height:32px;
+  border-radius:999px;
   border:1px solid rgba(148,163,184,.16);
   background:rgba(15,23,42,.58);
   color:#dbe7ff;
   display:inline-flex;
   align-items:center;
-  gap:10px;
-  padding:0 14px;
-  font-size:13px;
-  font-weight:900;
+  gap:7px;
+  padding:0 11px;
+  font-size:12px;
+  font-weight:800;
   cursor:pointer;
   user-select:none;
   transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease,box-shadow .16s ease;
@@ -1834,20 +1853,20 @@ select option:checked{
   pointer-events:none;
 }
 .renewals-copy-chip .chip-check{
-  width:22px;
-  height:22px;
-  border-radius:7px;
+  width:16px;
+  height:16px;
+  border-radius:5px;
   display:grid;
   place-items:center;
-  flex:0 0 22px;
+  flex:0 0 16px;
   color:transparent;
   background:rgba(15,23,42,.86);
   border:1px solid rgba(148,163,184,.22);
   transition:all .16s ease;
 }
 .renewals-copy-chip .chip-check svg{
-  width:15px;
-  height:15px;
+  width:11px;
+  height:11px;
   stroke-width:3;
 }
 .renewals-copy-chip b{
@@ -1871,22 +1890,22 @@ select option:checked{
   color:#cfc7ff;
 }
 #copyRenewalPhonesBtn{
-  min-height:48px;
-  padding:0 18px;
-  border-radius:15px;
-  font-size:14px;
-  font-weight:950;
+  height:32px;
+  padding:0 13px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:850;
   background:linear-gradient(135deg,#8b5cf6,#6d5dfc);
   border-color:rgba(167,139,250,.35);
-  box-shadow:0 14px 34px rgba(124,92,255,.24);
+  box-shadow:0 6px 16px rgba(124,92,255,.20);
 }
 #copyRenewalPhonesBtn:hover{
   background:linear-gradient(135deg,#9b6cff,#7264ff);
-  box-shadow:0 18px 42px rgba(124,92,255,.32);
+  box-shadow:0 10px 24px rgba(124,92,255,.28);
 }
 #copyRenewalPhonesBtn svg{
-  width:18px;
-  height:18px;
+  width:13px;
+  height:13px;
   stroke-width:2.5;
 }
 .renewals-table{
@@ -1974,8 +1993,29 @@ select option:checked{
   color:#fbbf24;
 }
 .renewal-due.expired .due-state{color:#fb7185}
+.renewal-due.expired-high .due-state{color:#f97316}
+.renewal-due.expired-critical .due-state{color:#ef4444}
 .renewal-due.today .due-state{color:#fbbf24}
 .renewal-due.tomorrow .due-state{color:#34d399}
+.expired-days-badge{
+  display:inline-block;
+  margin-top:5px;
+  padding:2px 7px;
+  border-radius:6px;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.03em;
+  background:rgba(248,113,133,.15);
+  color:#fb7185;
+  border:1px solid rgba(248,113,133,.25);
+}
+.expired-days-badge.high{background:rgba(249,115,22,.15);color:#f97316;border-color:rgba(249,115,22,.28)}
+.expired-days-badge.critical{background:rgba(239,68,68,.18);color:#ef4444;border-color:rgba(239,68,68,.32)}
+@keyframes urgency-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.renewal-row.expired-high{background:rgba(249,115,22,.06)}
+.renewal-row.expired-critical{background:rgba(239,68,68,.09);box-shadow:inset 0 0 0 1px rgba(239,68,68,.14)}
+.renewal-row.expired-critical .due-state{animation:urgency-pulse 1.8s ease-in-out infinite}
+.renewal-avatar.expired-avatar{background:linear-gradient(135deg,rgba(248,113,133,.95),rgba(185,28,28,.72))}
 .renewal-actions{
   display:flex;
   align-items:center;
@@ -2004,7 +2044,7 @@ select option:checked{
 .renewals-summary{
   margin:0 28px 28px;
   display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(4,minmax(0,1fr));
   border:1px solid rgba(255,255,255,.08);
   border-radius:18px;
   overflow:hidden;
@@ -2036,11 +2076,13 @@ select option:checked{
 .renewal-metric small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 @media(max-width:980px){
   .renewals-copy-bar{
-    grid-template-columns:1fr;
-    align-items:stretch;
+    gap:10px;
   }
   .renewals-copy-actions{
-    justify-content:flex-start;
+    margin-left:0;
+  }
+  .renewals-summary{
+    grid-template-columns:repeat(2,minmax(0,1fr));
   }
 }
 .filter-chip{
@@ -3118,15 +3160,61 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .combo-template-card strong{display:block;color:var(--text);font-weight:850}
 .combo-template-card .sub{font-size:12px;color:var(--muted);margin-top:3px}
-.combo-modal{width:min(940px,100%)}
+/* ── Combo modal ── */
+.combo-modal{
+  width:min(900px,100%);
+  display:flex;
+  flex-direction:column;
+  max-height:calc(100dvh - 40px);
+  overflow:hidden;
+  padding:0;
+}
+.combo-modal .modal-head{
+  flex-shrink:0;
+  padding:22px 24px 10px;
+  border-bottom:none;
+}
+.combo-modal .modal-head h3{font-size:22px}
+#comboForm{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:0 24px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  align-content:start;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,255,255,.10) transparent;
+}
 .combo-intro{
   grid-column:1/-1;
-  padding:13px 14px;
-  border-radius:var(--r-md);
-  border:1px solid rgba(34,211,238,.18);
-  background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(124,109,255,.06));
-  color:var(--text-2);
-  font-size:13px;
+  font-size:12.5px;
+  color:var(--muted);
+  line-height:1.5;
+}
+.combo-section{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  padding:16px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:16px;
+  background:rgba(255,255,255,.022);
+}
+.combo-section-head{
+  grid-column:1/-1;
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:-.02em;
+  color:var(--text);
+}
+.combo-apps-section{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
 }
 .combo-tools{
   grid-column:1/-1;
@@ -3140,27 +3228,60 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:12px;
-  min-height:42px;
-  padding:10px 12px;
-  border-radius:var(--r-sm);
+  gap:10px;
+  min-height:38px;
+  padding:7px 12px;
+  border-radius:10px;
   border:1px solid rgba(255,255,255,.07);
   background:rgba(255,255,255,.025);
   color:var(--text-2);
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
 }
-.combo-toggle input{width:18px;height:18px;accent-color:#22d3ee}
-.combo-rows{
+.combo-toggle span{display:flex;align-items:center;gap:8px}
+.combo-toggle svg{width:14px;height:14px;color:var(--muted);flex-shrink:0}
+.combo-toggle input{width:16px;height:16px;accent-color:#20d6a3;flex-shrink:0;cursor:pointer}
+/* Notas label inside form grid */
+#comboForm > label.full{
   grid-column:1/-1;
+}
+#comboForm > label.full textarea{
+  resize:vertical;
+  min-height:64px;
+  max-height:120px;
+}
+/* Sticky footer */
+#comboForm .modal-actions.full{
+  grid-column:1/-1;
+  position:sticky;
+  bottom:0;
+  z-index:2;
+  background:linear-gradient(to top,rgba(9,18,32,1) 80%,rgba(9,18,32,0));
+  padding:14px 0 22px;
+  margin-top:0;
+  border-top:1px solid rgba(255,255,255,.06);
+}
+/* Compact inputs inside combo only */
+.combo-modal .input,.combo-modal .select{
+  height:44px;
+  padding:0 12px;
+  border-radius:10px;
+  font-size:13.5px;
+}
+.combo-modal label{font-size:12.5px;gap:5px}
+/* App rows */
+.combo-rows{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
-  gap:10px;
+  gap:12px;
 }
 .combo-app-card{
   --pcolor:#7c6dff;
   padding:13px;
-  border-radius:var(--r-md);
-  border:1px solid color-mix(in srgb,var(--pcolor) 28%,rgba(255,255,255,.08));
-  background:radial-gradient(240px 90px at 0 0,color-mix(in srgb,var(--pcolor) 12%,transparent),transparent 70%),rgba(255,255,255,.025);
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.03);
 }
 .combo-app-title{
   display:flex;
@@ -3168,24 +3289,31 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   justify-content:space-between;
   gap:10px;
   margin-bottom:10px;
-  font-weight:850;
+  font-weight:800;
+  font-size:14px;
   color:var(--text);
 }
 .combo-badge{
   display:inline-flex;
   align-items:center;
-  min-height:22px;
-  padding:0 8px;
+  height:20px;
+  padding:0 7px;
   border-radius:999px;
-  background:rgba(34,211,238,.10);
-  border:1px solid rgba(34,211,238,.20);
-  color:#a5f3fc;
-  font-size:11px;
+  background:rgba(32,214,163,.10);
+  border:1px solid rgba(32,214,163,.22);
+  color:#20d6a3;
+  font-size:10.5px;
   font-weight:850;
+  letter-spacing:.01em;
 }
-.combo-app-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.combo-app-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .combo-app-grid label{min-width:0}
 .combo-due-field{margin-top:10px}
+@media(max-width:680px){
+  .combo-section,.combo-app-grid{grid-template-columns:1fr}
+  .combo-rows{grid-template-columns:1fr}
+  #comboForm{grid-template-columns:1fr}
+}
 .x.close-icon{
   width:34px;
   height:34px;
@@ -3704,6 +3832,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <span id="userEmail">-</span>
       </div>
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
+      <button class="ghost-btn" id="syncBtn"><i data-lucide="refresh-cw"></i><span>Sincronizar</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
     </div>
   </aside>
@@ -4220,18 +4349,23 @@ i[data-lucide="search"]::before{content:"âŒ•"}
     </div>
     <form id="comboForm" class="form">
       <div class="combo-intro">Vende varias apps en una sola operacion. El gestor guarda un cliente por app y arma un solo WhatsApp con todos los accesos.</div>
-      <label>Nombre<input class="input" id="comboClientName" placeholder="Deros Rafael" required /></label>
-      <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
-      <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
-      <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
-      <label data-finance-only>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
-      <label data-finance-only>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
-      <div class="combo-tools">
-        <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
-        <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
+      <div class="combo-section">
+        <label>Nombre<input class="input" id="comboClientName" placeholder="Deros Rafael" required /></label>
+        <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
+        <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
+        <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
+        <label data-finance-only>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
+        <label data-finance-only>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
+        <div class="combo-tools">
+          <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
+          <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
+        </div>
+        <label class="combo-toggle"><span><i data-lucide="calendar"></i>Fechas diferentes por app</span><input type="checkbox" id="comboSplitDates" /></label>
       </div>
-      <label class="combo-toggle"><span>Fechas diferentes por app</span><input type="checkbox" id="comboSplitDates" /></label>
-      <div class="combo-rows" id="comboRows"></div>
+      <div class="combo-section combo-apps-section">
+        <div class="combo-section-head">Apps incluidas</div>
+        <div class="combo-rows" id="comboRows"></div>
+      </div>
       <label class="full">Notas<textarea id="comboNotes" placeholder="Opcional"></textarea></label>
       <div class="modal-actions full">
         <button class="btn" type="button" data-close="comboModalWrap">Cancelar</button>
@@ -5050,7 +5184,7 @@ function effectiveClientState(c){
   const dd=daysUntil(c.dueDate);
   if(dd===null) return c.state||'Activo';
   if(dd<0) return 'Vencido';
-  if(dd<=3) return 'Por vencer';
+  if(dd<=1) return 'Por vencer';
   return 'Activo';
 }
 function activeOccupants(accountId){ return state.clients.filter(c=>c.accountId===accountId && !isNoRenewState(c.state)); }
@@ -5099,7 +5233,7 @@ function accountStateChip(a){
   const dd=daysUntil(a.dueDate);
   if(dd===null) return '<span class="chip platform">Sin fecha</span>';
   if(dd<0) return '<span class="chip danger">Cuenta vencida</span>';
-  if(dd<=3) return '<span class="chip warn">Vence pronto</span>';
+  if(dd<=1) return '<span class="chip warn">Vence pronto</span>';
   return '<span class="chip ok">Al dia</span>';
 }
 // â”€â”€ Platform SVG Logos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -5502,7 +5636,7 @@ function accountCardClass(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 'expired';
-  if(dd!==null && dd<=3) return 'soon';
+  if(dd!==null && dd<=1) return 'soon';
   if(av.free===0) return 'full';
   return 'available';
 }
@@ -5510,7 +5644,7 @@ function accountPriority(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 0;
-  if(dd!==null && dd<=3) return 1;
+  if(dd!==null && dd<=1) return 1;
   if(av.free>0) return 2;
   return 3;
 }
@@ -5520,7 +5654,7 @@ function accountStatusNote(a){
   if(dd!==null && dd<0) return 'Cuenta vencida';
   if(dd===0) return 'Vence hoy';
   if(dd===1) return 'Vence manana';
-  if(dd!==null && dd<=3) return `Vence en ${dd} dias`;
+  if(dd!==null && dd<=1) return `Vence en ${dd} dias`;
   if(av.free===0) return 'Cuenta llena';
   return `${av.free} Perfil${av.free===1?'':'es'} Libre${av.free===1?'':'s'}`;
 }
@@ -5529,7 +5663,7 @@ function accountSectionKey(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
   if(dd!==null && dd<0) return 'attention';
-  if(dd!==null && dd<=3) return 'attention';
+  if(dd!==null && dd<=1) return 'attention';
   if(av.free>0) return 'available';
   return 'full';
 }
@@ -5538,8 +5672,8 @@ function accountSectionLabel(key){
   if(key==='available') return ['Disponibles','Con espacio para asignar'];
   return ['Llenas','Sin espacios libres'];
 }
-window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email);}catch(e){} };
-window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider);}catch(e){} };
+window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email); notifySaveStatus('copy','Email copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el email'); console.warn('clipboard email:',e); } };
+window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider); notifySaveStatus('copy','Proveedor copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el proveedor'); console.warn('clipboard provider:',e); } };
 
 function renderAccounts(){
   const q=$('#accountSearch').value.trim().toLowerCase();
@@ -5801,8 +5935,14 @@ function renderRenewals(){
   putText('#copyTodayCount', todayCount);
   putText('#copyTomorrowCount', tomorrowCount);
   $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
-    let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon';
-    if(dd<0){ dueLabel='Vencido'; dueSub=`Hace ${Math.abs(dd)} dia${Math.abs(dd)===1?'':'s'}`; dueClass='expired'; }
+    let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon', rowClass='', daysBadge='';
+    if(dd<0){
+      const absDd=Math.abs(dd);
+      dueLabel='Vencido'; dueSub=`Hace ${absDd} dia${absDd===1?'':'s'}`;
+      if(absDd>=8){ dueClass='expired-critical'; rowClass='expired-critical'; daysBadge=`<span class="expired-days-badge critical">${absDd}d vencido</span>`; }
+      else if(absDd>=4){ dueClass='expired-high'; rowClass='expired-high'; daysBadge=`<span class="expired-days-badge high">${absDd}d vencido</span>`; }
+      else{ dueClass='expired'; daysBadge=`<span class="expired-days-badge">${absDd}d vencido</span>`; }
+    }
     else if(dd===0){ dueLabel='Por vencer'; dueSub='Vence hoy'; dueClass='today'; }
     else if(dd===1){ dueLabel='Por vencer'; dueSub='Vence manana'; dueClass='tomorrow'; }
     const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
@@ -5810,9 +5950,10 @@ function renderRenewals(){
     const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
     const initial=String(client.name||client.profile||platform||'?').trim().slice(0,1).toUpperCase() || '?';
     const accountEmail=accountEmailLabel(account);
-    return `<div class="renewal-row">
+    const isExpiredRow=dd!==null&&dd<0;
+    return `<div class="renewal-row${rowClass?' '+rowClass:''}">
       <div class="renewal-client">
-        <div class="renewal-avatar">${escapeHtml(initial)}</div>
+        <div class="renewal-avatar${isExpiredRow?' expired-avatar':''}">${escapeHtml(initial)}</div>
         <div class="renewal-main">
           <strong>${escapeHtml(client.name||'Cliente')}</strong>
           <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
@@ -5822,6 +5963,7 @@ function renderRenewals(){
       <div class="renewal-due ${dueClass}">
         <span class="due-state">${dueLabel}</span>
         <span class="sub">${dueSub}</span>
+        ${daysBadge}
       </div>
       <div class="renewal-actions">
         <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
@@ -5843,6 +5985,7 @@ function renderRenewals(){
     summary.innerHTML=`
       <div class="renewal-metric danger"><div class="renewal-metric-icon"><i data-lucide="calendar-x"></i></div><div><strong>${expiredCount}</strong><span>Vencidas</span><small>Requieren atencion</small></div></div>
       <div class="renewal-metric warn"><div class="renewal-metric-icon"><i data-lucide="calendar-days"></i></div><div><strong>${todayCount}</strong><span>Por vencer hoy</span><small>Atencion inmediata</small></div></div>
+      <div class="renewal-metric ok"><div class="renewal-metric-icon"><i data-lucide="calendar-check"></i></div><div><strong>${tomorrowCount}</strong><span>Vence manana</span><small>Avisar hoy</small></div></div>
       <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Total cuentas</span><small>En esta vista</small></div></div>`;
     if(window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons();
   }
@@ -6327,7 +6470,7 @@ window.togglePassword=(id)=>{
   el.textContent=showing?secretMask(acc.password):(acc.password||'');
   el.dataset.show=showing?'0':'1';
 };
-window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password);}catch(e){} };
+window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
@@ -6576,7 +6719,7 @@ function openDeliveryPendingWindow(){
     win.document.open();
     win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Preparando WhatsApp</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>Preparando WhatsApp</h1><p>Estamos guardando la venta y armando el mensaje de entrega.</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
     win.document.close();
-  }catch(err){}
+  }catch(err){ console.warn('No se pudo escribir en ventana emergente:', err); }
   return win;
 }
 function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos armando el mensaje.'){
@@ -6586,7 +6729,7 @@ function openWhatsappPendingWindow(title='Preparando WhatsApp', message='Estamos
     win.document.open();
     win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101d;color:#f8fbff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}.box{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#101b2f;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#9fb0ca;line-height:1.5}.loader{width:42px;height:42px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.12);border-top-color:#22d3ee;border-radius:999px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}a{display:none;margin-top:18px;padding:12px 16px;border-radius:14px;background:#22c55e;color:#04130e;font-weight:900;text-decoration:none}</style></head><body><div class="box"><div class="loader"></div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a id="openWa" target="_self">Abrir WhatsApp</a></div></body></html>`);
     win.document.close();
-  }catch(err){}
+  }catch(err){ console.warn('No se pudo escribir en ventana emergente de WhatsApp:', err); }
   return win;
 }
 function navigatePreparedWhatsapp(targetWindow,url){
@@ -6785,7 +6928,7 @@ function cleanupFloatingActionMenusBeforeRender(){
     document.querySelectorAll('.action-more-menu[data-floating="1"]').forEach(menu=>{
       if(menu.parentNode) menu.parentNode.removeChild(menu);
     });
-  }catch(err){}
+  }catch(err){ console.warn('Error limpiando menús flotantes:', err); }
 }
 
 const floatingActionMenus=new Map();
@@ -7347,6 +7490,23 @@ $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 const financeModeToggle=$('#financeModeToggle');
 if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggle(e.target.checked);
 $('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
+$('#syncBtn').onclick=async()=>{
+  const btn=document.getElementById('syncBtn');
+  if(!btn||btn.disabled) return;
+  btn.disabled=true;
+  const orig=btn.innerHTML;
+  btn.innerHTML='<i data-lucide="refresh-cw"></i><span>Sincronizando...</span>';
+  if(window.lucide) lucide.createIcons();
+  try{
+    localStorage.removeItem('gestion_streaming_v5_synced_at');
+    if(window.__forceSyncFromFirestore) await window.__forceSyncFromFirestore();
+  }catch(e){ console.warn('Sync error:',e); }
+  finally{
+    btn.innerHTML=orig;
+    if(window.lucide) lucide.createIcons();
+    btn.disabled=false;
+  }
+};
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
