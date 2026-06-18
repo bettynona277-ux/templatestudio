@@ -159,6 +159,53 @@
 
     /* ── Divider ── */
     .divider{border:none;border-top:1px solid var(--border);margin:4px 0}
+
+    /* ── Section Manager ── */
+    .sec-row{
+      display:flex;align-items:center;gap:10px;
+      padding:10px 12px;border-radius:10px;border:1px solid transparent;
+      transition:background .12s;margin-bottom:5px;
+    }
+    .sec-row:hover{background:var(--surface-2);border-color:var(--border)}
+    .sec-row.sec-on{border-color:rgba(124,58,237,.25);background:rgba(124,58,237,.04)}
+    .sec-icon{font-size:17px;flex-shrink:0}
+    .sec-info{flex:1;min-width:0}
+    .sec-label{font-size:.84rem;font-weight:600}
+    .sec-fixed-note{font-size:.68rem;color:var(--text-muted)}
+    .sec-btns{display:flex;gap:5px;flex-shrink:0}
+    .sec-btn{
+      background:var(--surface-2);border:1px solid var(--border);
+      color:var(--text-muted);border-radius:6px;padding:4px 8px;
+      font-size:.7rem;cursor:pointer;transition:background .12s;line-height:1;
+    }
+    .sec-btn:hover{background:rgba(255,255,255,.1);color:var(--text)}
+    .sec-btn:disabled{opacity:.3;cursor:default}
+    .sec-edit-btn{color:var(--accent);border-color:rgba(124,58,237,.3);background:rgba(124,58,237,.07)}
+    .sec-edit-btn:hover{background:rgba(124,58,237,.15);color:var(--accent)}
+
+    /* ── Modal ── */
+    .modal-ov{
+      position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);
+      z-index:300;display:flex;align-items:flex-end;justify-content:center;padding:16px;
+    }
+    @media(min-width:600px){.modal-ov{align-items:center}}
+    .modal{
+      background:var(--surface);border:1px solid var(--border);border-radius:20px;
+      width:100%;max-width:500px;max-height:82vh;overflow-y:auto;padding:22px;
+    }
+    .modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+    .modal-title{font-size:.95rem;font-weight:700}
+    .modal-x{background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;padding:2px 8px;border-radius:6px}
+    .modal-x:hover{background:var(--surface-2);color:var(--text)}
+    .modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+
+    /* ── Testimonial items ── */
+    .ti{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;position:relative}
+    .ti-del{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+    .ti-del:hover{background:rgba(239,68,68,.2);color:var(--red)}
+    .stars-pick{display:flex;gap:4px;margin-top:6px}
+    .stars-pick span{font-size:20px;cursor:pointer;opacity:.35;transition:opacity .1s;user-select:none}
+    .stars-pick span.on{opacity:1}
   </style>
 </head>
 <body>
@@ -298,6 +345,15 @@
       </div>
     </div>
 
+    <!-- Secciones de página -->
+    <div class="card">
+      <div class="card-title">Diseño de página — Secciones</div>
+      <p style="font-size:.75rem;color:var(--text-muted);margin-bottom:14px">
+        Activa las secciones que quieres mostrar en tu tienda y ordénalas con las flechas.
+      </p>
+      <div id="sectionsList"></div>
+    </div>
+
     <!-- Acciones -->
     <div class="card">
       <div class="card-title">Publicar</div>
@@ -322,11 +378,24 @@
   </div>
 </div>
 
+<!-- Modal editor de secciones -->
+<div class="modal-ov" id="editModal" hidden onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title" id="modalTitle">Editar sección</div>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modalBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" style="font-size:.82rem;padding:9px 16px" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" style="font-size:.82rem;padding:9px 18px" onclick="saveModal()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast">✓ Guardado</div>
 
-<script>console.warn('[admin-tienda] HTML cargado OK — probando módulo ES...');</script>
 <script type="module">
-console.warn('[admin-tienda] Módulo ES iniciado');
 import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
@@ -357,6 +426,7 @@ const catalogDoc    = slug => doc(db,'public_catalogs',slug);
 // ── State ─────────────────────────────────────────────────────
 let uid = null, accounts = [], clients = [], settings = {};
 let currentSlug = null;
+let sections = [], testimonials = [], editingSecId = null;
 
 const PLATFORM_COLORS = {
   'Netflix':'#E50914','Spotify':'#1DB954','YouTube Premium':'#FF0000',
@@ -367,8 +437,6 @@ const PLATFORM_COLORS = {
 };
 
 // ── Auth gate ─────────────────────────────────────────────────
-console.warn('[admin-tienda] 1/3 Firebase inicializado, esperando auth...');
-
 // Si auth no resuelve en 7s → mostrar botón de login manual
 const authTimeout = setTimeout(() => {
   console.warn('[admin-tienda] TIMEOUT onAuthStateChanged no respondió en 7s');
@@ -383,10 +451,7 @@ const authTimeout = setTimeout(() => {
 
 onAuthStateChanged(auth, async user => {
   clearTimeout(authTimeout);
-  console.warn('[admin-tienda] 2/3 Auth state recibido:', user ? `uid=${user.uid}` : 'null (sin sesión)');
-
   if(!user){
-    console.warn('[admin-tienda] Sin sesión → redirigiendo a login');
     location.href = 'gestor-login.html';
     return;
   }
@@ -418,35 +483,25 @@ async function init(){
     });
   });
 
-  console.warn('[admin-tienda] 3/3 init() ejecutándose, leyendo Firestore...');
-  // Cargar datos en paralelo
   const [pubStoreSnap, settingsSnap, accSnap, cliSnap] = await Promise.all([
-    getDoc(publicStoreRef(uid)).then(r=>{console.warn('[admin-tienda] ✓ public_store');return r;}),
-    getDoc(settingsRef(uid)).then(r=>{console.warn('[admin-tienda] ✓ settings');return r;}),
-    getDocs(accountsCol(uid)).then(r=>{console.warn('[admin-tienda] ✓ accounts');return r;}),
-    getDocs(clientsCol(uid)).then(r=>{console.warn('[admin-tienda] ✓ clients');return r;})
+    getDoc(publicStoreRef(uid)),
+    getDoc(settingsRef(uid)),
+    getDocs(accountsCol(uid)),
+    getDocs(clientsCol(uid))
   ]);
-  console.warn('[admin-tienda] ✓ Promise.all completado');
 
   settings = settingsSnap.exists() ? settingsSnap.data() : {};
   accounts = accSnap.docs.map(d => ({id:d.id,...d.data()}));
   clients  = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
-  console.warn('[admin-tienda] A) datos mapeados — settings.whatsappPrefix=',settings.whatsappPrefix,'accounts=',accounts.length,'clients=',clients.length);
 
-  // Pre-llenar WhatsApp desde settings
   if(settings.whatsappPrefix) document.getElementById('waPrefix').value = settings.whatsappPrefix;
-  console.warn('[admin-tienda] B) waPrefix ok — pubStoreSnap.exists()=',pubStoreSnap.exists());
 
-  // Cargar config existente de tienda si existe
   if(pubStoreSnap.exists()){
     const ps = pubStoreSnap.data();
     currentSlug = ps.slug || null;
-    console.warn('[admin-tienda] C) tienda existente — currentSlug=',currentSlug);
 
     if(currentSlug){
-      console.warn('[admin-tienda] D) leyendo public_catalogs/'+currentSlug+'...');
       const catSnap = await getDoc(catalogDoc(currentSlug));
-      console.warn('[admin-tienda] E) catSnap leído — exists=',catSnap.exists());
       if(catSnap.exists()){
         const cat = catSnap.data();
         document.getElementById('storeName').value    = cat.name    || '';
@@ -461,15 +516,19 @@ async function init(){
         const tplInput = document.querySelector(`input[name="template"][value="${cat.template||'default'}"]`);
         if(tplInput){ tplInput.checked = true; tplInput.dispatchEvent(new Event('change')); }
 
+        // Secciones y testimonios guardados
+        initSections(cat.sections || null);
+        if(cat.testimonials) testimonials = cat.testimonials;
+
         updateUrl(currentSlug);
         document.getElementById('dangerZone').style.display = 'block';
       }
     }
   }
 
-  console.warn('[admin-tienda] F) llamando loadPlatforms...');
+  if(!sections.length) initSections(null);
+  renderSectionsList();
   loadPlatforms();
-  console.warn('[admin-tienda] G) init() completado ✓');
 }
 
 // ── Cálculo de plataformas disponibles ────────────────────────
@@ -602,6 +661,8 @@ window.publish = async function(){
     template,
     enabled:        document.getElementById('enabledToggle').checked,
     platforms:      platforms.map(({platform,salePrice}) => ({platform,salePrice})),
+    sections:       sections.map(({id,enabled,order,data}) => ({id,enabled,order,data:data||{}})),
+    testimonials,
     updatedAt:      serverTimestamp()
   };
 
@@ -650,6 +711,200 @@ function toast(msg, type=''){
 }
 
 window.toast = toast;
+
+// ── Section Management ────────────────────────────────────────
+const SECTION_DEFS = [
+  { id:'hero',         label:'Hero (titular)',       icon:'🦸', editable:true  },
+  { id:'trust',        label:'Beneficios (4 íconos)',icon:'✅', editable:false },
+  { id:'platforms',    label:'Plataformas',          icon:'📺', editable:false, fixed:true },
+  { id:'featured',     label:'Oferta destacada',     icon:'🏆', editable:true  },
+  { id:'howItWorks',   label:'Cómo funciona',        icon:'❓', editable:false },
+  { id:'testimonials', label:'Opiniones de clientes',icon:'💬', editable:true  },
+  { id:'stats',        label:'Estadísticas',         icon:'📊', editable:false },
+];
+
+function initSections(stored){
+  if(stored && stored.length){
+    const storedIds = stored.map(s=>s.id);
+    sections = [...stored];
+    SECTION_DEFS.forEach((d,i)=>{
+      if(!storedIds.includes(d.id))
+        sections.push({id:d.id, enabled:d.id==='platforms', order:stored.length+i, data:{}});
+    });
+  } else {
+    sections = SECTION_DEFS.map((d,i)=>({id:d.id, enabled:d.id==='platforms', order:i, data:{}}));
+  }
+}
+
+window.renderSectionsList = function(){
+  const sorted = [...sections].sort((a,b)=>(a.order??99)-(b.order??99));
+  document.getElementById('sectionsList').innerHTML = sorted.map((sec,i)=>{
+    const def = SECTION_DEFS.find(d=>d.id===sec.id)||{};
+    const fixed = !!def.fixed;
+    const isFirst = i===0, isLast = i===sorted.length-1;
+    return `<div class="sec-row${sec.enabled?' sec-on':''}">
+      <div class="sec-icon">${def.icon||'📌'}</div>
+      <div class="sec-info">
+        <div class="sec-label">${def.label||sec.id}</div>
+        ${fixed?'<div class="sec-fixed-note">Siempre visible</div>':''}
+      </div>
+      <div class="sec-btns">
+        ${!fixed
+          ? `<label class="toggle" style="width:36px;height:20px;flex-shrink:0">
+               <input type="checkbox" ${sec.enabled?'checked':''} onchange="toggleSection('${sec.id}',this.checked)">
+               <div class="toggle-track"></div>
+               <div class="toggle-knob" style="width:14px;height:14px;top:3px;left:3px"></div>
+             </label>`
+          : '<div style="width:36px"></div>'}
+        <button class="sec-btn" ${isFirst?'disabled':''} onclick="moveSec('${sec.id}',-1)">↑</button>
+        <button class="sec-btn" ${isLast?'disabled':''} onclick="moveSec('${sec.id}',1)">↓</button>
+        ${def.editable?`<button class="sec-btn sec-edit-btn" onclick="editSec('${sec.id}')">✏️ Editar</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+};
+
+window.toggleSection = function(id, enabled){
+  const s = sections.find(s=>s.id===id);
+  if(s) s.enabled = enabled;
+  renderSectionsList();
+};
+
+window.moveSec = function(id, dir){
+  const sorted = [...sections].sort((a,b)=>(a.order??99)-(b.order??99));
+  const idx = sorted.findIndex(s=>s.id===id);
+  const tgt = idx + dir;
+  if(tgt<0||tgt>=sorted.length) return;
+  const tmp = sorted[idx].order;
+  sorted[idx].order = sorted[tgt].order;
+  sorted[tgt].order = tmp;
+  renderSectionsList();
+};
+
+// ── Modales de edición ────────────────────────────────────────
+window.editSec = function(id){
+  editingSecId = id;
+  const sec = sections.find(s=>s.id===id)||{data:{}};
+  const d   = sec.data||{};
+  const body  = document.getElementById('modalBody');
+  const title = document.getElementById('modalTitle');
+
+  if(id==='hero'){
+    title.textContent = '🦸 Editar Hero';
+    body.innerHTML = `
+      <div class="form-row" style="gap:12px">
+        <label class="field">Titular principal
+          <input class="inp" id="mHdl" placeholder="Todas tus plataformas favoritas" value="${escHtml(d.headline||'')}">
+        </label>
+        <label class="field">Texto resaltado (color acento)
+          <input class="inp" id="mAcc" placeholder="en un solo lugar" value="${escHtml(d.accentText||'')}">
+        </label>
+        <label class="field">Descripción
+          <textarea class="ta" id="mDesc" style="min-height:70px">${escHtml(d.description||'')}</textarea>
+        </label>
+        <label class="field">Conteo de clientes (ej: +1,000 clientes)
+          <input class="inp" id="mCli" placeholder="+1,000 clientes" value="${escHtml(d.clients||'')}">
+        </label>
+      </div>`;
+
+  } else if(id==='featured'){
+    const plats = window.loadPlatforms()||[];
+    const opts  = plats.map(p=>`<option value="${p.platform}" ${d.platform===p.platform?'selected':''}>${p.platform}</option>`).join('');
+    title.textContent = '🏆 Editar Oferta destacada';
+    body.innerHTML = `
+      <div class="form-row" style="gap:12px">
+        <label class="field">Plataforma a destacar
+          <select class="sel" id="mFPlat">${opts||'<option>Sin plataformas disponibles</option>'}</select>
+        </label>
+        <label class="field">Descripción (opcional)
+          <textarea class="ta" id="mFDesc" style="min-height:70px">${escHtml(d.description||'')}</textarea>
+        </label>
+      </div>`;
+
+  } else if(id==='testimonials'){
+    title.textContent = '💬 Editar Opiniones';
+    renderTestiList(body);
+  }
+
+  document.getElementById('editModal').hidden = false;
+};
+
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function renderTestiList(container){
+  container.innerHTML = `
+    <div id="tiItems">${testimonials.map((t,i)=>tiHtml(t,i)).join('')}</div>
+    <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:.82rem" onclick="addTesti()">+ Agregar opinión</button>`;
+}
+
+function tiHtml(t,i){
+  const stars = [1,2,3,4,5].map(n=>`<span class="${n<=(t.rating||5)?'on':''}" onclick="setStar(${i},${n})">★</span>`).join('');
+  return `<div class="ti">
+    <button class="ti-del" onclick="delTesti(${i})">✕</button>
+    <div class="form-row two" style="gap:8px;margin-bottom:8px">
+      <label class="field">Emoji
+        <input class="inp" id="te${i}" value="${escHtml(t.emoji||'👤')}" maxlength="4" style="text-align:center;font-size:1.1rem">
+      </label>
+      <label class="field">Nombre
+        <input class="inp" id="tn${i}" value="${escHtml(t.name||'')}" placeholder="María G.">
+      </label>
+    </div>
+    <label class="field">Opinión
+      <textarea class="ta" id="tt${i}" style="min-height:55px">${escHtml(t.text||'')}</textarea>
+    </label>
+    <div class="stars-pick" id="tsr${i}">${stars}</div>
+  </div>`;
+}
+
+window.addTesti = function(){
+  testimonials.push({name:'',text:'',rating:5,emoji:'👤'});
+  renderTestiList(document.getElementById('modalBody'));
+};
+
+window.delTesti = function(i){
+  testimonials.splice(i,1);
+  renderTestiList(document.getElementById('modalBody'));
+};
+
+window.setStar = function(i,n){
+  testimonials[i].rating = n;
+  const row = document.getElementById(`tsr${i}`);
+  if(row) row.querySelectorAll('span').forEach((s,idx)=>s.classList.toggle('on',idx<n));
+};
+
+window.saveModal = function(){
+  const id = editingSecId;
+  const sec = sections.find(s=>s.id===id);
+  if(!sec) return;
+
+  if(id==='hero'){
+    sec.data = {
+      headline:    document.getElementById('mHdl')?.value.trim()||'',
+      accentText:  document.getElementById('mAcc')?.value.trim()||'',
+      description: document.getElementById('mDesc')?.value.trim()||'',
+      clients:     document.getElementById('mCli')?.value.trim()||'',
+    };
+  } else if(id==='featured'){
+    sec.data = {
+      platform:    document.getElementById('mFPlat')?.value||'',
+      description: document.getElementById('mFDesc')?.value.trim()||'',
+    };
+  } else if(id==='testimonials'){
+    testimonials.forEach((t,i)=>{
+      t.emoji  = document.getElementById(`te${i}`)?.value||'👤';
+      t.name   = document.getElementById(`tn${i}`)?.value||'';
+      t.text   = document.getElementById(`tt${i}`)?.value||'';
+    });
+  }
+
+  closeModal();
+  toast('Cambios guardados — recuerda publicar','ok');
+};
+
+window.closeModal = function(){
+  document.getElementById('editModal').hidden = true;
+  editingSecId = null;
+};
 </script>
 </body>
 </html>
