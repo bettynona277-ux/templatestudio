@@ -4360,7 +4360,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
       <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
       <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
-      <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><input class="input" id="cPlatform" placeholder="Netflix" readonly /></span></label>
+      <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cActivationByCode" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>No envia correo, contrasena, perfil ni PIN; pide el codigo de pantalla.</small></span></label>
       <div class="form-group-label"><i data-lucide="contact"></i>Acceso del perfil</div>
@@ -5481,9 +5481,10 @@ function applyDefaultClientPrices(platform, options={}){
   const price=platformPriceFor(platform);
   const saleEl=$('#cSalePrice');
   const renewalEl=$('#cRenewalPrice');
-  if(price.salePrice && saleEl && shouldUseDefaultPrice(saleEl.value)) saleEl.value=price.salePrice;
+  const canReplace=(v)=>options.overwrite||shouldUseDefaultPrice(v);
+  if(price.salePrice && saleEl && canReplace(saleEl.value)) saleEl.value=price.salePrice;
   const renewalDefault=price.renewalPrice || price.salePrice;
-  if(renewalDefault && renewalEl && shouldUseDefaultPrice(renewalEl.value)) renewalEl.value=renewalDefault;
+  if(renewalDefault && renewalEl && canReplace(renewalEl.value)) renewalEl.value=renewalDefault;
 }
 function applyDefaultAccountPurchaseCost(platform){
   if(editingAccountId) return;
@@ -5745,9 +5746,20 @@ function sortedAccountsForPick(){
     return accountLabel(a).localeCompare(accountLabel(b));
   });
 }
-function renderAccountOptions(selectedId=''){
+function renderClientPlatformOptions(selected='', selectedAccountId=''){
+  const platforms=new Set();
+  state.accounts.forEach(a=>{
+    if((accountAvailability(a).free>0||a.id===selectedAccountId)&&a.platform) platforms.add(a.platform);
+  });
+  const sorted=[...platforms].sort();
+  const sel=$('#cPlatform');
+  sel.innerHTML=`<option value="">Todas las plataformas</option>`+sorted.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('');
+  sel.value=selected||'';
+}
+function renderAccountOptions(selectedId='', platform=''){
   const options=sortedAccountsForPick()
     .filter(a=>accountAvailability(a).free>0||a.id===selectedId)
+    .filter(a=>!platform||a.platform===platform)
     .map(a=>{
       const av=accountAvailability(a);
       return `<option value="${a.id}" ${selectedId===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${av.free} Libre${av.free===1?'':'s'}</option>`;
@@ -6704,7 +6716,7 @@ function setClientFullAccountMode(enabled){
   if(fullSale) fullSale.checked=!!enabled;
   syncClientAccessMode();
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cPlatform').value=''; $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -6744,8 +6756,8 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderAccountOptions(c.accountId);
-  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cPlatform').value=c.platform||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=c.activationByCode===true; syncClientAccessMode();
+  editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=c.activationByCode===true; syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
@@ -6920,7 +6932,7 @@ window.setNoRenew=async(id)=>{
   refreshUI();
 };
 window.restoreClient=async(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; const updated={...c,state:'Activo',dueDate:c.dueDate||todayPlus(30),updatedAt:new Date().toISOString()}; const ok=await persistDoc('clients', updated); if(!ok) return; Object.assign(c, updated); touchLocalStateCache(); refreshUI(); };
-window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); renderAccountOptions(id); $('#cAccount').value=id; const acc=state.accounts.find(a=>a.id===id); $('#cPlatform').value=acc?.platform||''; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
+window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); const acc=state.accounts.find(a=>a.id===id); renderClientPlatformOptions(acc?.platform||'',id); renderAccountOptions(id,acc?.platform||''); $('#cAccount').value=id; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
   const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
@@ -7374,7 +7386,7 @@ $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; rend
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
 $('#cFullAccountSale')?.addEventListener('change',syncClientAccessMode);
 $('#cActivationByCode')?.addEventListener('change',syncClientAccessMode);
-$('#cPlatform').addEventListener('change',()=>applyDefaultClientPrices($('#cPlatform').value, {fillMissingForExisting:!!editingClientId}));
+$('#cPlatform').addEventListener('change',()=>{ const platform=$('#cPlatform').value; renderAccountOptions('',platform); applyDefaultClientPrices(platform,{fillMissingForExisting:!!editingClientId,overwrite:!editingClientId}); });
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboRows')?.addEventListener('change',e=>{
   if(!e.target.classList.contains('combo-activation-code')) return;
