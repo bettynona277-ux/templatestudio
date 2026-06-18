@@ -893,6 +893,10 @@ window.__persistDeleteFinanceMovementDoc = async function(docId) {
     return false;
   }
 };
+window.__forceSyncFromFirestore = async () => {
+  const user = auth.currentUser;
+  if(user) await loadFromSubcollections(user.uid);
+};
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -7488,14 +7492,20 @@ if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggl
 $('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
 $('#syncBtn').onclick=async()=>{
   const btn=document.getElementById('syncBtn');
-  if(btn) btn.disabled=true;
+  if(!btn||btn.disabled) return;
+  btn.disabled=true;
+  const orig=btn.innerHTML;
+  btn.innerHTML='<i data-lucide="refresh-cw"></i><span>Sincronizando...</span>';
+  if(window.lucide) lucide.createIcons();
   try{
     localStorage.removeItem('gestion_streaming_v5_synced_at');
-    const user=auth.currentUser;
-    if(user) await loadFromSubcollections(user.uid);
-    notifySaveStatus('success','Datos sincronizados.');
-  }catch(e){ notifySaveStatus('error','No se pudo sincronizar.'); }
-  finally{ if(btn) btn.disabled=false; }
+    if(window.__forceSyncFromFirestore) await window.__forceSyncFromFirestore();
+  }catch(e){ console.warn('Sync error:',e); }
+  finally{
+    btn.innerHTML=orig;
+    if(window.lucide) lucide.createIcons();
+    btn.disabled=false;
+  }
 };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
