@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mi Tienda Pública</title>
+  <link rel="preconnect" href="https://www.gstatic.com">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0d0d1a;--surface:#1a1a2e;--surface-2:#252545;
+      --accent:#7c3aed;--accent-h:#6d28d9;
+      --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+      --text:#f0f0f5;--text-muted:#888899;
+      --border:rgba(255,255,255,.08);--radius:14px;
+    }
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+    /* ── Layout ── */
+    .shell{max-width:780px;margin:0 auto;padding:32px 16px 64px}
+    .page-title{font-size:1.5rem;font-weight:800;margin-bottom:4px}
+    .page-sub{color:var(--text-muted);font-size:.875rem;margin-bottom:28px}
+
+    /* ── Cards ── */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px 20px;margin-bottom:16px}
+    .card-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-muted);margin-bottom:16px}
+
+    /* ── Forms ── */
+    .form-row{display:grid;gap:14px;grid-template-columns:1fr}
+    .form-row.two{grid-template-columns:1fr 1fr}
+    @media(max-width:500px){.form-row.two{grid-template-columns:1fr}}
+    label.field{display:flex;flex-direction:column;gap:6px;font-size:.8rem;font-weight:600;color:var(--text-muted)}
+    input.inp,select.sel,textarea.ta{
+      background:var(--surface-2);border:1px solid var(--border);border-radius:10px;
+      color:var(--text);padding:10px 13px;font-size:.9rem;width:100%;
+      transition:border .15s;outline:none;font-family:inherit;
+    }
+    input.inp:focus,select.sel:focus,textarea.ta:focus{border-color:var(--accent)}
+    textarea.ta{resize:vertical;min-height:70px}
+    select.sel option{background:var(--surface)}
+    .slug-wrap{position:relative}
+    .slug-prefix{
+      position:absolute;left:13px;top:50%;transform:translateY(-50%);
+      color:var(--text-muted);font-size:.85rem;pointer-events:none;
+    }
+    #slugInput{padding-left:calc(13px + var(--prefix-w,0px))}
+
+    /* ── Toggle ── */
+    .toggle-row{display:flex;align-items:center;gap:12px;padding:14px 0}
+    .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
+    .toggle input{opacity:0;width:0;height:0;position:absolute}
+    .toggle-track{
+      position:absolute;inset:0;background:var(--surface-2);
+      border-radius:24px;cursor:pointer;border:1px solid var(--border);
+      transition:background .2s;
+    }
+    .toggle input:checked ~ .toggle-track{background:var(--accent)}
+    .toggle-knob{
+      position:absolute;top:3px;left:3px;width:16px;height:16px;
+      background:#fff;border-radius:50%;transition:left .2s;pointer-events:none;
+    }
+    .toggle input:checked ~ .toggle-track ~ .toggle-knob,
+    .toggle input:checked ~ .toggle-knob{left:23px}
+    /* fix: knob inside track */
+    .toggle-track::after{
+      content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;
+      background:#fff;border-radius:50%;transition:left .2s;
+    }
+    .toggle input:checked ~ .toggle-track::after{left:23px}
+    .toggle-label{font-size:.9rem}
+    .toggle-label small{display:block;color:var(--text-muted);font-size:.78rem;margin-top:2px}
+
+    /* ── Template picker ── */
+    .template-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    @media(max-width:440px){.template-grid{grid-template-columns:1fr 1fr}}
+    .tpl-card{
+      border:2px solid var(--border);border-radius:12px;overflow:hidden;
+      cursor:pointer;transition:border-color .15s;
+      position:relative;
+    }
+    .tpl-card.selected{border-color:var(--accent)}
+    .tpl-card input{position:absolute;opacity:0;pointer-events:none}
+    .tpl-preview{height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:.65rem;font-weight:600;padding:8px}
+    .tpl-name{text-align:center;font-size:.72rem;font-weight:700;padding:6px 4px;background:rgba(0,0,0,.3)}
+
+    /* Default preview */
+    .tpl-preview.tpl-default{background:#0d0d1a;color:#f0f0f5}
+    .tpl-preview.tpl-default .mock-card{width:48px;height:40px;background:#1a1a2e;border-radius:8px;border:1px solid rgba(255,255,255,.07)}
+
+    /* Minimal preview */
+    .tpl-preview.tpl-minimal{background:#f5f5f7;color:#1d1d1f}
+    .tpl-preview.tpl-minimal .mock-card{width:48px;height:40px;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+
+    /* Neon preview */
+    .tpl-preview.tpl-neon{background:#050510;color:#f0f0ff;background-image:radial-gradient(ellipse at 50% 0%,rgba(168,85,247,.25),transparent 70%)}
+    .tpl-preview.tpl-neon .mock-card{width:48px;height:40px;background:#0e0e1f;border-radius:8px;border:1px solid rgba(168,85,247,.4);box-shadow:0 0 10px rgba(168,85,247,.2)}
+
+    /* ── Platform preview ── */
+    .platform-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+    .chip{
+      display:inline-flex;align-items:center;gap:6px;
+      background:var(--surface-2);border:1px solid var(--border);
+      border-radius:999px;padding:5px 11px;font-size:.78rem;font-weight:600;
+    }
+    .chip-dot{width:8px;height:8px;border-radius:50%}
+    .empty-msg{color:var(--text-muted);font-size:.82rem}
+
+    /* ── URL display ── */
+    .url-box{
+      background:var(--surface-2);border:1px solid var(--border);
+      border-radius:10px;padding:10px 14px;font-size:.85rem;
+      font-family:monospace;word-break:break-all;
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+    }
+    .url-box span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .copy-btn{
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:8px;color:var(--text-muted);padding:5px 10px;
+      font-size:.75rem;cursor:pointer;white-space:nowrap;transition:color .15s;
+    }
+    .copy-btn:hover{color:var(--text)}
+
+    /* ── Buttons ── */
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      padding:11px 20px;border-radius:11px;font-size:.88rem;font-weight:700;
+      cursor:pointer;border:none;transition:background .15s,transform .1s;
+    }
+    .btn:active{transform:scale(.98)}
+    .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover:not(:disabled){background:var(--accent-h)}
+    .btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--border)}
+    .btn-ghost:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+    .btn-danger{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+    .btn-danger:hover:not(:disabled){background:rgba(239,68,68,.2)}
+    .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+
+    /* ── Toast ── */
+    #toast{
+      position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+      background:#27272a;color:#fff;padding:10px 20px;border-radius:12px;
+      font-size:.85rem;font-weight:600;z-index:999;
+      transition:transform .25s cubic-bezier(0.16,1,0.3,1),opacity .2s;
+      opacity:0;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.5);
+    }
+    #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+    #toast.ok{background:#16a34a}
+    #toast.err{background:#dc2626}
+
+    /* ── Loading screen ── */
+    #authScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:12px;color:var(--text-muted)}
+    .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Slug validation ── */
+    .slug-hint{font-size:.74rem;margin-top:4px;min-height:16px}
+    .slug-hint.ok{color:var(--green)} .slug-hint.err{color:var(--red)} .slug-hint.info{color:var(--text-muted)}
+
+    /* ── Divider ── */
+    .divider{border:none;border-top:1px solid var(--border);margin:4px 0}
+  </style>
+</head>
+<body>
+
+<div id="authScreen">
+  <div class="spinner"></div>
+  <span>Verificando sesión…</span>
+</div>
+
+<div id="mainApp" hidden>
+  <div class="shell">
+    <div class="page-title">🏪 Mi Tienda Pública</div>
+    <div class="page-sub">Configura tu catálogo y comparte el enlace con tus clientes</div>
+
+    <!-- Estado y URL actual -->
+    <div class="card" id="urlCard" hidden>
+      <div class="card-title">Tu enlace público</div>
+      <div class="url-box">
+        <span id="urlDisplay">—</span>
+        <button class="copy-btn" onclick="copyUrl()">Copiar</button>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <a id="previewBtn" href="#" target="_blank" class="btn btn-ghost" style="font-size:.8rem;padding:8px 14px">👁 Vista previa</a>
+        <button class="btn btn-ghost" style="font-size:.8rem;padding:8px 14px" onclick="shareWa()">📤 Compartir por WhatsApp</button>
+      </div>
+    </div>
+
+    <!-- Toggle activar/desactivar -->
+    <div class="card">
+      <div class="card-title">Estado de la tienda</div>
+      <div class="toggle-row">
+        <label class="toggle">
+          <input type="checkbox" id="enabledToggle">
+          <div class="toggle-track"></div>
+        </label>
+        <div class="toggle-label">
+          Tienda activa
+          <small>Si está desactivada, nadie puede ver tu catálogo</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Información básica -->
+    <div class="card">
+      <div class="card-title">Información de la tienda</div>
+      <div class="form-row">
+        <label class="field">
+          Nombre de tu tienda
+          <input class="inp" id="storeName" placeholder="Ej: Deros Streaming" maxlength="60">
+        </label>
+        <label class="field">
+          Descripción corta (opcional)
+          <input class="inp" id="storeTagline" placeholder="Ej: Las mejores plataformas al mejor precio" maxlength="100">
+        </label>
+      </div>
+      <div class="form-row two" style="margin-top:14px">
+        <label class="field">
+          URL de tu tienda
+          <div class="slug-wrap">
+            <span class="slug-prefix" id="slugPrefix">tienda/</span>
+            <input class="inp" id="slugInput" placeholder="mi-tienda" maxlength="30"
+              pattern="[a-z0-9\-]+" oninput="onSlugInput(this)">
+          </div>
+          <div class="slug-hint info" id="slugHint">Solo letras minúsculas, números y guiones</div>
+        </label>
+        <label class="field">
+          Emoji de la tienda
+          <input class="inp" id="storeEmoji" placeholder="🛍️" maxlength="4">
+        </label>
+      </div>
+    </div>
+
+    <!-- WhatsApp de contacto -->
+    <div class="card">
+      <div class="card-title">WhatsApp de contacto</div>
+      <div class="form-row two">
+        <label class="field">
+          Prefijo país
+          <select class="sel" id="waPrefix">
+            <option value="51">🇵🇪 +51 (Perú)</option>
+            <option value="57">🇨🇴 +57 (Colombia)</option>
+            <option value="56">🇨🇱 +56 (Chile)</option>
+            <option value="54">🇦🇷 +54 (Argentina)</option>
+            <option value="52">🇲🇽 +52 (México)</option>
+            <option value="593">🇪🇨 +593 (Ecuador)</option>
+            <option value="591">🇧🇴 +591 (Bolivia)</option>
+            <option value="505">🇳🇮 +505 (Nicaragua)</option>
+            <option value="502">🇬🇹 +502 (Guatemala)</option>
+            <option value="34">🇪🇸 +34 (España)</option>
+          </select>
+        </label>
+        <label class="field">
+          Número (sin prefijo)
+          <input class="inp" id="waNumber" placeholder="974834197" maxlength="15"
+            inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')">
+        </label>
+      </div>
+    </div>
+
+    <!-- Plantilla visual -->
+    <div class="card">
+      <div class="card-title">Plantilla visual</div>
+      <div class="template-grid">
+        <label class="tpl-card selected" id="tpl-default">
+          <input type="radio" name="template" value="default" checked>
+          <div class="tpl-preview tpl-default">
+            <div class="mock-card"></div>
+            <div style="font-size:.6rem;opacity:.7">Oscuro</div>
+          </div>
+          <div class="tpl-name">Default</div>
+        </label>
+        <label class="tpl-card" id="tpl-minimal">
+          <input type="radio" name="template" value="minimal">
+          <div class="tpl-preview tpl-minimal">
+            <div class="mock-card"></div>
+            <div style="font-size:.6rem;opacity:.6">Claro</div>
+          </div>
+          <div class="tpl-name" style="background:rgba(0,0,0,.06);color:#333">Minimal</div>
+        </label>
+        <label class="tpl-card" id="tpl-neon">
+          <input type="radio" name="template" value="neon">
+          <div class="tpl-preview tpl-neon">
+            <div class="mock-card"></div>
+            <div style="font-size:.6rem;opacity:.8">Vibrante</div>
+          </div>
+          <div class="tpl-name">Neon</div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Plataformas detectadas -->
+    <div class="card">
+      <div class="card-title">Plataformas disponibles (se publicarán)</div>
+      <div id="platformsPreview"><div class="empty-msg">Cargando tus cuentas…</div></div>
+      <div style="margin-top:12px;font-size:.75rem;color:var(--text-muted)">
+        Solo se muestran las plataformas con al menos 1 slot libre. Se calculan en tiempo real al publicar.
+      </div>
+    </div>
+
+    <!-- Acciones -->
+    <div class="card">
+      <div class="card-title">Publicar</div>
+      <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:16px">
+        Al publicar, tu catálogo se actualiza con los precios y disponibilidad actual.
+        Republica cada vez que hagas cambios importantes.
+      </p>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="publishBtn" onclick="publish()">
+          🚀 Publicar tienda
+        </button>
+        <button class="btn btn-ghost" onclick="loadPlatforms()">
+          🔄 Recalcular plataformas
+        </button>
+      </div>
+      <hr class="divider" style="margin-top:20px">
+      <div id="dangerZone" style="margin-top:16px;display:none">
+        <div class="card-title" style="color:var(--red)">Zona de peligro</div>
+        <button class="btn btn-danger" onclick="deleteStore()">🗑 Eliminar tienda pública</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast">✓ Guardado</div>
+
+<script type="module">
+import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import {
+  getFirestore, doc, getDoc, setDoc, getDocs,
+  collection, deleteDoc, serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: 'AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY',
+  authDomain: 'plantillas-bfaeb.firebaseapp.com',
+  projectId: 'plantillas-bfaeb',
+  storageBucket: 'plantillas-bfaeb.firebasestorage.app',
+  messagingSenderId: '382002543593',
+  appId: '1:382002543593:web:87ad0a3b3c1f32b3daa978'
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ── Refs ──────────────────────────────────────────────────────
+const accountsCol   = uid => collection(db,'users',uid,'gestor_accounts');
+const clientsCol    = uid => collection(db,'users',uid,'gestor_clients');
+const settingsRef   = uid => doc(db,'users',uid,'gestor_config','settings');
+const publicStoreRef= uid => doc(db,'users',uid,'gestor_config','public_store');
+const catalogDoc    = slug => doc(db,'public_catalogs',slug);
+
+// ── State ─────────────────────────────────────────────────────
+let uid = null, accounts = [], clients = [], settings = {};
+let currentSlug = null;
+
+const PLATFORM_COLORS = {
+  'Netflix':'#E50914','Spotify':'#1DB954','YouTube Premium':'#FF0000',
+  'Prime Video':'#00A8E0','Disney+':'#0070F3','Max':'#7B2FBE',
+  'Crunchyroll':'#F47521','Paramount+':'#0064FF','Viki':'#1A9A5B',
+  'ViX':'#E8007D','Apple TV':'#555','Deezer':'#A238FF',
+  'Google One':'#4285F4','Canva':'#00C4CC','ChatGPT':'#10A37F'
+};
+
+// ── Auth gate ─────────────────────────────────────────────────
+onAuthStateChanged(auth, async user => {
+  if(!user){
+    location.href = 'gestor-login.html';
+    return;
+  }
+  uid = user.uid;
+  document.getElementById('authScreen').hidden = true;
+  document.getElementById('mainApp').hidden     = false;
+  await init();
+});
+
+// ── Init ──────────────────────────────────────────────────────
+async function init(){
+  // Medir ancho del prefijo slug
+  const prefixEl = document.getElementById('slugPrefix');
+  document.getElementById('slugInput').style.paddingLeft = (prefixEl.offsetWidth + 13) + 'px';
+
+  // Template picker
+  document.querySelectorAll('.tpl-card input').forEach(r => {
+    r.addEventListener('change', () => {
+      document.querySelectorAll('.tpl-card').forEach(c => c.classList.remove('selected'));
+      r.closest('.tpl-card').classList.add('selected');
+    });
+  });
+
+  // Cargar datos en paralelo
+  const [pubStoreSnap, settingsSnap, accSnap, cliSnap] = await Promise.all([
+    getDoc(publicStoreRef(uid)),
+    getDoc(settingsRef(uid)),
+    getDocs(accountsCol(uid)),
+    getDocs(clientsCol(uid))
+  ]);
+
+  settings = settingsSnap.exists() ? settingsSnap.data() : {};
+  accounts = accSnap.docs.map(d => ({id:d.id,...d.data()}));
+  clients  = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
+
+  // Pre-llenar WhatsApp desde settings
+  if(settings.whatsappPrefix) document.getElementById('waPrefix').value = settings.whatsappPrefix;
+
+  // Cargar config existente de tienda si existe
+  if(pubStoreSnap.exists()){
+    const ps = pubStoreSnap.data();
+    currentSlug = ps.slug || null;
+
+    if(currentSlug){
+      const catSnap = await getDoc(catalogDoc(currentSlug));
+      if(catSnap.exists()){
+        const cat = catSnap.data();
+        document.getElementById('storeName').value    = cat.name    || '';
+        document.getElementById('storeTagline').value = cat.tagline || '';
+        document.getElementById('slugInput').value    = currentSlug;
+        document.getElementById('storeEmoji').value   = cat.emoji   || '';
+        document.getElementById('waNumber').value     = cat.whatsapp|| '';
+        document.getElementById('enabledToggle').checked = !!cat.enabled;
+        if(cat.whatsappPrefix) document.getElementById('waPrefix').value = cat.whatsappPrefix;
+
+        // Plantilla
+        const tplInput = document.querySelector(`input[name="template"][value="${cat.template||'default'}"]`);
+        if(tplInput){ tplInput.checked = true; tplInput.dispatchEvent(new Event('change')); }
+
+        updateUrl(currentSlug);
+        document.getElementById('dangerZone').style.display = 'block';
+      }
+    }
+  }
+
+  loadPlatforms();
+}
+
+// ── Cálculo de plataformas disponibles ────────────────────────
+function computeUsed(acc){
+  const occupants = clients.filter(c => c.accountId===acc.id && c.state!=='Inactivo');
+  if(occupants.some(c => c.fullAccountSale)) return Number(acc.capacity||0);
+  return occupants.length;
+}
+
+window.loadPlatforms = function(){
+  const prices = settings.platformPrices || {};
+  const grouped = {};
+
+  for(const acc of accounts){
+    if(!acc.platform) continue;
+    const free = Math.max(0, Number(acc.capacity||0) - computeUsed(acc));
+    if(free <= 0) continue;
+    grouped[acc.platform] = (grouped[acc.platform]||0) + free;
+  }
+
+  const platforms = Object.entries(grouped).map(([platform, freeSlots]) => {
+    const priceKey = Object.keys(prices).find(k => k.toLowerCase()===platform.toLowerCase());
+    const p = priceKey ? prices[priceKey] : {};
+    return { platform, salePrice: p.salePrice||0, freeSlots };
+  }).sort((a,b) => a.platform.localeCompare(b.platform));
+
+  const el = document.getElementById('platformsPreview');
+  if(!platforms.length){
+    el.innerHTML = '<div class="empty-msg">No hay cuentas con slots disponibles en este momento.</div>';
+    return platforms;
+  }
+
+  el.innerHTML = `<div class="platform-chips">${platforms.map(p => {
+    const color = PLATFORM_COLORS[p.platform]||'#7c3aed';
+    const price = p.salePrice>0 ? ` · S/${p.salePrice}/mes` : ' · Consultar';
+    return `<div class="chip">
+      <div class="chip-dot" style="background:${color}"></div>
+      ${p.platform}${price} <span style="color:var(--text-muted);font-size:.7rem">(${p.freeSlots} libre${p.freeSlots!==1?'s':''})</span>
+    </div>`;
+  }).join('')}</div>`;
+
+  return platforms;
+};
+
+// ── URL helpers ───────────────────────────────────────────────
+function storeUrl(slug){ return `${location.origin}/catalogo.html?s=${slug}`; }
+
+function updateUrl(slug){
+  if(!slug) return;
+  const url = storeUrl(slug);
+  document.getElementById('urlDisplay').textContent = url;
+  document.getElementById('previewBtn').href = url;
+  document.getElementById('urlCard').hidden  = false;
+}
+
+window.copyUrl = function(){
+  const url = storeUrl(document.getElementById('slugInput').value.trim());
+  if(!url) return;
+  navigator.clipboard.writeText(url).then(()=>toast('✓ Enlace copiado','ok')).catch(()=>toast('No se pudo copiar','err'));
+};
+
+window.shareWa = function(){
+  const slug = document.getElementById('slugInput').value.trim();
+  if(!slug){ toast('Primero publica tu tienda','err'); return; }
+  const url = storeUrl(slug);
+  const msg = encodeURIComponent(`¡Mira mi tienda de streaming! ${url}`);
+  window.open(`https://wa.me/?text=${msg}`,'_blank');
+};
+
+// ── Slug validation ───────────────────────────────────────────
+let slugTimer = null;
+window.onSlugInput = function(el){
+  el.value = el.value.toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/--+/g,'-');
+  clearTimeout(slugTimer);
+  const hint = document.getElementById('slugHint');
+  const val  = el.value.trim();
+  if(!val){ hint.className='slug-hint info'; hint.textContent='Solo letras minúsculas, números y guiones'; return; }
+  if(val.length < 3){ hint.className='slug-hint err'; hint.textContent='Mínimo 3 caracteres'; return; }
+  hint.className='slug-hint info'; hint.textContent='Verificando disponibilidad…';
+  slugTimer = setTimeout(()=>checkSlug(val, hint), 600);
+};
+
+async function checkSlug(val, hint){
+  if(val === currentSlug){ hint.className='slug-hint ok'; hint.textContent='✓ Es tu slug actual'; return; }
+  try{
+    const snap = await getDoc(catalogDoc(val));
+    if(snap.exists() && snap.data().ownerUid !== uid){
+      hint.className='slug-hint err'; hint.textContent='✗ Ya está en uso, elige otro';
+    } else {
+      hint.className='slug-hint ok'; hint.textContent='✓ Disponible';
+    }
+  }catch{ hint.className='slug-hint info'; hint.textContent='No se pudo verificar'; }
+}
+
+// ── Publish ───────────────────────────────────────────────────
+window.publish = async function(){
+  const btn  = document.getElementById('publishBtn');
+  const name = document.getElementById('storeName').value.trim();
+  const slug = document.getElementById('slugInput').value.trim();
+  const wa   = document.getElementById('waNumber').value.trim();
+
+  if(!name){ toast('Ingresa el nombre de tu tienda','err'); return; }
+  if(!slug || slug.length<3){ toast('El slug debe tener al menos 3 caracteres','err'); return; }
+  if(!wa){ toast('Ingresa tu número de WhatsApp','err'); return; }
+
+  // Verificar slug no tomado por otro
+  try{
+    const existing = await getDoc(catalogDoc(slug));
+    if(existing.exists() && existing.data().ownerUid !== uid){
+      toast('Ese slug ya está tomado por otro usuario','err'); return;
+    }
+  }catch{ toast('Error verificando el slug','err'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Publicando…';
+
+  const platforms = window.loadPlatforms();
+  const template  = document.querySelector('input[name="template"]:checked')?.value || 'default';
+
+  const payload = {
+    ownerUid:       uid,
+    slug,
+    name,
+    tagline:        document.getElementById('storeTagline').value.trim(),
+    emoji:          document.getElementById('storeEmoji').value.trim() || '🛍️',
+    whatsapp:       wa,
+    whatsappPrefix: document.getElementById('waPrefix').value,
+    currency:       settings.financeCurrency || 'PEN',
+    currencySymbol: settings.financeSymbol   || 'S/',
+    template,
+    enabled:        document.getElementById('enabledToggle').checked,
+    platforms:      platforms.map(({platform,salePrice}) => ({platform,salePrice})),
+    updatedAt:      serverTimestamp()
+  };
+
+  try{
+    // Si cambia el slug, borrar el doc viejo
+    if(currentSlug && currentSlug !== slug){
+      await deleteDoc(catalogDoc(currentSlug)).catch(()=>{});
+    }
+
+    await setDoc(catalogDoc(slug), payload);
+    await setDoc(publicStoreRef(uid), {slug, updatedAt: serverTimestamp()}, {merge:true});
+
+    currentSlug = slug;
+    updateUrl(slug);
+    document.getElementById('dangerZone').style.display = 'block';
+    toast('✓ Tienda publicada correctamente','ok');
+  }catch(e){
+    console.error('publish error:',e);
+    toast('Error al publicar. Intenta de nuevo.','err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '🚀 Publicar tienda';
+  }
+};
+
+// ── Delete ────────────────────────────────────────────────────
+window.deleteStore = async function(){
+  if(!confirm('¿Eliminar tu tienda pública? Los clientes ya no podrán verla.')) return;
+  try{
+    if(currentSlug) await deleteDoc(catalogDoc(currentSlug));
+    await deleteDoc(publicStoreRef(uid));
+    currentSlug = null;
+    document.getElementById('urlCard').hidden = true;
+    document.getElementById('dangerZone').style.display='none';
+    toast('Tienda eliminada','ok');
+  }catch(e){ toast('Error al eliminar','err'); }
+};
+
+// ── Toast ─────────────────────────────────────────────────────
+function toast(msg, type=''){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = type ? `show ${type}` : 'show';
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.className=''; }, 3000);
+}
+
+window.toast = toast;
+</script>
+</body>
+</html>
