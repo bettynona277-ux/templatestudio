@@ -3828,6 +3828,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
         <span id="userEmail">-</span>
       </div>
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
+      <button class="ghost-btn" id="syncBtn"><i data-lucide="refresh-cw"></i><span>Sincronizar</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
     </div>
   </aside>
@@ -7485,6 +7486,17 @@ $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 const financeModeToggle=$('#financeModeToggle');
 if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggle(e.target.checked);
 $('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
+$('#syncBtn').onclick=async()=>{
+  const btn=document.getElementById('syncBtn');
+  if(btn) btn.disabled=true;
+  try{
+    localStorage.removeItem('gestion_streaming_v5_synced_at');
+    const user=auth.currentUser;
+    if(user) await loadFromSubcollections(user.uid);
+    notifySaveStatus('success','Datos sincronizados.');
+  }catch(e){ notifySaveStatus('error','No se pudo sincronizar.'); }
+  finally{ if(btn) btn.disabled=false; }
+};
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
 
