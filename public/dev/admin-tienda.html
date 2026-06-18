@@ -324,7 +324,9 @@
 
 <div id="toast">✓ Guardado</div>
 
+<script>console.warn('[admin-tienda] HTML cargado OK — probando módulo ES...');</script>
 <script type="module">
+console.warn('[admin-tienda] Módulo ES iniciado');
 import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
@@ -365,15 +367,41 @@ const PLATFORM_COLORS = {
 };
 
 // ── Auth gate ─────────────────────────────────────────────────
+console.warn('[admin-tienda] 1/3 Firebase inicializado, esperando auth...');
+
+// Si auth no resuelve en 7s → mostrar botón de login manual
+const authTimeout = setTimeout(() => {
+  console.warn('[admin-tienda] TIMEOUT onAuthStateChanged no respondió en 7s');
+  const screen = document.getElementById('authScreen');
+  screen.querySelector('span').textContent = 'No se detectó sesión activa.';
+  const btn = document.createElement('a');
+  btn.href = 'gestor-login.html';
+  btn.textContent = '→ Iniciar sesión';
+  btn.style.cssText = 'margin-top:20px;padding:10px 24px;background:#7c3aed;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:.9rem';
+  screen.appendChild(btn);
+}, 7000);
+
 onAuthStateChanged(auth, async user => {
+  clearTimeout(authTimeout);
+  console.warn('[admin-tienda] 2/3 Auth state recibido:', user ? `uid=${user.uid}` : 'null (sin sesión)');
+
   if(!user){
+    console.warn('[admin-tienda] Sin sesión → redirigiendo a login');
     location.href = 'gestor-login.html';
     return;
   }
+
   uid = user.uid;
   document.getElementById('authScreen').hidden = true;
   document.getElementById('mainApp').hidden     = false;
-  await init();
+
+  try{
+    await init();
+  }catch(e){
+    console.error('[admin-tienda] Error en init():', e);
+    document.getElementById('platformsPreview').innerHTML =
+      `<div style="color:#ef4444;font-size:.85rem">Error al cargar datos: ${e.message}<br><small>${e.code||''}</small></div>`;
+  }
 });
 
 // ── Init ──────────────────────────────────────────────────────
@@ -390,6 +418,7 @@ async function init(){
     });
   });
 
+  console.warn('[admin-tienda] 3/3 init() ejecutándose, leyendo Firestore...');
   // Cargar datos en paralelo
   const [pubStoreSnap, settingsSnap, accSnap, cliSnap] = await Promise.all([
     getDoc(publicStoreRef(uid)),
