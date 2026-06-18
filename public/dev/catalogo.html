@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://www.gstatic.com">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    [hidden]{display:none!important}
 
     :root{
       --bg:#0d0d1a;--surface:#1a1a2e;--surface-2:#252540;
@@ -619,10 +618,21 @@ function showError(title, sub){
 }
 
 async function main(){
+  // Preview mode: admin-tienda writes draft to localStorage, we read it directly
+  const isPreview = new URLSearchParams(location.search).has('preview');
+  if(isPreview){
+    try{
+      const draft = JSON.parse(localStorage.getItem('_preview_draft')||'null');
+      if(draft){ renderStore(draft); return; }
+    }catch{}
+  }
+
   const s = slug();
   if(!s){ showError('URL inválida','No se indicó ninguna tienda. Verifica el enlace.'); return; }
-  const cached = getCached(s);
-  if(cached){ renderStore(cached); return; }
+  if(!isPreview){
+    const cached = getCached(s);
+    if(cached){ renderStore(cached); return; }
+  }
   try{
     const snap = await getDoc(doc(db,'public_catalogs',s));
     if(!snap.exists()){ showError(); return; }
