@@ -438,6 +438,45 @@ function currency(){return settings.financeSymbol||'S/';}
 function esc(s){return String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function escAttr(s){return esc(s).replace(/`/g,'');}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ── Inline edit & drag messages from preview iframe ───────────
+window.addEventListener('message',e=>{
+  const msg=e.data;
+  if(!msg||typeof msg!=='object') return;
+
+  if(msg.type==='CATALOG_EDIT'){
+    const el=$(msg.field);
+    if(!el) return;
+    // Update field without triggering auto-preview reload (avoid iframe flicker while editing)
+    el.value=msg.value;
+    // Highlight the updated field briefly
+    el.style.borderColor='var(--accent)';
+    setTimeout(()=>el.style.borderColor='',1200);
+    toast('✓ "'+msg.value.slice(0,28)+(msg.value.length>28?'…':'')+'" guardado');
+    // Debounce preview refresh so user can chain edits without iframe reload mid-typing
+    schedulePreview();
+  }
+
+  if(msg.type==='CATALOG_REORDER'){
+    // msg.order = array of section IDs in new DOM order (only draggable ones)
+    if(!Array.isArray(msg.order)) return;
+    // Locked sections keep their absolute position; draggable ones get new order
+    const lockedIds=sections.filter(s=>s.locked).map(s=>s.id);
+    // Build full desired order: locked sections stay at their relative spots,
+    // draggable ones fill the gaps in the received order
+    let draggableIdx=0;
+    const draggableOrder=msg.order; // IDs of draggable sections in new order
+    sections.forEach(s=>{
+      if(!s.locked){
+        const pos=draggableOrder.indexOf(s.id);
+        s.order=pos>=0?pos+10:s.order; // offset so locked sections (order 0,2) remain first
+      }
+    });
+    renderSections();
+    toast('✓ Orden de secciones actualizado');
+    // Don't refreshPreview here — user is still arranging; let them click Actualizar
+  }
+});
 </script>
 </body>
 </html>

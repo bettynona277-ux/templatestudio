@@ -157,7 +157,8 @@ function renderStore(store){
   $('heroWa').textContent=hero.cta||'Pedir por WhatsApp';
   $('heroWa').href=waHref(store);$('navWa').href=waHref(store);$('footerWa').href=waHref(store);
   $('footerNote').textContent=store.footerNote||'Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
-  if(!store.platforms?.length){showEmpty('Sin plataformas disponibles','No hay cupos libres publicados ahora. Puedes consultar por WhatsApp.',store);return;}
+  if(!store.platforms?.length&&!isPreview){showEmpty('Sin plataformas disponibles','No hay cupos libres publicados ahora. Puedes consultar por WhatsApp.',store);return;}
+  if(!store.platforms?.length&&isPreview){$('platformGrid').innerHTML='<p style="color:var(--muted);padding:18px;font-size:14px">Sin plataformas con cupos libres (visible solo en preview).</p>';}
   renderCards(store);
   const platformsCopy=sectionData(store,'platforms'),stepsCopy=sectionData(store,'steps'),testimonialsCopy=sectionData(store,'testimonials'),faqCopy=sectionData(store,'faq');
   $('platformsTitle').textContent=platformsCopy.title||'Plataformas disponibles';
@@ -181,6 +182,112 @@ function renderStore(store){
   const upd=fmtDate(store.updatedAt);$('footerUpdated').textContent=upd?'Actualizado: '+upd:'';
   applySectionOrder(store);
   $('loading').hidden=true;$('site').hidden=false;
+  if(isPreview) setTimeout(initPreviewEditor,120);
+}
+
+// ── Inline editor (preview mode only) ────────────────────────
+function initPreviewEditor(){
+  // Banner
+  const banner=document.createElement('div');
+  banner.id='preview-banner';
+  banner.style.cssText='position:fixed;top:0;left:0;right:0;height:30px;background:#8b40f5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;z-index:9999;gap:8px;letter-spacing:.02em;pointer-events:none';
+  banner.textContent='✏️ Doble clic para editar texto · Arrastra secciones para moverlas';
+  document.body.appendChild(banner);
+  document.body.style.paddingTop='30px';
+
+  // Inject styles
+  const style=document.createElement('style');
+  style.textContent=`
+    [data-ef]:not([contenteditable="true"]):hover{outline:2px dashed rgba(139,64,245,.55);outline-offset:3px;border-radius:4px;cursor:text}
+    [data-ef][contenteditable="true"]{outline:2px solid #8b40f5!important;outline-offset:3px;border-radius:4px;min-width:40px;white-space:pre-wrap}
+    .drag-handle{position:absolute;top:6px;left:50%;transform:translateX(-50%);background:rgba(139,64,245,.9);color:#fff;border-radius:999px;padding:3px 12px;font-size:11px;font-weight:800;cursor:grab;opacity:0;pointer-events:auto;transition:opacity .15s;z-index:10;white-space:nowrap;user-select:none}
+    [data-drag]:hover .drag-handle,[data-drag].drag-over .drag-handle{opacity:1}
+    [data-drag].drag-active{opacity:.45}
+    [data-drag].drag-over{outline:2px dashed #8b40f5;outline-offset:-3px}
+    [data-drag]{position:relative}
+  `;
+  document.head.appendChild(style);
+
+  // Editable elements: elemId → admin field id
+  const EDITABLE=[
+    ['heroBadge','heroBadge'],['heroTitle','heroHeadline'],['heroAccent','heroAccent'],
+    ['heroDesc','heroDescription'],['navName','storeName'],
+    ['platformsTitle','platformsTitle'],['stepsTitle','stepsTitle'],
+    ['testimonialsTitle','testimonialsTitle'],['faqTitle','faqTitle'],
+    ['footerNote','footerNote'],['footerBrand','storeName'],
+  ];
+  EDITABLE.forEach(([id,field])=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.dataset.ef=field;
+    el.addEventListener('dblclick',e=>{
+      e.stopPropagation();
+      el.dataset.orig=el.textContent;
+      el.contentEditable='true';
+      el.focus();
+      const r=document.createRange();r.selectNodeContents(el);
+      const s=window.getSelection();s.removeAllRanges();s.addRange(r);
+    });
+    el.addEventListener('blur',()=>{
+      if(el.contentEditable!=='true')return;
+      el.contentEditable='false';
+      const value=el.textContent.trim();
+      window.parent.postMessage({type:'CATALOG_EDIT',field,value},'*');
+    });
+    el.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el.blur();}
+      if(e.key==='Escape'){el.textContent=el.dataset.orig||el.textContent;el.blur();}
+    });
+  });
+
+  // Draggable sections: sectionId → domId
+  const DRAGGABLE=[
+    ['benefits','beneficios'],['steps','pasos'],
+    ['testimonials','opiniones'],['stats','stats'],['faq','faq'],
+  ];
+  let dragSrc=null;
+  const site=document.getElementById('site');
+
+  DRAGGABLE.forEach(([sectionId,domId])=>{
+    const el=document.getElementById(domId);
+    if(!el)return;
+    el.dataset.drag=sectionId;
+    el.setAttribute('draggable','true');
+    const handle=document.createElement('div');
+    handle.className='drag-handle';
+    handle.textContent='⠿ Mover sección';
+    el.appendChild(handle);
+
+    el.addEventListener('dragstart',e=>{
+      dragSrc=el;
+      e.dataTransfer.effectAllowed='move';
+      setTimeout(()=>el.classList.add('drag-active'),0);
+    });
+    el.addEventListener('dragend',()=>{
+      el.classList.remove('drag-active');
+      document.querySelectorAll('[data-drag].drag-over').forEach(x=>x.classList.remove('drag-over'));
+      dragSrc=null;
+      // Send order to parent
+      const order=[...site.querySelectorAll('[data-drag]')].map(s=>s.dataset.drag);
+      window.parent.postMessage({type:'CATALOG_REORDER',order},'*');
+    });
+    el.addEventListener('dragover',e=>{
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      if(dragSrc&&dragSrc!==el)el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave',()=>el.classList.remove('drag-over'));
+    el.addEventListener('drop',e=>{
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      if(!dragSrc||dragSrc===el)return;
+      // Reorder DOM
+      const allDraggable=[...site.querySelectorAll('[data-drag]')];
+      const srcIdx=allDraggable.indexOf(dragSrc);
+      const tgtIdx=allDraggable.indexOf(el);
+      if(srcIdx<tgtIdx) site.insertBefore(dragSrc,el.nextSibling);
+      else site.insertBefore(dragSrc,el);
+    });
+  });
 }
 function showEmpty(title,text,store=null){
   $('loading').hidden=true;$('site').hidden=true;$('empty').hidden=false;$('emptyTitle').textContent=title;$('emptyText').textContent=text;
