@@ -78,6 +78,9 @@
     .drag-grip{width:24px;height:34px;border:0;background:transparent;color:var(--muted);font-size:18px;cursor:grab}
     .platform-meta{text-align:right;white-space:nowrap;font-size:11px}
     .platform-actions{display:flex;gap:4px}.platform-actions .iconbtn{width:25px;height:28px;padding:0}
+    .testimonials-editor{display:grid;gap:9px}.testimonial-edit{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:9px;align-items:start;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+    .avatar-picker{position:relative;width:48px;height:48px;border:1px dashed color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:50%;background:var(--panel);display:grid;place-items:center;overflow:hidden;color:var(--muted);font-size:10px;font-weight:900;cursor:pointer}.avatar-picker img{width:100%;height:100%;object-fit:cover}.avatar-picker input{position:absolute;inset:0;opacity:0;cursor:pointer}.testimonial-fields{display:grid;gap:7px}.testimonial-tools{display:grid;grid-template-columns:repeat(2,26px);gap:4px}.testimonial-tools .iconbtn{width:26px;height:26px;padding:0}.testimonial-tools .photo-remove,.testimonial-tools .remove{grid-column:1 / -1;width:56px;font-size:9px}.testimonial-tools .remove{color:#fca5a5}
+    .add-opinion{width:100%;margin-top:10px}.opinion-empty{padding:12px;text-align:center;border:1px dashed var(--line);border-radius:9px;color:var(--muted);font-size:12px;line-height:1.5}
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:7px}
     .context-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.context-head b{font-size:13px}.context-head span{font-size:11px;color:var(--muted)}
     .segmented{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
@@ -195,7 +198,9 @@
 
         <div class="section-title">Opiniones</div>
         <div class="card">
-          <label>Opiniones (una por linea)<textarea class="textarea" id="testimonialLines" placeholder="Maria: Excelente servicio y rapido&#10;Carlos: Me entregaron al instante"></textarea></label>
+          <div class="testimonials-editor" id="testimonialsEditor"></div>
+          <button class="btn secondary add-opinion" type="button" onclick="addTestimonial()">+ Agregar opinion</button>
+          <div class="hint" style="margin-top:9px">Puedes agregar hasta 8 opiniones. Las fotos se recortan y comprimen automaticamente antes de publicar.</div>
         </div>
 
         <div class="section-title">Enlace</div>
@@ -212,10 +217,10 @@
       <section class="preview">
         <div class="previewbar">
           <strong>Vista previa en vivo</strong>
-          <span class="preview-tip">Clic: seleccionar · doble clic: editar · arrastrar: mover</span>
+          <span class="preview-tip">Clic: seleccionar · doble clic: editar · flechas: ordenar</span>
           <button class="btn secondary" onclick="setPreviewMode('desktop')">Desktop</button>
           <button class="btn secondary" onclick="setPreviewMode('mobile')">Movil</button>
-          <button class="btn" onclick="refreshPreview()">Actualizar</button>
+          <span class="pill">Cambios automaticos</span>
         </div>
         <div class="framewrap"><div class="framebox" id="frameBox"><iframe id="previewFrame" sandbox="allow-scripts allow-same-origin allow-popups"></iframe></div></div>
       </section>
@@ -240,7 +245,7 @@ const settingsRef=uid=>doc(db,'users',uid,'gestor_config','settings');
 const publicStoreRef=uid=>doc(db,'users',uid,'gestor_config','public_store');
 const catalogDoc=slug=>doc(db,'public_catalogs',slug);
 const catalogTemplatesCol=()=>collection(db,'catalog_templates');
-let uid='',currentSlug='',accounts=[],clients=[],settings={},platforms=[],templates=[],selectedTemplate='streamx',previewTimer=null;
+let uid='',currentSlug='',accounts=[],clients=[],settings={},platforms=[],templates=[],testimonials=[],selectedTemplate='streamx',previewTimer=null,previewReady=false;
 let platformOrder=[],elementStyles={},selectedObjectKey='',selectedObjectLabel='';
 
 const PLATFORM_COLORS={'Netflix':'#E50914','Spotify':'#1DB954','YouTube Premium':'#FF0000','Prime Video':'#00A8E0','Disney+':'#0070F3','Max':'#7B2FBE','Crunchyroll':'#F47521','Paramount+':'#0064FF','Viki':'#1A9A5B','ViX':'#E8007D','Apple TV':'#555','Deezer':'#A238FF','Google One':'#4285F4','Canva':'#00C4CC','ChatGPT':'#10A37F','IPTV':'#0088cc'};
@@ -283,7 +288,7 @@ onAuthStateChanged(auth,async user=>{
 async function boot(){
   await Promise.all([reloadPrivateData(),loadTemplates(),loadExistingCatalog()]);
   sortPlatforms();
-  renderTemplates();renderSections();renderPlatforms();bindInputs();refreshPreview();
+  renderTemplates();renderSections();renderPlatforms();renderTestimonials();bindInputs();refreshPreview();
 }
 
 function bindInputs(){
@@ -295,6 +300,7 @@ function bindInputs(){
     range.addEventListener('input',()=>{value.value=range.value;updateSelectedStyle(key,Number(range.value),true);});
     value.addEventListener('change',()=>{const next=Math.max(min,Math.min(max,Number(value.value)||0));range.value=next;value.value=next;updateSelectedStyle(key,next);});
   });
+  $('previewFrame').addEventListener('load',()=>{previewReady=false;});
 }
 
 async function reloadPrivateData(){
@@ -356,7 +362,7 @@ async function loadExistingCatalog(){
   $('accentColor').value=data.theme?.accent||'#8b40f5';$('accent2Color').value=data.theme?.accent2||'#b06bff';$('whatsappColor').value=data.theme?.whatsapp||'#25d366';$('backgroundColor').value=data.theme?.background||'#07050d';
   $('platformColumns').value=String(data.layout?.platformColumns||4);
   $('platformMobileColumns').value=String(data.layout?.platformMobileColumns||2);
-  $('testimonialLines').value=(data.testimonials||[]).map(t=>(t.name?`${t.name}: `:'')+t.text).join('\n');
+  testimonials=(data.testimonials||[]).slice(0,8).map((t,index)=>({id:String(t.id||`opinion-${Date.now()}-${index}`),name:String(t.name||'Cliente').slice(0,60),text:String(t.text||'').slice(0,320),photo:safeTestimonialPhoto(t.photo||t.avatar||''),rating:5}));
   updateUrl();
 }
 
@@ -379,6 +385,7 @@ function seedDefaults(){
   $('footerNote').value='Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
   $('accentColor').value='#8b40f5';$('accent2Color').value='#b06bff';$('whatsappColor').value='#25d366';$('backgroundColor').value='#07050d';
   $('platformColumns').value='4';$('platformMobileColumns').value='2';
+  testimonials=[];
 }
 
 function mergeSections(saved=[]){
@@ -459,6 +466,44 @@ function bindPlatformSorting(){
   });
 }
 
+function safeTestimonialPhoto(value){
+  const photo=String(value||'');
+  if(/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(photo)&&photo.length<180000)return photo;
+  if(/^https:\/\//i.test(photo)&&photo.length<600)return photo;
+  return '';
+}
+function renderTestimonials(){
+  $('testimonialsEditor').innerHTML=testimonials.length?testimonials.map((item,index)=>{
+    const initials=(item.name||'Cliente').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase()||'CL';
+    return `<div class="testimonial-edit" data-testimonial-index="${index}">
+      <label class="avatar-picker" title="Elegir foto de ${escAttr(item.name||'cliente')}">${item.photo?`<img src="${escAttr(item.photo)}" alt="Foto de ${escAttr(item.name||'cliente')}">`:`<span>${esc(initials)}</span>`}<input type="file" accept="image/png,image/jpeg,image/webp" onchange="pickTestimonialPhoto(${index},this)" aria-label="Elegir foto"></label>
+      <div class="testimonial-fields"><input class="input" maxlength="60" value="${escAttr(item.name)}" placeholder="Nombre del cliente" oninput="updateTestimonial(${index},'name',this.value)"><textarea class="textarea" maxlength="320" placeholder="Escribe la opinion" oninput="updateTestimonial(${index},'text',this.value)">${esc(item.text)}</textarea></div>
+      <div class="testimonial-tools"><button class="iconbtn" type="button" title="Subir opinion" onclick="moveTestimonial(${index},-1)" ${index===0?'disabled':''}>↑</button><button class="iconbtn" type="button" title="Bajar opinion" onclick="moveTestimonial(${index},1)" ${index===testimonials.length-1?'disabled':''}>↓</button>${item.photo?`<button class="iconbtn photo-remove" type="button" title="Quitar foto" onclick="removeTestimonialPhoto(${index})">Foto −</button>`:''}<button class="iconbtn remove" type="button" title="Eliminar opinion" onclick="removeTestimonial(${index})">Eliminar</button></div>
+    </div>`;
+  }).join(''):'<div class="opinion-empty">Todavia no hay opiniones. Agrega una, escribe el nombre y el comentario, y elige una foto si deseas.</div>';
+}
+window.addTestimonial=()=>{
+  if(testimonials.length>=8){toast('Maximo 8 opiniones');return;}
+  testimonials.push({id:`opinion-${Date.now()}`,name:'Cliente',text:'',photo:'',rating:5});
+  const section=sections.find(s=>s.id==='testimonials');if(section)section.enabled=true;
+  renderTestimonials();renderSections();schedulePreview();
+  setTimeout(()=>$('testimonialsEditor').querySelector('[data-testimonial-index]:last-child input.input')?.focus(),0);
+};
+window.updateTestimonial=(index,key,value)=>{const item=testimonials[index];if(!item||!['name','text'].includes(key))return;item[key]=String(value||'').slice(0,key==='name'?60:320);schedulePreview();};
+window.moveTestimonial=(index,dir)=>{const target=index+dir;if(target<0||target>=testimonials.length)return;[testimonials[index],testimonials[target]]=[testimonials[target],testimonials[index]];renderTestimonials();schedulePreview();};
+window.removeTestimonial=index=>{testimonials.splice(index,1);renderTestimonials();schedulePreview();};
+window.removeTestimonialPhoto=index=>{if(!testimonials[index])return;testimonials[index].photo='';renderTestimonials();schedulePreview();};
+window.pickTestimonialPhoto=async(index,input)=>{
+  const file=input.files?.[0];if(!file||!testimonials[index])return;
+  if(file.size>8*1024*1024){toast('La foto supera 8 MB');input.value='';return;}
+  try{
+    const bitmap=await createImageBitmap(file),size=160,canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
+    const ctx=canvas.getContext('2d'),side=Math.min(bitmap.width,bitmap.height),sx=(bitmap.width-side)/2,sy=(bitmap.height-side)/2;
+    ctx.drawImage(bitmap,sx,sy,side,side,0,0,size,size);bitmap.close?.();
+    testimonials[index].photo=canvas.toDataURL('image/webp',.78);renderTestimonials();schedulePreview();toast('Foto agregada');
+  }catch(e){console.error(e);toast('No se pudo procesar la foto');}
+};
+
 function sanitizeElementStyles(value){
   const clean={};
   for(const [key,raw] of Object.entries(value||{})){
@@ -485,7 +530,7 @@ function updateSelectedStyle(key,value,quiet=false){
   elementStyles[selectedObjectKey]={...selectedStyle(),[key]:value};syncContextControls();sendStyleToPreview();
   if(!quiet)schedulePreview();
 }
-function sendStyleToPreview(){const frame=$('previewFrame');frame.contentWindow?.postMessage({type:'CATALOG_APPLY_STYLE',key:selectedObjectKey,style:selectedStyle()},'*');}
+function sendStyleToPreview(){const frame=$('previewFrame');frame.contentWindow?.postMessage({type:'CATALOG_APPLY_STYLE',key:selectedObjectKey,style:selectedStyle()},location.origin);}
 window.setObjectAlign=align=>updateSelectedStyle('align',align);
 window.nudgeSelected=(x,y)=>{if(!selectedObjectKey)return;const current=selectedStyle();elementStyles[selectedObjectKey]={...current,x:Math.max(-180,Math.min(180,current.x+x)),y:Math.max(-100,Math.min(100,current.y+y))};syncContextControls();sendStyleToPreview();};
 window.resetSelectedObject=()=>{if(!selectedObjectKey)return;delete elementStyles[selectedObjectKey];syncContextControls();sendStyleToPreview();schedulePreview();toast('Posicion restablecida');};
@@ -501,7 +546,7 @@ function buildData(){
     benefits:{},stats:{}
   };
   const normalizedSections=sections.map(s=>({id:s.id,label:s.label,enabled:s.enabled,order:s.order||0,data:sectionCopy[s.id]||{}}));
-  const testimonials=$('testimonialLines').value.split('\n').map(line=>line.trim()).filter(Boolean).slice(0,8).map(line=>{const parts=line.split(':');return parts.length>1?{name:parts.shift().trim(),text:parts.join(':').trim(),rating:5}:{name:'Cliente',text:line,rating:5};});
+  const publicTestimonials=testimonials.filter(t=>t.text.trim()).slice(0,8).map((t,order)=>({name:(t.name||'Cliente').trim().slice(0,60),text:t.text.trim().slice(0,320),photo:safeTestimonialPhoto(t.photo),rating:5,order}));
   return {
     ownerUid:uid,
     slug:sanitizeSlug(false),
@@ -520,15 +565,22 @@ function buildData(){
     footerNote:val('footerNote'),
     platforms:platforms.map((p,order)=>({platform:p.platform,salePrice:Number(p.salePrice||0),freeSlots:Number(p.freeSlots||0),color:p.color,logo:p.logo||logoForPlatform(p.platform),order})),
     sections:normalizedSections,
-    testimonials,
+    testimonials:publicTestimonials,
     updatedAt:Date.now()
   };
 }
 
 function val(id){return ($(id)?.value||'').trim();}
 
-function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(refreshPreview,350);}
-function refreshPreview(){localStorage.setItem('_preview_draft',JSON.stringify({...buildData(),_isPreview:true}));$('previewFrame').src='catalogo.html?s=_preview&preview=1&v='+Date.now();updateUrl();}
+function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(refreshPreview,120);}
+function refreshPreview(){
+  const draft={...buildData(),_isPreview:true};
+  localStorage.setItem('_preview_draft',JSON.stringify(draft));
+  const frame=$('previewFrame');
+  if(!frame.getAttribute('src')) frame.src='catalogo.html?s=_preview&preview=1';
+  else if(previewReady) frame.contentWindow?.postMessage({type:'CATALOG_PREVIEW_UPDATE',store:draft},location.origin);
+  updateUrl();
+}
 window.refreshPreview=refreshPreview;
 window.setPreviewMode=mode=>$('frameBox').classList.toggle('mobile',mode==='mobile');
 
@@ -573,9 +625,13 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 
 // ── Inline edit & drag messages from preview iframe ───────────
 window.addEventListener('message',e=>{
-  if(e.source!==$('previewFrame').contentWindow)return;
+  if(e.source!==$('previewFrame').contentWindow||e.origin!==location.origin)return;
   const msg=e.data;
   if(!msg||typeof msg!=='object') return;
+
+  if(msg.type==='CATALOG_READY'){
+    previewReady=true;refreshPreview();return;
+  }
 
   if(msg.type==='CATALOG_SELECT'){
     selectObject(String(msg.key||''),String(msg.label||msg.key||'Elemento'),String(msg.objectType||'Elemento'));
