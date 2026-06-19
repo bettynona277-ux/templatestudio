@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Tienda</title>
+  <title>Catálogo</title>
   <meta name="robots" content="noindex,nofollow">
   <link rel="preconnect" href="https://www.gstatic.com">
   <style>
@@ -248,13 +248,19 @@
     .state-icon{font-size:52px}
     .state-title{font-size:1.2rem;font-weight:700}
     .state-sub{color:var(--text-muted);font-size:.88rem;max-width:300px}
+    .state-action{
+      margin-top:8px;background:var(--wa);color:#fff;text-decoration:none;
+      border-radius:12px;padding:12px 18px;font-size:.88rem;font-weight:800;
+      display:inline-flex;align-items:center;gap:8px;
+    }
+    .state-action:hover{background:var(--wa-hover)}
   </style>
 </head>
 <body>
 
 <!-- NAV (visible solo en modo hero) -->
 <nav class="cat-nav" id="sec-nav" hidden>
-  <div class="cat-nav-brand" id="navBrand">Tienda</div>
+  <div class="cat-nav-brand" id="navBrand">Catálogo</div>
   <a class="cat-nav-cta" id="navCta" href="#sec-platforms">⚡ Comprar ahora</a>
 </nav>
 
@@ -271,8 +277,9 @@
 <!-- ERROR -->
 <div id="errorScreen" hidden class="state-screen">
   <div class="state-icon">🔒</div>
-  <div class="state-title" id="errorTitle">Tienda no disponible</div>
-  <div class="state-sub" id="errorSub">Esta tienda no existe o no está activa en este momento.</div>
+  <div class="state-title" id="errorTitle">Catalogo no disponible</div>
+  <div class="state-sub" id="errorSub">Este catalogo no existe o no esta activo en este momento.</div>
+  <a class="state-action" id="errorWa" href="#" target="_blank" rel="noopener noreferrer" hidden>Consultar por WhatsApp</a>
 </div>
 
 <!-- CONTENIDO (se llena con JS) -->
@@ -497,6 +504,12 @@ function waHref(platform, salePrice, store){
   return `https://wa.me/${pre}${store.whatsapp}?text=${encodeURIComponent(`Hola! Me interesa ${platform}${txt}. ¿Está disponible? 😊`)}`;
 }
 
+function storeWaHref(store, message='Hola! Quiero consultar por las plataformas disponibles.'){
+  const pre = store?.whatsappPrefix || '51';
+  const phone = String(store?.whatsapp || '').replace(/\D+/g,'');
+  return phone ? `https://wa.me/${pre}${phone}?text=${encodeURIComponent(message)}` : '#';
+}
+
 function cardHtml(p, store){
   const color = pColor(p.platform);
   const price = p.salePrice>0
@@ -514,36 +527,39 @@ function cardHtml(p, store){
 function showSec(id){ const el=$id(id); if(el) el.hidden=false; }
 
 function applyHero(store, d={}){
-  $id('heroHeadline').textContent = d.headline   || store.name    || 'Streaming';
-  $id('heroAccent').textContent   = d.accentText  || 'al mejor precio';
-  $id('heroDesc').textContent     = d.description || store.tagline || '';
+  $id('heroHeadline').textContent = d.headline || store.name || 'Streaming';
+  $id('heroAccent').textContent   = d.accentText || d.highlight || 'al mejor precio';
+  $id('heroDesc').textContent     = d.description || d.sub || store.tagline || '';
+  if(d.badge) $id('heroBadge').textContent = d.badge;
   if(d.clients) $id('heroClients').textContent = d.clients;
-  const wa = waHref('streaming', 0, store).replace('streaming','una+plataforma');
-  $id('heroWa').href = wa;
-  $id('navBrand').textContent = store.name || 'Tienda';
+  $id('heroWa').textContent = d.cta || 'Pedir por WhatsApp';
+  $id('heroWa').href = storeWaHref(store);
+  $id('navBrand').textContent = store.name || 'Catalogo';
   showSec('sec-nav');
 }
 
 function applyFeatured(store, d={}){
-  const platform = d.platform || store.platforms?.[0]?.platform;
+  const platform = d.platform || d.name || store.platforms?.[0]?.platform;
   if(!platform) return;
   const found = store.platforms?.find(p=>p.platform===platform);
   if(!found) return;
   const color = pColor(platform);
   const file  = LOGO_MAP[platform];
-  const emoji = FALLBACK_EMOJI[platform]||'📺';
+  const emoji = FALLBACK_EMOJI[platform]||'TV';
   $id('featLogoWrap').innerHTML = file
-    ? `<img class="feat-logo" src="/logos/${encodeURIComponent(file)}" alt="${platform}"
-        onerror="this.outerHTML='<div class=feat-logo-fb>${emoji}</div>'">`
-    : `<div class="feat-logo-fb">${emoji}</div>`;
-  if(d.description) $id('featDesc').textContent = d.description;
+    ? '<img class="feat-logo" src="/logos/' + encodeURIComponent(file) + '" alt="' + platform + '" onerror="this.outerHTML=\'<div class=feat-logo-fb>' + emoji + '</div>\'">'
+    : '<div class="feat-logo-fb">' + emoji + '</div>';
+  const badge = document.querySelector('.feat-badge');
+  if(badge && d.badge) badge.textContent = d.badge;
+  if(d.description || d.desc) $id('featDesc').textContent = d.description || d.desc;
   if(d.features?.length){
-    $id('featFeats').innerHTML = d.features.map(f=>`<div class="feat-feat">${f}</div>`).join('');
+    $id('featFeats').innerHTML = d.features.map(f=>'<div class="feat-feat">' + f + '</div>').join('');
   }
   const sym = store.currencySymbol||'S/';
   $id('featPrice').style.color = color;
   $id('featPrice').innerHTML = found.salePrice>0
-    ? `<sup>${sym}</sup>${found.salePrice}<sub>/mes</sub>` : 'Consultar';
+    ? '<sup>' + sym + '</sup>' + found.salePrice + '<sub>/mes</sub>' : 'Consultar';
+  $id('featCta').textContent = d.cta || 'Pedir por WhatsApp';
   $id('featCta').href = waHref(platform, found.salePrice, store);
 }
 
@@ -567,11 +583,13 @@ function applyStats(store, d={}){
 }
 
 function renderStore(store){
-  loadTemplate(store.template);
-  document.title = `${store.name||'Tienda'} — Streaming`;
+  const templateName = store.templateId || store.template || 'default';
+  loadTemplate(templateName);
+  document.body.dataset.template = templateName;
+  document.title = (store.name || 'Catalogo') + ' - Streaming';
 
   if(!store.platforms?.length){
-    showError('Sin plataformas','No hay plataformas activas ahora. Vuelve pronto.');
+    showError('Sin plataformas disponibles','No hay plataformas con cupos libres ahora. Puedes consultar por WhatsApp.', store);
     return;
   }
 
@@ -582,13 +600,9 @@ function renderStore(store){
     : null;
 
   if(!sections){
-    // Modo legacy: header simple + plataformas
     const hdr = document.createElement('div');
     hdr.className = 'legacy-header';
-    hdr.innerHTML = `
-      <div class="legacy-avatar">${store.emoji||'🛍️'}</div>
-      <div class="legacy-name">${store.name||''}</div>
-      <div class="legacy-tagline">${store.tagline||''}</div>`;
+    hdr.innerHTML = '<div class="legacy-avatar">' + (store.emoji||'') + '</div><div class="legacy-name">' + (store.name||'') + '</div><div class="legacy-tagline">' + (store.tagline||'') + '</div>';
     $id('storeContent').prepend(hdr);
     showSec('sec-platforms');
   } else {
@@ -610,10 +624,15 @@ function renderStore(store){
   $id('storeContent').style.display = 'block';
 }
 
-function showError(title, sub){
+function showError(title, sub, store=null){
   $id('loading').hidden = true;
   if(title) $id('errorTitle').textContent = title;
   if(sub)   $id('errorSub').textContent   = sub;
+  const wa = $id('errorWa');
+  if(wa && store?.whatsapp){
+    wa.href = storeWaHref(store);
+    wa.hidden = false;
+  }
   $id('errorScreen').hidden = false;
 }
 

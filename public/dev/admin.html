@@ -231,6 +231,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="nav-item active" onclick="showSection('templates',this)">
         <span>📦</span> Mis Plantillas
       </div>
+      <div class="nav-item" onclick="showSection('catalogs',this)">
+        <span>WEB</span> Catalogos web
+      </div>
       <div class="nav-item" onclick="showSection('users',this)">
         <span>👥</span> Gestión Clientes
       </div>
@@ -267,6 +270,36 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <button class="tpl-tab" data-filter="draft" onclick="filterTemplates('draft',this)">📁 Borradores <span class="tpl-tab-count" id="count-draft">0</span></button>
         </div>
         <div id="templates-grid" class="tpl-grid"></div>
+      </div>
+
+      <!-- CATALOGOS WEB -->
+      <div class="section" id="section-catalogs">
+        <div class="page-title">Catalogos web</div>
+        <div class="page-sub">Administra las plantillas de landing que veran los usuarios en su editor de catalogo.</div>
+
+        <div class="cards-grid">
+          <div class="card">
+            <div class="card-title">Registrar plantilla web</div>
+            <div class="f-row"><label class="f-label">ID de plantilla</label><input id="cat-template-id" class="f-input" placeholder="streamx" maxlength="40"></div>
+            <div class="f-row"><label class="f-label">Nombre visible</label><input id="cat-template-name" class="f-input" placeholder="StreamX - Premium" maxlength="80"></div>
+            <div class="f-row"><label class="f-label">Descripcion</label><input id="cat-template-desc" class="f-input" placeholder="Landing moderna para venta de streaming" maxlength="160"></div>
+            <div class="f-row"><label class="f-label">URL de thumbnail (opcional)</label><input id="cat-template-thumb" class="f-input" placeholder="https://..." maxlength="600"></div>
+            <div class="f-row"><label class="f-label">Estado</label><select id="cat-template-status" class="f-input"><option value="published">Publicada</option><option value="draft">Borrador</option></select></div>
+            <button class="btn btn-green btn-full" onclick="saveCatalogTemplate()">Guardar plantilla web</button>
+            <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="seedStreamxTemplate()">Crear/actualizar StreamX base</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Como funciona</div>
+            <p style="font-size:0.82rem;color:var(--muted);line-height:1.7;">Estas plantillas son para landings publicas de catalogo. No afectan las plantillas graficas del editor. El ID debe coincidir con el CSS publico: <strong style="color:var(--blue);">catalogo-ID.css</strong>.</p>
+          </div>
+        </div>
+
+        <div class="tpl-tabs">
+          <button class="tpl-tab active" data-cat-filter="all" onclick="filterCatalogTemplates('all',this)">Todas <span class="tpl-tab-count" id="cat-count-all">0</span></button>
+          <button class="tpl-tab" data-cat-filter="published" onclick="filterCatalogTemplates('published',this)">Publicadas <span class="tpl-tab-count" id="cat-count-published">0</span></button>
+          <button class="tpl-tab" data-cat-filter="draft" onclick="filterCatalogTemplates('draft',this)">Borradores <span class="tpl-tab-count" id="cat-count-draft">0</span></button>
+        </div>
+        <div id="catalog-templates-grid" class="tpl-grid"></div>
       </div>
 
       <!-- USUARIOS -->
@@ -626,8 +659,11 @@ function observeLazyImages(root) {
 }
 
 let _allTemplates = [];
+let _catalogTemplates = [];
+let _catalogTemplateFilter = 'all';
 let _currentFilter = 'all';
 const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
+const ADMIN_CATALOG_TEMPLATES_CACHE_KEY = 'ds_admin_catalog_templates_cache_v1';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 6 * 60 * 60 * 1000;
@@ -800,6 +836,130 @@ async function draftTemplate(id) {
 // ══════════════════════════════════════════
 // USUARIOS
 // ══════════════════════════════════════════
+
+// CATALOGOS WEB
+function normalizeCatalogTemplateId(value){
+  return String(value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/--+/g,'-').slice(0,40);
+}
+function catalogTemplatePayload(overrides={}){
+  const id = normalizeCatalogTemplateId(overrides.id ?? document.getElementById('cat-template-id')?.value);
+  const now = Date.now();
+  return {
+    id,
+    templateId:id,
+    name:String(overrides.name ?? document.getElementById('cat-template-name')?.value ?? 'Plantilla web').trim().slice(0,80),
+    description:String(overrides.description ?? document.getElementById('cat-template-desc')?.value ?? '').trim().slice(0,160),
+    thumb:String(overrides.thumb ?? document.getElementById('cat-template-thumb')?.value ?? '').trim().slice(0,600),
+    status:String(overrides.status ?? document.getElementById('cat-template-status')?.value ?? 'published'),
+    base:String(overrides.base ?? id),
+    updatedAt:now,
+    createdAt:Number(overrides.createdAt || now)
+  };
+}
+async function loadCatalogTemplates(force=false){
+  if(!fbConnected || !fbDb) return;
+  const grid=document.getElementById('catalog-templates-grid');
+  if(!grid) return;
+  grid.innerHTML='<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas web...</p>';
+  try{
+    const cached = force ? null : readAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY);
+    if(cached){
+      _catalogTemplates = cached;
+    }else{
+      const snap = await fbDb.collection('catalog_templates').orderBy('updatedAt','desc').get();
+      _catalogTemplates=[];
+      snap.forEach(doc=>_catalogTemplates.push({id:doc.id,...doc.data()}));
+      writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
+    }
+    renderCatalogTemplates();
+  }catch(e){
+    grid.innerHTML='<p style="color:var(--accent2);">Error al cargar plantillas web.</p>';
+    console.error(e);
+  }
+}
+function updateCatalogTemplateCounts(){
+  const all=_catalogTemplates.length;
+  const pub=_catalogTemplates.filter(t=>t.status!=='draft').length;
+  const draft=_catalogTemplates.filter(t=>t.status==='draft').length;
+  const a=document.getElementById('cat-count-all'); if(a) a.textContent=all;
+  const p=document.getElementById('cat-count-published'); if(p) p.textContent=pub;
+  const d=document.getElementById('cat-count-draft'); if(d) d.textContent=draft;
+}
+function filterCatalogTemplates(filter,btn){
+  _catalogTemplateFilter=filter;
+  document.querySelectorAll('[data-cat-filter]').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderCatalogTemplates();
+}
+function renderCatalogTemplates(){
+  const grid=document.getElementById('catalog-templates-grid');
+  if(!grid) return;
+  updateCatalogTemplateCounts();
+  let list=_catalogTemplates;
+  if(_catalogTemplateFilter==='published') list=list.filter(t=>t.status!=='draft');
+  if(_catalogTemplateFilter==='draft') list=list.filter(t=>t.status==='draft');
+  if(!list.length){ grid.innerHTML='<p style="color:var(--muted);font-size:0.82rem;">No hay plantillas web aun.</p>'; return; }
+  grid.innerHTML='';
+  list.forEach(t=>{
+    const isDraft=t.status==='draft';
+    const card=document.createElement('div');
+    card.className='tpl-card';
+    const name=String(t.name||t.id||'Plantilla web').replace(/[<>&]/g,'');
+    const desc=String(t.description||'').replace(/[<>&]/g,'');
+    const thumb=t.thumb ? '<img class="tpl-thumb lazy-img" decoding="async" src="'+cdnOpt(t.thumb,{w:240,c:'fit'})+'" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="tpl-thumb-ph" style="display:none;">WEB</div>' : '<div class="tpl-thumb-ph">WEB</div>';
+    card.innerHTML=thumb+'<div class="tpl-info"><div class="tpl-name" title="'+name+'">'+name+'</div><span class="tpl-badge '+(isDraft?'badge-draft':'badge-pub')+'">'+(isDraft?'Borrador':'Publicada')+'</span><div style="font-size:.72rem;color:var(--muted);line-height:1.45;margin-top:6px;">ID: '+(t.templateId||t.id)+'<br>'+desc+'</div><div class="tpl-actions"><button onclick="editCatalogTemplate(\''+t.id+'\')">Editar</button><button onclick="toggleCatalogTemplateStatus(\''+t.id+'\',\''+(isDraft?'published':'draft')+'\')">'+(isDraft?'Publicar':'Borrador')+'</button><button onclick="deleteCatalogTemplate(\''+t.id+'\')" style="color:var(--accent2);">Borrar</button></div></div>';
+    grid.appendChild(card);
+  });
+}
+function clearCatalogTemplateForm(){
+  ['cat-template-id','cat-template-name','cat-template-desc','cat-template-thumb'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  const st=document.getElementById('cat-template-status'); if(st) st.value='published';
+}
+async function saveCatalogTemplate(){
+  if(!fbConnected || !fbDb) return;
+  const payload=catalogTemplatePayload();
+  if(!payload.id){ alert('Ingresa un ID de plantilla.'); return; }
+  await fbDb.collection('catalog_templates').doc(payload.id).set(payload,{merge:true});
+  const idx=_catalogTemplates.findIndex(t=>t.id===payload.id);
+  if(idx>=0) _catalogTemplates[idx]={..._catalogTemplates[idx],...payload}; else _catalogTemplates.unshift(payload);
+  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
+  clearCatalogTemplateForm();
+  renderCatalogTemplates();
+  showToast('Plantilla web guardada');
+}
+async function seedStreamxTemplate(){
+  if(!fbConnected || !fbDb) return;
+  const payload=catalogTemplatePayload({id:'streamx',name:'StreamX - Premium',description:'Landing moderna para catalogos de streaming',status:'published',base:'streamx'});
+  await fbDb.collection('catalog_templates').doc('streamx').set(payload,{merge:true});
+  const idx=_catalogTemplates.findIndex(t=>t.id==='streamx');
+  if(idx>=0) _catalogTemplates[idx]={..._catalogTemplates[idx],...payload}; else _catalogTemplates.unshift(payload);
+  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
+  renderCatalogTemplates();
+  showToast('StreamX listo en catalogos web');
+}
+function editCatalogTemplate(id){
+  const t=_catalogTemplates.find(x=>x.id===id); if(!t) return;
+  document.getElementById('cat-template-id').value=t.templateId||t.id||'';
+  document.getElementById('cat-template-name').value=t.name||'';
+  document.getElementById('cat-template-desc').value=t.description||'';
+  document.getElementById('cat-template-thumb').value=t.thumb||'';
+  document.getElementById('cat-template-status').value=t.status||'published';
+}
+async function toggleCatalogTemplateStatus(id,status){
+  const updatedAt=Date.now();
+  await fbDb.collection('catalog_templates').doc(id).set({status,updatedAt},{merge:true});
+  _catalogTemplates=_catalogTemplates.map(t=>t.id===id?{...t,status,updatedAt}:t);
+  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
+  renderCatalogTemplates();
+}
+async function deleteCatalogTemplate(id){
+  if(!confirm('Borrar esta plantilla web?')) return;
+  await fbDb.collection('catalog_templates').doc(id).delete();
+  _catalogTemplates=_catalogTemplates.filter(t=>t.id!==id);
+  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
+  renderCatalogTemplates();
+}
+
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
@@ -1594,6 +1754,7 @@ function getAdminNavForSection(id) {
 
 function loadAdminSectionData(id, force=false) {
   if(id === 'templates') loadTemplates(force);
+  if(id === 'catalogs') loadCatalogTemplates(force);
   if(id === 'users') loadUsers(force);
   if(id === 'logos') loadAdminLogos(force);
 }
