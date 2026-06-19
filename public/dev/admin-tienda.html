@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://www.gstatic.com">
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
+    [hidden]{display:none!important}
     :root{
       --bg:#080b12;--panel:#101522;--panel2:#161d2d;--line:rgba(255,255,255,.09);
       --text:#f5f7ff;--muted:#9aa6bc;--accent:#8b40f5;--accent2:#b06bff;
@@ -69,13 +70,27 @@
     .row-actions{display:flex;gap:5px}
     .iconbtn{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted)}
     .platforms{display:grid;gap:7px}
-    .platform{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:13px}
+    .platform{display:grid;grid-template-columns:24px 34px minmax(0,1fr) auto 54px;align-items:center;gap:8px;padding:8px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:13px;transition:border-color .16s,transform .16s}
+    .platform[draggable="true"]{cursor:grab}.platform.dragging{opacity:.5}.platform.drag-over{border-color:var(--accent);transform:translateY(2px)}
+    .platform-logo{width:34px;height:34px;display:grid;place-items:center;background:transparent;padding:0;overflow:visible}
+    .platform-logo img{width:34px;height:34px;object-fit:cover;display:block;border-radius:7px}.platform-logo.fallback{border-radius:7px;background:var(--panel);border:1px solid var(--line)}.platform-logo span{font-weight:950;color:var(--text);font-size:10px}
+    .platform-name{min-width:0}.platform-name b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.platform-name small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+    .drag-grip{width:24px;height:34px;border:0;background:transparent;color:var(--muted);font-size:18px;cursor:grab}
+    .platform-meta{text-align:right;white-space:nowrap;font-size:11px}
+    .platform-actions{display:flex;gap:4px}.platform-actions .iconbtn{width:25px;height:28px;padding:0}
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:7px}
+    .context-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.context-head b{font-size:13px}.context-head span{font-size:11px;color:var(--muted)}
+    .segmented{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+    .segment{height:34px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-weight:800}.segment:hover,.segment.active{background:var(--accent);color:#fff}
+    .range-row{display:grid;grid-template-columns:56px minmax(0,1fr) 46px;align-items:center;gap:8px;margin-top:12px}.range-row label{display:block}.range-row input[type="range"]{width:100%;accent-color:var(--accent)}.range-value{height:30px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);text-align:center;font-size:11px}
+    .context-empty{padding:4px 0;color:var(--muted);font-size:12px;line-height:1.55}
+    .mini-actions{display:flex;gap:7px;margin-top:12px}.mini-actions .btn{flex:1;padding:8px;font-size:12px}
+    .preview-tip{font-size:11px;color:var(--muted);white-space:nowrap}
     .actions{display:flex;gap:8px;flex-wrap:wrap}
     .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;padding:10px 16px;border-radius:999px;background:#172033;border:1px solid var(--line);color:#fff;font-weight:800;font-size:13px;transition:.2s;z-index:50}
     .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
     @media(max-width:920px){body{overflow:auto}.topbar{position:sticky;top:0;z-index:5}.app{height:auto}.layout{grid-template-columns:1fr}.sidebar{border-right:0}.preview{min-height:720px}.framebox{max-width:100%}iframe{height:720px}}
-    @media(max-width:520px){.grid2{grid-template-columns:1fr}.topbar{height:auto;min-height:58px;flex-wrap:wrap;padding:10px 12px}.actions .btn{flex:1}.sidebar{padding:12px}.template-card{grid-template-columns:78px 1fr}}
+    @media(max-width:520px){.grid2{grid-template-columns:1fr}.topbar{height:auto;min-height:58px;flex-wrap:wrap;padding:10px 12px}.actions .btn{flex:1}.sidebar{padding:12px}.template-card{grid-template-columns:78px 1fr}.platform{grid-template-columns:24px 32px minmax(0,1fr) 54px}.platform-meta{grid-column:3;text-align:left}.platform-actions{grid-column:4;grid-row:1 / span 2}.preview-tip{display:none}}
   </style>
 </head>
 <body>
@@ -110,6 +125,25 @@
 
         <div class="section-title">Plantilla</div>
         <div class="card"><div class="templates" id="templatesList"></div></div>
+
+        <div class="section-title">Elemento seleccionado</div>
+        <div class="card" id="contextEditor">
+          <div id="contextEmpty" class="context-empty">Haz clic en un texto, boton o encabezado dentro de la vista previa. Luego puedes alinearlo o moverlo con precision.</div>
+          <div id="contextControls" hidden>
+            <div class="context-head"><div><b id="selectedElementName">Elemento</b><span id="selectedElementType">Texto</span></div><button class="iconbtn" title="Restablecer posicion" aria-label="Restablecer posicion" onclick="resetSelectedObject()">↺</button></div>
+            <label>Alineacion</label>
+            <div class="segmented" style="margin-top:7px">
+              <button class="segment" data-align="left" onclick="setObjectAlign('left')">Izquierda</button>
+              <button class="segment" data-align="center" onclick="setObjectAlign('center')">Centro</button>
+              <button class="segment" data-align="right" onclick="setObjectAlign('right')">Derecha</button>
+            </div>
+            <div class="range-row"><label for="objectX">Lateral</label><input id="objectX" type="range" min="-180" max="180" step="2" value="0"><input class="range-value" id="objectXValue" value="0" inputmode="numeric" aria-label="Desplazamiento lateral"></div>
+            <div class="range-row"><label for="objectY">Vertical</label><input id="objectY" type="range" min="-100" max="100" step="2" value="0"><input class="range-value" id="objectYValue" value="0" inputmode="numeric" aria-label="Desplazamiento vertical"></div>
+            <div class="range-row"><label for="objectWidth">Ancho</label><input id="objectWidth" type="range" min="30" max="100" step="5" value="100"><input class="range-value" id="objectWidthValue" value="100" inputmode="numeric" aria-label="Ancho porcentual"></div>
+            <div class="mini-actions"><button class="btn secondary" onclick="nudgeSelected(-10,0)">← 10</button><button class="btn secondary" onclick="nudgeSelected(10,0)">10 →</button></div>
+            <div class="hint" style="margin-top:10px">Tambien puedes arrastrar el elemento directamente en la vista previa. Los limites protegen el diseno movil.</div>
+          </div>
+        </div>
 
         <div class="section-title">Textos editables</div>
         <div class="card">
@@ -150,8 +184,12 @@
 
         <div class="section-title">Plataformas sincronizadas</div>
         <div class="card">
+          <div class="grid2" style="margin-bottom:10px">
+            <label>Columnas escritorio<select class="select" id="platformColumns"><option value="3">3 columnas</option><option value="4">4 columnas</option><option value="5">5 columnas</option><option value="6">6 columnas</option></select></label>
+            <label>Columnas movil<select class="select" id="platformMobileColumns"><option value="1">1 columna</option><option value="2">2 columnas</option></select></label>
+          </div>
           <div class="platforms" id="platformsList"><div class="hint">Calculando cupos...</div></div>
-          <div class="hint" style="margin-top:10px">Solo se publican plataformas con cupos libres. No se publica correo, clave, PIN, proveedor ni clientes.</div>
+          <div class="hint" style="margin-top:10px">Arrastra cada fila para decidir el orden. Solo se publican plataformas con cupos libres; nunca se publica correo, clave, PIN, proveedor ni clientes.</div>
           <button class="btn secondary" style="margin-top:10px;width:100%" onclick="reloadPrivateData()">Recalcular desde gestor</button>
         </div>
 
@@ -174,6 +212,7 @@
       <section class="preview">
         <div class="previewbar">
           <strong>Vista previa en vivo</strong>
+          <span class="preview-tip">Clic: seleccionar · doble clic: editar · arrastrar: mover</span>
           <button class="btn secondary" onclick="setPreviewMode('desktop')">Desktop</button>
           <button class="btn secondary" onclick="setPreviewMode('mobile')">Movil</button>
           <button class="btn" onclick="refreshPreview()">Actualizar</button>
@@ -202,8 +241,21 @@ const publicStoreRef=uid=>doc(db,'users',uid,'gestor_config','public_store');
 const catalogDoc=slug=>doc(db,'public_catalogs',slug);
 const catalogTemplatesCol=()=>collection(db,'catalog_templates');
 let uid='',currentSlug='',accounts=[],clients=[],settings={},platforms=[],templates=[],selectedTemplate='streamx',previewTimer=null;
+let platformOrder=[],elementStyles={},selectedObjectKey='',selectedObjectLabel='';
 
 const PLATFORM_COLORS={'Netflix':'#E50914','Spotify':'#1DB954','YouTube Premium':'#FF0000','Prime Video':'#00A8E0','Disney+':'#0070F3','Max':'#7B2FBE','Crunchyroll':'#F47521','Paramount+':'#0064FF','Viki':'#1A9A5B','ViX':'#E8007D','Apple TV':'#555','Deezer':'#A238FF','Google One':'#4285F4','Canva':'#00C4CC','ChatGPT':'#10A37F','IPTV':'#0088cc'};
+const PLATFORM_LOGOS={
+  netflix:'/logos/Netflix.svg',spotify:'/logos/Spotify.svg',youtube:'/logos/youtube.svg',youtubepremium:'/logos/youtube.svg',
+  primevideo:'/logos/primevideo.svg',amazonprime:'/logos/primevideo.svg',amazonprimevideo:'/logos/primevideo.svg',
+  disney:'/logos/Disney.svg',disneyplus:'/logos/Disney.svg',max:'/logos/max.svg',hbomax:'/logos/max.svg',
+  appletv:'/logos/apple-tv.svg',apple:'/logos/apple-tv.svg',cablego:'/logos/cable-go.svg',canva:'/logos/Canva.svg',
+  capcut:'/logos/Capcut.svg',chatgpt:'/logos/chat-gpt.svg',chatgptplus:'/logos/chat-gpt.svg',crunchyroll:'/logos/Crunchyroll.svg',
+  deezer:'/logos/Deezer.svg',directvgo:'/logos/directv-go.svg',fanatiz:'/logos/Fanatiz.svg',gemini:'/logos/GEMINI.svg',
+  googleone:'/logos/google-one.svg',iptv:'/logos/IPTV.svg',l1max:'/logos/l1-max.svg',movistar:'/logos/Movistar.svg',
+  movistarplay:'/logos/Movistar.svg',paramount:'/logos/Paramount.svg',paramountplus:'/logos/Paramount.svg',
+  pornhub:'/logos/Pornhub.svg',telelatino:'/logos/tele-latino.svg',ufc:'/logos/UFC.svg',ufcfightpass:'/logos/UFC.svg',
+  universal:'/logos/Universal.svg',viki:'/logos/viki.svg',vikirakuten:'/logos/viki-rakuten.svg',vix:'/logos/vix.svg'
+};
 const BASE_TEMPLATES=[
   {id:'streamx',name:'StreamX Premium',description:'La plantilla que pasaste, adaptada a catalogos.',base:'streamx'},
   {id:'minimal',name:'Minimal claro',description:'Limpia y directa.',base:'minimal'},
@@ -230,6 +282,7 @@ onAuthStateChanged(auth,async user=>{
 
 async function boot(){
   await Promise.all([reloadPrivateData(),loadTemplates(),loadExistingCatalog()]);
+  sortPlatforms();
   renderTemplates();renderSections();renderPlatforms();bindInputs();refreshPreview();
 }
 
@@ -237,6 +290,11 @@ function bindInputs(){
   document.querySelectorAll('input,textarea,select').forEach(el=>el.addEventListener('input',schedulePreview));
   $('slugInput').addEventListener('input',()=>{sanitizeSlug();schedulePreview();});
   $('waNumber').addEventListener('input',()=>{$('waNumber').value=$('waNumber').value.replace(/\D+/g,'');schedulePreview();});
+  [['objectX','x',-180,180],['objectY','y',-100,100],['objectWidth','width',30,100]].forEach(([id,key,min,max])=>{
+    const range=$(id),value=$(id+'Value');
+    range.addEventListener('input',()=>{value.value=range.value;updateSelectedStyle(key,Number(range.value),true);});
+    value.addEventListener('change',()=>{const next=Math.max(min,Math.min(max,Number(value.value)||0));range.value=next;value.value=next;updateSelectedStyle(key,next);});
+  });
 }
 
 async function reloadPrivateData(){
@@ -246,6 +304,7 @@ async function reloadPrivateData(){
   clients=cliSnap.docs.map(d=>({id:d.id,...d.data()}));
   if(settings.whatsappPrefix) $('waPrefix').value=settings.whatsappPrefix;
   platforms=computePlatforms();
+  sortPlatforms();
   renderPlatforms();schedulePreview();
 }
 window.reloadPrivateData=reloadPrivateData;
@@ -270,6 +329,8 @@ async function loadExistingCatalog(){
   const snap=await getDoc(catalogDoc(currentSlug));
   if(!snap.exists()) return seedDefaults();
   const data=snap.data();
+  platformOrder=(data.platforms||[]).map(p=>p.platform);
+  elementStyles=sanitizeElementStyles(data.elementStyles||{});
   $('storeName').value=data.name||'';
   $('storeTagline').value=data.tagline||'';
   $('slugInput').value=data.slug||currentSlug;
@@ -293,6 +354,8 @@ async function loadExistingCatalog(){
   $('faqTitle').value=sectionData('faq').title||'Preguntas frecuentes';
   $('footerNote').value=data.footerNote||'Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
   $('accentColor').value=data.theme?.accent||'#8b40f5';$('accent2Color').value=data.theme?.accent2||'#b06bff';$('whatsappColor').value=data.theme?.whatsapp||'#25d366';$('backgroundColor').value=data.theme?.background||'#07050d';
+  $('platformColumns').value=String(data.layout?.platformColumns||4);
+  $('platformMobileColumns').value=String(data.layout?.platformMobileColumns||2);
   $('testimonialLines').value=(data.testimonials||[]).map(t=>(t.name?`${t.name}: `:'')+t.text).join('\n');
   updateUrl();
 }
@@ -315,6 +378,7 @@ function seedDefaults(){
   $('faqTitle').value='Preguntas frecuentes';
   $('footerNote').value='Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
   $('accentColor').value='#8b40f5';$('accent2Color').value='#b06bff';$('whatsappColor').value='#25d366';$('backgroundColor').value='#07050d';
+  $('platformColumns').value='4';$('platformMobileColumns').value='2';
 }
 
 function mergeSections(saved=[]){
@@ -340,8 +404,16 @@ function computePlatforms(){
   return Object.entries(grouped).map(([platform,freeSlots])=>{
     const key=Object.keys(prices).find(k=>k.toLowerCase()===platform.toLowerCase());
     const price=key?Number(prices[key]?.salePrice||0):0;
-    return {platform,salePrice:price,freeSlots,color:PLATFORM_COLORS[platform]||'#8b40f5'};
-  }).sort((a,b)=>a.platform.localeCompare(b.platform));
+    return {platform,salePrice:price,freeSlots,color:PLATFORM_COLORS[platform]||'#8b40f5',logo:logoForPlatform(platform)};
+  });
+}
+
+function normalizePlatform(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\+/g,'plus').replace(/[^a-z0-9]/g,'');}
+function logoForPlatform(platform){return PLATFORM_LOGOS[normalizePlatform(platform)]||'';}
+function sortPlatforms(){
+  const rank=new Map(platformOrder.map((name,index)=>[normalizePlatform(name),index]));
+  platforms.sort((a,b)=>(rank.get(normalizePlatform(a.platform))??9999)-(rank.get(normalizePlatform(b.platform))??9999)||a.platform.localeCompare(b.platform));
+  platformOrder=platforms.map(p=>p.platform);
 }
 
 function renderTemplates(){
@@ -357,8 +429,66 @@ window.toggleSection=id=>{const s=sections.find(x=>x.id===id);if(s&&!s.locked)s.
 window.moveSection=(id,dir)=>{const sorted=[...sections].sort((a,b)=>(a.order||0)-(b.order||0));const i=sorted.findIndex(s=>s.id===id),j=i+dir;if(j<0||j>=sorted.length)return;[sorted[i].order,sorted[j].order]=[sorted[j].order,sorted[i].order];renderSections();schedulePreview();};
 
 function renderPlatforms(){
-  $('platformsList').innerHTML=platforms.length?platforms.map(p=>`<div class="platform"><span><i class="dot" style="background:${p.color}"></i>${esc(p.platform)}</span><b>${p.salePrice?currency()+p.salePrice:'Consultar'} · ${p.freeSlots} libres</b></div>`).join(''):'<div class="hint">No hay plataformas con cupos libres. Agrega cuentas/cupos en tu gestor y vuelve a recalcular.</div>';
+  $('platformsList').innerHTML=platforms.length?platforms.map((p,index)=>`<div class="platform" draggable="true" data-platform-index="${index}">
+    <button class="drag-grip" title="Arrastrar para ordenar" aria-label="Mover ${escAttr(p.platform)}">⋮⋮</button>
+    <div class="platform-logo ${p.logo?'':'fallback'}">${p.logo?`<img src="${escAttr(p.logo)}" alt="">`:`<span>${esc(p.platform.slice(0,2).toUpperCase())}</span>`}</div>
+    <div class="platform-name"><b>${esc(p.platform)}</b><small>${p.logo?'Logo oficial':'Sin logo asociado'}</small></div>
+    <b class="platform-meta">${p.salePrice?currency()+p.salePrice:'Consultar'} · ${p.freeSlots} libres</b>
+    <div class="platform-actions"><button class="iconbtn" type="button" title="Subir ${escAttr(p.platform)}" onclick="movePlatform(${index},-1)" ${index===0?'disabled':''}>↑</button><button class="iconbtn" type="button" title="Bajar ${escAttr(p.platform)}" onclick="movePlatform(${index},1)" ${index===platforms.length-1?'disabled':''}>↓</button></div>
+  </div>`).join(''):'<div class="hint">No hay plataformas con cupos libres. Agrega cuentas/cupos en tu gestor y vuelve a recalcular.</div>';
+  $('platformsList').querySelectorAll('.platform-logo img').forEach(img=>img.addEventListener('error',()=>{
+    const box=img.parentElement,name=img.closest('[data-platform-index]')?.querySelector('.platform-name b')?.textContent||'TV';
+    box.innerHTML=`<span>${esc(name.slice(0,2).toUpperCase())}</span>`;box.classList.add('fallback');
+  },{once:true}));
+  bindPlatformSorting();
 }
+window.movePlatform=(index,dir)=>{
+  const target=index+dir;if(target<0||target>=platforms.length)return;
+  [platforms[index],platforms[target]]=[platforms[target],platforms[index]];
+  platformOrder=platforms.map(p=>p.platform);renderPlatforms();schedulePreview();toast('Orden de plataformas actualizado');
+};
+
+function bindPlatformSorting(){
+  let sourceIndex=-1;
+  document.querySelectorAll('[data-platform-index]').forEach(row=>{
+    row.addEventListener('dragstart',e=>{sourceIndex=Number(row.dataset.platformIndex);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
+    row.addEventListener('dragend',()=>{row.classList.remove('dragging');document.querySelectorAll('.platform.drag-over').forEach(x=>x.classList.remove('drag-over'));});
+    row.addEventListener('dragover',e=>{e.preventDefault();row.classList.add('drag-over');});
+    row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+    row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const target=Number(row.dataset.platformIndex);if(sourceIndex<0||sourceIndex===target)return;const [moved]=platforms.splice(sourceIndex,1);platforms.splice(target,0,moved);platformOrder=platforms.map(p=>p.platform);renderPlatforms();schedulePreview();toast('Orden de plataformas actualizado');});
+  });
+}
+
+function sanitizeElementStyles(value){
+  const clean={};
+  for(const [key,raw] of Object.entries(value||{})){
+    if(!/^[a-zA-Z0-9_-]{1,40}$/.test(key)||!raw||typeof raw!=='object')continue;
+    clean[key]={x:Math.max(-180,Math.min(180,Number(raw.x)||0)),y:Math.max(-100,Math.min(100,Number(raw.y)||0)),width:Math.max(30,Math.min(100,Number(raw.width)||100)),align:['left','center','right'].includes(raw.align)?raw.align:'center'};
+  }
+  return clean;
+}
+
+function selectedStyle(){return elementStyles[selectedObjectKey]||{x:0,y:0,width:100,align:'center'};}
+function selectObject(key,label,type='Elemento'){
+  if(!/^[a-zA-Z0-9_-]{1,40}$/.test(key))return;
+  selectedObjectKey=key;selectedObjectLabel=label||key;
+  $('contextEmpty').hidden=true;$('contextControls').hidden=false;$('selectedElementName').textContent=selectedObjectLabel;$('selectedElementType').textContent=type;
+  syncContextControls();
+}
+function syncContextControls(){
+  const style=selectedStyle();
+  ['X','Y','Width'].forEach(name=>{const key=name.toLowerCase();const value=key==='width'?style.width:style[key];$('object'+name).value=value;$('object'+name+'Value').value=value;});
+  document.querySelectorAll('[data-align]').forEach(btn=>btn.classList.toggle('active',btn.dataset.align===style.align));
+}
+function updateSelectedStyle(key,value,quiet=false){
+  if(!selectedObjectKey)return;
+  elementStyles[selectedObjectKey]={...selectedStyle(),[key]:value};syncContextControls();sendStyleToPreview();
+  if(!quiet)schedulePreview();
+}
+function sendStyleToPreview(){const frame=$('previewFrame');frame.contentWindow?.postMessage({type:'CATALOG_APPLY_STYLE',key:selectedObjectKey,style:selectedStyle()},'*');}
+window.setObjectAlign=align=>updateSelectedStyle('align',align);
+window.nudgeSelected=(x,y)=>{if(!selectedObjectKey)return;const current=selectedStyle();elementStyles[selectedObjectKey]={...current,x:Math.max(-180,Math.min(180,current.x+x)),y:Math.max(-100,Math.min(100,current.y+y))};syncContextControls();sendStyleToPreview();};
+window.resetSelectedObject=()=>{if(!selectedObjectKey)return;delete elementStyles[selectedObjectKey];syncContextControls();sendStyleToPreview();schedulePreview();toast('Posicion restablecida');};
 
 function buildData(){
   const hero={badge:val('heroBadge'),headline:val('heroHeadline'),accentText:val('heroAccent'),description:val('heroDescription'),cta:val('heroCta')};
@@ -385,8 +515,10 @@ function buildData(){
     templateId:selectedTemplate,
     template:selectedTemplate,
     theme:{accent:val('accentColor'),accent2:val('accent2Color'),whatsapp:val('whatsappColor'),background:val('backgroundColor')},
+    layout:{platformColumns:Number($('platformColumns').value)||4,platformMobileColumns:Number($('platformMobileColumns').value)||2},
+    elementStyles:sanitizeElementStyles(elementStyles),
     footerNote:val('footerNote'),
-    platforms:platforms.map(p=>({platform:p.platform,salePrice:Number(p.salePrice||0),freeSlots:Number(p.freeSlots||0),color:p.color})),
+    platforms:platforms.map((p,order)=>({platform:p.platform,salePrice:Number(p.salePrice||0),freeSlots:Number(p.freeSlots||0),color:p.color,logo:p.logo||logoForPlatform(p.platform),order})),
     sections:normalizedSections,
     testimonials,
     updatedAt:Date.now()
@@ -441,8 +573,27 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 
 // ── Inline edit & drag messages from preview iframe ───────────
 window.addEventListener('message',e=>{
+  if(e.source!==$('previewFrame').contentWindow)return;
   const msg=e.data;
   if(!msg||typeof msg!=='object') return;
+
+  if(msg.type==='CATALOG_SELECT'){
+    selectObject(String(msg.key||''),String(msg.label||msg.key||'Elemento'),String(msg.objectType||'Elemento'));
+  }
+
+  if(msg.type==='CATALOG_OBJECT_STYLE'){
+    const key=String(msg.key||'');
+    if(!/^[a-zA-Z0-9_-]{1,40}$/.test(key))return;
+    elementStyles[key]=sanitizeElementStyles({[key]:msg.style})[key]||{x:0,y:0,width:100,align:'center'};
+    if(selectedObjectKey===key)syncContextControls();
+  }
+
+  if(msg.type==='CATALOG_PLATFORM_REORDER'){
+    if(!Array.isArray(msg.order))return;
+    const rank=new Map(msg.order.map((name,index)=>[normalizePlatform(name),index]));
+    platforms.sort((a,b)=>(rank.get(normalizePlatform(a.platform))??9999)-(rank.get(normalizePlatform(b.platform))??9999));
+    platformOrder=platforms.map(p=>p.platform);renderPlatforms();toast('Orden de plataformas actualizado');
+  }
 
   if(msg.type==='CATALOG_EDIT'){
     const el=$(msg.field);
@@ -461,17 +612,7 @@ window.addEventListener('message',e=>{
     // msg.order = array of section IDs in new DOM order (only draggable ones)
     if(!Array.isArray(msg.order)) return;
     // Locked sections keep their absolute position; draggable ones get new order
-    const lockedIds=sections.filter(s=>s.locked).map(s=>s.id);
-    // Build full desired order: locked sections stay at their relative spots,
-    // draggable ones fill the gaps in the received order
-    let draggableIdx=0;
-    const draggableOrder=msg.order; // IDs of draggable sections in new order
-    sections.forEach(s=>{
-      if(!s.locked){
-        const pos=draggableOrder.indexOf(s.id);
-        s.order=pos>=0?pos+10:s.order; // offset so locked sections (order 0,2) remain first
-      }
-    });
+    msg.order.forEach((id,index)=>{const section=sections.find(s=>s.id===id);if(section)section.order=index;});
     renderSections();
     toast('✓ Orden de secciones actualizado');
     // Don't refreshPreview here — user is still arranging; let them click Actualizar
