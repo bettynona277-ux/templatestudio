@@ -81,6 +81,19 @@ footer{padding:46px 0;text-align:center;color:rgba(255,255,255,.55);border-top:1
 .fab{position:fixed;right:18px;bottom:18px;width:60px;height:60px;border-radius:50%;background:var(--wa);display:grid;place-items:center;box-shadow:0 12px 30px color-mix(in srgb,var(--wa) 45%,transparent);text-decoration:none;font-size:30px;animation:bob 2.4s ease-in-out infinite;z-index:50}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 @media(max-width:760px){.steps{grid-template-columns:1fr}.hero{padding:42px 0 44px;text-align:center}.hero-layout{grid-template-columns:1fr;gap:18px}.hero-art{min-height:230px;order:0}.hero-copy{order:1;justify-self:center}.lead{margin-left:auto;margin-right:auto}.hero-tv{width:min(112%,440px)}.popcorn-float{width:118px;opacity:.18;filter:blur(8px)}.popcorn-float.p2{right:-54px;top:58%}.popcorn-float.p3{display:none}}
+/* ── mobile: todas las animaciones activas, reemplazar las caras por versiones GPU ── */
+@media(max-width:640px){
+  /* blur caro → blur chico, sigue suave pero no mata el GPU */
+  .orb{filter:blur(15px)}
+  /* 3 imágenes animadas con blur = frame drops, las quitamos */
+  .popcorn-layer{display:none}
+  /* badgeGlow box-shadow = repaint cada frame → opacity pulse = compositable gratis */
+  @keyframes badgeGlow{0%,100%{opacity:1}50%{opacity:.6}}
+  /* cta ring box-shadow expansión = repaint → lo sacamos, el hero bounce ya lo reemplaza */
+  .cta:after{animation:none;opacity:0}
+  /* reveals más rápidos en mobile = se siente más ágil */
+  .reveal{transition-duration:.38s}
+}
 /* ── motion ── */
 .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s cubic-bezier(.4,0,.15,1),transform .6s cubic-bezier(.4,0,.15,1)}
 .reveal.in{opacity:1;transform:none}
@@ -98,7 +111,7 @@ footer{padding:46px 0;text-align:center;color:rgba(255,255,255,.55);border-top:1
 @keyframes sheen{from{background-position:0 0}to{background-position:200% 0}}
 /* orbes de fondo — fuera del hero para no ser clippeados por overflow:hidden */
 .orbs{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;opacity:.55}
-.orb{position:absolute;border-radius:50%;filter:blur(92px);animation:orbDrift var(--dur,20s) ease-in-out infinite alternate}
+.orb{position:absolute;border-radius:50%;filter:blur(92px);animation:orbDrift var(--dur,20s) ease-in-out infinite alternate;will-change:transform}
 .popcorn-layer{position:fixed;inset:0;z-index:1;overflow:hidden;pointer-events:none}
 .popcorn-float{position:absolute;width:clamp(96px,13vw,170px);height:auto;opacity:.24;filter:blur(7px) saturate(1.05);transform-origin:center;animation:popcornFloat var(--dur,12s) ease-in-out infinite alternate;will-change:transform}
 .popcorn-float.p1{left:-58px;top:18%;--dur:12s;--tx:22px;--ty:-28px;--rot-start:7deg;--rot:-8deg}
@@ -136,26 +149,25 @@ footer{padding:46px 0;text-align:center;color:rgba(255,255,255,.55);border-top:1
 </head>
 <body>
 <script>
-// Estrellas — corre antes de Firebase, aparece instantáneo
+// Estrellas — z-index:3 sobre #root(z-index:2), reducidas en mobile
 (function(){
+  var mob=window.innerWidth<640;
   var rnd=function(max){return Math.floor(Math.random()*max);};
-  var shadows=[];
-  for(var i=0;i<120;i++){
-    var x=rnd(2000),y=rnd(2000),op=(Math.random()*.55+.2).toFixed(2),sz=Math.random()<.75?1:2;
-    shadows.push(x+'px '+y+'px '+sz+'px rgba(255,255,255,'+op+')');
+  var W=mob?window.innerWidth*2:2400,H=mob?window.innerHeight*4:2400;
+  var n1=mob?28:110,n2=mob?10:40;
+  var s1=[],s2=[];
+  for(var i=0;i<n1;i++){
+    var op=(Math.random()*.5+.25).toFixed(2),sz=Math.random()<.7?1:2;
+    s1.push(rnd(W)+'px '+rnd(H)+'px '+sz+'px rgba(255,255,255,'+op+')');
   }
-  var s2=[];
-  for(var j=0;j<50;j++){
-    var x2=rnd(2000),y2=rnd(2000);
-    s2.push(x2+'px '+y2+'px 2px rgba(255,255,255,.18)');
-  }
+  for(var j=0;j<n2;j++){s2.push(rnd(W)+'px '+rnd(H)+'px 2px rgba(255,255,255,.2)');}
   var st=document.createElement('style');
   st.textContent=
-    '.star-bg{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}'+
-    '.star-bg:before,.star-bg:after{content:"";position:absolute;top:0;left:0;width:1px;height:1px;border-radius:50%}'+
-    '.star-bg:before{box-shadow:'+shadows.join(',')+';animation:starTw 5s ease-in-out infinite alternate}'+
-    '.star-bg:after{box-shadow:'+s2.join(',')+';animation:starTw 8s 2s ease-in-out infinite alternate}'+
-    '@keyframes starTw{0%{opacity:.45}50%{opacity:1}100%{opacity:.3}}';
+    '.star-bg{position:fixed;inset:0;pointer-events:none;z-index:3;overflow:hidden}'+
+    '.star-bg:before,.star-bg:after{content:"";position:absolute;top:0;left:0;width:1px;height:1px;border-radius:50%;will-change:opacity}'+
+    '.star-bg:before{box-shadow:'+s1.join(',')+';animation:starTw 6s ease-in-out infinite alternate}'+
+    '.star-bg:after{box-shadow:'+s2.join(',')+';animation:starTw 9s 2.5s ease-in-out infinite alternate}'+
+    '@keyframes starTw{0%{opacity:.35}50%{opacity:1}100%{opacity:.25}}';
   document.head.appendChild(st);
   var div=document.createElement('div');div.className='star-bg';
   document.body.prepend(div);
