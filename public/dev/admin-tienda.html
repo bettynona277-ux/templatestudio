@@ -273,12 +273,11 @@ iframe{width:100%;height:100%;border:0;display:block;background:#fff}
         <!-- 0 INFO -->
         <section class="step-panel show" data-step="0">
           <div class="card">
-            <label>Nombre visible<input class="input" id="storeName" maxlength="70" placeholder="Bertha Streaming"></label>
-            <label style="margin-top:12px">Descripción corta<input class="input" id="storeTagline" maxlength="130" placeholder="Plataformas disponibles al instante"></label>
-            <div class="grid2" style="margin-top:12px">
+            <div class="grid2">
               <label>Prefijo<select class="select" id="waPrefix"><option value="51">+51 Perú</option><option value="57">+57 Colombia</option><option value="56">+56 Chile</option><option value="54">+54 Argentina</option><option value="52">+52 México</option><option value="593">+593 Ecuador</option><option value="591">+591 Bolivia</option><option value="505">+505 Nicaragua</option><option value="502">+502 Guatemala</option><option value="34">+34 España</option></select></label>
               <label>WhatsApp<input class="input" id="waNumber" inputmode="numeric" maxlength="18" placeholder="974834197"></label>
             </div>
+            <label style="margin-top:12px">Moneda<select class="select" id="currencySelect"><option value="PEN">S/ — Sol peruano</option><option value="COP">$ — Peso colombiano</option><option value="CLP">$ — Peso chileno</option><option value="ARS">$ — Peso argentino</option><option value="MXN">$ — Peso mexicano</option><option value="BOB">Bs — Boliviano</option><option value="NIO">C$ — Córdoba</option><option value="GTQ">Q — Quetzal</option><option value="USD">$ — Dólar</option><option value="EUR">€ — Euro</option></select></label>
             <div class="toggle-row" style="margin-top:15px">
               <label class="switch"><input type="checkbox" id="enabledToggle" checked><span></span></label>
               <div><b style="font-size:13.5px">Catálogo activo</b><div class="hint">Si lo apagas, tu página no será pública.</div></div>
@@ -524,6 +523,10 @@ let platformOrder=[],elementStyles={},selectedObjectKey='',selectedObjectLabel='
 let DEMO_MODE=false;
 const PM=()=>DEMO_MODE?'*':location.origin;
 
+const CURRENCY_MAP={PEN:'S/',COP:'$',CLP:'$',ARS:'$',MXN:'$',BOB:'Bs',NIO:'C$',GTQ:'Q',USD:'$',EUR:'€'};
+const PREFIX_CURRENCY={'51':'PEN','57':'COP','56':'CLP','54':'ARS','52':'MXN','593':'PEN','591':'BOB','505':'NIO','502':'GTQ','34':'EUR'};
+function currencyFromPrefix(){return PREFIX_CURRENCY[$('waPrefix').value]||'PEN';}
+function currencySymbolFor(code){return CURRENCY_MAP[code]||'S/';}
 const PLATFORM_COLORS={'Netflix':'#E50914','Spotify':'#1DB954','YouTube Premium':'#FF0000','Prime Video':'#00A8E0','Disney+':'#0070F3','Max':'#7B2FBE','Crunchyroll':'#F47521','Paramount+':'#0064FF','Viki':'#1A9A5B','ViX':'#E8007D','Apple TV':'#555','Deezer':'#A238FF','Google One':'#4285F4','Canva':'#00C4CC','ChatGPT':'#10A37F','IPTV':'#0088cc'};
 const PLATFORM_LOGOS={
   netflix:'/logos/Netflix.svg',spotify:'/logos/Spotify.svg',youtube:'/logos/youtube.svg',youtubepremium:'/logos/youtube.svg',
@@ -609,6 +612,7 @@ function bindInputs(){
   document.querySelectorAll('input,textarea,select').forEach(el=>el.addEventListener('input',schedulePreview));
   $('slugInput').addEventListener('input',()=>{sanitizeSlug();schedulePreview();});
   $('waNumber').addEventListener('input',()=>{$('waNumber').value=$('waNumber').value.replace(/\D+/g,'');schedulePreview();});
+  $('waPrefix').addEventListener('change',()=>{$('currencySelect').value=currencyFromPrefix();schedulePreview();});
   [['objectX','x',-180,180],['objectY','y',-100,100],['objectWidth','width',30,100]].forEach(([id,key,min,max])=>{
     const range=$(id),value=$(id+'Value');
     range.addEventListener('input',()=>{value.value=range.value;updateSelectedStyle(key,Number(range.value),true);});
@@ -653,11 +657,10 @@ async function loadExistingCatalog(){
   const data=snap.data();
   platformOrder=(data.platforms||[]).map(p=>p.platform);
   elementStyles=sanitizeElementStyles(data.elementStyles||{});
-  $('storeName').value=data.name||'';
-  $('storeTagline').value=data.tagline||'';
   $('slugInput').value=data.slug||currentSlug;
   $('waNumber').value=data.whatsapp||'';
   $('waPrefix').value=data.whatsappPrefix||settings.whatsappPrefix||'51';
+  $('currencySelect').value=data.currency||currencyFromPrefix();
   $('enabledToggle').checked=data.enabled!==false;
   selectedTemplate=data.templateId||data.template||'streamx';
   sections=mergeSections(data.sections);
@@ -683,10 +686,9 @@ async function loadExistingCatalog(){
 }
 
 function seedDefaults(){
-  $('storeName').value='Bertha Streaming';
-  $('storeTagline').value='Plataformas disponibles al instante';
   $('slugInput').value='bertha-streaming';
   $('waPrefix').value=settings.whatsappPrefix||'51';
+  $('currencySelect').value=currencyFromPrefix();
   $('waNumber').value='974834197';
   $('heroBadge').value='Streaming disponible hoy';
   $('heroHeadline').value='Mas entretenimiento, menos precio';
@@ -878,12 +880,12 @@ function buildData(){
     ownerUid:uid,
     slug:sanitizeSlug(false),
     enabled:$('enabledToggle').checked,
-    name:$('storeName').value.trim(),
-    tagline:$('storeTagline').value.trim(),
+    name:'Tienda Streaming',
+    tagline:'Garantia del 100%',
     whatsapp:$('waNumber').value.replace(/\D+/g,''),
     whatsappPrefix:$('waPrefix').value,
-    currency:settings.financeCurrency||'PEN',
-    currencySymbol:settings.financeSymbol||'S/',
+    currency:$('currencySelect').value||'PEN',
+    currencySymbol:currencySymbolFor($('currencySelect').value),
     templateId:selectedTemplate,
     template:selectedTemplate,
     theme:{accent:val('accentColor'),accent2:val('accent2Color'),whatsapp:val('whatsappColor'),background:val('backgroundColor')},
@@ -927,7 +929,6 @@ window.setPreviewMode=mode=>{$('frameBox').classList.toggle('mobile',mode==='mob
 // Onboarding progress (consumed by the shells if they show a checklist)
 function updateProgress(){
   const checks={
-    name:!!val('storeName'),
     whatsapp:$('waNumber')?.value.replace(/\D+/g,'').length>=8,
     slug:sanitizeSlug(false).length>=3,
     platforms:platforms.length>0,
