@@ -7,6 +7,8 @@
 <meta name="description" content="Catálogo de streaming. Pide por WhatsApp y recibe tu acceso en minutos.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com">
+<link rel="dns-prefetch" href="https://firestore.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -131,12 +133,31 @@ footer{padding:46px 0;text-align:center;color:rgba(255,255,255,.55);border-top:1
 <div id="notfound"><h2>Catálogo no disponible</h2><p>Este enlace no existe o fue desactivado. Verifica la dirección con tu proveedor.</p></div>
 <main id="root"></main>
 
-<script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+<script>
+// Firestore REST — sin SDK, carga instantánea
+const FS_URL='https://firestore.googleapis.com/v1/projects/plantillas-bfaeb/databases/(default)/documents/public_catalogs/';
+const FS_KEY='AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY';
 
-const firebaseConfig={apiKey:'AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY',authDomain:'plantillas-bfaeb.firebaseapp.com',projectId:'plantillas-bfaeb',storageBucket:'plantillas-bfaeb.firebasestorage.app',messagingSenderId:'382002543593',appId:'1:382002543593:web:87ad0a3b3c1f32b3daa978'};
-const db=getFirestore(initializeApp(firebaseConfig));
+function fsVal(v){
+  if(!v||typeof v!=='object')return v;
+  if('stringValue'  in v)return v.stringValue;
+  if('integerValue' in v)return Number(v.integerValue);
+  if('doubleValue'  in v)return Number(v.doubleValue);
+  if('booleanValue' in v)return v.booleanValue;
+  if('nullValue'    in v)return null;
+  if('timestampValue' in v)return v.timestampValue;
+  if('mapValue'     in v){const r={};for(const[k,val]of Object.entries(v.mapValue.fields||{}))r[k]=fsVal(val);return r;}
+  if('arrayValue'   in v)return(v.arrayValue.values||[]).map(fsVal);
+  return v;
+}
+async function fsGet(slug){
+  const res=await fetch(FS_URL+encodeURIComponent(slug)+'?key='+FS_KEY);
+  if(!res.ok)return null;
+  const doc=await res.json();
+  if(doc.error||!doc.fields)return null;
+  const r={};for(const[k,v]of Object.entries(doc.fields))r[k]=fsVal(v);
+  return r;
+}
 
 const params=new URLSearchParams(location.search);
 const slug=params.get('s')||'';
@@ -256,11 +277,17 @@ window.addEventListener('message',e=>{const m=e.data;if(!m||typeof m!=='object')
 async function boot(){
   if(isPreview){document.getElementById('loader').querySelector('span').textContent='Vista previa';parent.postMessage({type:'CATALOG_READY'},'*');return;}
   if(!slug){showNotFound();return;}
+  const root=document.getElementById('root');
+  const cKey='_cat_'+slug;
+  // 1. Cache instantáneo (visitantes recurrentes)
+  try{const raw=localStorage.getItem(cKey);if(raw){const c=JSON.parse(raw);if(c?.enabled!==false)render(c);}}catch(e){}
+  // 2. Firestore REST — sin SDK, sin cascada de módulos
   try{
-    const snap=await getDoc(doc(db,'public_catalogs',slug));
-    if(!snap.exists()||snap.data().enabled===false){showNotFound();return;}
-    render(snap.data());
-  }catch(err){console.error(err);showNotFound();}
+    const data=await fsGet(slug);
+    if(!data||data.enabled===false){if(!root.innerHTML)showNotFound();return;}
+    try{localStorage.setItem(cKey,JSON.stringify(data));}catch(e){}
+    render(data);
+  }catch(err){console.error(err);if(!root.innerHTML)showNotFound();}
 }
 function showNotFound(){document.getElementById('loader').style.display='none';document.getElementById('notfound').style.display='flex';}
 boot();
