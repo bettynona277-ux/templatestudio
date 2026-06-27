@@ -307,6 +307,18 @@ iframe{width:100%;height:100%;border:0;display:block;background:#fff}
               <label style="margin-top:12px">Planes — descripción<textarea class="textarea" id="platformsDesc" maxlength="180"></textarea></label>
               <label style="margin-top:12px">Pasos — título<input class="input" id="stepsTitle" maxlength="70" placeholder="Compra en tres pasos"></label>
               <label style="margin-top:12px">Pasos — descripción<textarea class="textarea" id="stepsDesc" maxlength="180"></textarea></label>
+              <div class="grid2" style="margin-top:12px">
+                <label>Paso 1 - titulo<input class="input" id="step1Title" maxlength="70" placeholder="Elige tu plataforma"></label>
+                <label>Paso 1 - texto<input class="input" id="step1Desc" maxlength="120" placeholder="Mira los planes disponibles y escoge el que necesitas."></label>
+              </div>
+              <div class="grid2" style="margin-top:12px">
+                <label>Paso 2 - titulo<input class="input" id="step2Title" maxlength="70" placeholder="Escribenos por WhatsApp"></label>
+                <label>Paso 2 - texto<input class="input" id="step2Desc" maxlength="120" placeholder="Toca el boton y envia tu pedido en segundos."></label>
+              </div>
+              <div class="grid2" style="margin-top:12px">
+                <label>Paso 3 - titulo<input class="input" id="step3Title" maxlength="70" placeholder="Recibe tu acceso"></label>
+                <label>Paso 3 - texto<input class="input" id="step3Desc" maxlength="120" placeholder="Te enviamos los datos para disfrutar al instante."></label>
+              </div>
               <label style="margin-top:12px">Opiniones — título<input class="input" id="testimonialsTitle" maxlength="70" placeholder="Opiniones de clientes"></label>
               <label style="margin-top:12px">FAQ — título<input class="input" id="faqTitle" maxlength="70" placeholder="Preguntas frecuentes"></label>
               <label style="margin-top:12px">Footer — texto<textarea class="textarea" id="footerNote" maxlength="180"></textarea></label>
@@ -622,7 +634,7 @@ function bindInputs(){
     value.addEventListener('change',()=>{const next=Math.max(min,Math.min(max,Number(value.value)||0));range.value=next;value.value=next;updateSelectedStyle(key,next);});
   });
   $('previewFrame').addEventListener('load',()=>{previewReady=false;});
-  ['heroBadge','heroHeadline','heroAccent','heroDescription','heroCta','platformsTitle','platformsDesc','stepsTitle','stepsDesc','testimonialsTitle','faqTitle','footerNote'].forEach(id=>{const el=$(id);if(!el)return;const locate=()=>{const f=$('previewFrame');f&&f.contentWindow&&f.contentWindow.postMessage({type:'CATALOG_LOCATE',field:id},PM());};el.addEventListener('focus',locate);el.addEventListener('pointerdown',locate);});
+  ['heroBadge','heroHeadline','heroAccent','heroDescription','heroCta','platformsTitle','platformsDesc','stepsTitle','stepsDesc','step1Title','step1Desc','step2Title','step2Desc','step3Title','step3Desc','testimonialsTitle','faqTitle','footerNote'].forEach(id=>{const el=$(id);if(!el)return;const locate=()=>{const f=$('previewFrame');f&&f.contentWindow&&f.contentWindow.postMessage({type:'CATALOG_LOCATE',field:id},PM());};el.addEventListener('focus',locate);el.addEventListener('pointerdown',locate);});
 }
 
 async function reloadPrivateData(){
@@ -677,6 +689,7 @@ async function loadExistingCatalog(){
   $('platformsDesc').value=sectionData('platforms').description||'Estos planes se sincronizan con los cupos libres del gestor. Si aparece aqui, esta listo para vender.';
   $('stepsTitle').value=sectionData('steps').title||'Compra en tres pasos';
   $('stepsDesc').value=sectionData('steps').description||'Un flujo simple para que el cliente entienda que debe escribir por WhatsApp.';
+  fillStepInputs(sectionData('steps').items);
   $('testimonialsTitle').value=sectionData('testimonials').title||'Opiniones de clientes';
   $('faqTitle').value=sectionData('faq').title||'Preguntas frecuentes';
   $('footerNote').value=data.footerNote||'Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
@@ -701,6 +714,7 @@ function seedDefaults(){
   $('platformsDesc').value='Estos planes se sincronizan con los cupos libres del gestor. Si aparece aqui, esta listo para vender.';
   $('stepsTitle').value='Compra en tres pasos';
   $('stepsDesc').value='Un flujo simple para que el cliente entienda que debe escribir por WhatsApp.';
+  fillStepInputs();
   $('testimonialsTitle').value='Opiniones de clientes';
   $('faqTitle').value='Preguntas frecuentes';
   $('footerNote').value='Mas entretenimiento, menos friccion. Pide por WhatsApp y recibe atencion directa.';
@@ -875,12 +889,44 @@ window.clearObjectColor=()=>updateSelectedStyle('color','');
 window.nudgeSelected=(x,y)=>{if(!selectedObjectKey)return;const current=selectedStyle();elementStyles[selectedObjectKey]={...current,x:Math.max(-180,Math.min(180,current.x+x)),y:Math.max(-100,Math.min(100,current.y+y))};syncContextControls();sendStyleToPreview();};
 window.resetSelectedObject=()=>{if(!selectedObjectKey)return;delete elementStyles[selectedObjectKey];syncContextControls();sendStyleToPreview();schedulePreview();toast('Posicion restablecida');};
 
+const DEFAULT_STEP_ITEMS=[
+  {title:'Elige tu plataforma',description:'Mira los planes disponibles y escoge el que necesitas.'},
+  {title:'Escribenos por WhatsApp',description:'Toca el boton y envia tu pedido en segundos.'},
+  {title:'Recibe tu acceso',description:'Te enviamos los datos para disfrutar al instante.'}
+];
+function normalizedStepItems(items){
+  return DEFAULT_STEP_ITEMS.map((base,index)=>{
+    const item=Array.isArray(items)?items[index]:null;
+    return {
+      title:String(item?.title||base.title).slice(0,70),
+      description:String(item?.description||base.description).slice(0,120)
+    };
+  });
+}
+function fillStepInputs(items){
+  normalizedStepItems(items).forEach((item,index)=>{
+    const n=index+1;
+    const title=$(`step${n}Title`),desc=$(`step${n}Desc`);
+    if(title)title.value=item.title;
+    if(desc)desc.value=item.description;
+  });
+}
+function readStepItems(){
+  return DEFAULT_STEP_ITEMS.map((base,index)=>{
+    const n=index+1;
+    return {
+      title:(val(`step${n}Title`)||base.title).slice(0,70),
+      description:(val(`step${n}Desc`)||base.description).slice(0,120)
+    };
+  });
+}
+
 function buildData(){
   const hero={badge:val('heroBadge'),headline:val('heroHeadline'),accentText:val('heroAccent'),description:val('heroDescription'),cta:val('heroCta')};
   const sectionCopy={
     hero,
     platforms:{title:val('platformsTitle'),description:val('platformsDesc')},
-    steps:{title:val('stepsTitle'),description:val('stepsDesc')},
+    steps:{title:val('stepsTitle'),description:val('stepsDesc'),items:readStepItems()},
     testimonials:{title:val('testimonialsTitle'),description:'Confianza antes de escribir por WhatsApp.'},
     faq:{title:val('faqTitle'),description:'Resuelve dudas rapidas antes del pedido.'},
     benefits:{},stats:{}
@@ -927,12 +973,10 @@ function refreshPreview(reloadFrame=false){
   try{localStorage.setItem('_preview_draft',JSON.stringify(draft));}catch(e){}
   const frame=$('previewFrame'),nextPage=catalogPageForTemplate();
   if(nextPage!==currentPreviewPage){reloadFrame=true;currentPreviewPage=nextPage;}
-  if(DEMO_MODE){
-    if(reloadFrame||!frame.getAttribute('srcdoc')){frame.srcdoc=buildInlineCatalog(draft);}
-    else frame.contentWindow?.postMessage({type:'CATALOG_PREVIEW_UPDATE',store:draft},'*');
-  }else{
-    if(reloadFrame||!frame.getAttribute('src')){previewReady=false;frame.src=previewUrl();}
-    else if(previewReady) frame.contentWindow?.postMessage({type:'CATALOG_PREVIEW_UPDATE',store:draft},location.origin);
+  if(reloadFrame||!frame.getAttribute('src')||frame.getAttribute('srcdoc')){
+    previewReady=false;frame.removeAttribute('srcdoc');frame.src=previewUrl();
+  }else if(previewReady){
+    frame.contentWindow?.postMessage({type:'CATALOG_PREVIEW_UPDATE',store:draft},PM());
   }
   updateUrl();updateProgress();
 }
@@ -1200,8 +1244,9 @@ function render(store){
   }
   // STEPS
   if(enabled(store,'steps')){
-    const steps=[['1','Elige tu plataforma','Mira los planes disponibles y escoge el que necesitas.'],['2','Escríbenos por WhatsApp','Toca el botón y envía tu pedido en segundos.'],['3','Recibe tu acceso','Te entregamos tu cuenta lista para disfrutar en minutos.']];
-    html+='<section class="block"><div class="wrap"><div class="sec-head reveal">'+editable('stepsTitle','steps-title','Título pasos','Encabezado','h2','',esc(st.title||'Compra en tres pasos'))+editable('stepsDesc','steps-desc','Descripción pasos','Texto','p','',esc(st.description||''))+'</div><div class="steps">'+steps.map((s,i)=>'<div class="step reveal" style="transition-delay:'+(i*80)+'ms"><div class="n">'+s[0]+'</div><h3>'+s[1]+'</h3><p>'+s[2]+'</p></div>').join('')+'</div></div></section>';
+    const defaults=[{title:'Elige tu plataforma',description:'Mira los planes disponibles y escoge el que necesitas.'},{title:'Escribenos por WhatsApp',description:'Toca el boton y envia tu pedido en segundos.'},{title:'Recibe tu acceso',description:'Te enviamos los datos para disfrutar al instante.'}];
+    const steps=defaults.map((d,i)=>Object.assign({},d,Array.isArray(st.items)?(st.items[i]||{}):{}));
+    html+='<section class="block"><div class="wrap"><div class="sec-head reveal">'+editable('stepsTitle','steps-title','Titulo pasos','Encabezado','h2','',esc(st.title||'Compra en tres pasos'))+editable('stepsDesc','steps-desc','Descripcion pasos','Texto','p','',esc(st.description||''))+'</div><div class="steps">'+steps.map((s,i)=>'<div class="step reveal" style="transition-delay:'+(i*80)+'ms"><div class="n">'+(i+1)+'</div>'+editable('step'+(i+1)+'Title','step-'+(i+1)+'-title','Paso '+(i+1)+' titulo','Encabezado','h3','',esc(s.title||defaults[i].title))+editable('step'+(i+1)+'Desc','step-'+(i+1)+'-desc','Paso '+(i+1)+' texto','Texto','p','',esc(s.description||defaults[i].description))+'</div>').join('')+'</div></div></section>';
   }
   // TESTIMONIALS
   if(enabled(store,'testimonials')&&(store.testimonials||[]).length){
