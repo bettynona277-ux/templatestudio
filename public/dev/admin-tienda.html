@@ -517,7 +517,7 @@ const settingsRef=uid=>doc(db,'users',uid,'gestor_config','settings');
 const publicStoreRef=uid=>doc(db,'users',uid,'gestor_config','public_store');
 const catalogDoc=slug=>doc(db,'public_catalogs',slug);
 const catalogTemplatesCol=()=>collection(db,'catalog_templates');
-let uid='',currentSlug='',accounts=[],clients=[],settings={},platforms=[],templates=[],testimonials=[],selectedTemplate='streamx',previewTimer=null,previewReady=false,previewMotionForced=true;
+let uid='',currentSlug='',accounts=[],clients=[],settings={},platforms=[],templates=[],testimonials=[],selectedTemplate='streamx',previewTimer=null,previewReady=false,previewMotionForced=true,currentPreviewPage='';
 let platformOrder=[],elementStyles={},selectedObjectKey='',selectedObjectLabel='';
 let DEMO_MODE=false;
 const PM=()=>DEMO_MODE?'*':location.origin;
@@ -753,7 +753,11 @@ function applyTemplatePreset(id,notify=true){
   $('accentColor').value=preset.accent;$('accent2Color').value=preset.accent2;$('whatsappColor').value=preset.whatsapp;$('backgroundColor').value=preset.background;
   if(notify&&id==='femme')toast('Plantilla Femme aplicada');
 }
-window.selectTemplate=id=>{selectedTemplate=id;applyTemplatePreset(id);renderTemplates();schedulePreview();};
+window.selectTemplate=id=>{
+  const previousPage=catalogPageForTemplate();
+  selectedTemplate=id;applyTemplatePreset(id);renderTemplates();
+  refreshPreview(catalogPageForTemplate()!==previousPage);
+};
 
 function renderSections(){
   const host=$('sectionsList');if(!host)return;
@@ -921,7 +925,8 @@ window.togglePreviewMotion=()=>{previewMotionForced=!previewMotionForced;paintMo
 function refreshPreview(reloadFrame=false){
   const draft={...buildData(),_isPreview:true};
   try{localStorage.setItem('_preview_draft',JSON.stringify(draft));}catch(e){}
-  const frame=$('previewFrame');
+  const frame=$('previewFrame'),nextPage=catalogPageForTemplate();
+  if(nextPage!==currentPreviewPage){reloadFrame=true;currentPreviewPage=nextPage;}
   if(DEMO_MODE){
     if(reloadFrame||!frame.getAttribute('srcdoc')){frame.srcdoc=buildInlineCatalog(draft);}
     else frame.contentWindow?.postMessage({type:'CATALOG_PREVIEW_UPDATE',store:draft},'*');
