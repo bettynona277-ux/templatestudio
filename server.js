@@ -119,7 +119,9 @@ async function parsePSDBuffer(psdBuf) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  let url;
+  try { url = new URL(req.url, `http://localhost:${PORT}`); }
+  catch { res.writeHead(400); res.end('Bad Request'); return; }
   res.setHeader('Access-Control-Allow-Origin','*');
   res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers','Content-Type');
