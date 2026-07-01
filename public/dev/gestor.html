@@ -3830,6 +3830,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
       <button class="ghost-btn" id="syncBtn"><i data-lucide="refresh-cw"></i><span>Sincronizar</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
+      <button class="ghost-btn" onclick="openImportModal()"><i data-lucide="upload"></i><span>Importar</span></button>
       <button class="ghost-btn" onclick="window.open('admin-tienda.html','_blank')"><i data-lucide="store"></i><span>Mi Tienda</span></button>
     </div>
   </aside>
@@ -5031,6 +5032,84 @@ ${financeWorksheet}
   URL.revokeObjectURL(a.href);
 }
 window.downloadGestorExcel=downloadGestorExcel;
+
+function downloadImportTemplate(){
+  const ec=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/”/g,'&quot;');
+  const cell=(v,style)=>`<Cell ss:StyleID=”${style}”><Data ss:Type=”String”>${ec(v)}</Data></Cell>`;
+  const hdr=v=>cell(v,'TH');
+  const ex=v=>cell(v,'EX');
+  const info=(v,merge)=>`<Cell${merge?' ss:MergeAcross=”'+merge+'”':''} ss:StyleID=”INFO”><Data ss:Type=”String”>${ec(v)}</Data></Cell>`;
+
+  const accCols=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contrasena','Capacidad','Vencimiento','Notas'];
+  const cliCols=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Perfil','PIN','Vencimiento','Estado','Notas'];
+
+  const accEx1=['Netflix','Mi Proveedor','51999123456','netflix_cuenta@gmail.com','Clave123','4','2025-12-31',''];
+  const accEx2=['Spotify','','','spotify_cuenta@gmail.com','Clave456','2','2025-11-30','Cuenta familiar'];
+  const cliEx1=['Ana Garcia','51988111222','Netflix','netflix_cuenta@gmail.com','Perfil 1','1234','2025-12-31','activo',''];
+  const cliEx2=['Carlos Ramos','51977333444','Spotify','spotify_cuenta@gmail.com','','','2025-11-30','activo','Sin PIN'];
+
+  const colXml=widths=>widths.map(w=>`<Column ss:AutoFitWidth=”0” ss:Width=”${w}”/>`).join('');
+  const rowHdr=cols=>`<Row ss:AutoFitHeight=”1”>${cols.map(hdr).join('')}</Row>`;
+  const rowEx=vals=>`<Row ss:AutoFitHeight=”1”>${vals.map(ex).join('')}</Row>`;
+
+  const instrSheet=`<Worksheet ss:Name=”Instrucciones”>
+    <Table>${colXml([220,420])}
+      <Row ss:Height=”32”><Cell ss:MergeAcross=”1” ss:StyleID=”TITLE”><Data ss:Type=”String”>Plantilla de importacion — Disenos Streaming</Data></Cell></Row>
+      <Row ss:Height=”8”><Cell/></Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 1</Data></Cell>${info('Rellena la hoja “Cuentas madre” con tus cuentas (Netflix, Spotify, etc.)')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 2</Data></Cell>${info('Rellena la hoja “Clientes”. En “Cuenta madre correo” escribe el mismo correo de la cuenta que le corresponde.')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 3</Data></Cell>${info('Borra las filas de ejemplo (las grises) antes de subir el archivo.')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 4</Data></Cell>${info('Guarda el archivo como .xls y subelo en el gestor usando el boton Importar.')}</Row>
+      <Row ss:Height=”8”><Cell/></Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Plataforma</Data></Cell>${info('Nombre del servicio: Netflix, Spotify, YouTube Premium, etc. Obligatorio.')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Correo</Data></Cell>${info('Correo de la cuenta madre. Se usa para vincular los clientes a ella.')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Capacidad</Data></Cell>${info('Cuantos perfiles/clientes soporta la cuenta (numero entero, ej: 4).')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Vencimiento</Data></Cell>${info('Fecha en formato AAAA-MM-DD (ej: 2025-12-31).')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Estado</Data></Cell>${info('”activo” o “vencido”.')}</Row>
+      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Cuenta madre correo</Data></Cell>${info('En hoja Clientes: escribe el correo exacto de la cuenta madre para vincularlos.')}</Row>
+    </Table></Worksheet>`;
+
+  const accSheet=`<Worksheet ss:Name=”Cuentas madre”>
+    <Table>${colXml([120,130,140,200,140,70,100,220])}
+      ${rowHdr(accCols)}
+      ${rowEx(accEx1)}
+      ${rowEx(accEx2)}
+    </Table></Worksheet>`;
+
+  const cliSheet=`<Worksheet ss:Name=”Clientes”>
+    <Table>${colXml([160,130,120,200,90,70,100,80,200])}
+      ${rowHdr(cliCols)}
+      ${rowEx(cliEx1)}
+      ${rowEx(cliEx2)}
+    </Table></Worksheet>`;
+
+  const xml=`<?xml version=”1.0” encoding=”UTF-8”?>
+<?mso-application progid=”Excel.Sheet”?>
+<Workbook xmlns=”urn:schemas-microsoft-com:office:spreadsheet”
+ xmlns:ss=”urn:schemas-microsoft-com:office:spreadsheet”>
+<Styles>
+  <Style ss:ID=”Default”><Font ss:FontName=”Calibri” ss:Size=”11”/></Style>
+  <Style ss:ID=”TITLE”><Alignment ss:Horizontal=”Center” ss:Vertical=”Center”/><Interior ss:Color=”#1e1b4b” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”15” ss:Bold=”1” ss:Color=”#a5b4fc”/></Style>
+  <Style ss:ID=”LABEL”><Font ss:FontName=”Calibri” ss:Size=”10” ss:Bold=”1” ss:Color=”#4f46e5”/></Style>
+  <Style ss:ID=”INFO”><Font ss:FontName=”Calibri” ss:Size=”10” ss:Color=”#374151”/></Style>
+  <Style ss:ID=”TH”><Alignment ss:Horizontal=”Center” ss:Vertical=”Center”/><Interior ss:Color=”#1e293b” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”10” ss:Bold=”1” ss:Color=”#ffffff”/><Borders><Border ss:Position=”Bottom” ss:LineStyle=”Continuous” ss:Weight=”2” ss:Color=”#6366f1”/></Borders></Style>
+  <Style ss:ID=”EX”><Interior ss:Color=”#f1f5f9” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”10” ss:Color=”#64748b” ss:Italic=”1”/></Style>
+</Styles>
+${instrSheet}
+${accSheet}
+${cliSheet}
+</Workbook>`;
+
+  const cleanTemplateXml=xml.replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+  const blob=new Blob([cleanTemplateXml],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='plantilla-importacion.xls';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+window.downloadImportTemplate=downloadImportTemplate;
+
 // â”€â”€ Refresh sin persistir (cuando ya se guard? el doc individual) â”€â”€
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
@@ -7520,6 +7599,418 @@ $('#syncBtn').onclick=async()=>{
 };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
+// ===== IMPORTAR EXCEL =====
+(function(){
+  var _importData=null;
+  var _importTab='acc';
+
+  var ACC_COLS=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contrasena','Capacidad','Vencimiento','Notas'];
+  var CLI_COLS=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Perfil','PIN','Vencimiento','Estado','Notas'];
+
+  function $i(id){return document.getElementById(id);}
+
+  function importShowPhase(p){
+    ['importP1','importP2','importP3'].forEach(function(id){
+      $i(id).style.display=id===p?'':'none';
+    });
+  }
+
+  window.openImportModal=function(){
+    importReset();
+    var el=$i('importModalOverlay');
+    el.style.display='flex';
+  };
+  window.closeImportModal=function(){
+    $i('importModalOverlay').style.display='none';
+    importReset();
+  };
+  window.importReset=function(){
+    _importData=null;
+    _importTab='acc';
+    var fi=$i('importFileInput');
+    if(fi) fi.value='';
+    $i('importErrBox').style.display='none';
+    $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
+    importShowPhase('importP1');
+  };
+
+  window.importHandleDrop=function(e){
+    e.preventDefault();
+    $i('importDropzone').style.borderColor='rgba(138,161,255,.25)';
+    var file=e.dataTransfer.files[0];
+    if(file) importHandleFile(file);
+  };
+  window.importHandleFile=function(file){
+    if(!file) return;
+    if(!/\.(xls|xlsx)$/i.test(file.name)){
+      importShowErr('Solo se aceptan archivos .xls o .xlsx.');
+      return;
+    }
+    $i('importModalSub').textContent='Leyendo archivo...';
+    var reader=new FileReader();
+    reader.onload=async function(e){
+      var buffer=e.target.result;
+      var result=await parseImportWorkbook(buffer);
+      if(!result){
+        importShowErr('No se pudo leer el archivo. Revisa que sea un Excel valido con hojas "Cuentas madre" y/o "Clientes".');
+        $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
+        return;
+      }
+      _importData=result;
+      buildImportPreview(result);
+      importShowPhase('importP2');
+      importShowTab('acc');
+    };
+    reader.onerror=function(){
+      importShowErr('Error al leer el archivo.');
+      $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  function importShowErr(msg){
+    var el=$i('importErrBox');
+    el.textContent=msg;
+    el.style.display='';
+  }
+
+  function loadXlsxLib(){
+    if(window.XLSX) return Promise.resolve(window.XLSX);
+    return new Promise(function(resolve){
+      var existing=document.querySelector('script[data-xlsx-import]');
+      if(existing){
+        existing.addEventListener('load',function(){ resolve(window.XLSX||null); },{once:true});
+        existing.addEventListener('error',function(){ resolve(null); },{once:true});
+        return;
+      }
+      var s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      s.defer=true;
+      s.dataset.xlsxImport='1';
+      s.onload=function(){ resolve(window.XLSX||null); };
+      s.onerror=function(){ resolve(null); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function decodeUtf8(buffer){
+    try{ return new TextDecoder('utf-8').decode(buffer); }
+    catch(e){
+      var bytes=new Uint8Array(buffer), out='';
+      for(var i=0;i<bytes.length;i++) out+=String.fromCharCode(bytes[i]);
+      try{ return decodeURIComponent(escape(out)); }catch(_){ return out; }
+    }
+  }
+
+  async function parseImportWorkbook(buffer){
+    var xlsx=await loadXlsxLib();
+    if(xlsx){
+      try{
+        var wb=xlsx.read(buffer,{type:'array',cellDates:false,raw:false});
+        var parsed=parseXlsxWorkbook(wb,xlsx);
+        if(parsed) return parsed;
+      }catch(e){ console.warn('xlsx import fallback:',e); }
+    }
+    return parseGestorXLS(decodeUtf8(buffer));
+  }
+
+  function normalizeHeader(value){
+    return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  }
+
+  function canonicalHeader(value, knownCols){
+    var normalized=normalizeHeader(value);
+    var aliases={
+      'contraseña':'Contrasena',
+      'contrasena':'Contrasena',
+      'whatsapp proveedor':'WhatsApp proveedor',
+      'cuenta madre':'Cuenta madre correo',
+      'cuenta madre correo':'Cuenta madre correo',
+      'correo cuenta madre':'Cuenta madre correo'
+    };
+    if(aliases[normalized]) return aliases[normalized];
+    return knownCols.find(function(c){ return normalizeHeader(c)===normalized; }) || String(value||'').trim();
+  }
+
+  function isHeaderRow(cells,knownCols){
+    var known=knownCols.map(normalizeHeader);
+    var hits=cells.filter(function(c){ return known.indexOf(normalizeHeader(c))>=0; });
+    return hits.length>=2;
+  }
+
+  function sheetRowsFromXlsx(ws, xlsx){
+    if(!ws) return [];
+    return xlsx.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,blankrows:false})
+      .map(function(row){ return row.map(function(v){ return String(v == null ? '' : v).trim(); }); });
+  }
+
+  function findSheet(workbook, wanted, fallbackIndex){
+    var target=normalizeHeader(wanted);
+    var exact=workbook.SheetNames.find(function(n){ return normalizeHeader(n)===target; });
+    var partial=workbook.SheetNames.find(function(n){ return normalizeHeader(n).indexOf(target)>=0 || target.indexOf(normalizeHeader(n))>=0; });
+    return workbook.Sheets[exact||partial||workbook.SheetNames[fallbackIndex]||workbook.SheetNames[0]];
+  }
+
+  function parseRowsMatrix(rows, knownCols){
+    var headers=null, headerIndex=-1, data=[];
+    for(var i=0;i<rows.length;i++){
+      var cells=(rows[i]||[]).map(function(v){ return String(v == null ? '' : v).trim(); });
+      if(!cells.some(Boolean)) continue;
+      if(!headers){
+        if(isHeaderRow(cells,knownCols)){
+          headers=cells.map(function(h){ return canonicalHeader(h,knownCols); });
+          headerIndex=i;
+        }
+      }else{
+        var obj={};
+        headers.forEach(function(h,idx){ if(h) obj[h]=cells[idx]||''; });
+        if(Object.values(obj).some(function(v){return v;})) data.push(obj);
+      }
+    }
+    return {headers:headers||knownCols, rows:data, previewRows:headers ? rows.slice(headerIndex+1).filter(function(r){ return (r||[]).some(function(c){ return String(c||'').trim(); }); }) : []};
+  }
+
+  function parseXlsxWorkbook(workbook, xlsx){
+    var accMatrix=sheetRowsFromXlsx(findSheet(workbook,'Cuentas madre',1),xlsx);
+    var cliMatrix=sheetRowsFromXlsx(findSheet(workbook,'Clientes',2),xlsx);
+    var acc=parseRowsMatrix(accMatrix,ACC_COLS);
+    var cli=parseRowsMatrix(cliMatrix,CLI_COLS);
+    if(!acc.rows.length && !cli.rows.length) return null;
+    return {accRows:acc.rows, cliRows:cli.rows, preview:{accHeaders:acc.headers, accRows:acc.previewRows, cliHeaders:cli.headers, cliRows:cli.previewRows}};
+  }
+
+  function parseGestorXLS(text){
+    var dom;
+    try{ dom=new DOMParser().parseFromString(text,'text/xml'); }catch(e){ return null; }
+    if(dom.querySelector('parsererror')) return null;
+
+    function getCells(row){
+      var out=[];
+      Array.from(row.querySelectorAll('Cell')).forEach(function(c){
+        var idx=c.getAttribute('ss:Index')||c.getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet','Index');
+        if(idx) while(out.length<Number(idx)-1) out.push('');
+        var d=c.querySelector('Data');
+        out.push(d ? d.textContent.trim() : '');
+      });
+      return out;
+    }
+
+    function parseSheet(ws,knownCols){
+      if(!ws) return {rows:[], headers:knownCols, previewRows:[]};
+      var rows=Array.from(ws.querySelectorAll('Row'));
+      var matrix=[], headers=null;
+      var data=[];
+      for(var i=0;i<rows.length;i++){
+        var cells=getCells(rows[i]);
+        matrix.push(cells);
+        if(!cells.some(function(c){return c;})) continue;
+        if(!headers){
+          if(isHeaderRow(cells,knownCols)) headers=cells.map(function(h){ return canonicalHeader(h,knownCols); });
+        } else {
+          var obj={};
+          headers.forEach(function(h,idx){ if(h) obj[h]=cells[idx]||''; });
+          if(Object.values(obj).some(function(v){return v;})) data.push(obj);
+        }
+      }
+      var parsed=parseRowsMatrix(matrix,knownCols);
+      return {rows:data, headers:parsed.headers, previewRows:parsed.previewRows};
+    }
+
+    var sheets={};
+    var NS='urn:schemas-microsoft-com:office:spreadsheet';
+    dom.querySelectorAll('Worksheet').forEach(function(ws){
+      var name=ws.getAttributeNS(NS,'Name')||ws.getAttribute('ss:Name')||'';
+      sheets[name]=ws;
+    });
+
+    var accWs=sheets['Cuentas madre'];
+    var cliWs=sheets['Clientes'];
+
+    if(!accWs && !cliWs){
+      // Try to find by partial match or fallback to first two sheets
+      var allWs=dom.querySelectorAll('Worksheet');
+      accWs=allWs[1]||allWs[0]; // sheet index 0 is Resumen
+      cliWs=allWs[2]||allWs[1];
+    }
+
+    var acc=parseSheet(accWs,ACC_COLS);
+    var cli=parseSheet(cliWs,CLI_COLS);
+
+    if(!acc.rows.length && !cli.rows.length) return null;
+    return {accRows:acc.rows, cliRows:cli.rows, preview:{accHeaders:acc.headers, accRows:acc.previewRows, cliHeaders:cli.headers, cliRows:cli.previewRows}};
+  }
+
+  function normalizeImportDate(value){
+    var s=String(value||'').trim();
+    if(!s) return '';
+    var ymd=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if(ymd) return ymd[1]+'-'+ymd[2].padStart(2,'0')+'-'+ymd[3].padStart(2,'0');
+    var dmy=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+    if(dmy){
+      var y=dmy[3].length===2 ? '20'+dmy[3] : dmy[3];
+      return y+'-'+dmy[2].padStart(2,'0')+'-'+dmy[1].padStart(2,'0');
+    }
+    return s.slice(0,20);
+  }
+
+  function buildImportPreview(raw){
+    var existingEmails=new Set(state.accounts.map(function(a){ return (a.email||'').toLowerCase(); }));
+    var importedEmails=new Set();
+    var now=new Date().toISOString();
+    var accounts=[];
+    var emailToId=new Map();
+    var warnings=[];
+
+    raw.accRows.forEach(function(row){
+      var platform=(row['Plataforma']||'').trim();
+      if(!platform){ warnings.push('Cuenta sin plataforma omitida.'); return; }
+      var email=(row['Correo']||'').trim();
+      var emailLow=email.toLowerCase();
+      if(email && existingEmails.has(emailLow)){
+        warnings.push('Cuenta "'+email+'" ya existe en el gestor — se omitirá.');
+        var ex=state.accounts.find(function(a){ return (a.email||'').toLowerCase()===emailLow; });
+        if(ex) emailToId.set(emailLow,ex.id);
+        return;
+      }
+      if(email && importedEmails.has(emailLow)){
+        warnings.push('Cuenta "'+email+'" esta duplicada en el Excel — se usará la primera.');
+        return;
+      }
+      var id=crypto.randomUUID ? crypto.randomUUID() : uid();
+      if(emailLow){ emailToId.set(emailLow,id); importedEmails.add(emailLow); }
+      accounts.push(sanitizeAccountForSave({
+        id:id, platform:platform,
+        provider:row['Proveedor'], providerWhatsapp:row['WhatsApp proveedor'],
+        email:email, password:row['Contrasena'],
+        capacity:Number(row['Capacidad'])||1,
+        dueDate:normalizeImportDate(row['Vencimiento']), notes:row['Notas'],
+        createdAt:now, updatedAt:now
+      }));
+    });
+
+    var clients=[];
+    raw.cliRows.forEach(function(row){
+      var name=(row['Cliente']||'').trim();
+      if(!name){ warnings.push('Cliente sin nombre omitido.'); return; }
+      var accEmail=(row['Cuenta madre correo']||'').trim().toLowerCase();
+      var accountId=accEmail ? (emailToId.get(accEmail)||'') : '';
+      if(!accountId && accEmail){
+        var ex=state.accounts.find(function(a){ return (a.email||'').toLowerCase()===accEmail; });
+        if(ex){ accountId=ex.id; emailToId.set(accEmail,ex.id); }
+        else warnings.push('Cliente "'+name+'" no tiene cuenta madre reconocida — se importará sin cuenta.');
+      }
+      var id2=crypto.randomUUID ? crypto.randomUUID() : uid();
+      clients.push({
+        id:id2, name:name, whatsapp:row['WhatsApp']||'',
+        accountId:accountId, platform:row['Plataforma']||'',
+        profile:row['Perfil']||'', pin:row['PIN']||'',
+        fullAccountSale:false, activationByCode:(row['Activacion']||'')==='Por codigo',
+        dueDate:normalizeImportDate(row['Vencimiento']), state:row['Estado']||'',
+        notes:row['Notas']||'', salePrice:0, renewalPrice:0,
+        comboId:'', comboName:'', comboSize:0, comboTotalPrice:0, comboRenewalPrice:0,
+        createdAt:now, updatedAt:now
+      });
+    });
+
+    _importData={accounts:accounts, clients:clients, warnings:warnings, preview:raw.preview||{}};
+
+    // Render summary chips
+    $i('importSumAcc').textContent=accounts.length;
+    $i('importSumCli').textContent=clients.length;
+    if(warnings.length){
+      $i('importSumWarnCard').style.display='';
+      $i('importSumWarn').textContent=warnings.length;
+      var ul=$i('importWarnItems');
+      ul.innerHTML=warnings.map(function(w){return '<li>'+escHtml(w)+'</li>';}).join('');
+      $i('importWarnList').style.display='';
+    } else {
+      $i('importSumWarnCard').style.display='none';
+      $i('importWarnList').style.display='none';
+    }
+    $i('importModalSub').textContent='Revisa los datos antes de confirmar';
+    if(!accounts.length && !clients.length){
+      $i('importConfirmBtn').disabled=true;
+      $i('importConfirmBtn').style.opacity='0.4';
+    } else {
+      $i('importConfirmBtn').disabled=false;
+      $i('importConfirmBtn').style.opacity='';
+    }
+  }
+
+  window.importShowTab=function(tab){
+    _importTab=tab;
+    var isAcc=tab==='acc';
+    var accBtn=$i('importTabAcc'); var cliBtn=$i('importTabCli');
+    accBtn.style.background=isAcc?'rgba(129,140,248,.15)':'none';
+    accBtn.style.color=isAcc?'#818cf8':'#64748b';
+    accBtn.style.borderColor=isAcc?'rgba(129,140,248,.3)':'rgba(255,255,255,.1)';
+    cliBtn.style.background=!isAcc?'rgba(52,211,153,.1)':'none';
+    cliBtn.style.color=!isAcc?'#34d399':'#64748b';
+    cliBtn.style.borderColor=!isAcc?'rgba(52,211,153,.2)':'rgba(255,255,255,.1)';
+
+    var wrap=$i('importTableWrap');
+    if(!_importData){ wrap.innerHTML=''; return; }
+    var preview=_importData.preview||{};
+    var rows=isAcc ? (preview.accRows||[]) : (preview.cliRows||[]);
+    if(!rows.length){ wrap.innerHTML='<p style="color:#64748b;font-size:12px;padding:16px;text-align:center">Sin datos en esta hoja.</p>'; return; }
+
+    var labels=isAcc ? (preview.accHeaders||ACC_COLS) : (preview.cliHeaders||CLI_COLS);
+
+    var html='<table><thead><tr>'+labels.map(function(l){return '<th>'+l+'</th>';}).join('')+'</tr></thead><tbody>';
+    rows.forEach(function(r){
+      html+='<tr>'+labels.map(function(_,idx){var v=Array.isArray(r)?r[idx]||'':r[_]||''; return '<td title="'+escHtml(String(v))+'">'+escHtml(String(v||'-'))+'</td>';}).join('')+'</tr>';
+    });
+    html+='</tbody></table>';
+    wrap.innerHTML=html;
+  };
+
+  function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  window.confirmImport=async function(){
+    if(!_importData) return;
+    var d=_importData;
+    if(!d.accounts.length && !d.clients.length){ closeImportModal(); return; }
+    importShowPhase('importP3');
+    $i('importProgressWrap').style.display='';
+    $i('importDoneWrap').style.display='none';
+    $i('importErrWrap').style.display='none';
+    var txt=$i('importProgressTxt');
+    try{
+      var total=d.accounts.length+d.clients.length;
+      var done=0;
+      for(var i=0;i<d.accounts.length;i++){
+        txt.textContent='Importando cuentas… '+(i+1)+'/'+d.accounts.length;
+        var acc=d.accounts[i];
+        var ok=await persistDoc('accounts',acc);
+        if(!ok) throw new Error('Error guardando cuenta: '+acc.platform);
+        state.accounts.push(acc);
+        done++;
+      }
+      for(var j=0;j<d.clients.length;j++){
+        txt.textContent='Importando clientes… '+(j+1)+'/'+d.clients.length;
+        var cli=d.clients[j];
+        var ok2=await persistDoc('clients',cli);
+        if(!ok2) throw new Error('Error guardando cliente: '+cli.name);
+        state.clients.push(cli);
+        done++;
+      }
+      touchLocalStateCache();
+      refreshUI();
+      $i('importProgressWrap').style.display='none';
+      $i('importDoneWrap').style.display='';
+      $i('importDoneTxt').textContent=d.accounts.length+' cuentas madre y '+d.clients.length+' clientes importados.';
+    } catch(err){
+      $i('importProgressWrap').style.display='none';
+      $i('importErrWrap').style.display='';
+      $i('importErrTxt').textContent=err.message||'Error desconocido';
+    }
+  };
+
+  // Close on overlay click
+  $i('importModalOverlay').addEventListener('click',function(e){
+    if(e.target===this) closeImportModal();
+  });
+})();
 
 // ===== CARGA MASIVA DE CUENTAS MADRE =====
 setToday();
@@ -7535,11 +8026,107 @@ window.addEventListener('load', () => {
 });
 </script>
 </div><!-- /appRoot -->
+<!-- ===== MODAL IMPORTAR EXCEL ===== -->
+<div id="importModalOverlay" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:16px">
+  <div id="importModalBox" style="background:#0e0e1a;border:1px solid rgba(138,161,255,.18);border-radius:20px;width:100%;max-width:680px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.7)">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.07)">
+      <div>
+        <h3 style="margin:0;font-size:16px;color:#e2e8f0">Importar desde Excel</h3>
+        <p id="importModalSub" style="margin:4px 0 0;font-size:12px;color:#64748b">Sube el Excel exportado desde este gestor</p>
+      </div>
+      <button onclick="closeImportModal()" style="background:none;border:none;color:#64748b;font-size:22px;cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1">&times;</button>
+    </div>
+
+    <!-- Phase 1: Subir archivo -->
+    <div id="importP1" style="padding:24px;flex:1;overflow-y:auto">
+      <!-- Paso 1: descargar plantilla -->
+      <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:18px 20px;margin-bottom:18px;display:flex;align-items:center;gap:16px">
+        <div style="font-size:28px;flex-shrink:0">📋</div>
+        <div style="flex:1;min-width:0">
+          <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#c7d2fe">Paso 1 — Descarga la plantilla</p>
+          <p style="margin:0;font-size:12px;color:#64748b;line-height:1.5">Rellena las hojas "Cuentas madre" y "Clientes" con tus datos. Borra las filas de ejemplo antes de subir.</p>
+        </div>
+        <button onclick="downloadImportTemplate()" style="flex-shrink:0;padding:8px 16px;border-radius:10px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.15);color:#a5b4fc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Descargar plantilla</button>
+      </div>
+      <!-- Paso 2: subir archivo -->
+      <div style="background:rgba(255,255,255,.03);border-radius:14px;padding:4px 0 8px;margin-bottom:4px">
+        <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#c8d3e8;padding:0 4px">Paso 2 — Sube la plantilla rellena</p>
+        <div id="importDropzone" onclick="document.getElementById('importFileInput').click()" ondragover="event.preventDefault();this.style.borderColor='#818cf8'" ondragleave="this.style.borderColor='rgba(138,161,255,.25)'" ondrop="importHandleDrop(event)" style="border:2px dashed rgba(138,161,255,.25);border-radius:14px;padding:36px 24px;text-align:center;cursor:pointer;transition:border-color .2s">
+          <div style="font-size:30px;margin-bottom:10px">📂</div>
+          <p style="margin:0 0 6px;color:#c8d3e8;font-size:14px;font-weight:600">Arrastra el archivo aquí</p>
+          <p style="margin:0;color:#64748b;font-size:12px">o haz clic para elegir · formato .xls o .xlsx</p>
+          <input id="importFileInput" type="file" accept=".xls,.xlsx" style="display:none" onchange="importHandleFile(this.files[0])">
+        </div>
+      </div>
+      <div id="importErrBox" style="display:none;margin-top:14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:14px 16px;color:#fca5a5;font-size:13px"></div>
+    </div>
+
+    <!-- Phase 2: Preview -->
+    <div id="importP2" style="display:none;padding:24px;flex:1;overflow-y:auto">
+      <!-- Summary chips -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.2);border-radius:12px;padding:12px 16px;text-align:center">
+          <div id="importSumAcc" style="font-size:26px;font-weight:700;color:#818cf8">0</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">Cuentas madre</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.18);border-radius:12px;padding:12px 16px;text-align:center">
+          <div id="importSumCli" style="font-size:26px;font-weight:700;color:#34d399">0</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">Clientes</div>
+        </div>
+        <div id="importSumWarnCard" style="display:none;flex:1;min-width:120px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:12px;padding:12px 16px;text-align:center">
+          <div id="importSumWarn" style="font-size:26px;font-weight:700;color:#fbbf24">0</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">Advertencias</div>
+        </div>
+      </div>
+
+      <!-- Warnings -->
+      <div id="importWarnList" style="display:none;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.18);border-radius:12px;padding:14px 16px;margin-bottom:16px;max-height:140px;overflow-y:auto">
+        <div style="font-size:11px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Advertencias</div>
+        <ul id="importWarnItems" style="margin:0;padding-left:18px;color:#fde68a;font-size:12px;line-height:1.8"></ul>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button id="importTabAcc" onclick="importShowTab('acc')" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(129,140,248,.3);background:rgba(129,140,248,.15);color:#818cf8;font-size:12px;cursor:pointer;font-weight:600">Cuentas madre</button>
+        <button id="importTabCli" onclick="importShowTab('cli')" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:none;color:#64748b;font-size:12px;cursor:pointer">Clientes</button>
+      </div>
+      <div id="importTableWrap" style="overflow-x:auto;border-radius:12px;border:1px solid rgba(255,255,255,.07);max-height:240px;overflow-y:auto;font-size:12px"></div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+        <button onclick="importReset()" style="padding:10px 18px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#94a3b8;cursor:pointer;font-size:13px">← Volver</button>
+        <button id="importConfirmBtn" onclick="confirmImport()" style="padding:10px 22px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Confirmar e importar</button>
+      </div>
+    </div>
+
+    <!-- Phase 3: Progress / Done -->
+    <div id="importP3" style="display:none;padding:40px 24px;flex:1;text-align:center">
+      <div id="importProgressWrap">
+        <div style="width:40px;height:40px;border:3px solid rgba(129,140,248,.2);border-top-color:#818cf8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px"></div>
+        <p id="importProgressTxt" style="color:#c8d3e8;font-size:14px;margin:0">Importando...</p>
+      </div>
+      <div id="importDoneWrap" style="display:none">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <p style="color:#34d399;font-size:16px;font-weight:700;margin:0 0 6px">Importación completada</p>
+        <p id="importDoneTxt" style="color:#94a3b8;font-size:13px;margin:0 0 24px"></p>
+        <button onclick="closeImportModal()" style="padding:10px 24px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Listo</button>
+      </div>
+      <div id="importErrWrap" style="display:none">
+        <div style="font-size:48px;margin-bottom:12px">❌</div>
+        <p style="color:#f87171;font-size:15px;font-weight:600;margin:0 0 6px">Error al importar</p>
+        <p id="importErrTxt" style="color:#94a3b8;font-size:13px;margin:0 0 24px"></p>
+        <button onclick="importReset()" style="padding:10px 24px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#94a3b8;cursor:pointer;font-size:13px">Intentar de nuevo</button>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+@keyframes spin{to{transform:rotate(360deg)}}
+#importTableWrap table{width:100%;border-collapse:collapse}
+#importTableWrap th{background:#0a0a16;color:#818cf8;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#importTableWrap td{padding:7px 10px;color:#cbd5e1;border-top:1px solid rgba(255,255,255,.05);white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+#importTableWrap tr:hover td{background:rgba(255,255,255,.03)}
+</style>
 </body>
 </html>
-
-
-
-
-
-
