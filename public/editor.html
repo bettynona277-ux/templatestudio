@@ -8694,8 +8694,11 @@ async function normalizePersistableImageSrc(src, folder='layer-images'){
   // Base64 pequeño se puede guardar directo; grande se sube a Storage
   if(typeof workingSrc === 'string' && workingSrc.startsWith('data:')){
     const approxKB = Math.round(workingSrc.length * 0.75 / 1024);
-    if(approxKB <= 100) return workingSrc;
-    const compressed = await compressImage(workingSrc, 1500, 1500, 0.88);
+    // Firestore should store URLs, not inline image data. Many small data URLs
+    // can still exceed the document limit when a design has several layers.
+    const compressed = approxKB > 100
+      ? await compressImage(workingSrc, 1500, 1500, 0.88)
+      : workingSrc;
     return await uploadToStorage(compressed, `${folder}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`);
   }
 
@@ -9084,7 +9087,7 @@ function hasLargeLocalAssetsPending(){
     return srcs.some(src=>{
       if(typeof src !== 'string') return false;
       if(src.startsWith('blob:')) return true;
-      return src.startsWith('data:') && Math.round(src.length * 0.75 / 1024) > 100;
+      return src.startsWith('data:');
     });
   });
 }
