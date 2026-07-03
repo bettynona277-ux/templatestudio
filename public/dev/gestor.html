@@ -18,6 +18,7 @@
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js">
@@ -564,16 +565,19 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  const deviceResult = await devicePromise;
-  if (deviceResult && !deviceResult.ok) {
-    const msg = deviceResult.revoked
-      ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
-      : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
-    alert(msg);
-    await signOut(auth);
-    window.location.href = 'gestor-login.html';
-    return;
-  }
+  // Chequeo de dispositivo fuera de la ruta critica: la app se muestra ya
+  // y si el dispositivo resulta vetado/al limite se expulsa apenas responda.
+  // Misma regla de siempre (fail-open si Firestore falla, bloqueo solo con ok:false).
+  devicePromise.then(async deviceResult => {
+    if (deviceResult && !deviceResult.ok) {
+      const msg = deviceResult.revoked
+        ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
+        : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
+      alert(msg);
+      await signOut(auth);
+      window.location.href = 'gestor-login.html';
+    }
+  });
 
   const el = document.getElementById('userEmail');
   if (el) el.textContent = user.email;

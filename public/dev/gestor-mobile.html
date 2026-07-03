@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js">
@@ -2610,13 +2611,15 @@ onAuthStateChanged(auth, async user => {
       renderExpired();
       return;
     }
-    const deviceResult = await devicePromise;
-    if(deviceResult && !deviceResult.ok){
-      alert(deviceResult.revoked ? 'Este dispositivo esta vetado desde Seguridad.' : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado.`);
-      await signOut(auth);
-      window.location.href = 'gestor-login.html';
-      return;
-    }
+    // Chequeo de dispositivo fuera de la ruta critica: la app se muestra ya
+    // y si el dispositivo resulta vetado/al limite se expulsa apenas responda.
+    devicePromise.then(async deviceResult=>{
+      if(deviceResult && !deviceResult.ok){
+        alert(deviceResult.revoked ? 'Este dispositivo esta vetado desde Seguridad.' : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado.`);
+        await signOut(auth);
+        window.location.href = 'gestor-login.html';
+      }
+    });
     startSecurityDeviceListener(user.uid);
     trackGestorDailyUsage(user, 'mobile');
     await updateSecuritySummary(user);
