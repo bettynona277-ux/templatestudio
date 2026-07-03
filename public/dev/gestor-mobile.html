@@ -10,6 +10,12 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js">
 <style>
 :root{
   color-scheme:dark;
@@ -322,7 +328,7 @@ if(isLegacyRenderer()) document.body.classList.add('legacy-render');
   function forceRepaint(){
     var el = document.body;
     el.style.display = 'none';
-    el.offsetHeight; // fuerza reflow — descarta todos los layers GPU y los recrea
+    el.offsetHeight;
     el.style.display = '';
   }
   document.addEventListener('visibilitychange', function(){
@@ -597,7 +603,8 @@ async function registerGestorDevice(uid){
     if(wasGestorDeviceTouchedRecently(uid, deviceId)) return {ok:true};
     const fingerprint=await buildGestorDeviceFingerprint();
     const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
-    await setDoc(devRef,{
+    // Telemetria (lastSeen/loginCount) sin await: no afecta la decision de acceso
+    setDoc(devRef,{
       name:fingerprint.label,
       deviceLabel:fingerprint.label,
       fingerprintHash:fingerprint.hash,
@@ -608,8 +615,7 @@ async function registerGestorDevice(uid){
       loginCount:Number(existing.loginCount || 0) + 1,
       suspicious,
       revoked:false
-    },{merge:true});
-    markGestorDeviceTouched(uid, deviceId);
+    },{merge:true}).then(()=>markGestorDeviceTouched(uid, deviceId)).catch(()=>{});
     return {ok:true};
   }
   const fingerprint=await buildGestorDeviceFingerprint();
@@ -2427,8 +2433,6 @@ function openWhatsAppAppSelector(payload, targetWindow=null){
   const isAndroid = /Android/i.test(navigator.userAgent || '');
   const go = url => {
     closeSheet();
-    // Espera a que la animación del sheet termine antes de abrir WhatsApp
-    // para no corromper el compositor GPU de Android en mid-transition
     setTimeout(() => navigatePreparedWhatsapp(targetWindow, url), 300);
   };
   openSheet(`<div class="sheet-head"><h3>Enviar por WhatsApp</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
@@ -2588,19 +2592,25 @@ onAuthStateChanged(auth, async user => {
   state.email = user.email || '';
   $('#userLine').textContent = state.email;
   try{
-    const userSnap = await getDoc(doc(db,'users',user.uid));
+    // Lanzar en paralelo: validacion de usuario, registro de dispositivo y carga de datos.
+    // Antes eran 3-4 viajes de red en serie; ahora el arranque tarda lo que el mas lento.
+    const userSnapPromise = getDoc(doc(db,'users',user.uid));
+    const devicePromise = registerGestorDevice(user.uid).catch(err=>{
+      // Fail-open intencional: si Firestore falla no bloqueamos al usuario.
+      console.warn('No se pudo registrar este dispositivo del gestor:', err);
+      return null;
+    });
+    const dataPromise = loadOnce(false);
+    dataPromise.catch(()=>{});
+
+    const userSnap = await userSnapPromise;
     state.active = !isExpiredUser(userSnap.data() || {});
     if(!state.active){
-      await loadOnceForExpired();
+      await dataPromise;
       renderExpired();
       return;
     }
-    let deviceResult = null;
-    try{
-      deviceResult = await registerGestorDevice(user.uid);
-    }catch(err){
-      console.warn('No se pudo registrar este dispositivo del gestor:', err);
-    }
+    const deviceResult = await devicePromise;
     if(deviceResult && !deviceResult.ok){
       alert(deviceResult.revoked ? 'Este dispositivo esta vetado desde Seguridad.' : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado.`);
       await signOut(auth);
@@ -2610,7 +2620,6 @@ onAuthStateChanged(auth, async user => {
     startSecurityDeviceListener(user.uid);
     trackGestorDailyUsage(user, 'mobile');
     await updateSecuritySummary(user);
-    startLive();
     render();
   }catch(err){
     console.error(err);
