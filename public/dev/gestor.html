@@ -15,6 +15,13 @@
   })();
 </script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js">
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -311,7 +318,8 @@ async function registerGestorDevice(uid) {
     if (wasGestorDeviceTouchedRecently(uid, deviceId)) return { ok: true };
     const fingerprint = await buildGestorDeviceFingerprint();
     const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
-    await setDoc(devRef, {
+    // Telemetria (lastSeen/loginCount) sin await: no afecta la decision de acceso
+    setDoc(devRef, {
       name: fingerprint.label,
       deviceLabel: fingerprint.label,
       fingerprintHash: fingerprint.hash,
@@ -322,8 +330,7 @@ async function registerGestorDevice(uid) {
       loginCount: Number(existing.loginCount || 0) + 1,
       suspicious,
       revoked: false
-    }, { merge: true });
-    markGestorDeviceTouched(uid, deviceId);
+    }, { merge: true }).then(() => markGestorDeviceTouched(uid, deviceId)).catch(() => {});
     return { ok: true };
   }
 
@@ -359,19 +366,7 @@ async function migrateIfNeeded(uid) {
 }
 
 // â”€â”€ Cargar datos desde subcolecciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-async function loadFromSubcollections(uid) {
-  const cacheKey = 'gestion_streaming_v5';
-  const cacheTimeKey = cacheKey + '_synced_at';
-  const cacheTtlMs = 30 * 60 * 1000;
-  try {
-    const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
-    const cached = localStorage.getItem(cacheKey);
-    const forceFresh = new URLSearchParams(location.search).has('fresh');
-    if (!forceFresh && cached && cachedAt && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
-      window.__loadFromFirestore(JSON.parse(cached));
-      return;
-    }
-  } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
+async function fetchGestorDataFromFirestore(uid) {
   const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
     getDoc(settingsRef(uid)),
     getDocs(accountsCol(uid)),
@@ -380,11 +375,49 @@ async function loadFromSubcollections(uid) {
   ]);
   const settings = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
-  const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const financeMovements = finSnap;
-  window.__loadFromFirestore({ accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings });
-  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
+  return {
+    accounts: accSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+    clients: cliSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+    financeMovements: finSnap,
+    financeMovementsFullLoaded: false,
+    settings
+  };
+}
+
+let gestorBgRefreshRunning = false;
+async function refreshGestorDataInBackground(uid) {
+  if (gestorBgRefreshRunning) return;
+  gestorBgRefreshRunning = true;
+  const startedAt = Date.now();
+  try {
+    const data = await fetchGestorDataFromFirestore(uid);
+    // No pisar ediciones locales hechas mientras llegaba la respuesta
+    if (window.__saving || Number(window.__lastLocalWriteAt || 0) > startedAt) return;
+    window.__loadFromFirestore(data);
+  } catch (err) {
+    console.warn('No se pudo refrescar datos en segundo plano:', err);
+  } finally {
+    gestorBgRefreshRunning = false;
+  }
+}
+
+async function loadFromSubcollections(uid) {
+  const cacheKey = 'gestion_streaming_v5';
+  const cacheTimeKey = cacheKey + '_synced_at';
+  const cacheTtlMs = 30 * 60 * 1000;
+  try {
+    const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
+    const cached = localStorage.getItem(cacheKey);
+    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    if (!forceFresh && cached && cachedAt && window.__loadFromFirestore) {
+      // UI instantanea desde cache; si esta vieja, refresca en segundo plano sin bloquear
+      window.__loadFromFirestore(JSON.parse(cached), { syncedAt: cachedAt });
+      if (Date.now() - cachedAt >= cacheTtlMs) refreshGestorDataInBackground(uid);
+      return;
+    }
+  } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
+  const data = await fetchGestorDataFromFirestore(uid);
+  window.__loadFromFirestore(data);
 }
 
 // Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
@@ -501,7 +534,19 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  const userSnap = await getDoc(userRef(user.uid));
+  // Lanzar en paralelo: validacion de usuario, registro de dispositivo y carga de datos.
+  // Antes eran 3 viajes de red en serie; ahora el arranque tarda lo que el mas lento.
+  const userSnapPromise = getDoc(userRef(user.uid));
+  const devicePromise = registerGestorDevice(user.uid).catch(err => {
+    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
+    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
+    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
+    return null;
+  });
+  const dataPromise = loadFromSubcollections(user.uid);
+  dataPromise.catch(() => {}); // evita unhandledrejection si salimos antes de consumirla
+
+  const userSnap = await userSnapPromise;
   if (!userSnap.exists()) {
     await signOut(auth);
     window.location.href = 'gestor-login.html';
@@ -510,7 +555,7 @@ onAuthStateChanged(auth, async user => {
 
   if (isExpiredUser(userSnap.data())) {
     try {
-      await loadFromSubcollections(user.uid);
+      await dataPromise;
     } catch (err) {
       console.error('No se pudieron cargar los datos del gestor vencido:', err);
       window.__expiredLoadError = true;
@@ -519,14 +564,7 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  let deviceResult = null;
-  try {
-    deviceResult = await registerGestorDevice(user.uid);
-  } catch (err) {
-    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
-    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
-    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
-  }
+  const deviceResult = await devicePromise;
   if (deviceResult && !deviceResult.ok) {
     const msg = deviceResult.revoked
       ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
@@ -549,9 +587,9 @@ onAuthStateChanged(auth, async user => {
   // Migrar si es necesario
   await migrateIfNeeded(user.uid);
 
-  // Cargar datos una sola vez al iniciar.
+  // Cargar datos una sola vez al iniciar (ya en vuelo desde el inicio del boot).
   // Se quitaron las escuchas en tiempo real para reducir lecturas de Firestore.
-  await loadFromSubcollections(user.uid);
+  await dataPromise;
 });
 
 // â”€â”€ Sanitizadores Firestore â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4511,11 +4549,12 @@ function normalizeLoaded(data){
   data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode===true, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),1500), codeActivationMessage:safeSlice(String(data.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim(),1500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
-window.__loadFromFirestore = function(data){
+window.__loadFromFirestore = function(data, opts){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
-  // Actualizar localStorage como respaldo
-  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
+  // Actualizar localStorage como respaldo. Si viene de cache, conservar el timestamp
+  // original para que el TTL no se renueve solo y el refresco en segundo plano ocurra.
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(opts && opts.syncedAt ? opts.syncedAt : Date.now())); } catch(e){}
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
@@ -4549,6 +4588,7 @@ window.retryFinanceHistoryLoad=function(){
   renderFinance();
 };
 function touchLocalStateCache(){
+  window.__lastLocalWriteAt = Date.now();
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
 }
 function persist(){
