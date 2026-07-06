@@ -66,6 +66,119 @@ async function parsePSDBuffer(psdBuf) {
     return '#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
   }
 
+  function readTextFontName(style){
+    const candidates = [
+      style.fontFamily, style.fontName, style.fontPostScriptName,
+      style.font?.name, style.font?.family, style.font?.postScriptName,
+      style.font?.fontFamily, style.font?.fontName, style.font?.fontPostScriptName,
+    ].filter(Boolean);
+    return String(candidates[0] || '').trim();
+  }
+
+  function cssFontFamily(fontName){
+    const raw = String(fontName || '').replace(/[_-]+/g, ' ').trim();
+    const n = raw.toLowerCase();
+    if (!raw) return "'Poppins'";
+    if (n.includes('bebas')) return "'Bebas Neue', sans-serif";
+    if (n.includes('montserrat')) return "'Montserrat'";
+    if (n.includes('poppins')) return "'Poppins'";
+    if (n.includes('jakarta')) return "'Plus Jakarta Sans'";
+    if (n.includes('horizon')) return "'Horizon'";
+    if (n.includes('akira')) return "'Akira Expanded'";
+    if (n.includes('podium')) return "'Podium Sharp'";
+    if (n.includes('impact')) return 'Impact';
+    if (n.includes('arial')) return 'Arial';
+    if (n.includes('georgia')) return 'Georgia';
+    if (n.includes('times')) return "'Times New Roman'";
+    const cleaned = raw
+      .replace(/\b(regular|italic|bold|black|heavy|medium|semibold|semi bold|extrabold|extra bold|light|thin)\b/ig, '')
+      .replace(/\s+/g, ' ')
+      .trim() || raw;
+    return `'${cleaned.replace(/'/g, "\\'")}'`;
+  }
+
+  function fontWeightFromStyle(style, fontName){
+    const explicit = style.fontWeight || style.weight;
+    if (explicit) return String(explicit);
+    if (style.bold || style.fauxBold) return '700';
+    const n = String(fontName || '').toLowerCase();
+    if (/black|heavy|extra\s*black/.test(n)) return '900';
+    if (/extra\s*bold|ultra\s*bold/.test(n)) return '800';
+    if (/semi\s*bold|demi\s*bold/.test(n)) return '600';
+    if (/medium/.test(n)) return '500';
+    if (/light/.test(n)) return '300';
+    if (/thin|hairline/.test(n)) return '100';
+    if (/bold/.test(n)) return '700';
+    return '400';
+  }
+
+  function isItalicStyle(style, fontName){
+    const styleName = String(style.fontStyle || style.style || style.font?.style || '').toLowerCase();
+    const n = String(fontName || '').toLowerCase();
+    return !!(style.italic || style.fauxItalic || /italic|oblique/.test(styleName) || /italic|oblique/.test(n));
+  }
+
+  function rotationFromTransform(transform){
+    const m = Array.isArray(transform) ? transform : null;
+    if (!m || m.length < 4) return 0;
+    const a = Number(m[0]), b = Number(m[1]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+    return Math.round((Math.atan2(b, a) * 180 / Math.PI) * 100) / 100;
+  }
+
+  function scaleFromTransform(transform){
+    const m = Array.isArray(transform) ? transform : null;
+    if (!m || m.length < 4) return 1;
+    const a = Number(m[0]), b = Number(m[1]), c = Number(m[2]), d = Number(m[3]);
+    const sx = Math.hypot(a, b);
+    const sy = Math.hypot(c, d);
+    const s = Math.max(sx || 0, sy || 0);
+    return Number.isFinite(s) && s > 0 ? s : 1;
+  }
+
+  function unitValue(v){
+    if (typeof v === 'number') return v;
+    if (v && typeof v.value === 'number') return v.value;
+    return null;
+  }
+
+  function textBoundsFromData(textData){
+    const candidates = [
+      textData?.bounds,
+      textData?.boundingBox,
+      textData?.boxBounds,
+      textData?.textPath?.bounds,
+    ];
+    for (const b of candidates) {
+      if (!b) continue;
+      if (Array.isArray(b) && b.length >= 4) {
+        const vals = b.map(unitValue);
+        if (vals.every(v => Number.isFinite(v))) {
+          const width = Math.max(Math.abs(vals[2] - vals[0]), Math.abs(vals[3] - vals[1]));
+          const height = Math.min(Math.abs(vals[2] - vals[0]), Math.abs(vals[3] - vals[1]));
+          if (width > 0 && height > 0) return { left: 0, top: 0, width, height };
+        }
+      } else {
+        const top = unitValue(b.top), left = unitValue(b.left), right = unitValue(b.right), bottom = unitValue(b.bottom);
+        if ([top,left,right,bottom].every(v => Number.isFinite(v)) && right > left && bottom > top) {
+          return { left, top, width: right-left, height: bottom-top };
+        }
+      }
+    }
+    return null;
+  }
+
+  function estimateTextBox(text, fontSize, lineHeight, letterSpacing){
+    const lines = String(text || '').split(/\r?\n/);
+    const longestWordChars = Math.max(1, ...lines.flatMap(line => line.split(/\s+/).map(w => [...w].length)));
+    const avgChar = fontSize * 0.62;
+    const minWordWidth = (longestWordChars * avgChar) + Math.max(12, fontSize * 0.8);
+    return {
+      width: Math.ceil(minWordWidth),
+      height: Math.ceil(Math.max(fontSize * (lineHeight || 1.2), lines.length * fontSize * (lineHeight || 1.2))),
+    };
+  }
+
   function processLayer(layer) {
     if (layer.children) { layer.children.forEach(processLayer); return; }
     const name = layer.name || 'Layer';
@@ -78,16 +191,30 @@ async function parsePSDBuffer(psdBuf) {
     const opacity = rawOpacity <= 1 ? rawOpacity : rawOpacity / 255;
     const isText = !!layer.text;
 
-    let src=null, textContent=null, fontSize=24, fontColor='#ffffff', fontWeight='400', textAlign='left';
+    let src=null, textContent=null, fontSize=24, fontColor='#ffffff', fontWeight='400', textAlign='left', fontFamily="'Poppins'", italic=false, rotation=0, lineHeight=1.2, letterSpacing=0;
+    let textBox = null;
+    let textTransformScale = 1;
 
     if (isText) {
       const t = layer.text;
+      textTransformScale = scaleFromTransform(t.transform || layer.transform);
       textContent = (t.text||name).replace(/\r/g,'\n').trim();
+      textBox = textBoundsFromData(t);
       const style = t.style||{};
       const firstRun = (t.styleRuns&&t.styleRuns[0]) ? t.styleRuns[0].style : {};
       const ms = {...style,...firstRun};
-      if (ms.fontSize) fontSize = Math.round(ms.fontSize);
-      if (ms.bold||ms.fauxBold) fontWeight='700';
+      const fontName = readTextFontName(ms);
+      const baseFontSize = Number(ms.fontSize) || fontSize;
+      fontSize = Math.max(1, Math.round(baseFontSize * textTransformScale));
+      if (ms.leading && Number(ms.leading) > 1) lineHeight = Math.max(0.7, Math.round((Number(ms.leading) / Math.max(1, baseFontSize)) * 100) / 100);
+      if (ms.tracking || ms.letterSpacing) {
+        const rawSpacing = Number(ms.tracking || ms.letterSpacing) || 0;
+        letterSpacing = Math.abs(rawSpacing) > 10 ? Math.round((fontSize * rawSpacing / 1000) * 100) / 100 : rawSpacing;
+      }
+      fontFamily = cssFontFamily(fontName);
+      fontWeight = fontWeightFromStyle(ms, fontName);
+      italic = isItalicStyle(ms, fontName);
+      rotation = rotationFromTransform(t.transform || layer.transform);
       if (ms.fillColor) { const c=ms.fillColor; if(c.r!==undefined) fontColor=hexColor(c.r,c.g,c.b); }
       else if (ms.color) { const c=ms.color; if(c.r!==undefined) fontColor=hexColor(c.r,c.g,c.b); }
       const para = t.paragraphStyle||(t.paragraphStyleRuns&&t.paragraphStyleRuns[0]?.style)||{};
@@ -107,7 +234,18 @@ async function parsePSDBuffer(psdBuf) {
     }
 
     if (src !== null || isText) {
-      layers.push({ id:layers.length, name, isText, visible, x, y, width:w||200, height:h||50, w:w||200, h:h||50, opacity, src, textContent, fontSize, fontColor, fontWeight, textAlign });
+      let outX = x, outY = y, outW = w || 200, outH = h || 50;
+      if (isText) {
+        const estimate = estimateTextBox(textContent || name, fontSize, lineHeight, letterSpacing);
+        if (textBox) {
+          outW = Math.max(outW, Math.round((textBox.width || 0) * textTransformScale), estimate.width);
+          outH = Math.max(outH, Math.round((textBox.height || 0) * textTransformScale), estimate.height);
+        } else {
+          outW = Math.max(outW, estimate.width);
+          outH = Math.max(outH, estimate.height);
+        }
+      }
+      layers.push({ id:layers.length, name, isText, visible, x:outX, y:outY, width:outW, height:outH, w:outW, h:outH, opacity, src, textContent, fontSize, fontColor, fontFamily, fontWeight, italic, textAlign, rotation, lineHeight, letterSpacing });
     }
   }
 
