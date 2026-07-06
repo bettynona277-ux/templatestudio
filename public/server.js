@@ -126,6 +126,52 @@ async function parsePSDBuffer(psdBuf) {
     return Math.round((Math.atan2(b, a) * 180 / Math.PI) * 100) / 100;
   }
 
+  function unitValue(v){
+    if (typeof v === 'number') return v;
+    if (v && typeof v.value === 'number') return v.value;
+    return null;
+  }
+
+  function textBoundsFromData(textData){
+    const candidates = [
+      textData?.bounds,
+      textData?.boundingBox,
+      textData?.boxBounds,
+      textData?.textPath?.bounds,
+    ];
+    for (const b of candidates) {
+      if (!b) continue;
+      if (Array.isArray(b) && b.length >= 4) {
+        const vals = b.map(unitValue);
+        if (vals.every(v => Number.isFinite(v))) {
+          const width = Math.max(Math.abs(vals[2] - vals[0]), Math.abs(vals[3] - vals[1]));
+          const height = Math.min(Math.abs(vals[2] - vals[0]), Math.abs(vals[3] - vals[1]));
+          if (width > 0 && height > 0) return { left: 0, top: 0, width, height };
+        }
+      } else {
+        const top = unitValue(b.top), left = unitValue(b.left), right = unitValue(b.right), bottom = unitValue(b.bottom);
+        if ([top,left,right,bottom].every(v => Number.isFinite(v)) && right > left && bottom > top) {
+          return { left, top, width: right-left, height: bottom-top };
+        }
+      }
+    }
+    return null;
+  }
+
+  function estimateTextBox(text, fontSize, lineHeight, letterSpacing){
+    const lines = String(text || '').split(/\r?\n/);
+    const longestWordChars = Math.max(1, ...lines.flatMap(line => line.split(/\s+/).map(w => [...w].length)));
+    const longestLineChars = Math.max(1, ...lines.map(line => [...line].length));
+    const avgChar = fontSize * 0.62;
+    const minWordWidth = (longestWordChars * avgChar) + Math.max(12, fontSize * 0.8);
+    const lineWidth = (longestLineChars * avgChar) + (Math.max(0, longestLineChars - 1) * Math.abs(letterSpacing || 0)) + Math.max(16, fontSize);
+    const maxReadable = Math.max(minWordWidth, Math.min(lineWidth, fontSize * 18));
+    return {
+      width: Math.ceil(maxReadable),
+      height: Math.ceil(Math.max(fontSize * (lineHeight || 1.2), lines.length * fontSize * (lineHeight || 1.2))),
+    };
+  }
+
   function processLayer(layer) {
     if (layer.children) { layer.children.forEach(processLayer); return; }
     const name = layer.name || 'Layer';
@@ -139,10 +185,12 @@ async function parsePSDBuffer(psdBuf) {
     const isText = !!layer.text;
 
     let src=null, textContent=null, fontSize=24, fontColor='#ffffff', fontWeight='400', textAlign='left', fontFamily="'Poppins'", italic=false, rotation=0, lineHeight=1.2, letterSpacing=0;
+    let textBox = null;
 
     if (isText) {
       const t = layer.text;
       textContent = (t.text||name).replace(/\r/g,'\n').trim();
+      textBox = textBoundsFromData(t);
       const style = t.style||{};
       const firstRun = (t.styleRuns&&t.styleRuns[0]) ? t.styleRuns[0].style : {};
       const ms = {...style,...firstRun};
@@ -176,7 +224,18 @@ async function parsePSDBuffer(psdBuf) {
     }
 
     if (src !== null || isText) {
-      layers.push({ id:layers.length, name, isText, visible, x, y, width:w||200, height:h||50, w:w||200, h:h||50, opacity, src, textContent, fontSize, fontColor, fontFamily, fontWeight, italic, textAlign, rotation, lineHeight, letterSpacing });
+      let outX = x, outY = y, outW = w || 200, outH = h || 50;
+      if (isText) {
+        const estimate = estimateTextBox(textContent || name, fontSize, lineHeight, letterSpacing);
+        if (textBox) {
+          outW = Math.max(outW, Math.round(textBox.width || 0), estimate.width);
+          outH = Math.max(outH, Math.round(textBox.height || 0), estimate.height);
+        } else {
+          outW = Math.max(outW, estimate.width);
+          outH = Math.max(outH, estimate.height);
+        }
+      }
+      layers.push({ id:layers.length, name, isText, visible, x:outX, y:outY, width:outW, height:outH, w:outW, h:outH, opacity, src, textContent, fontSize, fontColor, fontFamily, fontWeight, italic, textAlign, rotation, lineHeight, letterSpacing });
     }
   }
 
