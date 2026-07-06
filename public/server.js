@@ -126,6 +126,16 @@ async function parsePSDBuffer(psdBuf) {
     return Math.round((Math.atan2(b, a) * 180 / Math.PI) * 100) / 100;
   }
 
+  function scaleFromTransform(transform){
+    const m = Array.isArray(transform) ? transform : null;
+    if (!m || m.length < 4) return 1;
+    const a = Number(m[0]), b = Number(m[1]), c = Number(m[2]), d = Number(m[3]);
+    const sx = Math.hypot(a, b);
+    const sy = Math.hypot(c, d);
+    const s = Math.max(sx || 0, sy || 0);
+    return Number.isFinite(s) && s > 0 ? s : 1;
+  }
+
   function unitValue(v){
     if (typeof v === 'number') return v;
     if (v && typeof v.value === 'number') return v.value;
@@ -161,13 +171,10 @@ async function parsePSDBuffer(psdBuf) {
   function estimateTextBox(text, fontSize, lineHeight, letterSpacing){
     const lines = String(text || '').split(/\r?\n/);
     const longestWordChars = Math.max(1, ...lines.flatMap(line => line.split(/\s+/).map(w => [...w].length)));
-    const longestLineChars = Math.max(1, ...lines.map(line => [...line].length));
     const avgChar = fontSize * 0.62;
     const minWordWidth = (longestWordChars * avgChar) + Math.max(12, fontSize * 0.8);
-    const lineWidth = (longestLineChars * avgChar) + (Math.max(0, longestLineChars - 1) * Math.abs(letterSpacing || 0)) + Math.max(16, fontSize);
-    const maxReadable = Math.max(minWordWidth, Math.min(lineWidth, fontSize * 18));
     return {
-      width: Math.ceil(maxReadable),
+      width: Math.ceil(minWordWidth),
       height: Math.ceil(Math.max(fontSize * (lineHeight || 1.2), lines.length * fontSize * (lineHeight || 1.2))),
     };
   }
@@ -186,17 +193,20 @@ async function parsePSDBuffer(psdBuf) {
 
     let src=null, textContent=null, fontSize=24, fontColor='#ffffff', fontWeight='400', textAlign='left', fontFamily="'Poppins'", italic=false, rotation=0, lineHeight=1.2, letterSpacing=0;
     let textBox = null;
+    let textTransformScale = 1;
 
     if (isText) {
       const t = layer.text;
+      textTransformScale = scaleFromTransform(t.transform || layer.transform);
       textContent = (t.text||name).replace(/\r/g,'\n').trim();
       textBox = textBoundsFromData(t);
       const style = t.style||{};
       const firstRun = (t.styleRuns&&t.styleRuns[0]) ? t.styleRuns[0].style : {};
       const ms = {...style,...firstRun};
       const fontName = readTextFontName(ms);
-      if (ms.fontSize) fontSize = Math.round(ms.fontSize);
-      if (ms.leading) lineHeight = Math.max(0.7, Math.round((Number(ms.leading) / Math.max(1, fontSize)) * 100) / 100);
+      const baseFontSize = Number(ms.fontSize) || fontSize;
+      fontSize = Math.max(1, Math.round(baseFontSize * textTransformScale));
+      if (ms.leading && Number(ms.leading) > 1) lineHeight = Math.max(0.7, Math.round((Number(ms.leading) / Math.max(1, baseFontSize)) * 100) / 100);
       if (ms.tracking || ms.letterSpacing) {
         const rawSpacing = Number(ms.tracking || ms.letterSpacing) || 0;
         letterSpacing = Math.abs(rawSpacing) > 10 ? Math.round((fontSize * rawSpacing / 1000) * 100) / 100 : rawSpacing;
@@ -228,8 +238,8 @@ async function parsePSDBuffer(psdBuf) {
       if (isText) {
         const estimate = estimateTextBox(textContent || name, fontSize, lineHeight, letterSpacing);
         if (textBox) {
-          outW = Math.max(outW, Math.round(textBox.width || 0), estimate.width);
-          outH = Math.max(outH, Math.round(textBox.height || 0), estimate.height);
+          outW = Math.max(outW, Math.round((textBox.width || 0) * textTransformScale), estimate.width);
+          outH = Math.max(outH, Math.round((textBox.height || 0) * textTransformScale), estimate.height);
         } else {
           outW = Math.max(outW, estimate.width);
           outH = Math.max(outH, estimate.height);
