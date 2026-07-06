@@ -8299,6 +8299,9 @@ async function renderDesignToCanvas(scale=2){
       const fontSpec = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${quotedCanvasFamily}`;
       try{ await document.fonts.load(fontSpec); }catch(_){}
       ctx.font = fontSpec;
+      ctx.textBaseline = 'alphabetic';
+      const textMetrics = ctx.measureText('HgÁÉgj');
+      const exportTextAscent = textMetrics.actualBoundingBoxAscent || (fontSize * 0.78);
 
       // Aplicar textTransform igual que en el DOM
       let rawText = String(tp.text || '');
@@ -8419,12 +8422,13 @@ async function renderDesignToCanvas(scale=2){
           mctx.fillStyle = '#000';
           const drawMaskText = (targetCtx, x, y)=>{
             targetCtx.font = ctx.font;
-            targetCtx.textBaseline = 'top';
+            targetCtx.textBaseline = ctx.textBaseline;
             targetCtx.textAlign = 'left';
             targetCtx.fillStyle = '#000';
             targetCtx.fillText(txt, x, y);
           };
-          drawMaskText(mctx, margin, margin);
+          const maskTextY = ctx.textBaseline === 'alphabetic' ? margin + exportTextAscent : margin;
+          drawMaskText(mctx, margin, maskTextY);
           ectx.drawImage(mask, 0, 0);
           ectx.globalCompositeOperation = 'destination-in';
           const erodeRadius = Math.max(1, Math.round(sh.edge));
@@ -8449,7 +8453,8 @@ async function renderDesignToCanvas(scale=2){
           let startX = px;
           if(ctx.textAlign === 'center') startX = px - visualW/2;
           else if(ctx.textAlign === 'right') startX = px - visualW;
-          ctx.drawImage(shade, startX - margin, py - margin);
+          const shadeTopY = ctx.textBaseline === 'alphabetic' ? py - exportTextAscent : py;
+          ctx.drawImage(shade, startX - margin, shadeTopY - margin);
         };
 
         if(letterSpacing === 0){
@@ -8481,7 +8486,7 @@ async function renderDesignToCanvas(scale=2){
       // El editor DOM usa padding de 2px y line-height CSS.
       // Ajuste visual extra (+ 0.08 * fontSize) para igualar desplazamiento sutil del navegador hacia arriba
       const halfLeading = Math.max(0, (lineHeight - fontSize) / 2);
-      const textOffsetY = padY + halfLeading + (fontSize * 0.08);
+      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize * 0.18);
 
       lines.forEach((line, idx)=> drawLine(line, anchorX, textBaseY + textOffsetY + idx * lineHeight));
 
