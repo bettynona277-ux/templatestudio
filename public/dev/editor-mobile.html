@@ -2300,7 +2300,7 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
     shareBtn.style.display = 'flex';
     shareBtn.onclick = async () => {
       try{
-        const shareFile = new File([blob], fileName, { type: 'image/png' });
+        const shareFile = new File([blob], fileName, { type: 'image/jpeg' });
         if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
           await navigator.share({ files: [shareFile], title: displayName });
         } else if(isIOS){
@@ -2844,7 +2844,7 @@ async function doSave(){
 }
 
 // ══════════════════════════════════════════
-// DESCARGAR PNG — renderer Canvas 2D propio
+// DESCARGAR JPG — renderer Canvas 2D propio
 // ══════════════════════════════════════════
 function loadImgCors(src){
   return new Promise((res,rej)=>{
@@ -3183,6 +3183,8 @@ async function renderDesignToCanvas(scale=3){
       const fontSpec=`${fontStyle} ${fontWeightCanvas} ${fontSize}px ${quotedFF}`;
       try{await document.fonts.load(fontSpec);}catch(_){}
       ctx.font=fontSpec;
+      const textMetrics=ctx.measureText('HgÁÉgj');
+      const exportTextAscent=textMetrics.actualBoundingBoxAscent||(fontSize*0.78);
       let rawText=String(tp.text||'');
       if(tp.textTransform==='uppercase')rawText=rawText.toUpperCase();
       else if(tp.textTransform==='lowercase')rawText=rawText.toLowerCase();
@@ -3198,8 +3200,7 @@ async function renderDesignToCanvas(scale=3){
       // Usar 'alphabetic' baseline que es más consistente entre Chrome/Safari/iOS
       // El ascender típico de una fuente es ~0.8 del fontSize (varía por fuente)
       ctx.textBaseline='alphabetic';
-      const ascentEst = fontSize * 0.78; // estimación del ascender
-      const textOffsetY = padY + halfLeading + ascentEst;
+      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize*0.08);
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;
@@ -3219,6 +3220,26 @@ function mobileExportScale(canvasW, canvasH){
   const fitScale = Math.sqrt(maxPixels / basePixels);
   const minScaleForSharpLongEdge = 3240 / longEdge;
   return Math.max(2, Math.min(6, fitScale, minScaleForSharpLongEdge));
+}
+
+function canvasToJpegCanvas(canvas){
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, 0);
+  return out;
+}
+
+function canvasToJpegBlob(canvas, quality = 0.92){
+  const out = canvasToJpegCanvas(canvas);
+  return new Promise(res => out.toBlob(res, 'image/jpeg', quality));
+}
+
+function canvasToJpegDataUrl(canvas, quality = 0.92){
+  return canvasToJpegCanvas(canvas).toDataURL('image/jpeg', quality);
 }
 
 async function downloadPNG(){
@@ -3289,8 +3310,8 @@ async function downloadPNG(){
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
-    const fileName = safeName + '.png';
-    const blob = await new Promise(res => rendered.toBlob(res, 'image/png'));
+    const fileName = safeName + '.jpg';
+    const blob = await canvasToJpegBlob(rendered);
 
     const ua = navigator.userAgent || '';
     const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
@@ -3329,7 +3350,7 @@ async function downloadPNG(){
     }
 
     // ── iOS: Web Share API (abre menú nativo con Guardar en Fotos) ──
-    const shareFile = new File([blob], fileName, { type: 'image/png' });
+    const shareFile = new File([blob], fileName, { type: 'image/jpeg' });
     if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
       try{
         await navigator.share({ files: [shareFile], title: safeName });
@@ -3343,7 +3364,7 @@ async function downloadPNG(){
 
     // ── iOS sin Share API / fallback: modal con dataURL (no blob) ──
     // Safari iOS revoca blob URLs rápido → usar dataURL para que el usuario pueda mantener presionada
-    const dataUrl2 = rendered.toDataURL('image/png');
+    const dataUrl2 = canvasToJpegDataUrl(rendered);
     const modal = document.getElementById('save-img-modal');
     const preview = document.getElementById('save-img-preview');
     if(modal && preview){
@@ -3353,7 +3374,7 @@ async function downloadPNG(){
     }
 
   }catch(e){
-    console.error('PNG error:', e);
+    console.error('JPG error:', e);
     toast('✗ Error al generar. Intenta de nuevo.');
   }finally{
     restoreBlurAfterExport(blurPatches);
@@ -3440,7 +3461,7 @@ window.addEventListener('load', async()=>{
       const t=await fbDb.collection('templates').doc(tplId).get();
       if(t&&t.exists){
         const td=t.data()||{};
-        // Guardar nombre de la plantilla para usarlo al descargar el PNG
+        // Guardar nombre de la plantilla para usarlo al descargar el JPG
         if(td.name) localStorage.setItem('ts_design_name', td.name);
         const pl=extractPayload(td);
         if(pl){ loadDesign(pl); loaded=true; }

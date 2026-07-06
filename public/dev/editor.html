@@ -1438,7 +1438,7 @@ input[type=range]{filter:none !important;}
     </button>
     <button class="tbtn tbtn-blue" id="btn-png" onclick="downloadPNG()" style="gap:5px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      PNG
+      JPG
     </button>
   </div>
 </div>
@@ -3808,8 +3808,7 @@ async function loadPSDData(data){
       w:Math.round((ld.width||200)*scale), h:Math.round((ld.height||50)*scale),
       opacity:ld.opacity??1, visible:ld.visible??true, zIndex:lCtr,
       tp: ld.isText ? (()=>{
-        // Regla solicitada: todo texto importado desde PSD inicia en 18
-        const fontSize = 18;
+        const fontSize = Math.max(6, Math.round((ld.fontSize||18)*scale));
         // Calculate box size from font: if PSD box is too small vs fontSize, auto-size
         const minBoxH = Math.round(fontSize*1.4);
         const boxW = Math.round((ld.width||300)*scale);
@@ -3820,15 +3819,16 @@ async function loadPSDData(data){
         return {
           text: ld.textContent||ld.name,
           fontSize,
-          fontFamily: "'Poppins'",
+          fontFamily: ld.fontFamily||"'Poppins'",
           fontWeight: ld.fontWeight||'400',
+          italic: !!ld.italic,
           color: ld.fontColor||'#ffffff',
           align: ld.textAlign||'left',
-          lineHeight: 1.2,
-          letterSpacing: 0,
+          lineHeight: ld.lineHeight||1.2,
+          letterSpacing: Number(ld.letterSpacing||0),
         };
       })() : null,
-      el:null, origW:ld.width, origH:ld.height
+      el:null, origW:ld.width, origH:ld.height, rotation: normalizeRotation(ld.rotation||0)
     };
     // Apply corrected dimensions for text layers
     if(ld.isText && typeof l_w_override!=='undefined'){
@@ -8299,6 +8299,9 @@ async function renderDesignToCanvas(scale=2){
       const fontSpec = `${fontStyle} ${fontWeightCanvas} ${fontSize}px ${quotedCanvasFamily}`;
       try{ await document.fonts.load(fontSpec); }catch(_){}
       ctx.font = fontSpec;
+      ctx.textBaseline = 'alphabetic';
+      const textMetrics = ctx.measureText('HgÁÉgj');
+      const exportTextAscent = textMetrics.actualBoundingBoxAscent || (fontSize * 0.78);
 
       // Aplicar textTransform igual que en el DOM
       let rawText = String(tp.text || '');
@@ -8419,12 +8422,13 @@ async function renderDesignToCanvas(scale=2){
           mctx.fillStyle = '#000';
           const drawMaskText = (targetCtx, x, y)=>{
             targetCtx.font = ctx.font;
-            targetCtx.textBaseline = 'top';
+            targetCtx.textBaseline = ctx.textBaseline;
             targetCtx.textAlign = 'left';
             targetCtx.fillStyle = '#000';
             targetCtx.fillText(txt, x, y);
           };
-          drawMaskText(mctx, margin, margin);
+          const maskTextY = ctx.textBaseline === 'alphabetic' ? margin + exportTextAscent : margin;
+          drawMaskText(mctx, margin, maskTextY);
           ectx.drawImage(mask, 0, 0);
           ectx.globalCompositeOperation = 'destination-in';
           const erodeRadius = Math.max(1, Math.round(sh.edge));
@@ -8449,7 +8453,8 @@ async function renderDesignToCanvas(scale=2){
           let startX = px;
           if(ctx.textAlign === 'center') startX = px - visualW/2;
           else if(ctx.textAlign === 'right') startX = px - visualW;
-          ctx.drawImage(shade, startX - margin, py - margin);
+          const shadeTopY = ctx.textBaseline === 'alphabetic' ? py - exportTextAscent : py;
+          ctx.drawImage(shade, startX - margin, shadeTopY - margin);
         };
 
         if(letterSpacing === 0){
@@ -8481,7 +8486,7 @@ async function renderDesignToCanvas(scale=2){
       // El editor DOM usa padding de 2px y line-height CSS.
       // Ajuste visual extra (+ 0.08 * fontSize) para igualar desplazamiento sutil del navegador hacia arriba
       const halfLeading = Math.max(0, (lineHeight - fontSize) / 2);
-      const textOffsetY = padY + halfLeading + (fontSize * 0.08);
+      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize * 0.08);
 
       lines.forEach((line, idx)=> drawLine(line, anchorX, textBaseY + textOffsetY + idx * lineHeight));
 
@@ -8518,6 +8523,17 @@ function exportScaleForCanvas(canvasW, canvasH){
   return Math.max(2, Math.min(6, fitScale, minScaleForSharpLongEdge));
 }
 
+function canvasToJpegDataUrl(canvas, quality = 0.92){
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, 0);
+  return out.toDataURL('image/jpeg', quality);
+}
+
 async function downloadPNG(){
   desel(); hideMultiBox();
   const btn = document.getElementById('btn-png');
@@ -8547,15 +8563,15 @@ async function downloadPNG(){
     // Usar nombre del diseño/plantilla — admin usa tplName, cliente usa currentClientDesignName
     const rawName = (currentClientDesignName || tplName || 'mi-diseno').trim();
     const safeDlName = rawName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g, '').trim() || 'mi-diseno';
-    a.download = safeDlName + '.png';
-    a.href = c.toDataURL('image/png');
+    a.download = safeDlName + '.jpg';
+    a.href = canvasToJpegDataUrl(c);
     a.click();
-    showToast('✓ PNG descargado');
+    showToast('✓ JPG descargado');
   }catch(e){
-    console.error('PNG export error:', e);
-    showToast('✗ Error al exportar PNG');
+    console.error('JPG export error:', e);
+    showToast('✗ Error al exportar JPG');
   }finally{
-    if(btn){ btn.disabled=false; btn.textContent='⬇ PNG'; }
+    if(btn){ btn.disabled=false; btn.textContent='⬇ JPG'; }
   }
 }
 
@@ -8694,8 +8710,11 @@ async function normalizePersistableImageSrc(src, folder='layer-images'){
   // Base64 pequeño se puede guardar directo; grande se sube a Storage
   if(typeof workingSrc === 'string' && workingSrc.startsWith('data:')){
     const approxKB = Math.round(workingSrc.length * 0.75 / 1024);
-    if(approxKB <= 100) return workingSrc;
-    const compressed = await compressImage(workingSrc, 1500, 1500, 0.88);
+    // Firestore should store URLs, not inline image data. Many small data URLs
+    // can still exceed the document limit when a design has several layers.
+    const compressed = approxKB > 100
+      ? await compressImage(workingSrc, 1500, 1500, 0.88)
+      : workingSrc;
     return await uploadToStorage(compressed, `${folder}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`);
   }
 
@@ -9084,7 +9103,7 @@ function hasLargeLocalAssetsPending(){
     return srcs.some(src=>{
       if(typeof src !== 'string') return false;
       if(src.startsWith('blob:')) return true;
-      return src.startsWith('data:') && Math.round(src.length * 0.75 / 1024) > 100;
+      return src.startsWith('data:');
     });
   });
 }
