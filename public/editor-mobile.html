@@ -3200,8 +3200,14 @@ async function renderDesignToCanvas(scale=3){
       // Usar 'alphabetic' baseline que es más consistente entre Chrome/Safari/iOS
       // El ascender típico de una fuente es ~0.8 del fontSize (varía por fuente)
       ctx.textBaseline='alphabetic';
-      const isIOSExport = /iPad|iPhone|iPod/.test(navigator.userAgent || '') && !window.MSStream;
-      const mobileBaselineFix = isIOSExport ? 0.80 : 0.69;
+      const exportUA = navigator.userAgent || '';
+      const isIOSExport = /iPad|iPhone|iPod/.test(exportUA) && !window.MSStream;
+      const isAndroidAltExport = /Android/i.test(exportUA) && (
+        /\bwv\b/i.test(exportUA) ||
+        /SamsungBrowser|FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Telegram|TikTok|Twitter/i.test(exportUA) ||
+        (!/Chrome\/\d/i.test(exportUA) && !/Firefox\/\d/i.test(exportUA))
+      );
+      const mobileBaselineFix = (isIOSExport || isAndroidAltExport) ? 0.80 : 0.69;
       const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize*mobileBaselineFix);
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
