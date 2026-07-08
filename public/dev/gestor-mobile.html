@@ -1301,12 +1301,13 @@ function accountCard(a){
   const cat = accountCategory(a);
   const assigned = activeAccountClients(a.id).length;
   const fullSold = accountHasFullSale(a.id);
+  const providerRenewalDue = fullSold && ds.days <= 0;
   return `<article class="card" data-account="${esc(a.id)}">
     <div class="card-row"><div class="avatar green">${esc(platformShort(a.platform).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
         <span class="pill brand">${esc(cat)}</span><span class="pill ${fullSold?'warn':'ok'}">${fullSold?'Cuenta completa':free+' libres'}</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button>${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button>${providerRenewalDue?`<button class="mini" data-provider-renew="${esc(a.id)}">${icon('message')}<span>Renovar</span></button>`:''}${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
   </article>`;
 }
 function bindSearch(){
@@ -1323,6 +1324,7 @@ function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
   document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
+  document.querySelectorAll('[data-provider-renew]').forEach(b => b.onclick = () => openProviderRenewWhatsApp(state.accounts.find(a => a.id === b.dataset.providerRenew)));
   document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => {
     const c = state.clients.find(x => x.id === b.dataset.wa);
     c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'delivery') : openWhatsApp(c, 'delivery');
@@ -2292,6 +2294,34 @@ function openWhatsApp(c, mode='delivery', targetWindow=null){
   const payload = whatsappPayloadForClient(c, mode);
   if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
   openWhatsAppAppSelector(payload, targetWindow);
+}
+function providerRenewText(account){
+  return [
+    `Hola, quisiera renovar mi cuenta de ${platformShort(account?.platform)}.`,
+    '',
+    `Correo: ${clean(account?.email) || '-'}`,
+    `Contrasena: ${clean(account?.password) || '-'}`,
+    account?.dueDate ? `Vencimiento: ${fmtDateLong(account.dueDate)}` : '',
+    '',
+    'Me confirmas si esta disponible para renovar y cuales son tus medios de pago?'
+  ].filter(Boolean).join('\n');
+}
+function openProviderRenewWhatsApp(account){
+  if(!account) return;
+  const phone = normalizePhone(account.providerWhatsapp);
+  if(!phone) return toast('Esta cuenta no tiene WhatsApp del proveedor.','bad');
+  const text = providerRenewText(account);
+  const encodedText = encodeURIComponent(text);
+  openWhatsAppAppSelector({
+    phone,
+    text,
+    encodedText,
+    webUrl:`https://wa.me/${phone}?text=${encodedText}`,
+    normalUrl:`https://wa.me/${phone}?text=${encodedText}`,
+    businessUrl:`https://wa.me/${phone}?text=${encodedText}`,
+    chooserUrl:`whatsapp://send?phone=${phone}&text=${encodedText}`,
+    mode:'provider-renewal'
+  });
 }
 function activeComboClients(comboId){
   return state.clients.filter(c => c.comboId === comboId && c.state !== 'No renovo').sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
