@@ -15,14 +15,6 @@
   })();
 </script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
-<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://unpkg.com" crossorigin>
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js">
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js">
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -319,8 +311,7 @@ async function registerGestorDevice(uid) {
     if (wasGestorDeviceTouchedRecently(uid, deviceId)) return { ok: true };
     const fingerprint = await buildGestorDeviceFingerprint();
     const suspicious = existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
-    // Telemetria (lastSeen/loginCount) sin await: no afecta la decision de acceso
-    setDoc(devRef, {
+    await setDoc(devRef, {
       name: fingerprint.label,
       deviceLabel: fingerprint.label,
       fingerprintHash: fingerprint.hash,
@@ -331,7 +322,8 @@ async function registerGestorDevice(uid) {
       loginCount: Number(existing.loginCount || 0) + 1,
       suspicious,
       revoked: false
-    }, { merge: true }).then(() => markGestorDeviceTouched(uid, deviceId)).catch(() => {});
+    }, { merge: true });
+    markGestorDeviceTouched(uid, deviceId);
     return { ok: true };
   }
 
@@ -367,41 +359,6 @@ async function migrateIfNeeded(uid) {
 }
 
 // â”€â”€ Cargar datos desde subcolecciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-async function fetchGestorDataFromFirestore(uid) {
-  const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
-    getDoc(settingsRef(uid)),
-    getDocs(accountsCol(uid)),
-    getDocs(clientsCol(uid)),
-    getFinanceMovements(uid, 'current')
-  ]);
-  const settings = setSnap.exists() ? setSnap.data()
-    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
-  return {
-    accounts: accSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-    clients: cliSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-    financeMovements: finSnap,
-    financeMovementsFullLoaded: false,
-    settings
-  };
-}
-
-let gestorBgRefreshRunning = false;
-async function refreshGestorDataInBackground(uid) {
-  if (gestorBgRefreshRunning) return;
-  gestorBgRefreshRunning = true;
-  const startedAt = Date.now();
-  try {
-    const data = await fetchGestorDataFromFirestore(uid);
-    // No pisar ediciones locales hechas mientras llegaba la respuesta
-    if (window.__saving || Number(window.__lastLocalWriteAt || 0) > startedAt) return;
-    window.__loadFromFirestore(data);
-  } catch (err) {
-    console.warn('No se pudo refrescar datos en segundo plano:', err);
-  } finally {
-    gestorBgRefreshRunning = false;
-  }
-}
-
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
@@ -410,15 +367,24 @@ async function loadFromSubcollections(uid) {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
     const forceFresh = new URLSearchParams(location.search).has('fresh');
-    if (!forceFresh && cached && cachedAt && window.__loadFromFirestore) {
-      // UI instantanea desde cache; si esta vieja, refresca en segundo plano sin bloquear
-      window.__loadFromFirestore(JSON.parse(cached), { syncedAt: cachedAt });
-      if (Date.now() - cachedAt >= cacheTtlMs) refreshGestorDataInBackground(uid);
+    if (!forceFresh && cached && cachedAt && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
+      window.__loadFromFirestore(JSON.parse(cached));
       return;
     }
   } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
-  const data = await fetchGestorDataFromFirestore(uid);
-  window.__loadFromFirestore(data);
+  const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
+    getDoc(settingsRef(uid)),
+    getDocs(accountsCol(uid)),
+    getDocs(clientsCol(uid)),
+    getFinanceMovements(uid, 'current')
+  ]);
+  const settings = setSnap.exists() ? setSnap.data()
+    : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
+  const accounts  = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const financeMovements = finSnap;
+  window.__loadFromFirestore({ accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings });
+  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
 }
 
 // Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
@@ -535,19 +501,7 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  // Lanzar en paralelo: validacion de usuario, registro de dispositivo y carga de datos.
-  // Antes eran 3 viajes de red en serie; ahora el arranque tarda lo que el mas lento.
-  const userSnapPromise = getDoc(userRef(user.uid));
-  const devicePromise = registerGestorDevice(user.uid).catch(err => {
-    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
-    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
-    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
-    return null;
-  });
-  const dataPromise = loadFromSubcollections(user.uid);
-  dataPromise.catch(() => {}); // evita unhandledrejection si salimos antes de consumirla
-
-  const userSnap = await userSnapPromise;
+  const userSnap = await getDoc(userRef(user.uid));
   if (!userSnap.exists()) {
     await signOut(auth);
     window.location.href = 'gestor-login.html';
@@ -556,7 +510,7 @@ onAuthStateChanged(auth, async user => {
 
   if (isExpiredUser(userSnap.data())) {
     try {
-      await dataPromise;
+      await loadFromSubcollections(user.uid);
     } catch (err) {
       console.error('No se pudieron cargar los datos del gestor vencido:', err);
       window.__expiredLoadError = true;
@@ -565,19 +519,23 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  // Chequeo de dispositivo fuera de la ruta critica: la app se muestra ya
-  // y si el dispositivo resulta vetado/al limite se expulsa apenas responda.
-  // Misma regla de siempre (fail-open si Firestore falla, bloqueo solo con ok:false).
-  devicePromise.then(async deviceResult => {
-    if (deviceResult && !deviceResult.ok) {
-      const msg = deviceResult.revoked
-        ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
-        : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
-      alert(msg);
-      await signOut(auth);
-      window.location.href = 'gestor-login.html';
-    }
-  });
+  let deviceResult = null;
+  try {
+    deviceResult = await registerGestorDevice(user.uid);
+  } catch (err) {
+    // Fail-open intencional: si Firestore está caído no bloqueamos al usuario.
+    // El bloqueo real solo ocurre cuando el servidor responde con ok:false.
+    console.warn('No se pudo registrar este dispositivo del gestor (se permite acceso por fallo de red):', err);
+  }
+  if (deviceResult && !deviceResult.ok) {
+    const msg = deviceResult.revoked
+      ? 'Este dispositivo esta vetado desde Seguridad. Pide que lo permitan de nuevo para ingresar.'
+      : `Limite de ${MAX_GESTOR_DEVICES} dispositivos alcanzado. Cierra uno desde Seguridad o contacta al administrador.`;
+    alert(msg);
+    await signOut(auth);
+    window.location.href = 'gestor-login.html';
+    return;
+  }
 
   const el = document.getElementById('userEmail');
   if (el) el.textContent = user.email;
@@ -591,9 +549,9 @@ onAuthStateChanged(auth, async user => {
   // Migrar si es necesario
   await migrateIfNeeded(user.uid);
 
-  // Cargar datos una sola vez al iniciar (ya en vuelo desde el inicio del boot).
+  // Cargar datos una sola vez al iniciar.
   // Se quitaron las escuchas en tiempo real para reducir lecturas de Firestore.
-  await dataPromise;
+  await loadFromSubcollections(user.uid);
 });
 
 // â”€â”€ Sanitizadores Firestore â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2524,6 +2482,219 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .modal .helper{color:var(--muted);font-size:12px;margin-top:-4px}
 
+/* ═══════════════════════════════════════════════════════
+   UI POLISH 2026 — modales de venta/combo/cuenta + vistas
+   (solo visual; misma lógica, mismos IDs/handlers)
+   ═══════════════════════════════════════════════════════ */
+
+/* Cabecera amigable con ícono (cuenta madre + combo) */
+#accountModalWrap .modal-head,#comboModalWrap .modal-head{
+  align-items:flex-start;gap:14px;margin-bottom:20px;padding-bottom:18px;
+  border-bottom:1px solid rgba(148,163,184,.12);
+}
+.modal-head-lead{display:flex;align-items:flex-start;gap:14px;min-width:0;flex:1}
+.modal-head-icon{
+  width:48px;height:48px;border-radius:15px;flex-shrink:0;
+  display:grid;place-items:center;
+  background:linear-gradient(140deg,#8b7dff,#6756ff);
+  box-shadow:0 14px 32px rgba(124,100,255,.30);
+}
+.modal-head-icon.green{background:linear-gradient(140deg,#34d399,#10b981);box-shadow:0 14px 32px rgba(16,185,129,.28)}
+.modal-head-icon i[data-lucide],.modal-head-icon svg{width:24px;height:24px;color:#fff;stroke-width:2.3}
+.modal-head-titles{min-width:0}
+.modal-head-titles h3{margin:0}
+.modal-head-titles small{display:block;margin-top:5px;color:var(--muted);font-size:13px;font-weight:600;line-height:1.4}
+
+/* Etiquetas de grupo dentro de los formularios */
+.form-group-label{
+  grid-column:1/-1;
+  display:flex;align-items:center;gap:9px;
+  margin:8px 0 -2px;
+  color:#aeb9d8;font-size:11.5px;font-weight:900;
+  text-transform:uppercase;letter-spacing:.09em;white-space:nowrap;
+}
+.form-group-label::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.08)}
+.form-group-label i[data-lucide],.form-group-label svg{width:14px;height:14px;color:#8aa1ff;stroke-width:2.4}
+#clientModalWrap .form-group-label:first-of-type,.combo-section .form-group-label:first-child{margin-top:0}
+
+/* field-control (íconos en campos) para cuenta madre + combo */
+#accountModalWrap .field-control,#comboModalWrap .field-control{
+  display:flex;align-items:center;gap:11px;
+  padding:0 14px;min-height:48px;
+  border-radius:13px;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(15,23,42,.55);
+  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease;
+}
+#accountModalWrap .field-control:focus-within,#comboModalWrap .field-control:focus-within{
+  border-color:rgba(124,109,255,.6);background:rgba(15,23,42,.9);
+  box-shadow:0 0 0 4px rgba(124,109,255,.12);
+}
+#accountModalWrap .field-control > i[data-lucide],#comboModalWrap .field-control > i[data-lucide],
+#accountModalWrap .field-control > svg,#comboModalWrap .field-control > svg{
+  width:18px;height:18px;color:#8aa1ff;stroke-width:2.2;flex-shrink:0;
+}
+#accountModalWrap .field-control .input,#accountModalWrap .field-control .select,
+#comboModalWrap .field-control .input,#comboModalWrap .field-control .select{
+  flex:1;min-width:0;border:0!important;background:transparent!important;box-shadow:none!important;
+  height:46px!important;min-height:46px!important;padding:0!important;font-weight:650;
+}
+#accountModalWrap .field-control .input:focus,#comboModalWrap .field-control .input:focus,
+#accountModalWrap .field-control .select:focus,#comboModalWrap .field-control .select:focus{background:transparent!important}
+#accountModalWrap .field-control .select,#comboModalWrap .field-control .select{
+  background:
+    linear-gradient(45deg,transparent 50%,#9fb1d1 50%) calc(100% - 6px) 50%/7px 7px no-repeat,
+    linear-gradient(135deg,#9fb1d1 50%,transparent 50%) calc(100% + 1px) 50%/7px 7px no-repeat!important;
+  padding-right:26px!important;
+}
+#accountModalWrap .field-control.textarea-control{align-items:flex-start;min-height:92px}
+#accountModalWrap .field-control.textarea-control > i[data-lucide],#accountModalWrap .field-control.textarea-control > svg{margin-top:15px}
+#accountModalWrap .field-control textarea{flex:1;border:0!important;background:transparent!important;box-shadow:none!important;min-height:84px;padding:13px 0 0!important;resize:vertical}
+
+/* Toggle tipo switch para "Registrar como gasto" en cuenta madre */
+#accountModalWrap .checkline{
+  grid-column:1/-1;display:flex;align-items:center;gap:12px;
+  min-height:54px;padding:0 16px;border-radius:13px;
+  border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.45);
+  color:#f0f4ff;font-weight:700;font-size:13.5px;cursor:pointer;flex-direction:row;
+}
+#accountModalWrap .checkline input{width:20px;height:20px;accent-color:#34d399;cursor:pointer}
+
+/* ─── Vista Cuentas Madre: secciones con color y guía ─── */
+.account-section[data-sec] .account-section-head{
+  padding:11px 14px;border-radius:14px;
+  border:1px solid rgba(255,255,255,.07);
+  background:linear-gradient(160deg,var(--surface),rgba(9,15,26,.9));
+}
+.account-section-head h4{display:flex;align-items:center;gap:9px}
+.account-section-head h4::before{
+  content:"";width:11px;height:11px;border-radius:50%;flex-shrink:0;
+  background:#94a3b8;box-shadow:0 0 0 4px rgba(148,163,184,.16);
+}
+.account-section[data-sec="attention"] .account-section-head{border-color:var(--danger-border);background:linear-gradient(160deg,rgba(248,113,113,.10),rgba(9,15,26,.92))}
+.account-section[data-sec="attention"] .account-section-head h4::before{background:var(--danger);box-shadow:0 0 0 4px rgba(248,113,113,.18)}
+.account-section[data-sec="available"] .account-section-head{border-color:var(--free-border);background:linear-gradient(160deg,rgba(34,211,238,.09),rgba(9,15,26,.92))}
+.account-section[data-sec="available"] .account-section-head h4::before{background:var(--free);box-shadow:0 0 0 4px rgba(34,211,238,.18)}
+.account-section[data-sec="attention"] .account-section-head .chip.platform{background:var(--danger-bg);color:#fca5a5;border-color:var(--danger-border)}
+.account-section[data-sec="available"] .account-section-head .chip.platform{background:var(--free-bg);color:#a5f3fc;border-color:var(--free-border)}
+.account-main-title{font-size:15.5px}
+.account-primary-actions .mini.replace{color:#fcd9b6;border-color:rgba(251,191,36,.26);background:rgba(251,191,36,.08)}
+
+/* "Usar perfil" como acción primaria clara en las tarjetas de cuenta */
+.account-primary-actions .mini:first-child{
+  background:linear-gradient(135deg,rgba(124,109,255,.18),rgba(99,86,255,.10));
+  border-color:rgba(124,109,255,.32);color:#d9d2ff;font-weight:800;
+}
+
+/* ─── Vista Perfiles Libres: tabs y "Usar siguiente" más legibles ─── */
+.free-platform-tab{height:36px;font-size:13px}
+.free-platform-tab.active{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pcolor) 30%,transparent)}
+.platform-total{white-space:nowrap}
+.free-account.recommended::after{
+  content:"★ Sugerida";position:absolute;top:-9px;left:12px;
+  font-size:10px;font-weight:900;letter-spacing:.04em;
+  padding:3px 9px;border-radius:999px;
+  color:#0a0f1c;background:color-mix(in srgb,var(--pcolor) 80%,#fff 5%);
+  box-shadow:0 6px 14px rgba(0,0,0,.35);
+}
+.free-account.recommended .free-badge.suggested{display:none}
+.free-actions .quick-use{font-weight:800!important}
+
+/* ─── Modal combo: intro como llamado amigable + pasos ─── */
+.combo-intro{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:14px 16px;border-radius:14px;
+  border:1px solid rgba(124,109,255,.2);
+  background:linear-gradient(160deg,rgba(124,109,255,.1),rgba(255,255,255,.02));
+  color:var(--text-2);font-size:13px;line-height:1.5;font-weight:600;
+}
+.combo-intro::before{
+  content:"";width:34px;height:34px;border-radius:11px;flex-shrink:0;
+  background:linear-gradient(140deg,#8b7dff,#6756ff) center/18px no-repeat;
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m7.5 4.27 9 5.15'/><path d='M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z'/><path d='m3.3 7 8.7 5 8.7-5'/><path d='M12 22V12'/></svg>") center/18px no-repeat;
+  mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m7.5 4.27 9 5.15'/><path d='M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z'/><path d='m3.3 7 8.7 5 8.7-5'/><path d='M12 22V12'/></svg>") center/18px no-repeat;
+}
+.combo-section-head{display:flex;align-items:center;gap:9px}
+.combo-section-head .step{
+  width:24px;height:24px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;
+  background:rgba(124,109,255,.16);border:1px solid rgba(124,109,255,.3);
+  color:#c4b5fd;font-size:12px;font-weight:900;
+}
+.combo-toggle{min-height:46px;border-radius:12px;padding:0 14px;font-size:13px;font-weight:700;color:var(--text-2)}
+.combo-toggle input{width:18px;height:18px}
+
+/* ─── Modal combo: versión compacta (cabe en pantalla, menos saturado) ─── */
+.combo-modal{width:min(820px,100%)}
+.combo-modal .modal-head{padding:16px 22px 12px;margin-bottom:0;gap:12px}
+.combo-modal .modal-head-icon{width:42px;height:42px;border-radius:13px}
+.combo-modal .modal-head-icon i[data-lucide],.combo-modal .modal-head-icon svg{width:21px;height:21px}
+.combo-modal .modal-head-titles h3{font-size:20px}
+.combo-modal .modal-head-titles small{font-size:12px;margin-top:2px}
+#comboForm{gap:10px;padding:0 22px}
+.combo-intro{padding:9px 12px;font-size:12px;line-height:1.45;border-radius:11px;gap:10px;align-items:center}
+.combo-intro::before{width:26px;height:26px;border-radius:9px}
+.combo-section{padding:13px 14px;gap:9px 12px;border-radius:13px;border-color:rgba(255,255,255,.06);background:rgba(255,255,255,.018)}
+.combo-section-head{font-size:13px;gap:8px}
+.combo-section-head .step{width:21px;height:21px;border-radius:7px;font-size:11px}
+.combo-modal label{font-size:11.5px;gap:4px}
+.combo-modal .form-group-label{font-size:10.5px;margin:3px 0 -2px;letter-spacing:.07em}
+.combo-modal .form-group-label i[data-lucide],.combo-modal .form-group-label svg{width:13px;height:13px}
+#comboModalWrap .field-control{min-height:42px;border-radius:10px;padding:0 11px;gap:9px}
+#comboModalWrap .field-control .input,#comboModalWrap .field-control .select{height:40px!important;min-height:40px!important;font-size:13px}
+#comboModalWrap .field-control > i[data-lucide],#comboModalWrap .field-control > svg{width:16px;height:16px}
+.combo-tools{gap:8px}
+.combo-modal .combo-tools .btn{min-height:42px;padding:0 16px}
+.combo-toggle{flex-direction:row!important;min-height:40px;padding:0 13px;font-size:12.5px;font-weight:650}
+.combo-toggle input{width:17px;height:17px;margin:0}
+.combo-app-card{padding:11px 12px;border-radius:11px}
+.combo-app-title{margin-bottom:8px;font-size:13px}
+.combo-app-grid{gap:8px;margin-top:8px}
+.combo-app-grid label{font-size:11px;gap:4px}
+#comboForm .modal-actions.full{padding:12px 0 16px}
+#comboForm > label.full{gap:4px;font-size:11.5px}
+#comboForm > label.full textarea{min-height:52px;max-height:100px}
+@media(max-height:780px){
+  .combo-modal{max-height:calc(100dvh - 20px)}
+  .combo-section{padding:11px 12px;gap:8px 10px}
+  #comboForm{gap:8px}
+}
+
+/* Tarjetas de app del combo: color de plataforma + toggle real */
+.combo-modal .combo-app-card{
+  --pcolor:#7c6dff;
+  padding:12px;border-radius:13px;
+  border:1px solid color-mix(in srgb,var(--pcolor) 28%,rgba(255,255,255,.07));
+  background:radial-gradient(360px 130px at 0% 0%,color-mix(in srgb,var(--pcolor) 13%,transparent),transparent 70%),rgba(255,255,255,.02);
+}
+.combo-app-title{margin-bottom:9px;font-size:13.5px}
+.combo-app-name{display:flex;align-items:center;gap:7px;min-width:0}
+.combo-modal .combo-badge{
+  background:color-mix(in srgb,var(--pcolor) 16%,rgba(255,255,255,.02));
+  border-color:color-mix(in srgb,var(--pcolor) 36%,transparent);
+  color:color-mix(in srgb,var(--pcolor) 72%,#ffffff);
+}
+.combo-activate-toggle{
+  display:flex!important;flex-direction:row!important;align-items:center;gap:10px;
+  min-height:44px;padding:8px 11px;border-radius:11px;cursor:pointer;
+  border:1px solid rgba(148,163,184,.16);background:rgba(8,13,24,.42);
+  color:#f0f4ff;font-weight:700;
+}
+.combo-activate-toggle input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.combo-activate-toggle .switch-ui{
+  position:relative;width:42px;height:24px;flex-shrink:0;border-radius:999px;
+  background:rgba(148,163,184,.28);border:1px solid rgba(148,163,184,.3);transition:all .18s ease;
+}
+.combo-activate-toggle .switch-ui::after{
+  content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+  background:#e6ecff;transition:transform .18s ease;
+}
+.combo-activate-toggle input:checked + .switch-ui{background:linear-gradient(135deg,#22c55e,#38bdf8);border-color:rgba(125,211,252,.4)}
+.combo-activate-toggle input:checked + .switch-ui::after{transform:translateX(18px);background:#fff}
+.combo-activate-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.combo-activate-text strong{font-size:12.5px;font-weight:800;color:#f0f4ff}
+.combo-activate-text small{font-size:10.5px;line-height:1.25;color:var(--muted);font-weight:600}
+.combo-due-field{margin-top:9px}
+
 /* Client sale modal */
 #clientModalWrap{
   background:rgba(2,6,17,.78);
@@ -3284,6 +3455,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 .combo-toggle span{display:flex;align-items:center;gap:8px}
 .combo-toggle svg{width:14px;height:14px;color:var(--muted);flex-shrink:0}
 .combo-toggle input{width:16px;height:16px;accent-color:#20d6a3;flex-shrink:0;cursor:pointer}
+/* Notas label inside form grid */
 #comboForm > label.full{
   grid-column:1/-1;
 }
@@ -3292,6 +3464,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   min-height:64px;
   max-height:120px;
 }
+/* Sticky footer */
 #comboForm .modal-actions.full{
   grid-column:1/-1;
   position:sticky;
@@ -3302,6 +3475,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   margin-top:0;
   border-top:1px solid rgba(255,255,255,.06);
 }
+/* Compact inputs inside combo only */
 .combo-modal .input,.combo-modal .select{
   height:44px;
   padding:0 12px;
@@ -3309,6 +3483,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-size:13.5px;
 }
 .combo-modal label{font-size:12.5px;gap:5px}
+/* App rows */
 .combo-rows{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
@@ -3791,6 +3966,40 @@ i[data-lucide="search"]::before{content:"âŒ•"}
   .nav-btn{padding:6px 8px;min-height:50px;font-size:9px}
   .actions{grid-template-columns:1fr}
 }
+
+/* ═══ Modal Nuevo cliente: versión compacta (cabe sin hacer zoom out) ═══ */
+#clientModalWrap .client-sale-modal{padding:22px 24px 18px}
+#clientModalWrap .modal-head{margin:0 0 16px;padding:0 0 14px}
+#clientModalWrap .client-modal-icon{width:44px;height:44px;border-radius:14px}
+#clientModalWrap .modal-head h3{font-size:22px}
+#clientModalWrap .modal-head small{margin-top:4px;font-size:12.5px}
+#clientModalWrap .form{gap:11px 22px}
+#clientModalWrap .form label{gap:6px}
+#clientModalWrap .form-group-label{margin:6px 0 -2px;font-size:10.5px;letter-spacing:.08em}
+#clientModalWrap .field-control{min-height:46px;border-radius:12px}
+#clientModalWrap .field-control .input,
+#clientModalWrap .field-control .select,
+#clientModalWrap .field-control textarea{min-height:44px;height:44px;font-size:14px}
+#clientModalWrap .field-control > svg,
+#clientModalWrap .field-control > i[data-lucide]{width:18px;height:18px}
+#clientModalWrap .textarea-control{min-height:78px}
+#clientModalWrap .textarea-control textarea{min-height:74px;height:auto}
+#clientModalWrap .textarea-control > svg,
+#clientModalWrap .textarea-control > i[data-lucide]{margin-top:13px}
+/* Los dos switches caben uno al lado del otro */
+#clientModalWrap .client-full-sale-toggle{
+  grid-column:auto;min-height:64px;padding:12px 14px;gap:11px;border-radius:13px;
+}
+#clientModalWrap .client-full-sale-toggle .switch-ui{width:50px;height:28px;flex:0 0 50px}
+#clientModalWrap .client-full-sale-toggle .switch-ui::after{width:22px;height:22px;top:2px;left:2px}
+#clientModalWrap .client-full-sale-toggle input:checked + .switch-ui::after{transform:translateX(24px)}
+#clientModalWrap .client-full-sale-toggle strong{font-size:14px}
+#clientModalWrap .client-full-sale-toggle small{margin-top:3px;font-size:11.5px;line-height:1.3}
+#clientModalWrap .modal-actions{margin:18px -24px -18px;padding:16px 24px}
+#clientModalWrap .modal-actions .btn{min-height:48px}
+@media(max-width:720px){
+  #clientModalWrap .client-full-sale-toggle{grid-column:1/-1}
+}
 </style>
 <body>
 <!-- Loader mientras verifica sesion -->
@@ -3872,8 +4081,6 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       <button class="ghost-btn" onclick="firebaseSignOut()" style="color:#fb7185;border-color:rgba(251,113,133,.15)"><i data-lucide="log-out"></i><span>Salir</span></button>
       <button class="ghost-btn" id="syncBtn"><i data-lucide="refresh-cw"></i><span>Sincronizar</span></button>
       <button class="ghost-btn" id="exportBtn"><i data-lucide="download"></i><span>Exportar</span></button>
-      <button class="ghost-btn" onclick="openImportModal()"><i data-lucide="upload"></i><span>Importar</span></button>
-      <button class="ghost-btn" onclick="window.open('admin-tienda.html','_blank')"><i data-lucide="store"></i><span>Mi Tienda</span></button>
     </div>
   </aside>
 
@@ -3987,7 +4194,10 @@ i[data-lucide="search"]::before{content:"âŒ•"}
 
     <section id="cuentasView" class="view panel">
       <div class="panel-head">
-        <h3>Cuentas Madre</h3>
+        <div>
+          <h3>Cuentas Madre</h3>
+          <div class="sub">Tus cuentas principales, ordenadas por las que necesitan atención, las que tienen perfiles libres y las llenas.</div>
+        </div>
         <div class="tools">
           <input class="input search" id="accountSearch" placeholder="Buscar plataforma, correo o proveedor" />
         </div>
@@ -4145,14 +4355,18 @@ i[data-lucide="search"]::before{content:"âŒ•"}
       <button class="x" data-close="clientModalWrap" aria-label="Cerrar">×</button>
     </div>
     <div class="form">
+      <div class="form-group-label"><i data-lucide="user-round"></i>Datos del cliente</div>
       <label>Nombre<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="cName" placeholder="Deros Rafael" /></span></label>
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
+      <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
       <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
       <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cActivationByCode" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>No envia correo, contrasena, perfil ni PIN; pide el codigo de pantalla.</small></span></label>
+      <div class="form-group-label"><i data-lucide="contact"></i>Acceso del perfil</div>
       <label>Perfil<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="cProfile" placeholder="1" /></span></label>
       <label>Pin<span class="field-control"><i data-lucide="lock-keyhole"></i><input class="input" id="cPin" placeholder="1234" /></span></label>
+      <div class="form-group-label"><i data-lucide="calendar-check"></i>Cobro y vencimiento</div>
       <label data-finance-only>Precio venta<span class="field-control"><i data-lucide="badge-dollar-sign"></i><input class="input" type="number" min="0" step="0.01" id="cSalePrice" placeholder="0.00" /></span></label>
       <label data-finance-only>Precio renovacion<span class="field-control"><i data-lucide="refresh-cw"></i><input class="input" type="number" min="0" step="0.01" id="cRenewalPrice" placeholder="0.00" /></span></label>
       <label>Vencimiento<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input" id="cDueDisplay" placeholder="Elige una fecha" /></span></label>
@@ -4169,22 +4383,29 @@ i[data-lucide="search"]::before{content:"âŒ•"}
 <div class="modal-backdrop" id="accountModalWrap">
   <div class="modal">
     <div class="modal-head">
-      <h3 id="accountModalTitle">Nueva cuenta madre</h3>
+      <div class="modal-head-lead">
+        <span class="modal-head-icon"><i data-lucide="key-round"></i></span>
+        <div class="modal-head-titles">
+          <h3 id="accountModalTitle">Nueva cuenta madre</h3>
+          <small>Registra la cuenta principal de donde saldrán los perfiles para tus clientes.</small>
+        </div>
+      </div>
       <button class="x" data-close="accountModalWrap">x</button>
     </div>
     <div class="form">
-      <label>Plataforma
-        <select class="select" id="aPlatformSelect"></select>
-      </label>
-      <label>Proveedor<input class="input" id="aProvider" placeholder="Deros Rafael / cuenta propia" /></label>
-      <label>WhatsApp proveedor<input class="input" id="aProviderWhatsapp" placeholder="974834197" /></label>
-      <label>Correo<input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></label>
-      <label>Contrasena<input class="input" id="aPassword" placeholder="contrasena de la cuenta" /></label>
-      <label>Capacidad<input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></label>
-      <label data-finance-only>Costo compra<input class="input" type="number" min="0" step="0.01" id="aPurchaseCost" placeholder="0.00" /></label>
+      <div class="form-group-label"><i data-lucide="tv"></i>Datos de la cuenta</div>
+      <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="aPlatformSelect"></select></span></label>
+      <label>Capacidad (perfiles)<span class="field-control"><i data-lucide="users"></i><input class="input" type="number" min="1" id="aCapacity" placeholder="5" /></span></label>
+      <label>Correo<span class="field-control"><i data-lucide="mail"></i><input class="input" id="aEmail" placeholder="correo@ejemplo.com" /></span></label>
+      <label>Contraseña<span class="field-control"><i data-lucide="lock-keyhole"></i><input class="input" id="aPassword" placeholder="contraseña de la cuenta" /></span></label>
+      <label>Vencimiento<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input" id="aDueDisplay" placeholder="Elige una fecha" /></span></label>
+      <div class="form-group-label"><i data-lucide="truck"></i>Proveedor</div>
+      <label>Proveedor<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="aProvider" placeholder="Deros Rafael / cuenta propia" /></span></label>
+      <label>WhatsApp proveedor<span class="field-control"><i data-lucide="phone"></i><input class="input" id="aProviderWhatsapp" placeholder="974834197" /></span></label>
+      <div class="form-group-label" data-finance-only><i data-lucide="wallet"></i>Costo</div>
+      <label data-finance-only>Costo compra<span class="field-control"><i data-lucide="badge-dollar-sign"></i><input class="input" type="number" min="0" step="0.01" id="aPurchaseCost" placeholder="0.00" /></span></label>
       <label class="checkline" data-finance-only><input type="checkbox" id="aPurchaseCostRegistered" /> Registrar como gasto</label>
-      <label>Vencimiento<input class="input date-input" id="aDueDisplay" placeholder="Elige una fecha" /></label>
-      <label class="full">Notas<textarea id="aNotes" placeholder="Opcional"></textarea></label>
+      <label class="full">Notas<span class="field-control textarea-control"><i data-lucide="message-square-text"></i><textarea id="aNotes" placeholder="Opcional"></textarea></span></label>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close="accountModalWrap">Cancelar</button>
@@ -4384,26 +4605,34 @@ i[data-lucide="search"]::before{content:"âŒ•"}
 <div class="modal-backdrop" id="comboModalWrap">
   <div class="modal combo-modal">
     <div class="modal-head">
-      <h3>Nuevo combo</h3>
+      <div class="modal-head-lead">
+        <span class="modal-head-icon"><i data-lucide="package-plus"></i></span>
+        <div class="modal-head-titles">
+          <h3>Nuevo combo</h3>
+          <small>Vende varias apps juntas y entrega todos los accesos en un solo mensaje.</small>
+        </div>
+      </div>
       <button class="x close-icon" data-close="comboModalWrap" aria-label="Cerrar"></button>
     </div>
     <form id="comboForm" class="form">
-      <div class="combo-intro">Vende varias apps en una sola operacion. El gestor guarda un cliente por app y arma un solo WhatsApp con todos los accesos.</div>
+      <div class="combo-intro">El gestor guarda un cliente por cada app del combo y arma automáticamente un solo WhatsApp con todos los datos de acceso.</div>
       <div class="combo-section">
-        <label>Nombre<input class="input" id="comboClientName" placeholder="Deros Rafael" required /></label>
-        <label>WhatsApp<input class="input" id="comboWhatsapp" placeholder="974834197" required /></label>
-        <label>Plantilla<select class="select" id="comboTemplatePicker"></select></label>
-        <label>Vence<input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></label>
-        <label data-finance-only>Precio total del combo<input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></label>
-        <label data-finance-only>Precio renovacion combo<input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></label>
+        <div class="combo-section-head"><span class="step">1</span>Cliente y plan</div>
+        <label>Nombre<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="comboClientName" placeholder="Deros Rafael" required /></span></label>
+        <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="comboWhatsapp" placeholder="974834197" required /></span></label>
+        <label>Plantilla<span class="field-control"><i data-lucide="layout-grid"></i><select class="select" id="comboTemplatePicker"></select></span></label>
+        <label>Vence<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input" id="comboDueDate" placeholder="Elige una fecha" required /></span></label>
+        <label data-finance-only>Precio total del combo<span class="field-control"><i data-lucide="badge-dollar-sign"></i><input class="input" type="number" min="0" step="0.01" id="comboTotalPrice" placeholder="0.00" /></span></label>
+        <label data-finance-only>Precio renovación combo<span class="field-control"><i data-lucide="refresh-cw"></i><input class="input" type="number" min="0" step="0.01" id="comboRenewalPrice" placeholder="0.00" /></span></label>
+        <div class="form-group-label"><i data-lucide="plus-circle"></i>Agregar apps manualmente</div>
         <div class="combo-tools">
-          <input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" />
+          <span class="field-control"><i data-lucide="layers"></i><input class="input" id="comboCustomPlatforms" placeholder="Netflix, Disney, Prime Video" /></span>
           <button class="btn soft" type="button" id="applyCustomComboBtn">Aplicar</button>
         </div>
         <label class="combo-toggle"><span><i data-lucide="calendar"></i>Fechas diferentes por app</span><input type="checkbox" id="comboSplitDates" /></label>
       </div>
       <div class="combo-section combo-apps-section">
-        <div class="combo-section-head">Apps incluidas</div>
+        <div class="combo-section-head"><span class="step">2</span>Apps incluidas</div>
         <div class="combo-rows" id="comboRows"></div>
       </div>
       <label class="full">Notas<textarea id="comboNotes" placeholder="Opcional"></textarea></label>
@@ -4553,12 +4782,11 @@ function normalizeLoaded(data){
   data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode===true, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),1500), codeActivationMessage:safeSlice(String(data.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim(),1500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
-window.__loadFromFirestore = function(data, opts){
+window.__loadFromFirestore = function(data){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
-  // Actualizar localStorage como respaldo. Si viene de cache, conservar el timestamp
-  // original para que el TTL no se renueve solo y el refresco en segundo plano ocurra.
-  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(opts && opts.syncedAt ? opts.syncedAt : Date.now())); } catch(e){}
+  // Actualizar localStorage como respaldo
+  try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
@@ -4592,7 +4820,6 @@ window.retryFinanceHistoryLoad=function(){
   renderFinance();
 };
 function touchLocalStateCache(){
-  window.__lastLocalWriteAt = Date.now();
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
 }
 function persist(){
@@ -5076,84 +5303,6 @@ ${financeWorksheet}
   URL.revokeObjectURL(a.href);
 }
 window.downloadGestorExcel=downloadGestorExcel;
-
-function downloadImportTemplate(){
-  const ec=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/”/g,'&quot;');
-  const cell=(v,style)=>`<Cell ss:StyleID=”${style}”><Data ss:Type=”String”>${ec(v)}</Data></Cell>`;
-  const hdr=v=>cell(v,'TH');
-  const ex=v=>cell(v,'EX');
-  const info=(v,merge)=>`<Cell${merge?' ss:MergeAcross=”'+merge+'”':''} ss:StyleID=”INFO”><Data ss:Type=”String”>${ec(v)}</Data></Cell>`;
-
-  const accCols=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contrasena','Capacidad','Vencimiento','Notas'];
-  const cliCols=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Perfil','PIN','Vencimiento','Estado','Notas'];
-
-  const accEx1=['Netflix','Mi Proveedor','51999123456','netflix_cuenta@gmail.com','Clave123','4','2025-12-31',''];
-  const accEx2=['Spotify','','','spotify_cuenta@gmail.com','Clave456','2','2025-11-30','Cuenta familiar'];
-  const cliEx1=['Ana Garcia','51988111222','Netflix','netflix_cuenta@gmail.com','Perfil 1','1234','2025-12-31','activo',''];
-  const cliEx2=['Carlos Ramos','51977333444','Spotify','spotify_cuenta@gmail.com','','','2025-11-30','activo','Sin PIN'];
-
-  const colXml=widths=>widths.map(w=>`<Column ss:AutoFitWidth=”0” ss:Width=”${w}”/>`).join('');
-  const rowHdr=cols=>`<Row ss:AutoFitHeight=”1”>${cols.map(hdr).join('')}</Row>`;
-  const rowEx=vals=>`<Row ss:AutoFitHeight=”1”>${vals.map(ex).join('')}</Row>`;
-
-  const instrSheet=`<Worksheet ss:Name=”Instrucciones”>
-    <Table>${colXml([220,420])}
-      <Row ss:Height=”32”><Cell ss:MergeAcross=”1” ss:StyleID=”TITLE”><Data ss:Type=”String”>Plantilla de importacion — Disenos Streaming</Data></Cell></Row>
-      <Row ss:Height=”8”><Cell/></Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 1</Data></Cell>${info('Rellena la hoja “Cuentas madre” con tus cuentas (Netflix, Spotify, etc.)')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 2</Data></Cell>${info('Rellena la hoja “Clientes”. En “Cuenta madre correo” escribe el mismo correo de la cuenta que le corresponde.')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 3</Data></Cell>${info('Borra las filas de ejemplo (las grises) antes de subir el archivo.')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>PASO 4</Data></Cell>${info('Guarda el archivo como .xls y subelo en el gestor usando el boton Importar.')}</Row>
-      <Row ss:Height=”8”><Cell/></Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Plataforma</Data></Cell>${info('Nombre del servicio: Netflix, Spotify, YouTube Premium, etc. Obligatorio.')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Correo</Data></Cell>${info('Correo de la cuenta madre. Se usa para vincular los clientes a ella.')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Capacidad</Data></Cell>${info('Cuantos perfiles/clientes soporta la cuenta (numero entero, ej: 4).')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Vencimiento</Data></Cell>${info('Fecha en formato AAAA-MM-DD (ej: 2025-12-31).')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Estado</Data></Cell>${info('”activo” o “vencido”.')}</Row>
-      <Row><Cell ss:StyleID=”LABEL”><Data ss:Type=”String”>Cuenta madre correo</Data></Cell>${info('En hoja Clientes: escribe el correo exacto de la cuenta madre para vincularlos.')}</Row>
-    </Table></Worksheet>`;
-
-  const accSheet=`<Worksheet ss:Name=”Cuentas madre”>
-    <Table>${colXml([120,130,140,200,140,70,100,220])}
-      ${rowHdr(accCols)}
-      ${rowEx(accEx1)}
-      ${rowEx(accEx2)}
-    </Table></Worksheet>`;
-
-  const cliSheet=`<Worksheet ss:Name=”Clientes”>
-    <Table>${colXml([160,130,120,200,90,70,100,80,200])}
-      ${rowHdr(cliCols)}
-      ${rowEx(cliEx1)}
-      ${rowEx(cliEx2)}
-    </Table></Worksheet>`;
-
-  const xml=`<?xml version=”1.0” encoding=”UTF-8”?>
-<?mso-application progid=”Excel.Sheet”?>
-<Workbook xmlns=”urn:schemas-microsoft-com:office:spreadsheet”
- xmlns:ss=”urn:schemas-microsoft-com:office:spreadsheet”>
-<Styles>
-  <Style ss:ID=”Default”><Font ss:FontName=”Calibri” ss:Size=”11”/></Style>
-  <Style ss:ID=”TITLE”><Alignment ss:Horizontal=”Center” ss:Vertical=”Center”/><Interior ss:Color=”#1e1b4b” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”15” ss:Bold=”1” ss:Color=”#a5b4fc”/></Style>
-  <Style ss:ID=”LABEL”><Font ss:FontName=”Calibri” ss:Size=”10” ss:Bold=”1” ss:Color=”#4f46e5”/></Style>
-  <Style ss:ID=”INFO”><Font ss:FontName=”Calibri” ss:Size=”10” ss:Color=”#374151”/></Style>
-  <Style ss:ID=”TH”><Alignment ss:Horizontal=”Center” ss:Vertical=”Center”/><Interior ss:Color=”#1e293b” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”10” ss:Bold=”1” ss:Color=”#ffffff”/><Borders><Border ss:Position=”Bottom” ss:LineStyle=”Continuous” ss:Weight=”2” ss:Color=”#6366f1”/></Borders></Style>
-  <Style ss:ID=”EX”><Interior ss:Color=”#f1f5f9” ss:Pattern=”Solid”/><Font ss:FontName=”Calibri” ss:Size=”10” ss:Color=”#64748b” ss:Italic=”1”/></Style>
-</Styles>
-${instrSheet}
-${accSheet}
-${cliSheet}
-</Workbook>`;
-
-  const cleanTemplateXml=xml.replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
-  const blob=new Blob([cleanTemplateXml],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='plantilla-importacion.xls';
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-window.downloadImportTemplate=downloadImportTemplate;
-
 // â”€â”€ Refresh sin persistir (cuando ya se guard? el doc individual) â”€â”€
 function refreshUI(){
   cleanupFloatingActionMenusBeforeRender();
@@ -5834,7 +5983,7 @@ function renderAccounts(){
   const sectionHtml=(key,list)=>{
     if(!list.length) return '';
     const [title,sub]=accountSectionLabel(key);
-    return `<div class="account-section">
+    return `<div class="account-section" data-sec="${key}">
       <div class="account-section-head">
         <div>
           <h4>${title}</h4>
@@ -6307,15 +6456,18 @@ function whatsappText(client){
         ? `venci\u00f3 el ${fmtDateLong(client.dueDate) || client.dueDate || 'd\u00eda indicado'}`
         : 'est\u00e1 pr\u00f3xima a vencer';
   if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
-    return [
-      `Hola, ${client.name || ''} \ud83d\udc4b\u2728`,
-      '',
-      `\ud83d\udccc Tu cuenta de ${platform} ${status}.`,
+    const accessLines=client?.activationByCode === true ? [] : [
       '',
       `\ud83c\udfac Perfil: ${client.profile || '-'}`,
       `\ud83d\udce7 Correo: ${account?.email || '-'}`,
       `\ud83d\udd11 Contrase\u00f1a: ${account?.password || '-'}`,
-      `\ud83d\udd10 PIN: ${client.pin || '-'}`,
+      `\ud83d\udd10 PIN: ${client.pin || '-'}`
+    ];
+    return [
+      `Hola, ${client.name || ''} \ud83d\udc4b\u2728`,
+      '',
+      `\ud83d\udccc Tu cuenta de ${platform} ${status}.`,
+      ...accessLines,
       '',
       '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
       ...(payment ? ['', payment] : []),
@@ -6813,16 +6965,17 @@ function renderComboRows(){
   wrap.innerHTML=tpl ? tpl.platforms.map(platform=>{
     const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountAvailability(a).free>0) || state.accounts.find(a=>accountMatchesComboPlatform(a,platform));
     return `<div class="combo-app-card" style="--pcolor:${platformColor(platform)}" data-platform="${escapeAttr(platform)}">
-      <div class="combo-app-title"><span>${platformLogo(platform,'chip')} ${escapeHtml(platform)}</span><span class="combo-badge">App combo</span></div>
-      <label>Cuenta madre<select class="select combo-account">${comboAccountOptions(platform,first?.id||'')}</select></label>
-      <div class="combo-app-grid" style="margin-top:10px">
-        <label>Perfil<input class="input combo-profile" value="${escapeAttr(first ? nextProfileSuggestion(first.id) : '')}" placeholder="1" /></label>
-        <label>PIN<input class="input combo-pin" placeholder="1234" /></label>
+      <div class="combo-app-title"><span class="combo-app-name">${platformLogo(platform,'chip')} ${escapeHtml(platform)}</span><span class="combo-badge">App combo</span></div>
+      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select combo-account">${comboAccountOptions(platform,first?.id||'')}</select></span></label>
+      <div class="combo-app-grid" style="margin-top:9px">
+        <label>Perfil<span class="field-control"><i data-lucide="user-round"></i><input class="input combo-profile" value="${escapeAttr(first ? nextProfileSuggestion(first.id) : '')}" placeholder="1" /></span></label>
+        <label>PIN<span class="field-control"><i data-lucide="lock-keyhole"></i><input class="input combo-pin" placeholder="1234" /></span></label>
       </div>
-      <label class="checkline full" style="margin-top:10px"><input type="checkbox" class="combo-activation-code" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>Esta app pedira codigo de pantalla en WhatsApp.</small></span></label>
-      <label class="combo-due-field" style="${split?'':'display:none'}">Vence esta app<input class="input date-input combo-due" value="${escapeAttr(baseDate)}" placeholder="Elige fecha" /></label>
+      <label class="combo-activate-toggle" style="margin-top:9px"><input type="checkbox" class="combo-activation-code" /><span class="switch-ui" aria-hidden="true"></span><span class="combo-activate-text"><strong>Activar por código</strong><small>Pide el código de pantalla por WhatsApp.</small></span></label>
+      <label class="combo-due-field" style="${split?'':'display:none'}">Vence esta app<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input combo-due" value="${escapeAttr(baseDate)}" placeholder="Elige fecha" /></span></label>
     </div>`;
   }).join('') : `<div class="empty">Elige una plantilla o escribe apps separadas por coma.</div>`;
+  if(window.lucide?.createIcons) window.lucide.createIcons();
   initDatepickers();
 }
 function renderComboTemplatePicker(){
@@ -6923,7 +7076,7 @@ function comboText(clients, context='delivery'){
     const account=state.accounts.find(a=>a.id===client.accountId);
     lines.push(`${index+1}. ${friendlyPlatform(client.platform||account?.platform)}`);
     if(client.activationByCode === true){
-      lines.push(codeActivationMessageText());
+      if(context!=='renewal') lines.push(codeActivationMessageText());
     }else{
       lines.push(`Correo: ${account?.email || '-'}`);
       lines.push(`Contrasena: ${account?.password || '-'}`);
@@ -7643,419 +7796,6 @@ $('#syncBtn').onclick=async()=>{
 };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
 
-// ===== IMPORTAR EXCEL =====
-(function(){
-  var _importData=null;
-  var _importTab='acc';
-
-  var ACC_COLS=['Plataforma','Proveedor','WhatsApp proveedor','Correo','Contrasena','Capacidad','Vencimiento','Notas'];
-  var CLI_COLS=['Cliente','WhatsApp','Plataforma','Cuenta madre correo','Perfil','PIN','Vencimiento','Estado','Notas'];
-
-  function $i(id){return document.getElementById(id);}
-
-  function importShowPhase(p){
-    ['importP1','importP2','importP3'].forEach(function(id){
-      $i(id).style.display=id===p?'':'none';
-    });
-  }
-
-  window.openImportModal=function(){
-    importReset();
-    var el=$i('importModalOverlay');
-    if(!el) return;
-    if(!el.__closeBound){
-      el.addEventListener('click',function(e){ if(e.target===el) closeImportModal(); });
-      el.__closeBound=true;
-    }
-    el.style.display='flex';
-  };
-  window.closeImportModal=function(){
-    $i('importModalOverlay').style.display='none';
-    importReset();
-  };
-  window.importReset=function(){
-    _importData=null;
-    _importTab='acc';
-    var fi=$i('importFileInput');
-    if(fi) fi.value='';
-    $i('importErrBox').style.display='none';
-    $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
-    importShowPhase('importP1');
-  };
-
-  window.importHandleDrop=function(e){
-    e.preventDefault();
-    $i('importDropzone').style.borderColor='rgba(138,161,255,.25)';
-    var file=e.dataTransfer.files[0];
-    if(file) importHandleFile(file);
-  };
-  window.importHandleFile=function(file){
-    if(!file) return;
-    if(!/\.(xls|xlsx)$/i.test(file.name)){
-      importShowErr('Solo se aceptan archivos .xls o .xlsx.');
-      return;
-    }
-    $i('importModalSub').textContent='Leyendo archivo...';
-    var reader=new FileReader();
-    reader.onload=async function(e){
-      var buffer=e.target.result;
-      var result=await parseImportWorkbook(buffer);
-      if(!result){
-        importShowErr('No se pudo leer el archivo. Revisa que sea un Excel valido con hojas "Cuentas madre" y/o "Clientes".');
-        $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
-        return;
-      }
-      _importData=result;
-      buildImportPreview(result);
-      importShowPhase('importP2');
-      importShowTab('acc');
-    };
-    reader.onerror=function(){
-      importShowErr('Error al leer el archivo.');
-      $i('importModalSub').textContent='Sube un Excel .xls o .xlsx';
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  function importShowErr(msg){
-    var el=$i('importErrBox');
-    el.textContent=msg;
-    el.style.display='';
-  }
-
-  function loadXlsxLib(){
-    if(window.XLSX) return Promise.resolve(window.XLSX);
-    return new Promise(function(resolve){
-      var existing=document.querySelector('script[data-xlsx-import]');
-      if(existing){
-        existing.addEventListener('load',function(){ resolve(window.XLSX||null); },{once:true});
-        existing.addEventListener('error',function(){ resolve(null); },{once:true});
-        return;
-      }
-      var s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-      s.defer=true;
-      s.dataset.xlsxImport='1';
-      s.onload=function(){ resolve(window.XLSX||null); };
-      s.onerror=function(){ resolve(null); };
-      document.head.appendChild(s);
-    });
-  }
-
-  function decodeUtf8(buffer){
-    try{ return new TextDecoder('utf-8').decode(buffer); }
-    catch(e){
-      var bytes=new Uint8Array(buffer), out='';
-      for(var i=0;i<bytes.length;i++) out+=String.fromCharCode(bytes[i]);
-      try{ return decodeURIComponent(escape(out)); }catch(_){ return out; }
-    }
-  }
-
-  async function parseImportWorkbook(buffer){
-    var xlsx=await loadXlsxLib();
-    if(xlsx){
-      try{
-        var wb=xlsx.read(buffer,{type:'array',cellDates:false,raw:false});
-        var parsed=parseXlsxWorkbook(wb,xlsx);
-        if(parsed) return parsed;
-      }catch(e){ console.warn('xlsx import fallback:',e); }
-    }
-    return parseGestorXLS(decodeUtf8(buffer));
-  }
-
-  function normalizeHeader(value){
-    return String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  }
-
-  function canonicalHeader(value, knownCols){
-    var normalized=normalizeHeader(value);
-    var aliases={
-      'contraseña':'Contrasena',
-      'contrasena':'Contrasena',
-      'whatsapp proveedor':'WhatsApp proveedor',
-      'cuenta madre':'Cuenta madre correo',
-      'cuenta madre correo':'Cuenta madre correo',
-      'correo cuenta madre':'Cuenta madre correo'
-    };
-    if(aliases[normalized]) return aliases[normalized];
-    return knownCols.find(function(c){ return normalizeHeader(c)===normalized; }) || String(value||'').trim();
-  }
-
-  function isHeaderRow(cells,knownCols){
-    var known=knownCols.map(normalizeHeader);
-    var hits=cells.filter(function(c){ return known.indexOf(normalizeHeader(c))>=0; });
-    return hits.length>=2;
-  }
-
-  function sheetRowsFromXlsx(ws, xlsx){
-    if(!ws) return [];
-    return xlsx.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,blankrows:false})
-      .map(function(row){ return row.map(function(v){ return String(v == null ? '' : v).trim(); }); });
-  }
-
-  function findSheet(workbook, wanted, fallbackIndex){
-    var target=normalizeHeader(wanted);
-    var exact=workbook.SheetNames.find(function(n){ return normalizeHeader(n)===target; });
-    var partial=workbook.SheetNames.find(function(n){ return normalizeHeader(n).indexOf(target)>=0 || target.indexOf(normalizeHeader(n))>=0; });
-    return workbook.Sheets[exact||partial||workbook.SheetNames[fallbackIndex]||workbook.SheetNames[0]];
-  }
-
-  function parseRowsMatrix(rows, knownCols){
-    var headers=null, headerIndex=-1, data=[];
-    for(var i=0;i<rows.length;i++){
-      var cells=(rows[i]||[]).map(function(v){ return String(v == null ? '' : v).trim(); });
-      if(!cells.some(Boolean)) continue;
-      if(!headers){
-        if(isHeaderRow(cells,knownCols)){
-          headers=cells.map(function(h){ return canonicalHeader(h,knownCols); });
-          headerIndex=i;
-        }
-      }else{
-        var obj={};
-        headers.forEach(function(h,idx){ if(h) obj[h]=cells[idx]||''; });
-        if(Object.values(obj).some(function(v){return v;})) data.push(obj);
-      }
-    }
-    return {headers:headers||knownCols, rows:data, previewRows:headers ? rows.slice(headerIndex+1).filter(function(r){ return (r||[]).some(function(c){ return String(c||'').trim(); }); }) : []};
-  }
-
-  function parseXlsxWorkbook(workbook, xlsx){
-    var accMatrix=sheetRowsFromXlsx(findSheet(workbook,'Cuentas madre',1),xlsx);
-    var cliMatrix=sheetRowsFromXlsx(findSheet(workbook,'Clientes',2),xlsx);
-    var acc=parseRowsMatrix(accMatrix,ACC_COLS);
-    var cli=parseRowsMatrix(cliMatrix,CLI_COLS);
-    if(!acc.rows.length && !cli.rows.length) return null;
-    return {accRows:acc.rows, cliRows:cli.rows, preview:{accHeaders:acc.headers, accRows:acc.previewRows, cliHeaders:cli.headers, cliRows:cli.previewRows}};
-  }
-
-  function parseGestorXLS(text){
-    var dom;
-    try{ dom=new DOMParser().parseFromString(text,'text/xml'); }catch(e){ return null; }
-    if(dom.querySelector('parsererror')) return null;
-
-    function getCells(row){
-      var out=[];
-      Array.from(row.querySelectorAll('Cell')).forEach(function(c){
-        var idx=c.getAttribute('ss:Index')||c.getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet','Index');
-        if(idx) while(out.length<Number(idx)-1) out.push('');
-        var d=c.querySelector('Data');
-        out.push(d ? d.textContent.trim() : '');
-      });
-      return out;
-    }
-
-    function parseSheet(ws,knownCols){
-      if(!ws) return {rows:[], headers:knownCols, previewRows:[]};
-      var rows=Array.from(ws.querySelectorAll('Row'));
-      var matrix=[], headers=null;
-      var data=[];
-      for(var i=0;i<rows.length;i++){
-        var cells=getCells(rows[i]);
-        matrix.push(cells);
-        if(!cells.some(function(c){return c;})) continue;
-        if(!headers){
-          if(isHeaderRow(cells,knownCols)) headers=cells.map(function(h){ return canonicalHeader(h,knownCols); });
-        } else {
-          var obj={};
-          headers.forEach(function(h,idx){ if(h) obj[h]=cells[idx]||''; });
-          if(Object.values(obj).some(function(v){return v;})) data.push(obj);
-        }
-      }
-      var parsed=parseRowsMatrix(matrix,knownCols);
-      return {rows:data, headers:parsed.headers, previewRows:parsed.previewRows};
-    }
-
-    var sheets={};
-    var NS='urn:schemas-microsoft-com:office:spreadsheet';
-    dom.querySelectorAll('Worksheet').forEach(function(ws){
-      var name=ws.getAttributeNS(NS,'Name')||ws.getAttribute('ss:Name')||'';
-      sheets[name]=ws;
-    });
-
-    var accWs=sheets['Cuentas madre'];
-    var cliWs=sheets['Clientes'];
-
-    if(!accWs && !cliWs){
-      // Try to find by partial match or fallback to first two sheets
-      var allWs=dom.querySelectorAll('Worksheet');
-      accWs=allWs[1]||allWs[0]; // sheet index 0 is Resumen
-      cliWs=allWs[2]||allWs[1];
-    }
-
-    var acc=parseSheet(accWs,ACC_COLS);
-    var cli=parseSheet(cliWs,CLI_COLS);
-
-    if(!acc.rows.length && !cli.rows.length) return null;
-    return {accRows:acc.rows, cliRows:cli.rows, preview:{accHeaders:acc.headers, accRows:acc.previewRows, cliHeaders:cli.headers, cliRows:cli.previewRows}};
-  }
-
-  function normalizeImportDate(value){
-    var s=String(value||'').trim();
-    if(!s) return '';
-    var ymd=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
-    if(ymd) return ymd[1]+'-'+ymd[2].padStart(2,'0')+'-'+ymd[3].padStart(2,'0');
-    var dmy=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
-    if(dmy){
-      var y=dmy[3].length===2 ? '20'+dmy[3] : dmy[3];
-      return y+'-'+dmy[2].padStart(2,'0')+'-'+dmy[1].padStart(2,'0');
-    }
-    return s.slice(0,20);
-  }
-
-  function buildImportPreview(raw){
-    var existingEmails=new Set(state.accounts.map(function(a){ return (a.email||'').toLowerCase(); }));
-    var importedEmails=new Set();
-    var now=new Date().toISOString();
-    var accounts=[];
-    var emailToId=new Map();
-    var warnings=[];
-
-    raw.accRows.forEach(function(row){
-      var platform=(row['Plataforma']||'').trim();
-      if(!platform){ warnings.push('Cuenta sin plataforma omitida.'); return; }
-      var email=(row['Correo']||'').trim();
-      var emailLow=email.toLowerCase();
-      if(email && existingEmails.has(emailLow)){
-        warnings.push('Cuenta "'+email+'" ya existe en el gestor — se omitirá.');
-        var ex=state.accounts.find(function(a){ return (a.email||'').toLowerCase()===emailLow; });
-        if(ex) emailToId.set(emailLow,ex.id);
-        return;
-      }
-      if(email && importedEmails.has(emailLow)){
-        warnings.push('Cuenta "'+email+'" esta duplicada en el Excel — se usará la primera.');
-        return;
-      }
-      var id=crypto.randomUUID ? crypto.randomUUID() : uid();
-      if(emailLow){ emailToId.set(emailLow,id); importedEmails.add(emailLow); }
-      accounts.push(sanitizeAccountForSave({
-        id:id, platform:platform,
-        provider:row['Proveedor'], providerWhatsapp:row['WhatsApp proveedor'],
-        email:email, password:row['Contrasena'],
-        capacity:Number(row['Capacidad'])||1,
-        dueDate:normalizeImportDate(row['Vencimiento']), notes:row['Notas'],
-        createdAt:now, updatedAt:now
-      }));
-    });
-
-    var clients=[];
-    raw.cliRows.forEach(function(row){
-      var name=(row['Cliente']||'').trim();
-      if(!name){ warnings.push('Cliente sin nombre omitido.'); return; }
-      var accEmail=(row['Cuenta madre correo']||'').trim().toLowerCase();
-      var accountId=accEmail ? (emailToId.get(accEmail)||'') : '';
-      if(!accountId && accEmail){
-        var ex=state.accounts.find(function(a){ return (a.email||'').toLowerCase()===accEmail; });
-        if(ex){ accountId=ex.id; emailToId.set(accEmail,ex.id); }
-        else warnings.push('Cliente "'+name+'" no tiene cuenta madre reconocida — se importará sin cuenta.');
-      }
-      var id2=crypto.randomUUID ? crypto.randomUUID() : uid();
-      clients.push({
-        id:id2, name:name, whatsapp:row['WhatsApp']||'',
-        accountId:accountId, platform:row['Plataforma']||'',
-        profile:row['Perfil']||'', pin:row['PIN']||'',
-        fullAccountSale:false, activationByCode:(row['Activacion']||'')==='Por codigo',
-        dueDate:normalizeImportDate(row['Vencimiento']), state:row['Estado']||'',
-        notes:row['Notas']||'', salePrice:0, renewalPrice:0,
-        comboId:'', comboName:'', comboSize:0, comboTotalPrice:0, comboRenewalPrice:0,
-        createdAt:now, updatedAt:now
-      });
-    });
-
-    _importData={accounts:accounts, clients:clients, warnings:warnings, preview:raw.preview||{}};
-
-    // Render summary chips
-    $i('importSumAcc').textContent=accounts.length;
-    $i('importSumCli').textContent=clients.length;
-    if(warnings.length){
-      $i('importSumWarnCard').style.display='';
-      $i('importSumWarn').textContent=warnings.length;
-      var ul=$i('importWarnItems');
-      ul.innerHTML=warnings.map(function(w){return '<li>'+escHtml(w)+'</li>';}).join('');
-      $i('importWarnList').style.display='';
-    } else {
-      $i('importSumWarnCard').style.display='none';
-      $i('importWarnList').style.display='none';
-    }
-    $i('importModalSub').textContent='Revisa los datos antes de confirmar';
-    if(!accounts.length && !clients.length){
-      $i('importConfirmBtn').disabled=true;
-      $i('importConfirmBtn').style.opacity='0.4';
-    } else {
-      $i('importConfirmBtn').disabled=false;
-      $i('importConfirmBtn').style.opacity='';
-    }
-  }
-
-  window.importShowTab=function(tab){
-    _importTab=tab;
-    var isAcc=tab==='acc';
-    var accBtn=$i('importTabAcc'); var cliBtn=$i('importTabCli');
-    accBtn.style.background=isAcc?'rgba(129,140,248,.15)':'none';
-    accBtn.style.color=isAcc?'#818cf8':'#64748b';
-    accBtn.style.borderColor=isAcc?'rgba(129,140,248,.3)':'rgba(255,255,255,.1)';
-    cliBtn.style.background=!isAcc?'rgba(52,211,153,.1)':'none';
-    cliBtn.style.color=!isAcc?'#34d399':'#64748b';
-    cliBtn.style.borderColor=!isAcc?'rgba(52,211,153,.2)':'rgba(255,255,255,.1)';
-
-    var wrap=$i('importTableWrap');
-    if(!_importData){ wrap.innerHTML=''; return; }
-    var preview=_importData.preview||{};
-    var rows=isAcc ? (preview.accRows||[]) : (preview.cliRows||[]);
-    if(!rows.length){ wrap.innerHTML='<p style="color:#64748b;font-size:12px;padding:16px;text-align:center">Sin datos en esta hoja.</p>'; return; }
-
-    var labels=isAcc ? (preview.accHeaders||ACC_COLS) : (preview.cliHeaders||CLI_COLS);
-
-    var html='<table><thead><tr>'+labels.map(function(l){return '<th>'+l+'</th>';}).join('')+'</tr></thead><tbody>';
-    rows.forEach(function(r){
-      html+='<tr>'+labels.map(function(_,idx){var v=Array.isArray(r)?r[idx]||'':r[_]||''; return '<td title="'+escHtml(String(v))+'">'+escHtml(String(v||'-'))+'</td>';}).join('')+'</tr>';
-    });
-    html+='</tbody></table>';
-    wrap.innerHTML=html;
-  };
-
-  function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-  window.confirmImport=async function(){
-    if(!_importData) return;
-    var d=_importData;
-    if(!d.accounts.length && !d.clients.length){ closeImportModal(); return; }
-    importShowPhase('importP3');
-    $i('importProgressWrap').style.display='';
-    $i('importDoneWrap').style.display='none';
-    $i('importErrWrap').style.display='none';
-    var txt=$i('importProgressTxt');
-    try{
-      var total=d.accounts.length+d.clients.length;
-      var done=0;
-      for(var i=0;i<d.accounts.length;i++){
-        txt.textContent='Importando cuentas… '+(i+1)+'/'+d.accounts.length;
-        var acc=d.accounts[i];
-        var ok=await persistDoc('accounts',acc);
-        if(!ok) throw new Error('Error guardando cuenta: '+acc.platform);
-        state.accounts.push(acc);
-        done++;
-      }
-      for(var j=0;j<d.clients.length;j++){
-        txt.textContent='Importando clientes… '+(j+1)+'/'+d.clients.length;
-        var cli=d.clients[j];
-        var ok2=await persistDoc('clients',cli);
-        if(!ok2) throw new Error('Error guardando cliente: '+cli.name);
-        state.clients.push(cli);
-        done++;
-      }
-      touchLocalStateCache();
-      refreshUI();
-      $i('importProgressWrap').style.display='none';
-      $i('importDoneWrap').style.display='';
-      $i('importDoneTxt').textContent=d.accounts.length+' cuentas madre y '+d.clients.length+' clientes importados.';
-    } catch(err){
-      $i('importProgressWrap').style.display='none';
-      $i('importErrWrap').style.display='';
-      $i('importErrTxt').textContent=err.message||'Error desconocido';
-    }
-  };
-
-})();
 
 // ===== CARGA MASIVA DE CUENTAS MADRE =====
 setToday();
@@ -8071,107 +7811,10 @@ window.addEventListener('load', () => {
 });
 </script>
 </div><!-- /appRoot -->
-<!-- ===== MODAL IMPORTAR EXCEL ===== -->
-<div id="importModalOverlay" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:16px">
-  <div id="importModalBox" style="background:#0e0e1a;border:1px solid rgba(138,161,255,.18);border-radius:20px;width:100%;max-width:680px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.7)">
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.07)">
-      <div>
-        <h3 style="margin:0;font-size:16px;color:#e2e8f0">Importar desde Excel</h3>
-        <p id="importModalSub" style="margin:4px 0 0;font-size:12px;color:#64748b">Sube el Excel exportado desde este gestor</p>
-      </div>
-      <button onclick="closeImportModal()" style="background:none;border:none;color:#64748b;font-size:22px;cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1">&times;</button>
-    </div>
-
-    <!-- Phase 1: Subir archivo -->
-    <div id="importP1" style="padding:24px;flex:1;overflow-y:auto">
-      <!-- Paso 1: descargar plantilla -->
-      <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:18px 20px;margin-bottom:18px;display:flex;align-items:center;gap:16px">
-        <div style="font-size:28px;flex-shrink:0">📋</div>
-        <div style="flex:1;min-width:0">
-          <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#c7d2fe">Paso 1 — Descarga la plantilla</p>
-          <p style="margin:0;font-size:12px;color:#64748b;line-height:1.5">Rellena las hojas "Cuentas madre" y "Clientes" con tus datos. Borra las filas de ejemplo antes de subir.</p>
-        </div>
-        <button onclick="downloadImportTemplate()" style="flex-shrink:0;padding:8px 16px;border-radius:10px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.15);color:#a5b4fc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Descargar plantilla</button>
-      </div>
-      <!-- Paso 2: subir archivo -->
-      <div style="background:rgba(255,255,255,.03);border-radius:14px;padding:4px 0 8px;margin-bottom:4px">
-        <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#c8d3e8;padding:0 4px">Paso 2 — Sube la plantilla rellena</p>
-        <div id="importDropzone" onclick="document.getElementById('importFileInput').click()" ondragover="event.preventDefault();this.style.borderColor='#818cf8'" ondragleave="this.style.borderColor='rgba(138,161,255,.25)'" ondrop="importHandleDrop(event)" style="border:2px dashed rgba(138,161,255,.25);border-radius:14px;padding:36px 24px;text-align:center;cursor:pointer;transition:border-color .2s">
-          <div style="font-size:30px;margin-bottom:10px">📂</div>
-          <p style="margin:0 0 6px;color:#c8d3e8;font-size:14px;font-weight:600">Arrastra el archivo aquí</p>
-          <p style="margin:0;color:#64748b;font-size:12px">o haz clic para elegir · formato .xls o .xlsx</p>
-          <input id="importFileInput" type="file" accept=".xls,.xlsx" style="display:none" onchange="importHandleFile(this.files[0])">
-        </div>
-      </div>
-      <div id="importErrBox" style="display:none;margin-top:14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:14px 16px;color:#fca5a5;font-size:13px"></div>
-    </div>
-
-    <!-- Phase 2: Preview -->
-    <div id="importP2" style="display:none;padding:24px;flex:1;overflow-y:auto">
-      <!-- Summary chips -->
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="flex:1;min-width:120px;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.2);border-radius:12px;padding:12px 16px;text-align:center">
-          <div id="importSumAcc" style="font-size:26px;font-weight:700;color:#818cf8">0</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">Cuentas madre</div>
-        </div>
-        <div style="flex:1;min-width:120px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.18);border-radius:12px;padding:12px 16px;text-align:center">
-          <div id="importSumCli" style="font-size:26px;font-weight:700;color:#34d399">0</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">Clientes</div>
-        </div>
-        <div id="importSumWarnCard" style="display:none;flex:1;min-width:120px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:12px;padding:12px 16px;text-align:center">
-          <div id="importSumWarn" style="font-size:26px;font-weight:700;color:#fbbf24">0</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">Advertencias</div>
-        </div>
-      </div>
-
-      <!-- Warnings -->
-      <div id="importWarnList" style="display:none;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.18);border-radius:12px;padding:14px 16px;margin-bottom:16px;max-height:140px;overflow-y:auto">
-        <div style="font-size:11px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Advertencias</div>
-        <ul id="importWarnItems" style="margin:0;padding-left:18px;color:#fde68a;font-size:12px;line-height:1.8"></ul>
-      </div>
-
-      <!-- Tabs -->
-      <div style="display:flex;gap:6px;margin-bottom:12px">
-        <button id="importTabAcc" onclick="importShowTab('acc')" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(129,140,248,.3);background:rgba(129,140,248,.15);color:#818cf8;font-size:12px;cursor:pointer;font-weight:600">Cuentas madre</button>
-        <button id="importTabCli" onclick="importShowTab('cli')" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:none;color:#64748b;font-size:12px;cursor:pointer">Clientes</button>
-      </div>
-      <div id="importTableWrap" style="overflow-x:auto;border-radius:12px;border:1px solid rgba(255,255,255,.07);max-height:240px;overflow-y:auto;font-size:12px"></div>
-
-      <!-- Actions -->
-      <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
-        <button onclick="importReset()" style="padding:10px 18px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#94a3b8;cursor:pointer;font-size:13px">← Volver</button>
-        <button id="importConfirmBtn" onclick="confirmImport()" style="padding:10px 22px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Confirmar e importar</button>
-      </div>
-    </div>
-
-    <!-- Phase 3: Progress / Done -->
-    <div id="importP3" style="display:none;padding:40px 24px;flex:1;text-align:center">
-      <div id="importProgressWrap">
-        <div style="width:40px;height:40px;border:3px solid rgba(129,140,248,.2);border-top-color:#818cf8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px"></div>
-        <p id="importProgressTxt" style="color:#c8d3e8;font-size:14px;margin:0">Importando...</p>
-      </div>
-      <div id="importDoneWrap" style="display:none">
-        <div style="font-size:48px;margin-bottom:12px">✅</div>
-        <p style="color:#34d399;font-size:16px;font-weight:700;margin:0 0 6px">Importación completada</p>
-        <p id="importDoneTxt" style="color:#94a3b8;font-size:13px;margin:0 0 24px"></p>
-        <button onclick="closeImportModal()" style="padding:10px 24px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Listo</button>
-      </div>
-      <div id="importErrWrap" style="display:none">
-        <div style="font-size:48px;margin-bottom:12px">❌</div>
-        <p style="color:#f87171;font-size:15px;font-weight:600;margin:0 0 6px">Error al importar</p>
-        <p id="importErrTxt" style="color:#94a3b8;font-size:13px;margin:0 0 24px"></p>
-        <button onclick="importReset()" style="padding:10px 24px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#94a3b8;cursor:pointer;font-size:13px">Intentar de nuevo</button>
-      </div>
-    </div>
-  </div>
-</div>
-<style>
-@keyframes spin{to{transform:rotate(360deg)}}
-#importTableWrap table{width:100%;border-collapse:collapse}
-#importTableWrap th{background:#0a0a16;color:#818cf8;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-#importTableWrap td{padding:7px 10px;color:#cbd5e1;border-top:1px solid rgba(255,255,255,.05);white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
-#importTableWrap tr:hover td{background:rgba(255,255,255,.03)}
-</style>
 </body>
 </html>
+
+
+
+
+
