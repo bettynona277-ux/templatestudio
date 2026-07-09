@@ -323,6 +323,10 @@ function addMonthsISO(value, months=1){
 const clean = v => String(v ?? '').trim();
 const esc = v => clean(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = () => (crypto?.randomUUID?.() || ('id_'+Date.now()+'_'+Math.random().toString(16).slice(2)));
+function isNoRenewState(value){
+  const text = clean(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return text === 'no renovo';
+}
 function isLegacyRenderer(){
   const ua = navigator.userAgent || '';
   const params = new URLSearchParams(location.search);
@@ -824,7 +828,7 @@ function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email||a.provider].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function accountEmailLabel(a){ return clean(a?.email); }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
-function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo'); }
+function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && !isNoRenewState(c.state)); }
 function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
 function accountUsed(accountId){
   const acc = state.accounts.find(a => a.id === accountId);
@@ -878,7 +882,7 @@ function setView(view){
 function matches(item,q){
   if(!q) return true;
   const query = q.toLowerCase();
-  const account = item?.accountId && item?.state !== 'No renovo' ? state.accounts.find(a => a.id === item.accountId) : null;
+  const account = item?.accountId && !isNoRenewState(item?.state) ? state.accounts.find(a => a.id === item.accountId) : null;
   const accountSearch = account ? [
     accountName(account),
     account.email,
@@ -1045,7 +1049,7 @@ function render(){
   return renderHome();
 }
 function renderHome(){
-  const due = state.clients.filter(c => c.state !== 'No renovo').map(c => ({...c, due:dueState(c.dueDate)})).sort((a,b)=>a.due.days-b.due.days);
+  const due = state.clients.filter(c => !isNoRenewState(c.state)).map(c => ({...c, due:dueState(c.dueDate)})).sort((a,b)=>a.due.days-b.due.days);
   const expired = due.filter(c => c.due.days < 0).length;
   const today = due.filter(c => c.due.days === 0).length;
   const free = state.accounts.reduce((sum,a)=> sum + Math.max(0, Number(a.capacity||0)-accountUsed(a.id)), 0);
@@ -1082,8 +1086,8 @@ function searchBlock(title,count){
   return `<div class="section-head"><h2>${title}</h2><span>${count}</span></div><div class="search"><input id="q" value="${esc(state.query)}" placeholder="Buscar..." /></div>`;
 }
 function renderClients(listOnly=false){
-  const active = state.clients.filter(c => c.state !== 'No renovo' && matches(c,state.query)).sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
-  const archived = state.clients.filter(c => c.state === 'No renovo' && matches(c,state.query));
+  const active = state.clients.filter(c => !isNoRenewState(c.state) && matches(c,state.query)).sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
+  const archived = state.clients.filter(c => isNoRenewState(c.state) && matches(c,state.query));
   const hasQuery = state.query.trim().length > 0;
   const archivedSection = archived.length ? `
     <details class="archived-section" ${hasQuery ? 'open' : ''}>
@@ -1120,7 +1124,7 @@ function renderAccounts(listOnly=false){
   document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { state.accountCategory = b.dataset.cat; renderAccounts(); });
 }
 function renderDue(){
-  const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && c.state !== 'No renovo').sort((a,b)=>a.due.days-b.due.days);
+  const list = state.clients.map(c => ({...c, due:dueState(c.dueDate)})).filter(c => c.due.days <= 7 && !isNoRenewState(c.state)).sort((a,b)=>a.due.days-b.due.days);
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Vencidos y por vencer</h2><span>${list.length}</span></div>
     <div class="list">${list.map(clientCard).join('') || empty('Nada urgente por ahora.')}</div>
@@ -1491,7 +1495,7 @@ async function copyInstallLink(){
 function openAccountClientsSheet(account){
   if(!account) return;
   const assigned = state.clients
-    .filter(c => c.accountId === account.id && c.state !== 'No renovo')
+    .filter(c => c.accountId === account.id && !isNoRenewState(c.state))
     .sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days);
   const rows = assigned.map(c => {
     const ds = dueState(c.dueDate);
@@ -1678,7 +1682,7 @@ function selectedMobileComboTemplate(templates){
 function nextProfileSuggestionMobile(accountId){
   const acc = state.accounts.find(a => a.id === accountId);
   if(accountHasFullSale(accountId)) return '';
-  const used = new Set(state.clients.filter(c => c.accountId === accountId && c.state !== 'No renovo').map(c => clean(c.profile)).filter(Boolean));
+  const used = new Set(state.clients.filter(c => c.accountId === accountId && !isNoRenewState(c.state)).map(c => clean(c.profile)).filter(Boolean));
   for(let i=1;i<=Number(acc?.capacity||0);i++) if(!used.has(String(i))) return String(i);
   return '';
 }
@@ -2226,7 +2230,7 @@ function duePhoneMatches(days, groups){
 function dueCopyClients(groups){
   return state.clients
     .map(c => ({...c, due:dueState(c.dueDate)}))
-    .filter(c => c.state !== 'No renovo' && duePhoneMatches(c.due.days, groups));
+    .filter(c => !isNoRenewState(c.state) && duePhoneMatches(c.due.days, groups));
 }
 async function copyDuePhonesMobile(){
   const groups = Array.from(document.querySelectorAll('[data-due-copy]:checked')).map(el => el.dataset.dueCopy);
@@ -2316,7 +2320,7 @@ async function markNoRenew(c){
   try{
     const acc = state.accounts.find(a => a.id === c.accountId);
     const platform = clean(c.platform) || clean(acc?.platform) || '';
-    const updated = { ...c, accountId:'', platform, state:'No renovo', updatedAt:new Date().toISOString() };
+    const updated = { ...c, accountId:'', platform, state:'No renov\u00f3', updatedAt:new Date().toISOString() };
     await setDoc(clientRef(c.id), updated, { merge:true });
     state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
     cacheMobileState();
@@ -2367,7 +2371,7 @@ function openProviderRenewWhatsApp(account){
   });
 }
 function activeComboClients(comboId){
-  return state.clients.filter(c => c.comboId === comboId && c.state !== 'No renovo').sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
+  return state.clients.filter(c => c.comboId === comboId && !isNoRenewState(c.state)).sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
 }
 function comboText(clients, mode='delivery'){
   const first = clients[0] || {};
