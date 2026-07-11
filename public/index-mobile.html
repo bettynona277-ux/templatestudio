@@ -778,8 +778,12 @@ let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v4';
 const MOB_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 horas para evitar releer en recargas frecuentes
-const MOB_DESIGN_FETCH_LIMIT = 24;
+const MOB_DESIGN_PAGE_SIZE = 24;
 const ENABLE_USER_DOC_LIVE_STATUS = false;
+let allMyDesigns = [];
+let lastDesignDoc = null;
+let noMoreDesigns = false;
+let designsLoading = false;
 
 // Limpiar cachés viejos para liberar espacio en localStorage
 try{
@@ -794,6 +798,18 @@ try{
 // Solo guardar campos mínimos en caché (ahorra ~80% de espacio)
 function minifyTemplatesForCache(items){
   return items.map(t => ({id:t.id, name:t.name||'', thumb:t.thumb||'', category:t.category||'', createdAt:t.createdAt||0}));
+}
+
+function minifyDesignsForCache(items){
+  return items.map(item => ({
+    id: item.id,
+    data: {
+      name: item?.data?.name || '',
+      thumb: item?.data?.thumb || '',
+      updatedAt: item?.data?.updatedAt || 0,
+      createdAt: item?.data?.createdAt || 0
+    }
+  }));
 }
 
 function isFreshMobileCache(key){
@@ -1394,25 +1410,34 @@ function showDashboard(){
 }
 
 function getDesignsCacheKey(){
-  return currentUser?.uid ? `ts_mobile_designs_cache_${currentUser.uid}` : '';
+  return currentUser?.uid ? `ts_mobile_designs_cache_v2_${currentUser.uid}` : '';
 }
 
 function setHeroCounts(myCount, tplCount){
-  if(typeof myCount === 'number') document.getElementById('hero-my-count').textContent = String(myCount);
-  if(typeof tplCount === 'number') document.getElementById('hero-tpl-count').textContent = String(tplCount);
+  if(myCount !== undefined && myCount !== null) document.getElementById('hero-my-count').textContent = String(myCount);
+  if(tplCount !== undefined && tplCount !== null) document.getElementById('hero-tpl-count').textContent = String(tplCount);
 }
 
-function renderDesignsFromList(items){
+function renderDesignsFromList(items, opts = {}){
   const list = document.getElementById('my-designs-list');
   list.innerHTML = '';
   const count = items.length;
-  document.getElementById('my-count').textContent = `${count}`;
-  setHeroCounts(count, null);
+  const complete = opts.complete === true;
+  const countLabel = `${count}${complete ? '' : '+'}`;
+  document.getElementById('my-count').textContent = countLabel;
+  setHeroCounts(countLabel, null);
   if(!count){
     list.innerHTML = '<div class="empty-state">Aún no tienes diseños guardados.<br>Empieza el primero cuando quieras.</div>';
     return;
   }
   items.forEach(item=> list.appendChild(createDesignCard(item.id, item.data)));
+  if(!complete){
+    const moreBtn = document.createElement('div');
+    moreBtn.id = 'my-designs-load-more';
+    moreBtn.style.cssText = 'padding:16px 0 calc(var(--safe-bottom) + 88px);text-align:center;';
+    moreBtn.innerHTML = '<button style="background:var(--accent,#7c5cfc);color:#fff;border:none;padding:12px 24px;border-radius:10px;font-size:0.95rem;font-weight:700;cursor:pointer;" onclick="loadMoreMyDesigns()">Ver mas disenos</button>';
+    list.appendChild(moreBtn);
+  }
   observeLazyImages(list);
 }
 
@@ -1421,43 +1446,85 @@ function renderCachedDesigns(){
   if(!key) return;
   try{
     const cached = JSON.parse(localStorage.getItem(key) || 'null');
-    if(cached?.items?.length) renderDesignsFromList(cached.items);
+    if(cached?.items?.length){
+      allMyDesigns = cached.items;
+      noMoreDesigns = cached.complete === true;
+      renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
+    }
   }catch(e){}
 }
 
-async function loadMyDesigns(){
+async function loadMyDesigns(forceRefresh = false){
   const list = document.getElementById('my-designs-list');
+  allMyDesigns = [];
+  lastDesignDoc = null;
+  noMoreDesigns = false;
+  designsLoading = false;
   if(!list.children.length){
     list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
   // Stale-while-revalidate: muestra caché al instante, luego actualiza desde Firestore
   const key = getDesignsCacheKey();
   let hadCache = false;
-  if(key){
+  if(key && !forceRefresh){
     try{
       const cached = JSON.parse(localStorage.getItem(key) || 'null');
       if(cached?.items?.length){
-        renderDesignsFromList(cached.items);
+        allMyDesigns = cached.items;
+        noMoreDesigns = cached.complete === true;
+        renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
         hadCache = true;
         if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
       }
     }catch(e){}
   }
-  // Siempre consulta Firestore para detectar cambios
+  await loadMyDesignsPage(true, hadCache);
+}
+
+async function loadMoreMyDesigns(){
+  if(designsLoading || noMoreDesigns) return;
+  if(!lastDesignDoc && allMyDesigns.length){
+    await loadMyDesigns(true);
+    if(noMoreDesigns || !lastDesignDoc) return;
+  }
+  await loadMyDesignsPage(false, true);
+}
+
+async function loadMyDesignsPage(isFirst, hadCache){
+  if(designsLoading || (!isFirst && noMoreDesigns)) return;
+  designsLoading = true;
+  const list = document.getElementById('my-designs-list');
   try{
-    const snap = await fbDb.collection('user_designs')
+    let query = fbDb.collection('user_designs')
       .where('uid','==',currentUser.uid)
       .orderBy('updatedAt','desc')
-      .limit(MOB_DESIGN_FETCH_LIMIT)
-      .get();
-    const items = [];
-    snap.forEach(doc=> items.push({id:doc.id, data:doc.data()}));
-    renderDesignsFromList(items);
-    try{ if(key) localStorage.setItem(key, JSON.stringify({savedAt: Date.now(), items})); }catch(_){}
+      .limit(MOB_DESIGN_PAGE_SIZE);
+    if(lastDesignDoc) query = query.startAfter(lastDesignDoc);
+    const snap = await query.get();
+    const newItems = [];
+    snap.forEach(doc=> newItems.push({id:doc.id, data:doc.data()}));
+    if(isFirst){
+      allMyDesigns = newItems;
+    }else{
+      allMyDesigns = allMyDesigns.concat(newItems);
+    }
+    if(snap.docs.length) lastDesignDoc = snap.docs[snap.docs.length - 1];
+    noMoreDesigns = snap.docs.length < MOB_DESIGN_PAGE_SIZE;
+    renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
+    const nextKey = getDesignsCacheKey();
+    try{
+      if(nextKey) localStorage.setItem(nextKey, JSON.stringify({
+        savedAt: Date.now(),
+        complete: noMoreDesigns,
+        items: minifyDesignsForCache(allMyDesigns)
+      }));
+    }catch(_){}
   }catch(e){
     if(!hadCache){
       list.innerHTML = `<div class="empty-state">Error al cargar: ${e.message}</div>`;
     }
+  }finally{
+    designsLoading = false;
   }
 }
 
@@ -1694,7 +1761,7 @@ async function loadTemplatesPage(isFirst){
     if(!noMoreTpls){
       const moreBtn = document.createElement('div');
       moreBtn.id = 'tpl-load-more';
-      moreBtn.style.cssText = 'grid-column:1/-1;text-align:center;padding:18px 0;';
+      moreBtn.style.cssText = 'grid-column:1/-1;text-align:center;padding:18px 0 calc(var(--safe-bottom) + 88px);';
       moreBtn.innerHTML = '<button style="background:var(--accent,#7c5cfc);color:#fff;border:none;padding:12px 32px;border-radius:10px;font-size:0.95rem;font-weight:700;cursor:pointer;" onclick="loadTemplatesPage(false)">Ver más plantillas</button>';
       grid.appendChild(moreBtn);
     }

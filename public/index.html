@@ -1944,7 +1944,7 @@ window.addEventListener('load', async () => {
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
             // Cargar datos frescos de Firestore en segundo plano
-            if(!readDashCache('designs')) loadMyDesigns();
+            if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
             if(!readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
@@ -2321,6 +2321,7 @@ function doLogout() {
     // Limpiar cache del dashboard para este usuario
     ['designs','templates'].forEach(scope => {
       try{ localStorage.removeItem(`ts_dash_cache_v5_${currentUser.uid}_${scope}`); }catch(e){}
+      try{ localStorage.removeItem(`ts_dash_cache_v6_${currentUser.uid}_${scope}`); }catch(e){}
     });
   }
   fbAuth.signOut();
@@ -2341,6 +2342,12 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = document.getElementById('screen-' + id);
   if(target) target.classList.add('active');
+}
+
+function invalidateDesktopDesignsCache(uid){
+  if(!uid) return;
+  try{ localStorage.removeItem(`ts_dash_cache_v5_${uid}_designs`); }catch(e){}
+  try{ localStorage.removeItem(`ts_dash_cache_v6_${uid}_designs`); }catch(e){}
 }
 
 
@@ -2410,10 +2417,15 @@ function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
 const DASH_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 horas para evitar releer plantillas/diseños en recargas frecuentes
-const DASH_DESIGN_FETCH_LIMIT = 24;
+const DASH_BACKGROUND_REFRESH_TTL = 1000 * 60 * 10; // 10 minutos para refresco en segundo plano
+const DASH_DESIGN_PAGE_SIZE = 24;
 const DASH_TEMPLATE_PAGE_SIZE = 160;
 const DASH_TEMPLATE_MAX_PAGES = 12;
-function dashCacheKey(scope){ return `ts_dash_cache_v5_${currentUser?.uid||'guest'}_${scope}`; }
+let allDashboardDesigns = [];
+let lastDashboardDesignDoc = null;
+let noMoreDashboardDesigns = false;
+let dashboardDesignsLoading = false;
+function dashCacheKey(scope){ return `ts_dash_cache_v6_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
     const raw = localStorage.getItem(dashCacheKey(scope));
@@ -2425,6 +2437,25 @@ function readDashCache(scope){
 }
 function writeDashCache(scope, data){
   try{ localStorage.setItem(dashCacheKey(scope), JSON.stringify({at:Date.now(), data})); }catch(e){}
+}
+function hasFreshDashCache(scope, maxAgeMs = DASH_CACHE_TTL){
+  try{
+    const raw = localStorage.getItem(dashCacheKey(scope));
+    if(!raw) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed?.at && (Date.now() - Number(parsed.at)) < maxAgeMs);
+  }catch(e){ return false; }
+}
+function minifyDesignsForDashCache(items){
+  return (items||[]).map(({id,d}) => ({
+    id,
+    d: {
+      name: d?.name || 'Sin nombre',
+      thumb: d?.thumb || '',
+      updatedAt: d?.updatedAt || 0,
+      createdAt: d?.createdAt || 0
+    }
+  }));
 }
 function setDashboardSyncLabel(text){
   const sync = document.getElementById('hero-last-sync');
@@ -2456,11 +2487,12 @@ function renderMyDesignCards(payload, isCached=false){
   const countEl = document.getElementById('my-designs-count');
   const heroCountEl = document.getElementById('hero-design-count');
   const items = Array.isArray(payload?.items) ? payload.items : [];
-  const total = Number.isFinite(payload?.total) ? payload.total : items.length;
+  const complete = payload?.complete === true;
+  const totalLabel = `${items.length}${complete ? '' : '+'}`;
   grid.innerHTML = '';
-  const totalText = total + ' diseño' + (total!==1?'s':'');
+  const totalText = totalLabel + ' disenos' + ((items.length!==1 || !complete)?'':'');
   if (countEl) countEl.textContent = totalText;
-  if (heroCountEl) heroCountEl.textContent = String(total);
+  if (heroCountEl) heroCountEl.textContent = totalLabel;
   const newCard = document.createElement('div');
   newCard.className = 'new-design-card';
   newCard.innerHTML = '<div class="icon">+</div><div class="label">Nuevo diseño en blanco</div><div class="sub">Empieza desde cero con el mismo editor que ya usas.</div>';
@@ -2477,11 +2509,22 @@ function renderMyDesignCards(payload, isCached=false){
   }
   setRecentDesignName(items[0]?.d?.name || 'Diseño reciente');
   items.forEach(({id,d}) => grid.appendChild(createDesignCard(id, d)));
+  if(!complete){
+    const moreWrap = document.createElement('div');
+    moreWrap.id = 'desk-designs-load-more';
+    moreWrap.style.cssText = 'grid-column:1/-1;display:flex;justify-content:center;padding:8px 0 0;';
+    moreWrap.innerHTML = '<button class="hero-btn hero-btn-secondary" onclick="loadMoreDashboardDesigns()">Ver mas disenos</button>';
+    grid.appendChild(moreWrap);
+  }
   observeLazyImages(grid);
 }
 function warmDashboardFromCache(){
   const cachedDesigns = readDashCache('designs');
-  if(cachedDesigns) renderMyDesignCards(cachedDesigns, true);
+  if(cachedDesigns){
+    allDashboardDesigns = Array.isArray(cachedDesigns.items) ? cachedDesigns.items : [];
+    noMoreDashboardDesigns = cachedDesigns.complete === true;
+    renderMyDesignCards(cachedDesigns, true);
+  }
   const cachedTemplates = readDashCache('templates');
   if(cachedTemplates && Array.isArray(cachedTemplates.items)){
     allTemplatesCache = cachedTemplates.items;
@@ -2499,7 +2542,7 @@ async function showDashboard() {
   setDashboardSyncLabel('Sincronizando contenido…');
   warmDashboardFromCache();
   requestAnimationFrame(() => {
-    if(!readDashCache('designs')) loadMyDesigns();
+    if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
     if(!readDashCache('templates')) loadAdminTemplates();
     if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
@@ -2508,41 +2551,76 @@ async function showDashboard() {
 // ================================================================
 // MY DESIGNS
 // ================================================================
-async function loadMyDesigns() {
+async function loadMyDesigns(forceRefresh = false) {
   const grid = document.getElementById('my-designs-grid');
   const countEl = document.getElementById('my-designs-count');
   const heroCountEl = document.getElementById('hero-design-count');
+  allDashboardDesigns = [];
+  lastDashboardDesignDoc = null;
+  noMoreDashboardDesigns = false;
+  dashboardDesignsLoading = false;
   if (!readDashCache('designs')) {
     if (countEl) countEl.textContent = 'Cargando...';
     if (heroCountEl) heroCountEl.textContent = '...';
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
+  const cachedDesigns = readDashCache('designs');
+  let hadCache = false;
+  if(cachedDesigns && !forceRefresh){
+    allDashboardDesigns = Array.isArray(cachedDesigns.items) ? cachedDesigns.items : [];
+    noMoreDashboardDesigns = cachedDesigns.complete === true;
+    renderMyDesignCards(cachedDesigns, true);
+    hadCache = true;
+    if(hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) return;
+  }
+  await loadMyDesignsPage(true, hadCache);
+}
+
+async function loadMoreDashboardDesigns(){
+  if(dashboardDesignsLoading || noMoreDashboardDesigns) return;
+  if(!lastDashboardDesignDoc && allDashboardDesigns.length){
+    await loadMyDesigns(true);
+    if(noMoreDashboardDesigns || !lastDashboardDesignDoc) return;
+  }
+  await loadMyDesignsPage(false, true);
+}
+
+async function loadMyDesignsPage(isFirst, hadCache){
+  if(dashboardDesignsLoading || (!isFirst && noMoreDashboardDesigns)) return;
+  dashboardDesignsLoading = true;
+  const grid = document.getElementById('my-designs-grid');
+  const countEl = document.getElementById('my-designs-count');
+  const heroCountEl = document.getElementById('hero-design-count');
   try {
-    const snap = await fbDb.collection('user_designs')
+    let query = fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
       .orderBy('updatedAt', 'desc')
-      .limit(DASH_DESIGN_FETCH_LIMIT)
-      .get();
+      .limit(DASH_DESIGN_PAGE_SIZE);
+    if(lastDashboardDesignDoc) query = query.startAfter(lastDashboardDesignDoc);
+    const snap = await query.get();
     const docs = snap.docs.map(doc => ({ id: doc.id, d: doc.data() || {} }));
-    renderMyDesignCards({ items: docs, total: snap.size });
+    if(isFirst){
+      allDashboardDesigns = docs;
+    }else{
+      allDashboardDesigns = allDashboardDesigns.concat(docs);
+    }
+    if(snap.docs.length) lastDashboardDesignDoc = snap.docs[snap.docs.length - 1];
+    noMoreDashboardDesigns = snap.docs.length < DASH_DESIGN_PAGE_SIZE;
+    renderMyDesignCards({ items: allDashboardDesigns, complete: noMoreDashboardDesigns });
     writeDashCache('designs', {
-      total: snap.size,
-      items: docs.slice(0, 8).map(({id,d}) => ({
-        id,
-        d: {
-          name: d.name || 'Sin nombre',
-          thumb: d.thumb || '',
-          updatedAt: d.updatedAt || 0,
-          createdAt: d.createdAt || 0
-        }
-      }))
+      complete: noMoreDashboardDesigns,
+      items: minifyDesignsForDashCache(allDashboardDesigns)
     });
     setDashboardSyncLabel('Panel actualizado hace un momento.');
   } catch(e) {
-    if (countEl) countEl.textContent = '—';
-    if (heroCountEl) heroCountEl.textContent = '—';
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar diseños: ${e.message}</div>`;
-    setDashboardSyncLabel('No pudimos actualizar los diseños.');
+    if (!hadCache) {
+      if (countEl) countEl.textContent = '-';
+      if (heroCountEl) heroCountEl.textContent = '-';
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar disenos: ${e.message}</div>`;
+    }
+    setDashboardSyncLabel('No pudimos actualizar los disenos.');
+  } finally {
+    dashboardDesignsLoading = false;
   }
 }
 
@@ -3441,6 +3519,7 @@ async function doSaveDesign(){
       const ref=await fbDb.collection('user_designs').add(data);
       currentDesignId=ref.id;
     }
+    invalidateDesktopDesignsCache(currentUser?.uid);
     document.getElementById('save-design-status').textContent='✓ ¡Guardado correctamente!';
     document.getElementById('save-design-status').style.color='var(--accent)';
     setTimeout(()=>closeSaveModal(),1200);
@@ -3604,6 +3683,7 @@ async function autoSave(){
       const ref = await fbDb.collection('user_designs').add(saveData);
       currentDesignId = ref.id;
     }
+    invalidateDesktopDesignsCache(currentUser?.uid);
     showAutosaveMsg('✓ Guardado automáticamente', 'ok');
   } catch(e){
     // If offline, save to localStorage as backup
@@ -4015,4 +4095,3 @@ function switchMobTab(tab){
 </script>
 </body>
 </html>
-
