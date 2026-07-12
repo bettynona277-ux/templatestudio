@@ -323,6 +323,9 @@ function addMonthsISO(value, months=1){
 const clean = v => String(v ?? '').trim();
 const esc = v => clean(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = () => (crypto?.randomUUID?.() || ('id_'+Date.now()+'_'+Math.random().toString(16).slice(2)));
+function isActivationByCode(value){
+  return value === true || value === 1 || ['true','1','on'].includes(clean(value).toLowerCase());
+}
 function isNoRenewState(value){
   const text = clean(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   return text === 'no renovo';
@@ -1914,7 +1917,7 @@ function sanitizeClientForSave(data={}){
     profile: clean(data.profile),
     pin: clean(data.pin),
     fullAccountSale: data.fullAccountSale === true || data.fullAccountSale === '1' || data.fullAccountSale === 'on',
-    activationByCode: data.activationByCode === true || data.activationByCode === '1' || data.activationByCode === 'on',
+    activationByCode: isActivationByCode(data.activationByCode),
     dueDate: clean(data.dueDate),
     state: clean(data.state) || 'Activo',
     notes: clean(data.notes).slice(0,1000),
@@ -2422,7 +2425,7 @@ function comboText(clients, mode='delivery'){
   clients.forEach((c,i) => {
     const acc = state.accounts.find(a => a.id === c.accountId);
     lines.push(`${i+1}. ${platformShort(c.platform || acc?.platform)}`);
-    if(c.activationByCode === true){
+    if(isActivationByCode(c.activationByCode)){
       if(mode !== 'renewal') lines.push(codeActivationMessageText());
     }else{
       lines.push(`Correo: ${clean(acc?.email) || '-'}`);
@@ -2437,7 +2440,7 @@ function comboText(clients, mode='delivery'){
     const payText = paymentMethodsText();
     lines.push('Si deseas renovar todo el combo, enviame tu comprobante.');
     if(payText) lines.push('', 'Medios de pago:', payText);
-  }else if(clients.some(c => c.activationByCode !== true) && clean(state.settings.finalMessage)){
+  }else if(clients.some(c => !isActivationByCode(c.activationByCode)) && clean(state.settings.finalMessage)){
     lines.push(state.settings.finalMessage);
   }
   return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
@@ -2481,7 +2484,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
             ? `est\u00e1 por vencer el ${clean(c.dueDate) || 'd\u00eda indicado'}`
             : 'est\u00e1 pr\u00f3xima a vencer';
     const payText = renewalPaymentLines();
-    const accessLines = c.activationByCode === true ? [] : [
+    const accessLines = isActivationByCode(c.activationByCode) ? [] : [
       '',
       `\ud83c\udfac Perfil: ${clean(c.profile) || '-'}`,
       `\ud83d\udce7 Correo: ${clean(acc?.email) || '-'}`,
@@ -2550,7 +2553,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
       `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
       final
     ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
-    if(c.activationByCode === true) text = codeActivationMessageText();
+    if(isActivationByCode(c.activationByCode)) text = codeActivationMessageText();
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;

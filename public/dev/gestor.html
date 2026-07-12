@@ -609,7 +609,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     profile: fsOptionalString(data.profile, 50),
     pin: fsOptionalString(data.pin, 50),
     fullAccountSale: data.fullAccountSale === true,
-    activationByCode: data.activationByCode === true,
+    activationByCode: isActivationByCode(data.activationByCode),
     dueDate: fsOptionalString(data.dueDate, 20),
     state: fsOptionalString(data.state, 30),
     notes: fsOptionalString(data.notes, 1000),
@@ -4764,7 +4764,7 @@ function normalizeLoaded(data){
   }));
   data.clients=(data.clients||[]).map(c=>({
     id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
-    profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, activationByCode:c.activationByCode===true, dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
+    profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, activationByCode:isActivationByCode(c.activationByCode), dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
@@ -5443,6 +5443,9 @@ function accountLabel(a){
 }
 function accountEmailLabel(a){
   return String(a?.email||'').trim();
+}
+function isActivationByCode(value){
+  return value === true || value === 1 || ['true','1','on'].includes(String(value ?? '').trim().toLowerCase());
 }
 function isNoRenewState(value){
   const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -6398,7 +6401,7 @@ function renewalPaymentLines(){
     .join('\n');
 }
 function credentialsText(client, account){
-  if(client?.activationByCode === true) return codeActivationMessageText();
+  if(isActivationByCode(client?.activationByCode)) return codeActivationMessageText();
   const platform=friendlyPlatform(client.platform||account?.platform);
   const finalMessage=String(state.settings?.finalMessage || '').trim();
   const isFullAccount=client.fullAccountSale===true;
@@ -6456,7 +6459,7 @@ function whatsappText(client){
         ? `venci\u00f3 el ${fmtDateLong(client.dueDate) || client.dueDate || 'd\u00eda indicado'}`
         : 'est\u00e1 pr\u00f3xima a vencer';
   if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
-    const accessLines=client?.activationByCode === true ? [] : [
+    const accessLines=isActivationByCode(client?.activationByCode) ? [] : [
       '',
       `\ud83c\udfac Perfil: ${client.profile || '-'}`,
       `\ud83d\udce7 Correo: ${account?.email || '-'}`,
@@ -6483,7 +6486,7 @@ function accountClientsForNotify(accountId){
   return state.clients.filter(c=>c.accountId===accountId && effectiveClientState(c)!=='No renovó');
 }
 function accountClientUpdateText(client, account){
-  if(client?.activationByCode === true) return codeActivationMessageText();
+  if(isActivationByCode(client?.activationByCode)) return codeActivationMessageText();
   const platform=friendlyPlatform(client.platform||account?.platform);
   return [
     `Hola ${client.name || ''}, tuvimos que actualizar los datos de tu ${platform}. Te paso los nuevos accesos:`,
@@ -6760,7 +6763,7 @@ window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
   editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
-  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=c.activationByCode===true; syncClientAccessMode();
+  $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
@@ -7075,7 +7078,7 @@ function comboText(clients, context='delivery'){
   list.forEach((client,index)=>{
     const account=state.accounts.find(a=>a.id===client.accountId);
     lines.push(`${index+1}. ${friendlyPlatform(client.platform||account?.platform)}`);
-    if(client.activationByCode === true){
+    if(isActivationByCode(client.activationByCode)){
       if(context!=='renewal') lines.push(codeActivationMessageText());
     }else{
       lines.push(`Correo: ${account?.email || '-'}`);
@@ -7090,7 +7093,7 @@ function comboText(clients, context='delivery'){
     const payment=paymentTextBlock();
     lines.push('Si deseas renovar todo el combo, me confirmas enviando tu comprobante.');
     if(payment) lines.push(payment.trim());
-  }else if(list.some(client => client.activationByCode !== true) && String(state.settings?.finalMessage||'').trim()){
+  }else if(list.some(client => !isActivationByCode(client.activationByCode)) && String(state.settings?.finalMessage||'').trim()){
     lines.push(String(state.settings.finalMessage).trim());
   }
   return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
@@ -7813,8 +7816,5 @@ window.addEventListener('load', () => {
 </div><!-- /appRoot -->
 </body>
 </html>
-
-
-
 
 
