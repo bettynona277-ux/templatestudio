@@ -1,4 +1,4 @@
-const CACHE_NAME = 'disenos-streaming-v172';
+const CACHE_NAME = 'disenos-streaming-v174';
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
   '/manifest.json',
