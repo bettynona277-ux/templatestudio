@@ -470,7 +470,16 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .cel.frame-el {
   border: 1px solid rgba(21, 214, 164, 0.5); /* Línea fina sólida */
   background: rgba(21, 214, 164, 0.05);
+  contain:layout paint;
+  backface-visibility:hidden;
+  transform-style:flat;
 }.cel.frame-el.has-image{border-style:solid;border-color:transparent;}
+.cel.frame-el .frame-inner,
+.cel.frame-el .frame-clip,
+.cel.frame-el .frame-clip > img{
+  box-sizing:border-box;
+  backface-visibility:hidden;
+}
 .cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:var(--accent);pointer-events:none;font-weight:600;}
 
@@ -2093,7 +2102,7 @@ input[type=range]{filter:none !important;}
           </div>
           <div>
             <div class="mini-lbl">Interlineado</div>
-            <input type="number" class="pp-inp" id="pp-lh" value="1.2" step="0.1" oninput="updTS('lineHeight',this.value)">
+            <input type="number" class="pp-inp" id="pp-lh" value="1.2" min="0.1" step="0.1" oninput="updTS('lineHeight',this.value)">
           </div>
         </div>
         </div>
@@ -3824,7 +3833,7 @@ async function loadPSDData(data){
           italic: !!ld.italic,
           color: ld.fontColor||'#ffffff',
           align: ld.textAlign||'left',
-          lineHeight: ld.lineHeight||1.2,
+          lineHeight: normalizeTextLineHeight(ld.lineHeight),
           letterSpacing: Number(ld.letterSpacing||0),
         };
       })() : null,
@@ -4833,6 +4842,23 @@ function setLayerPosition(layer, x, y, opts={}){
   const stableFramePreview = opts.stableFramePreview && layer.type === 'frame' && !!layer.frameImage;
   layer.x = stableFramePreview ? Math.round(x) : x;
   layer.y = stableFramePreview ? Math.round(y) : y;
+  if(stableFramePreview){
+    const stableW = Math.max(1, Math.round(Number(layer.w) || layer.el.offsetWidth || 1));
+    const stableH = Math.max(1, Math.round(Number(layer.h) || layer.el.offsetHeight || 1));
+    layer.el.style.width = stableW + 'px';
+    layer.el.style.height = stableH + 'px';
+    const clip = document.getElementById('fc-'+layer.id);
+    if(clip){
+      clip.style.width = '100%';
+      clip.style.height = '100%';
+      const img = document.getElementById('fi-'+layer.id);
+      if(img){
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+      }
+    }
+  }
   layer.el.style.left = layer.x + 'px';
   layer.el.style.top = layer.y + 'px';
 }
@@ -4969,6 +4995,7 @@ function mkEl(l){
     clip.style.cssText=`position:absolute;inset:0;border-radius:${l.frameRadius||0}px;overflow:hidden;pointer-events:none;z-index:0;`;
 
     if(l.frameImage){
+      el.classList.add('has-image');
       const img=document.createElement('img');
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
@@ -5421,6 +5448,7 @@ function applyImageToFrame(frameLayer, src){
   frameLayer.src = src;
   const el = frameLayer.el;
   if(!el) return;
+  el.classList.add('has-image');
   const clip = document.getElementById('fc-'+frameLayer.id);
   if(!clip) return;
   // Clear EVERYTHING in clip (hint, old image, preview ghosts)
@@ -6776,7 +6804,7 @@ function syncP(){
     const fc=document.getElementById('pp-fc'); if(fc)fc.value=(l.tp.color||'#ffffff').startsWith('#')?l.tp.color:'#ffffff';
     const fch=document.getElementById('pp-fc-hex'); if(fch)fch.value=(l.tp.color||'#ffffff');
     const ls=document.getElementById('pp-ls'); if(ls)ls.value=parseFloat(l.tp.letterSpacing)||0;
-    const lh=document.getElementById('pp-lh'); if(lh)lh.value=l.tp.lineHeight||1.2;
+    const lh=document.getElementById('pp-lh'); if(lh)lh.value=normalizeTextLineHeight(l.tp.lineHeight);
     const sc=document.getElementById('pp-stroke-c'); if(sc)sc.value=l.tp.strokeColor||'#000000';
     const sw=document.getElementById('pp-stroke-w'); if(sw)sw.value=l.tp.strokeWidth||0;
     const ts=document.getElementById('pp-text-shadow'); if(ts)ts.value=l.tp.shadowBlur||0;
@@ -6878,6 +6906,7 @@ function clearFrameImage(){
     clip.appendChild(hint);
   }
   if(l.el){
+    l.el.classList.remove('has-image');
     l.el.style.border='1px solid rgba(21,214,164,0.5)';
     l.el.style.background='rgba(21,214,164,0.05)';
   }
@@ -7076,9 +7105,14 @@ function richStyleForTextProp(p,v){
   if(p==='italic') return {fontStyle:v?'italic':'normal'};
   if(p==='underline') return {textDecoration:v?'underline':'none'};
   if(p==='letterSpacing') return {letterSpacing:(parseFloat(v)||0)+'px'};
-  if(p==='lineHeight') return {lineHeight:String(parseFloat(v)||1.2)};
+  if(p==='lineHeight') return {lineHeight:String(normalizeTextLineHeight(v))};
   if(p==='textTransform') return {textTransform:v||'none'};
   return null;
+}
+
+function normalizeTextLineHeight(value){
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1.2;
 }
 
 function applyColorSmart(color){
@@ -7165,7 +7199,7 @@ function updTS(p,v){
     else if(p==='fontWeight') l.tp.fontWeight=v;
     else if(p==='textAlign') l.tp.align=v;
     else if(p==='letterSpacing') l.tp.letterSpacing=parseFloat(v)||0;
-    else if(p==='lineHeight') l.tp.lineHeight=parseFloat(v)||1.2;
+    else if(p==='lineHeight') l.tp.lineHeight=normalizeTextLineHeight(v);
     applyTextStyles(l);
   });
   if(p==='color'){
@@ -7358,7 +7392,7 @@ function applyTextStyles(layer){
   d.style.fontStyle = tp.italic?'italic':'normal';
   d.style.textDecoration = tp.underline?'underline':'none';
   d.style.letterSpacing = (parseFloat(tp.letterSpacing)||0) + 'px';
-  d.style.lineHeight = String(parseFloat(tp.lineHeight)||1.2);
+  d.style.lineHeight = String(normalizeTextLineHeight(tp.lineHeight));
   d.style.textTransform = tp.textTransform || 'none';
   updateTextInnerShadowLayer(layer);
   updateTextStrokeLayer(layer);
@@ -8326,14 +8360,17 @@ async function renderDesignToCanvas(scale=2){
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
 
-      const lineHeight = fontSize * (parseFloat(tp.lineHeight) || 1.2);
+      const lineHeight = fontSize * normalizeTextLineHeight(tp.lineHeight);
       const letterSpacing = parseFloat(tp.letterSpacing) || 0;
+      const nativeLetterSpacing = 'letterSpacing' in ctx;
+      if(nativeLetterSpacing) ctx.letterSpacing = `${letterSpacing}px`;
       // Permitimos un buffer generoso para evitar saltos de línea erróneos
       const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2) + (fontSize * 0.5) + 12);
 
       const measureLineVisualWidth = (line)=>{
         const chars = [...String(line || '')];
         if(!chars.length) return 0;
+        if(nativeLetterSpacing) return ctx.measureText(String(line)).width;
         return chars.reduce((acc, ch, idx)=> acc + ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0), 0);
       };
 
@@ -8443,6 +8480,7 @@ async function renderDesignToCanvas(scale=2){
             targetCtx.textBaseline = ctx.textBaseline;
             targetCtx.textAlign = 'left';
             targetCtx.fillStyle = '#000';
+            if(nativeLetterSpacing && 'letterSpacing' in targetCtx) targetCtx.letterSpacing = ctx.letterSpacing;
             targetCtx.fillText(txt, x, y);
           };
           const maskTextY = ctx.textBaseline === 'alphabetic' ? margin + exportTextAscent : margin;
@@ -8475,7 +8513,7 @@ async function renderDesignToCanvas(scale=2){
           ctx.drawImage(shade, startX - margin, shadeTopY - margin);
         };
 
-        if(letterSpacing === 0){
+        if(letterSpacing === 0 || nativeLetterSpacing){
           drawFill(line, x, y);
           drawInnerShadowFill(line, x, y);
           drawStroke(line, x, y);
@@ -8883,7 +8921,7 @@ async function buildLayerData(){
       underline: !!l.tp.underline,
       textTransform: l.tp.textTransform||'none',
       letterSpacing: l.tp.letterSpacing||0,
-      lineHeight: l.tp.lineHeight||1.2,
+      lineHeight: normalizeTextLineHeight(l.tp.lineHeight),
       strokeColor: l.tp.strokeColor||'#000000',
       strokeWidth: l.tp.strokeWidth||0,
       shadowBlur: Number(l.tp.shadowBlur||0),
