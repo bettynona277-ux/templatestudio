@@ -4823,6 +4823,19 @@ function applyLayerTransform(layer){
   layer.el.style.transform = `rotate(${r}deg)`;
   if(typeof syncSelectionControls === 'function') syncSelectionControls(layer);
 }
+function keyboardNudgeStep(ev){
+  const base = ev.shiftKey ? 10 : 1;
+  const z = Math.max(1, Number(zoom_) || 1);
+  return Math.round((base / z) * 100) / 100;
+}
+function setLayerPosition(layer, x, y, opts={}){
+  if(!layer?.el) return;
+  const stableFramePreview = opts.stableFramePreview && layer.type === 'frame' && !!layer.frameImage;
+  layer.x = stableFramePreview ? Math.round(x) : x;
+  layer.y = stableFramePreview ? Math.round(y) : y;
+  layer.el.style.left = layer.x + 'px';
+  layer.el.style.top = layer.y + 'px';
+}
 function ensureRotationTooltip(){
   if(rotTipEl && rotTipEl.isConnected) return rotTipEl;
   rotTipEl = document.createElement('div');
@@ -5559,8 +5572,7 @@ document.addEventListener('mousemove',ev=>{
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
           multiDragStart.forEach(({id,x,y})=>{
             const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
-            l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
-            l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+            setLayerPosition(l, Math.round(x+sdx), Math.round(y+sdy), {stableFramePreview:true});
           });
         }
       }
@@ -5583,8 +5595,7 @@ document.addEventListener('mousemove',ev=>{
     }
     l.x=nx; l.y=ny;
     const snapped=ev.altKey ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
-    l.x=snapped.x; l.y=snapped.y;
-    l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
+    setLayerPosition(l, snapped.x, snapped.y, {stableFramePreview:true}); syncP();
 
     // Highlight frame when MOUSE CURSOR is over it (not image center)
     // This way large images behind a frame don't accidentally snap into it
@@ -9819,23 +9830,23 @@ document.addEventListener('keydown',ev=>{
   if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
   if(ev.key==='-'&&selId!==null&&!active){scaleEl(ev.shiftKey?0.8:0.95);ev.preventDefault();}
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
-  const s=ev.shiftKey?10:1;
+  const s=keyboardNudgeStep(ev);
   if(!active){
     if(ev.key==='ArrowUp'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.y-=s;ll.el.style.top=ll.y+'px';}});
-      else{l.y-=s;l.el.style.top=l.y+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y-s);});
+      else setLayerPosition(l,l.x,l.y-s);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowDown'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.y+=s;ll.el.style.top=ll.y+'px';}});
-      else{l.y+=s;l.el.style.top=l.y+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y+s);});
+      else setLayerPosition(l,l.x,l.y+s);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowLeft'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.x-=s;ll.el.style.left=ll.x+'px';}});
-      else{l.x-=s;l.el.style.left=l.x+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x-s,ll.y);});
+      else setLayerPosition(l,l.x-s,l.y);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowRight'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.x+=s;ll.el.style.left=ll.x+'px';}});
-      else{l.x+=s;l.el.style.left=l.x+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x+s,ll.y);});
+      else setLayerPosition(l,l.x+s,l.y);syncP();ev.preventDefault();
     }
   }
 });
