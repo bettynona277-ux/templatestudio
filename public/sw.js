@@ -1,4 +1,4 @@
-const CACHE_NAME = 'disenos-streaming-v178';
+const CACHE_NAME = 'disenos-streaming-v179';
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
   '/manifest.json',
@@ -38,6 +38,8 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(e.request, { cache:'no-store' })
         .catch(() => caches.match(e.request))
+        .then(res => res || caches.match('/'))
+        .then(res => res || new Response('Sin conexión', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
     );
     return;
   }
@@ -61,7 +63,7 @@ self.addEventListener('fetch', e => {
           return fetch(e.request).then(res => {
             if(res.ok && res.type !== 'opaque') cache.put(cacheRequest, res.clone());
             return res;
-          }).catch(() => hit);
+          }).catch(() => hit || new Response(null, { status: 504, statusText: 'Offline' }));
         })
       )
     );
@@ -84,5 +86,6 @@ self.addEventListener('fetch', e => {
         return res;
       })
       .catch(() => caches.match(e.request))
+      .then(res => res || new Response(null, { status: 504, statusText: 'Offline' }))
   );
 });
