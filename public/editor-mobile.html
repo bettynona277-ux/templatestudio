@@ -2745,6 +2745,33 @@ function invalidateMobileDesignsCache(uid){
   try{ localStorage.removeItem(`ts_mobile_designs_cache_v2_${uid}`); }catch(_){}
 }
 
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertMobileDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = `ts_mobile_designs_cache_v2_${uid}`;
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const cached = JSON.parse(raw);
+    if(!cached || !Array.isArray(cached.items)) return;
+    const items = cached.items;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].data : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? '',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, data:merged});
+    cached.savedAt = Date.now();
+    localStorage.setItem(key, JSON.stringify(cached));
+  }catch(_){}
+}
+
 async function doSave(){
   if(!fbDb||!fbAuth?.currentUser){ toast('✗ Sin sesión. Vuelve al inicio.'); return; }
   const name = document.getElementById('save-name').value.trim();
@@ -2839,7 +2866,9 @@ async function doSave(){
       u.searchParams.set('did',clientDesignId);
       window.history.replaceState({},'',u.toString());
     }
-    invalidateMobileDesignsCache(fbAuth.currentUser.uid);
+    upsertMobileDesignsCache(fbAuth.currentUser.uid, clientDesignId, {
+      name: data.name, thumb: data.thumb, updatedAt: data.updatedAt, createdAt: data.createdAt
+    });
     localStorage.setItem('ts_design_name',name);
     st.textContent='✓ Guardado correctamente';st.style.color='var(--accent)';
     toast('✓ Diseño guardado');

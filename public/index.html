@@ -2352,6 +2352,38 @@ function invalidateDesktopDesignsCache(uid){
   try{ localStorage.removeItem(`ts_dash_cache_v7_${uid}_designs`); }catch(e){}
 }
 
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertDesktopDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = dashCacheKey('designs');
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const parsed = JSON.parse(raw);
+    const items = parsed?.data?.items;
+    if(!Array.isArray(items)) return;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].d : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? 'Sin nombre',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, d:merged});
+    parsed.at = Date.now();
+    localStorage.setItem(key, JSON.stringify(parsed));
+    if(typeof allDashboardDesigns !== 'undefined' && Array.isArray(allDashboardDesigns)){
+      const midx = allDashboardDesigns.findIndex(it=>it.id===id);
+      if(midx>=0) allDashboardDesigns.splice(midx,1);
+      allDashboardDesigns.unshift({id, d:merged});
+    }
+  }catch(e){}
+}
+
 
 // ================================================================
 // EDITOR STATE
@@ -3584,8 +3616,7 @@ async function downloadPNG(){
 
 async function quickDownload(id){
   try{
-    const doc=await fbDb.collection('user_designs').doc(id).get();
-    if(!doc.exists)return;
+    // openEditorDesign() ya valida existencia al leer el doc; evitamos un .get() duplicado aquí.
     openEditorDesign(id);
     setTimeout(()=>downloadPNG(),1200);
   }catch(e){alert('Error: '+e.message);}
@@ -3685,7 +3716,9 @@ async function autoSave(){
       const ref = await fbDb.collection('user_designs').add(saveData);
       currentDesignId = ref.id;
     }
-    invalidateDesktopDesignsCache(currentUser?.uid);
+    upsertDesktopDesignsCache(currentUser?.uid, currentDesignId, {
+      name: saveData.name, thumb: saveData.thumb, updatedAt: saveData.updatedAt, createdAt: saveData.createdAt
+    });
     showAutosaveMsg('✓ Guardado automáticamente', 'ok');
   } catch(e){
     // If offline, save to localStorage as backup

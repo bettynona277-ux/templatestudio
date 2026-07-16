@@ -7754,6 +7754,33 @@ function invalidateDesktopDesignsCache(uid){
   try{ localStorage.removeItem(`ts_dash_cache_v6_${uid}_designs`); }catch(_){ }
   try{ localStorage.removeItem(`ts_dash_cache_v7_${uid}_designs`); }catch(_){ }
 }
+
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertDesktopDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = `ts_dash_cache_v7_${uid}_designs`;
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const parsed = JSON.parse(raw);
+    const items = parsed?.data?.items;
+    if(!Array.isArray(items)) return;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].d : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? 'Sin nombre',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, d:merged});
+    parsed.at = Date.now();
+    localStorage.setItem(key, JSON.stringify(parsed));
+  }catch(_){ }
+}
 async function saveClientDesign(){
   if(!fbDb){ showToast('Firebase no conectado'); return; }
   const btn=document.getElementById('btn-client-save');
@@ -7860,7 +7887,9 @@ async function saveClientDesign(){
       window.history.replaceState({}, '', u.toString());
     }
 
-    invalidateDesktopDesignsCache(authUser.uid);
+    upsertDesktopDesignsCache(authUser.uid, clientDesignId, {
+      name: data.name, thumb: data.thumb, updatedAt: data.updatedAt, createdAt: data.createdAt
+    });
     currentClientDesignName = chosenName;
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
