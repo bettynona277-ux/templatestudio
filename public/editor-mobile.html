@@ -3245,7 +3245,13 @@ async function renderDesignToCanvas(scale=3){
         !/Chrome\/\d/i.test(exportUA)
       );
       const mobileBaselineFix = isIOSExport ? 0.75 : (isAndroidEmbeddedExport ? 0.80 : 0.69);
-      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix);
+      const profileWhatsAppDigits = String(getUserProfile()?.whatsapp || '').replace(/\D/g,'');
+      const layerTextDigits = rawText.replace(/\D/g,'');
+      const isWhatsAppTextLayer = /whats?app/i.test(String(l.name || '')) || (
+        profileWhatsAppDigits.length >= 6 && layerTextDigits === profileWhatsAppDigits
+      );
+      const layerBaselineFix = mobileBaselineFix + (isIOSExport && isWhatsAppTextLayer ? 0.05 : 0);
+      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * layerBaselineFix);
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;
