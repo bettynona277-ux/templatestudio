@@ -255,6 +255,20 @@ html[data-theme="light"] .theme-toggle-mobile .theme-sun{color:#a46600}
 html[data-theme="light"] .theme-toggle-mobile .theme-moon{color:#8290a5}
 body:has(.install-banner.show){padding-bottom:calc(176px + env(safe-area-inset-bottom))}
 body:has(.sheet.show) .install-banner{display:none!important}
+.mobile-select-shell{position:relative;display:block;width:100%;min-width:0}
+.mobile-select-shell > select{position:absolute!important;width:1px!important;height:1px!important;min-height:0!important;margin:0!important;padding:0!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important}
+.mobile-select-trigger{width:100%;min-height:46px;padding:0 12px;border:1px solid var(--line);border-radius:15px;background:#07101d;color:var(--text);display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;font-size:15px;font-weight:800;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.mobile-select-trigger:hover{border-color:rgba(118,92,255,.52)}
+.mobile-select-trigger:focus-visible,.mobile-select-shell.is-open .mobile-select-trigger{outline:0;border-color:#765cff;box-shadow:0 0 0 3px rgba(118,92,255,.16)}
+.mobile-select-trigger:disabled{cursor:not-allowed;opacity:.55}.mobile-select-trigger.is-placeholder .mobile-select-value{color:var(--muted)}
+.mobile-select-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-select-chevron{width:18px;height:18px;flex:0 0 18px;color:#9eacf0;transition:transform .16s ease,color .16s ease}.mobile-select-shell.is-open .mobile-select-chevron{transform:rotate(180deg);color:#c4b5fd}
+.mobile-select-popover{position:fixed;z-index:100;display:grid;gap:4px;max-height:min(310px,calc(100vh - 22px));padding:7px;overflow:auto;overscroll-behavior:contain;border:1px solid rgba(158,177,214,.25);border-radius:17px;background:#101a2c;box-shadow:0 18px 46px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.05)}
+.mobile-select-option{width:100%;min-height:43px;padding:9px 10px;border:0;border-radius:11px;background:transparent;color:#dce6f8;display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:center;gap:9px;text-align:left;font-size:13px;font-weight:800;line-height:1.3}.mobile-select-option-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-select-option:hover,.mobile-select-option:focus-visible{outline:0;background:rgba(118,92,255,.16);color:#fff}.mobile-select-option.is-selected{background:rgba(118,92,255,.24);color:#fff}.mobile-select-option-check{width:17px;height:17px;color:#a99eff;opacity:0}.mobile-select-option.is-selected .mobile-select-option-check{opacity:1}.mobile-select-option:disabled{cursor:not-allowed;opacity:.42}.mobile-select-empty{padding:14px;color:var(--muted);font-size:13px;text-align:center}
+.phone-row .mobile-select-shell{width:100px;flex:0 0 100px}.phone-row .mobile-select-trigger{padding:0 8px;font-size:13px}
+html[data-theme="light"] .mobile-select-trigger{background:#fff;color:#182235;border-color:rgba(70,88,116,.26)}
+html[data-theme="light"] .mobile-select-chevron{color:#5d69bb}html[data-theme="light"] .mobile-select-shell.is-open .mobile-select-chevron{color:#5544d0}
+html[data-theme="light"] .mobile-select-popover{background:#f8fafc;border-color:rgba(70,88,116,.26);box-shadow:0 18px 42px rgba(40,55,78,.24)}
+html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="light"] .mobile-select-option:hover,html[data-theme="light"] .mobile-select-option:focus-visible{background:rgba(102,87,223,.10);color:#251b68}html[data-theme="light"] .mobile-select-option.is-selected{background:#e4e1ff;color:#2e246f}html[data-theme="light"] .mobile-select-option-check{color:#5544d0}
 @media (max-width:480px){.top{gap:7px;padding-left:10px;padding-right:10px}.logo{width:36px;height:36px;border-radius:13px}.iconbtn{width:38px;height:38px;border-radius:13px}.title{flex:0 0 47px}.title b{font-size:14px}.title span,.title .beta-badge{display:none}}
 @media (min-width:680px){.grid.two{grid-template-columns:1fr 1fr}.wrap{padding-top:20px}.sheet{left:50%;right:auto;width:520px;transform:translate(-50%,105%);border-radius:26px}.sheet.show{transform:translate(-50%,0)}}
 @media (max-width:680px){
@@ -2801,6 +2815,178 @@ function startLive(){
   // Esto baja las lecturas de Firestore. Para traer cambios externos, recarga la página.
   return loadOnce(false);
 }
+
+/* Select visual: conserva el select real para formularios, eventos y accesibilidad. */
+const MOBILE_SELECT_SELECTOR = 'select:not([multiple]):not([data-mobile-select="false"])';
+let activeMobileSelect = null;
+let mobileSelectSyncQueued = false;
+function mobileSelectLabel(select){
+  return select.closest('.field')?.querySelector('label')?.textContent?.trim() || select.getAttribute('aria-label') || 'opciones';
+}
+function syncMobileSelect(select){
+  const shell = select.closest('.mobile-select-shell');
+  const trigger = shell?.querySelector('.mobile-select-trigger');
+  if(!trigger) return;
+  const option = select.options[select.selectedIndex] || select.options[0];
+  const text = option?.textContent?.trim() || 'Seleccionar';
+  trigger.querySelector('.mobile-select-value').textContent = text;
+  trigger.title = text;
+  trigger.disabled = select.disabled;
+  trigger.classList.toggle('is-placeholder', !option || option.value === '');
+  if(activeMobileSelect?.select === select) renderMobileSelectOptions(activeMobileSelect);
+}
+function closeMobileSelect({restoreFocus=false}={}){
+  if(!activeMobileSelect) return;
+  const {shell,trigger,popover} = activeMobileSelect;
+  shell.classList.remove('is-open');
+  trigger.setAttribute('aria-expanded','false');
+  popover.remove();
+  activeMobileSelect = null;
+  if(restoreFocus && trigger.isConnected) trigger.focus();
+}
+function positionMobileSelect(context){
+  const {trigger,popover} = context;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(Math.max(rect.width,220),window.innerWidth-20);
+  popover.style.width = `${Math.round(width)}px`;
+  const height = popover.offsetHeight;
+  const below = window.innerHeight - rect.bottom - 8;
+  const above = rect.top - 8;
+  const openAbove = below < Math.min(220,height) && above > below;
+  const top = openAbove ? Math.max(8,rect.top-height-6) : Math.min(window.innerHeight-height-8,rect.bottom+6);
+  const left = Math.min(Math.max(10,rect.left),window.innerWidth-width-10);
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(Math.max(8,top))}px`;
+}
+function renderMobileSelectOptions(context){
+  const {select,popover} = context;
+  popover.replaceChildren();
+  const options = [...select.options].filter(option=>!option.hidden);
+  if(!options.length){
+    const empty = document.createElement('div');
+    empty.className = 'mobile-select-empty';
+    empty.textContent = 'Sin opciones disponibles';
+    popover.append(empty);
+    positionMobileSelect(context);
+    return;
+  }
+  options.forEach(option=>{
+    const index = [...select.options].indexOf(option);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mobile-select-option';
+    button.setAttribute('role','option');
+    button.setAttribute('aria-selected',String(index === select.selectedIndex));
+    button.disabled = option.disabled;
+    button.title = option.textContent.trim();
+    button.classList.toggle('is-selected',index === select.selectedIndex);
+    const label = document.createElement('span');
+    label.className = 'mobile-select-option-label';
+    label.textContent = option.textContent.trim();
+    const check = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    check.setAttribute('class','mobile-select-option-check');
+    check.setAttribute('viewBox','0 0 24 24');
+    check.setAttribute('aria-hidden','true');
+    check.innerHTML = '<path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+    button.append(label,check);
+    button.addEventListener('click',()=>{
+      if(option.disabled) return;
+      select.selectedIndex = index;
+      select.dispatchEvent(new Event('input',{bubbles:true}));
+      select.dispatchEvent(new Event('change',{bubbles:true}));
+      syncMobileSelect(select);
+      closeMobileSelect({restoreFocus:true});
+    });
+    button.addEventListener('keydown',event=>{
+      const choices = [...popover.querySelectorAll('.mobile-select-option:not(:disabled)')];
+      const current = choices.indexOf(document.activeElement);
+      if(event.key === 'ArrowDown' || event.key === 'ArrowUp'){
+        event.preventDefault();
+        choices[Math.min(choices.length-1,Math.max(0,current + (event.key === 'ArrowUp' ? -1 : 1)))]?.focus();
+      }else if(event.key === 'Escape'){
+        event.preventDefault();
+        closeMobileSelect({restoreFocus:true});
+      }
+    });
+    popover.append(button);
+  });
+  positionMobileSelect(context);
+}
+function openMobileSelect(select,{keyboard=false}={}){
+  const shell = select.closest('.mobile-select-shell');
+  const trigger = shell?.querySelector('.mobile-select-trigger');
+  if(!shell || !trigger || select.disabled) return;
+  if(activeMobileSelect?.select === select){ closeMobileSelect(); return; }
+  closeMobileSelect();
+  syncMobileSelect(select);
+  const popover = document.createElement('div');
+  popover.className = 'mobile-select-popover';
+  popover.setAttribute('role','listbox');
+  document.body.append(popover);
+  activeMobileSelect = {select,shell,trigger,popover};
+  shell.classList.add('is-open');
+  trigger.setAttribute('aria-expanded','true');
+  renderMobileSelectOptions(activeMobileSelect);
+  if(keyboard) requestAnimationFrame(()=>popover.querySelector('.mobile-select-option.is-selected, .mobile-select-option:not(:disabled)')?.focus());
+}
+function enhanceMobileSelect(select){
+  if(!(select instanceof HTMLSelectElement) || select.dataset.mobileSelect === 'true') return;
+  const shell = document.createElement('div');
+  shell.className = 'mobile-select-shell';
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'mobile-select-trigger';
+  trigger.setAttribute('aria-haspopup','listbox');
+  trigger.setAttribute('aria-expanded','false');
+  trigger.setAttribute('aria-label',`Seleccionar ${mobileSelectLabel(select)}`);
+  const value = document.createElement('span');
+  value.className = 'mobile-select-value';
+  const chevron = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  chevron.setAttribute('class','mobile-select-chevron');
+  chevron.setAttribute('viewBox','0 0 24 24');
+  chevron.setAttribute('aria-hidden','true');
+  chevron.innerHTML = '<path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>';
+  trigger.append(value,chevron);
+  select.parentNode.insertBefore(shell,select);
+  shell.append(select,trigger);
+  select.dataset.mobileSelect = 'true';
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden','true');
+  select.addEventListener('change',()=>syncMobileSelect(select));
+  select.addEventListener('input',()=>syncMobileSelect(select));
+  trigger.addEventListener('click',()=>openMobileSelect(select));
+  trigger.addEventListener('keydown',event=>{
+    if(['ArrowDown','ArrowUp','Enter',' '].includes(event.key)){
+      event.preventDefault();
+      openMobileSelect(select,{keyboard:true});
+    }
+  });
+  syncMobileSelect(select);
+}
+function syncMobileSelects(){
+  document.querySelectorAll(MOBILE_SELECT_SELECTOR).forEach(select=>{
+    enhanceMobileSelect(select);
+    syncMobileSelect(select);
+  });
+  if(activeMobileSelect && (!activeMobileSelect.trigger.isConnected || activeMobileSelect.trigger.offsetParent === null)) closeMobileSelect();
+}
+function queueMobileSelectSync(){
+  if(mobileSelectSyncQueued) return;
+  mobileSelectSyncQueued = true;
+  requestAnimationFrame(()=>{mobileSelectSyncQueued=false;syncMobileSelects();});
+}
+new MutationObserver(records=>{
+  if(records.some(record=>record.type === 'childList' || record.target instanceof HTMLSelectElement || record.target instanceof HTMLOptionElement)) queueMobileSelectSync();
+}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled','selected','label','value']});
+document.addEventListener('pointerdown',event=>{
+  if(activeMobileSelect && !activeMobileSelect.shell.contains(event.target) && !activeMobileSelect.popover.contains(event.target)) closeMobileSelect();
+},true);
+document.addEventListener('keydown',event=>{ if(event.key === 'Escape') closeMobileSelect({restoreFocus:true}); });
+document.addEventListener('change',event=>{ if(event.target instanceof HTMLSelectElement) queueMobileSelectSync(); });
+window.addEventListener('resize',()=>closeMobileSelect());
+window.addEventListener('scroll',event=>{ if(activeMobileSelect && !activeMobileSelect.popover.contains(event.target)) closeMobileSelect(); },true);
+window.syncMobileSelects = syncMobileSelects;
+syncMobileSelects();
 
 document.querySelectorAll('.navbtn').forEach(b => b.onclick = () => setView(b.dataset.view));
 const mobileThemeToggle = $('#gestorMobileThemeToggle');
