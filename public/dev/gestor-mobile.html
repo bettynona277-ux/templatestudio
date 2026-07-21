@@ -155,6 +155,7 @@ button{border:0;cursor:pointer}
 .sheet-back.show{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:55;max-height:88vh;overflow:auto;padding:14px 14px calc(18px + env(safe-area-inset-bottom));border-radius:26px 26px 0 0;background:#091322;border:1px solid var(--line);box-shadow:0 -22px 55px rgba(0,0,0,.44);transform:translateY(105%);transition:.22s ease}
 .sheet.show{transform:translateY(0)}.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.sheet h3{margin:0;font-size:18px}.grid{display:grid;gap:10px}.field{display:grid;gap:5px}.field label{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:900}.field input,.field select,.field textarea{width:100%;min-height:46px;border-radius:15px;border:1px solid var(--line);background:#07101d;color:var(--text);padding:0 12px;outline:0}.field textarea{padding:12px;min-height:82px;resize:vertical}
+.existing-client-suggestions{display:grid;gap:6px;padding:10px;border:1px solid rgba(118,92,255,.28);border-radius:15px;background:rgba(118,92,255,.09)}.existing-client-hint{font-size:11px;font-weight:900;color:#cfc6ff;text-transform:uppercase}.existing-client-option{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;padding:8px 10px;border-radius:12px;background:#0d1726;border:1px solid var(--line);color:var(--text);text-align:left}.existing-client-option strong,.existing-client-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.existing-client-option strong{font-size:13px}.existing-client-option span{font-size:12px;color:var(--muted)}.existing-client-option:focus-visible{outline:2px solid var(--brand2);outline-offset:2px}.existing-client-selected{font-size:13px;font-weight:850;color:#9ff3d0}
 .form-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}.toast{position:fixed;left:14px;right:14px;bottom:calc(150px + env(safe-area-inset-bottom));z-index:80;padding:13px 14px;border-radius:17px;background:#132139;color:#fff;border:1px solid var(--line);box-shadow:var(--shadow);font-weight:850;transform:translateY(16px);opacity:0;pointer-events:none;transition:.18s}.toast.show{transform:translateY(0);opacity:1}.toast.ok{border-color:rgba(34,216,154,.35)}.toast.bad{border-color:rgba(255,93,125,.45);background:#321421}
 .expired{min-height:100vh;display:grid;place-items:center;padding:22px}.expired-box{max-width:420px;width:100%;padding:20px;border-radius:26px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}.expired-box h1{margin:0 0 8px;font-size:24px}.expired-box p{color:var(--muted);line-height:1.5}.hidden{display:none!important}
 /* Tema claro: mantiene los colores de accion y mejora la lectura en pantallas moviles. */
@@ -205,6 +206,7 @@ html[data-theme="light"] .combo-mobile-toggle{background:#f1f5f9}
 html[data-theme="light"] .security-box{background:linear-gradient(135deg,rgba(24,213,162,.12),rgba(118,92,255,.09));border-color:rgba(13,137,109,.25)}
 html[data-theme="light"] .archived-section{background:rgba(255,93,125,.06);border-color:rgba(211,55,91,.26)}
 html[data-theme="light"] .sheet{background:#f7f9fc;border-color:rgba(70,88,116,.2);box-shadow:0 -18px 42px rgba(40,55,78,.25)}
+html[data-theme="light"] .existing-client-suggestions{background:rgba(118,92,255,.08);border-color:rgba(94,69,210,.25)}html[data-theme="light"] .existing-client-option{background:#fff;color:#182235;border-color:rgba(70,88,116,.2)}html[data-theme="light"] .existing-client-hint{color:#4d36c5}html[data-theme="light"] .existing-client-selected{color:#087d5d}
 html[data-theme="light"] .sheet-back{background:rgba(31,41,55,.38)}
 html[data-theme="light"] .install-banner{background:#f8fafc;border-color:rgba(70,88,116,.22);box-shadow:0 14px 34px rgba(40,55,78,.22)}
 html[data-theme="light"] .install-close{background:#eef3f8;color:#52627a;border-color:rgba(70,88,116,.18)}
@@ -954,6 +956,31 @@ function platformShort(v){ return clean(v) || 'Streaming'; }
 function accountName(a){ return [a.platform,a.email||a.provider].map(clean).filter(Boolean).join(' - ') || 'Cuenta madre'; }
 function accountEmailLabel(a){ return clean(a?.email); }
 function clientName(c){ return clean(c.name) || 'Cliente sin nombre'; }
+function clientCustomerId(client){ return clean(client?.customerId) || clean(client?.id); }
+function clientLookupText(value){
+  return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+}
+function clientPhoneLookup(value){ return clean(value).replace(/\D/g, ''); }
+function findExistingClientMatches(name='', whatsapp='', excludeId=''){
+  const nameQuery = clientLookupText(name);
+  const phoneQuery = clientPhoneLookup(whatsapp);
+  if(nameQuery.length < 2 && phoneQuery.length < 3) return [];
+  const seen = new Set();
+  return state.clients
+    .filter(client => client.id !== excludeId)
+    .filter(client => {
+      const clientNameValue = clientLookupText(client.name);
+      const clientPhoneValue = clientPhoneLookup(client.whatsapp);
+      return (nameQuery.length >= 2 && clientNameValue.includes(nameQuery)) || (phoneQuery.length >= 3 && clientPhoneValue.includes(phoneQuery));
+    })
+    .filter(client => {
+      const customerId = clientCustomerId(client);
+      if(!customerId || seen.has(customerId)) return false;
+      seen.add(customerId);
+      return true;
+    })
+    .slice(0, 5);
+}
 function activeAccountClients(accountId){ return state.clients.filter(c => c.accountId === accountId && !isNoRenewState(c.state)); }
 function accountHasFullSale(accountId){ return activeAccountClients(accountId).some(c => c.fullAccountSale === true); }
 function accountUsed(accountId){
@@ -1695,6 +1722,7 @@ function openAccountClientsSheet(account){
 }
 function openClientSheet(item={}){
   const c = item || {};
+  let selectedExistingCustomerId = clean(c.customerId);
   const selectedAccount = state.accounts.find(a => a.id === c.accountId);
   const platformValue = c.platform || selectedAccount?.platform || '';
   const defaultPrice = platformPriceFor(platformValue);
@@ -1704,6 +1732,7 @@ function openClientSheet(item={}){
     <form id="clientForm" class="grid">
       <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" placeholder="Deros Rafael" required></div>
       <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel" placeholder="999 999 999"></div>
+      <div class="existing-client-suggestions hidden" id="existingClientSuggestions" aria-live="polite"></div>
       <div class="grid two">
         <div class="field"><label>Plataforma</label><select name="platform" required>${salePlatformOptions(platformValue)}</select></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
@@ -1726,6 +1755,31 @@ function openClientSheet(item={}){
       <div class="form-actions"><button type="button" class="btn ${c.id?'bad':''}" id="deleteClient">${c.id?'Eliminar':'Cancelar'}</button><button id="clientSubmitBtn" class="btn ${c.id?'primary':'ok'}">${c.id?'Guardar':'Entregar cuenta'}</button></div>
     </form>`);
   const form = $('#clientForm');
+  const suggestions = $('#existingClientSuggestions');
+  const renderExistingClientSuggestions = () => {
+    if(c.id || !suggestions) return;
+    const matches = findExistingClientMatches(form.elements.name.value, form.elements.whatsapp.value);
+    if(!matches.length){
+      suggestions.classList.add('hidden');
+      suggestions.replaceChildren();
+      return;
+    }
+    suggestions.innerHTML = `<span class="existing-client-hint">Cliente existente</span>${matches.map(client => `<button type="button" class="existing-client-option" data-existing-client="${esc(client.id)}"><strong>${esc(clientName(client))}</strong><span>${esc(client.whatsapp || 'Sin WhatsApp')}</span></button>`).join('')}`;
+    suggestions.classList.remove('hidden');
+    suggestions.querySelectorAll('[data-existing-client]').forEach(button => button.onclick = () => {
+      const client = state.clients.find(item => item.id === button.dataset.existingClient);
+      if(!client) return;
+      selectedExistingCustomerId = clientCustomerId(client);
+      form.elements.name.value = client.name || '';
+      form.elements.whatsapp.value = client.whatsapp || '';
+      suggestions.innerHTML = `<span class="existing-client-selected">Venta adicional para ${esc(clientName(client))}</span>`;
+      suggestions.classList.remove('hidden');
+    });
+  };
+  ['name','whatsapp'].forEach(field => form.elements[field]?.addEventListener('input', () => {
+    selectedExistingCustomerId = '';
+    renderExistingClientSuggestions();
+  }));
   const refreshClientAccountOptions = () => {
     if(!form.elements.accountId) return;
     const selected = form.elements.accountId.value;
@@ -1784,7 +1838,8 @@ function openClientSheet(item={}){
       submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
       return;
     }
-    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
+    const saleId = c.id || id();
+    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:saleId, customerId:c.customerId || selectedExistingCustomerId || saleId, platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
       submitBtn.disabled = false;
@@ -1943,7 +1998,7 @@ async function saveComboFromForm(e){
     const account = state.accounts.find(a => a.id === accountId);
     const activationByCode = row.querySelector('.combo-activation-code')?.checked === true;
     return {
-      id:id(), name:fd.name, whatsapp:fd.whatsapp, accountId,
+      id:id(), customerId:comboId, name:fd.name, whatsapp:fd.whatsapp, accountId,
       platform: account?.platform || row.dataset.platform || '',
       profile: activationByCode ? '' : (row.querySelector('.combo-profile')?.value || ''),
       pin: activationByCode ? '' : (row.querySelector('.combo-pin')?.value || ''),
@@ -2069,8 +2124,10 @@ function sanitizeAccountForSave(data={}){
 }
 function sanitizeClientForSave(data={}){
   const now = new Date().toISOString();
+  const clientId = clean(data.id) || id();
   return {
-    id: clean(data.id) || id(),
+    id: clientId,
+    customerId: clean(data.customerId) || clientId,
     name: clean(data.name),
     whatsapp: clean(data.whatsapp).slice(0,32),
     accountId: clean(data.accountId),
