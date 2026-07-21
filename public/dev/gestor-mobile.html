@@ -263,7 +263,7 @@ body:has(.sheet.show) .install-banner{display:none!important}
 .mobile-select-trigger:disabled{cursor:not-allowed;opacity:.55}.mobile-select-trigger.is-placeholder .mobile-select-value{color:var(--muted)}
 .mobile-select-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-select-chevron{width:18px;height:18px;flex:0 0 18px;color:#9eacf0;transition:transform .16s ease,color .16s ease}.mobile-select-shell.is-open .mobile-select-chevron{transform:rotate(180deg);color:#c4b5fd}
 .mobile-select-popover{position:fixed;z-index:100;display:grid;gap:4px;max-height:min(310px,calc(100vh - 22px));padding:7px;overflow:auto;overscroll-behavior:contain;border:1px solid rgba(158,177,214,.25);border-radius:17px;background:#101a2c;box-shadow:0 18px 46px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.05)}
-.mobile-select-option{width:100%;min-height:43px;padding:9px 10px;border:0;border-radius:11px;background:transparent;color:#dce6f8;display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:center;gap:9px;text-align:left;font-size:13px;font-weight:800;line-height:1.3}.mobile-select-option-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-select-option:hover,.mobile-select-option:focus-visible{outline:0;background:rgba(118,92,255,.16);color:#fff}.mobile-select-option.is-selected{background:rgba(118,92,255,.24);color:#fff}.mobile-select-option-check{width:17px;height:17px;color:#a99eff;opacity:0}.mobile-select-option.is-selected .mobile-select-option-check{opacity:1}.mobile-select-option:disabled{cursor:not-allowed;opacity:.42}.mobile-select-empty{padding:14px;color:var(--muted);font-size:13px;text-align:center}
+.mobile-select-option{width:100%;min-height:43px;padding:9px 10px;border:0;border-radius:11px;background:transparent;color:#dce6f8;display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:center;gap:9px;text-align:left;font-size:13px;font-weight:800;line-height:1.3}.mobile-select-option-label{min-width:0;overflow-wrap:anywhere;word-break:break-word}.mobile-select-option:hover,.mobile-select-option:focus-visible{outline:0;background:rgba(118,92,255,.16);color:#fff}.mobile-select-option.is-selected{background:rgba(118,92,255,.24);color:#fff}.mobile-select-option-check{width:17px;height:17px;color:#a99eff;opacity:0}.mobile-select-option.is-selected .mobile-select-option-check{opacity:1}.mobile-select-option:disabled{cursor:not-allowed;opacity:.42}.mobile-select-empty{padding:14px;color:var(--muted);font-size:13px;text-align:center}
 .phone-row .mobile-select-shell{width:100px;flex:0 0 100px}.phone-row .mobile-select-trigger{padding:0 8px;font-size:13px}
 html[data-theme="light"] .mobile-select-trigger{background:#fff;color:#182235;border-color:rgba(70,88,116,.26)}
 html[data-theme="light"] .mobile-select-chevron{color:#5d69bb}html[data-theme="light"] .mobile-select-shell.is-open .mobile-select-chevron{color:#5544d0}
@@ -979,16 +979,32 @@ function accountCanSellFull(accountId, selectedClientId=''){
 function accountSelectableForSale(accountId, selectedClientId='', fullAccountSale=false){
   return fullAccountSale ? accountCanSellFull(accountId, selectedClientId) : accountCanSellProfile(accountId, selectedClientId);
 }
-function saleAccountOptions(selected='', selectedClientId='', fullAccountSale=false){
+function sameSalePlatform(a,b){ return clean(a).toLocaleLowerCase() === clean(b).toLocaleLowerCase(); }
+function salePlatformOptions(selected=''){
+  const seen = new Set();
+  const platforms = [...(state.settings.categories || []), ...state.accounts.map(a=>a.platform)]
+    .map(clean)
+    .filter(platform=>{
+      const key = platform.toLocaleLowerCase();
+      if(!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if(clean(selected) && !platforms.some(platform=>sameSalePlatform(platform,selected))) platforms.unshift(clean(selected));
+  return `<option value="">Elige una plataforma</option>${platforms.map(platform=>`<option value="${esc(platform)}" ${sameSalePlatform(platform,selected)?'selected':''}>${esc(platform)}</option>`).join('')}`;
+}
+function saleAccountOptions(selected='', selectedClientId='', fullAccountSale=false, platform=''){
+  const wantedPlatform = clean(platform);
   const list = state.accounts
+    .filter(a => (!wantedPlatform || sameSalePlatform(a.platform,wantedPlatform)))
     .filter(a => a.id === selected || accountSelectableForSale(a.id, selectedClientId, fullAccountSale))
     .sort((a,b)=>accountUsed(a.id)-accountUsed(b.id));
-  const emptyText = fullAccountSale ? 'No hay cuentas vacias para vender completa' : 'No hay cuentas con perfiles libres';
-  return `<option value="">${list.length ? 'Elige cuenta madre' : emptyText}</option>${list.map(a=>{
+  const emptyText = !wantedPlatform ? 'Primero elige una plataforma' : (fullAccountSale ? 'No hay cuentas vacias para vender completa' : 'No hay cuentas con perfiles libres');
+  return `<option value="">${list.length ? 'Elige un correo' : emptyText}</option>${list.map(a=>{
     const fullSold = accountHasFullSale(a.id);
     const free = accountFreeSlots(a.id);
     const suffix = fullSold ? 'cuenta completa vendida' : `${free} libres`;
-    return `<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountName(a))} - ${suffix}</option>`;
+    return `<option value="${esc(a.id)}" ${a.id===selected?'selected':''}>${esc(accountEmailLabel(a) || a.provider || 'Cuenta sin correo')} - ${suffix}</option>`;
   }).join('')}`;
 }
 function toast(msg,type='ok'){
@@ -1689,10 +1705,10 @@ function openClientSheet(item={}){
       <div class="field"><label>Nombre</label><input name="name" value="${esc(c.name)}" placeholder="Deros Rafael" required></div>
       <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(c.whatsapp)}" inputmode="tel" placeholder="999 999 999"></div>
       <div class="grid two">
-        <div class="field"><label>Plataforma</label><input name="platform" value="${esc(platformValue)}"></div>
+        <div class="field"><label>Plataforma</label><select name="platform" required>${salePlatformOptions(platformValue)}</select></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
-      <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale)}</select></div>
+      <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale, platformValue)}</select></div>
       <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       <label class="combo-mobile-toggle"><span>Activar por codigo</span><input type="checkbox" name="activationByCode" value="1" ${c.activationByCode?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
@@ -1714,15 +1730,22 @@ function openClientSheet(item={}){
     if(!form.elements.accountId) return;
     const selected = form.elements.accountId.value;
     const fullSale = !!form.elements.fullAccountSale?.checked;
-    form.elements.accountId.innerHTML = saleAccountOptions(selected, c.id || '', fullSale);
-    if(selected && !accountSelectableForSale(selected, c.id || '', fullSale)){
+    const selectedAccount = state.accounts.find(a=>a.id===selected);
+    const platform = form.elements.platform?.value || '';
+    const keepSelected = selected && selectedAccount && sameSalePlatform(selectedAccount.platform,platform) && accountSelectableForSale(selected, c.id || '', fullSale);
+    form.elements.accountId.innerHTML = saleAccountOptions(keepSelected ? selected : '', c.id || '', fullSale, platform);
+    if(selected && !keepSelected){
       form.elements.accountId.value = '';
       if(form.elements.profile && !fullSale) form.elements.profile.value = '';
     }
+    window.syncMobileSelects?.();
   };
   if(form.elements.accountId) form.elements.accountId.onchange = () => {
     const account = state.accounts.find(a => a.id === form.elements.accountId.value);
-    if(account?.platform) form.elements.platform.value = account.platform;
+    if(account?.platform){
+      form.elements.platform.value = account.platform;
+      window.syncMobileSelects?.();
+    }
     if(account?.id && !form.elements.fullAccountSale?.checked && form.elements.profile && !form.elements.profile.value) form.elements.profile.value = nextProfileSuggestionMobile(account.id);
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
@@ -1737,7 +1760,10 @@ function openClientSheet(item={}){
   form.elements.fullAccountSale?.addEventListener('change', syncClientAccessMode);
   form.elements.activationByCode?.addEventListener('change', syncClientAccessMode);
   syncClientAccessMode();
-  if(form.elements.platform) form.elements.platform.onchange = () => fillDefaultClientPricesInForm(form, form.elements.platform.value);
+  if(form.elements.platform) form.elements.platform.onchange = () => {
+    refreshClientAccountOptions();
+    fillDefaultClientPricesInForm(form, form.elements.platform.value);
+  };
   $('#clientForm').onsubmit = async e => {
     e.preventDefault();
     const submitBtn = $('#clientSubmitBtn');
@@ -1752,9 +1778,21 @@ function openClientSheet(item={}){
     const fullAccountSale = fd.fullAccountSale === '1' || fd.fullAccountSale === 'on';
     const activationByCode = fd.activationByCode === '1' || fd.activationByCode === 'on';
     const hidesAccessFields = fullAccountSale || activationByCode;
+    if(!fd.platform){
+      toast('Selecciona una plataforma para continuar.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
+      return;
+    }
     const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:c.id || id(), platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
+      return;
+    }
+    if(!sameSalePlatform(account?.platform, data.platform)){
+      toast('El correo elegido no corresponde a esa plataforma.','bad');
       submitBtn.disabled = false;
       submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
       return;
