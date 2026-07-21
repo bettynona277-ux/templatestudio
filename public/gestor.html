@@ -618,6 +618,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
   const renewalPrice = Number(data.renewalPrice || data.salePrice || 0);
   return {
     id,
+    customerId: fsOptionalString(data.customerId || id, 80),
     name: fsString(data.name, 120, 'Cliente'),
     whatsapp: fsOptionalString(data.whatsapp, 32),
     accountId: fsValidId(data.accountId),
@@ -3059,6 +3060,14 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   opacity:1;
   cursor:not-allowed;
 }
+#clientModalWrap .existing-client-suggestions{grid-column:1/-1;display:grid;gap:7px;padding:10px 12px;border:1px solid rgba(118,92,255,.30);border-radius:13px;background:rgba(118,92,255,.10)}
+#clientModalWrap .existing-client-suggestions[hidden]{display:none}
+#clientModalWrap .existing-client-hint{font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#cfc6ff}
+#clientModalWrap .existing-client-option{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;min-height:38px;padding:7px 10px;border:1px solid rgba(148,163,184,.16);border-radius:10px;background:rgba(8,13,24,.5);color:#f8fbff;text-align:left;cursor:pointer}
+#clientModalWrap .existing-client-option:hover{border-color:rgba(118,92,255,.55);background:rgba(118,92,255,.16)}
+#clientModalWrap .existing-client-option strong,#clientModalWrap .existing-client-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#clientModalWrap .existing-client-option strong{font-size:13px}.existing-client-option span{font-size:12px;color:var(--muted)}
+#clientModalWrap .existing-client-selected{font-size:13px;font-weight:800;color:#8ff3cd}
 #clientModalWrap .textarea-control{
   align-items:flex-start;
   min-height:104px;
@@ -4419,6 +4428,11 @@ html[data-theme="light"] #clientModalWrap .field-control .input:disabled{
   color:#7d899c!important;
   -webkit-text-fill-color:#7d899c;
 }
+html[data-theme="light"] #clientModalWrap .existing-client-suggestions{background:rgba(118,92,255,.08);border-color:rgba(94,69,210,.25)}
+html[data-theme="light"] #clientModalWrap .existing-client-hint{color:#4d36c5}
+html[data-theme="light"] #clientModalWrap .existing-client-option{background:#fff;border-color:var(--border-3);color:#182235}
+html[data-theme="light"] #clientModalWrap .existing-client-option:hover{background:#f3f0ff;border-color:rgba(94,69,210,.34)}
+html[data-theme="light"] #clientModalWrap .existing-client-selected{color:#087d5d}
 html[data-theme="light"] #clientModalWrap .modal-actions,
 html[data-theme="light"] #settingsModalWrap.prices-mode .modal-actions{background:rgba(226,232,240,.44)}
 html[data-theme="light"] #comboForm .modal-actions.full{
@@ -4917,6 +4931,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <div class="form-group-label"><i data-lucide="user-round"></i>Datos del cliente</div>
       <label>Nombre<span class="field-control"><i data-lucide="user-round"></i><input class="input" id="cName" placeholder="Deros Rafael" /></span></label>
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
+      <div class="existing-client-suggestions" id="existingClientSuggestions" hidden aria-live="polite"></div>
       <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
       <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
       <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
@@ -5299,6 +5314,7 @@ const MAX_CLIENTS_PER_IMPORT=3000;
 let state=load();
 let selectedFreePlatform=null;
 let editingClientId=null;
+let selectedExistingClientCustomerId='';
 let editingAccountId=null;
 let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
@@ -5323,7 +5339,7 @@ function normalizeLoaded(data){
     notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true
   }));
   data.clients=(data.clients||[]).map(c=>({
-    id:c.id||uid(), name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
+    id:c.id||uid(), customerId:c.customerId||c.id||'', name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, activationByCode:isActivationByCode(c.activationByCode), dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
@@ -6394,6 +6410,7 @@ function renderClients(){
         <details class="action-more">
           <summary>Mas</summary>
           <div class="action-more-menu">
+            <button class="mini" onclick="newSaleForClient('${c.id}')">Nueva venta</button>
             <button class="mini" onclick="editClient('${c.id}')">Editar</button>
             <button class="mini" onclick="renewClient('${c.id}')">Renovar</button>
             <button class="mini" onclick="setNoRenew('${c.id}')">No renovó</button>
@@ -7282,7 +7299,46 @@ function setClientFullAccountMode(enabled){
   if(fullSale) fullSale.checked=!!enabled;
   syncClientAccessMode();
 }
-function clearClientForm(){ editingClientId=null; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clientCustomerId(client){ return String(client?.customerId || client?.id || '').trim(); }
+function clientLookupText(value){ return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase(); }
+function clientPhoneLookup(value){ return String(value || '').replace(/\D/g,''); }
+function clientPhoneIdentity(value){
+  const phone=clientPhoneLookup(value);
+  const prefix=clientPhoneLookup(state.settings?.whatsappPrefix);
+  return prefix && phone.length>prefix.length+8 && phone.startsWith(prefix) ? phone.slice(prefix.length) : phone;
+}
+function clientIdentityKey(client){
+  const phone=clientPhoneIdentity(client?.whatsapp);
+  return phone.length>=7 ? `phone_${phone}` : clientCustomerId(client);
+}
+function findExistingClientMatches(name='', whatsapp='', excludeId=''){
+  const nameQuery=clientLookupText(name), phoneQuery=clientPhoneLookup(whatsapp);
+  if(nameQuery.length<2 && phoneQuery.length<3) return [];
+  const seen=new Set();
+  return state.clients
+    .filter(client=>client.id!==excludeId)
+    .filter(client=>(nameQuery.length>=2 && clientLookupText(client.name).includes(nameQuery)) || (phoneQuery.length>=3 && clientPhoneLookup(client.whatsapp).includes(phoneQuery)))
+    .filter(client=>{ const identity=clientIdentityKey(client); if(!identity || seen.has(identity)) return false; seen.add(identity); return true; })
+    .slice(0,5);
+}
+function renderExistingClientSuggestions(){
+  const box=$('#existingClientSuggestions');
+  if(!box) return;
+  if(editingClientId){ box.hidden=true; box.replaceChildren(); return; }
+  const matches=findExistingClientMatches($('#cName').value,$('#cWhatsapp').value);
+  if(!matches.length){ box.hidden=true; box.replaceChildren(); return; }
+  box.innerHTML=`<span class="existing-client-hint">Cliente existente</span>${matches.map(client=>`<button type="button" class="existing-client-option" data-existing-client="${escapeAttr(client.id)}"><strong>${escapeHtml(client.name||'Cliente sin nombre')}</strong><span>${escapeHtml(client.whatsapp||'Sin WhatsApp')}</span></button>`).join('')}`;
+  box.hidden=false;
+  box.querySelectorAll('[data-existing-client]').forEach(button=>button.onclick=()=>{
+    const client=state.clients.find(item=>item.id===button.dataset.existingClient);
+    if(!client) return;
+    selectedExistingClientCustomerId=clientIdentityKey(client);
+    $('#cName').value=client.name||'';
+    $('#cWhatsapp').value=client.whatsapp||'';
+    box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
+  });
+}
+function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -7322,11 +7378,24 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
   openModal('clientModalWrap'); initDatepickers();
+};
+window.newSaleForClient=(id)=>{
+  const client=state.clients.find(item=>item.id===id);
+  if(!client) return;
+  clearClientForm();
+  selectedExistingClientCustomerId=clientIdentityKey(client);
+  $('#cName').value=client.name||'';
+  $('#cWhatsapp').value=client.whatsapp||'';
+  const box=$('#existingClientSuggestions');
+  box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
+  box.hidden=false;
+  openModal('clientModalWrap');
+  initDatepickers();
 };
 window.editAccount=(id, forceNotify=false)=>{
   const a=state.accounts.find(x=>x.id===id); if(!a) return;
@@ -7719,6 +7788,7 @@ async function saveComboSale(e){
     const activationByCode=row.querySelector('.combo-activation-code')?.checked===true;
     return {
       id:uid(),
+      customerId:comboId,
       name,
       whatsapp,
       accountId,
@@ -7933,6 +8003,10 @@ window.addEventListener('resize',positionOpenActionMenus);
 window.addEventListener('scroll',positionOpenActionMenus,true);
 
 $('#openClientBtn').onclick=()=>{ clearClientForm(); openModal('clientModalWrap'); initDatepickers(); };
+['cName','cWhatsapp'].forEach(id=>$('#'+id)?.addEventListener('input',()=>{
+  if(!editingClientId) selectedExistingClientCustomerId='';
+  renderExistingClientSuggestions();
+}));
 $('#openAccountBtn').onclick=()=>{ pendingNotifyAfterSave=false; clearAccountForm(); openModal('accountModalWrap'); initDatepickers(); };
 $$('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
 $$('.modal-backdrop').forEach(wrap=>{
@@ -8077,8 +8151,9 @@ $('#saveClientBtn').onclick=async ()=>{
   const activationByCode=$('#cActivationByCode')?.checked===true;
   const hidesAccessFields=fullAccountSale || activationByCode;
   const now=new Date().toISOString();
+  const saleId=editingClientId||uid();
   const data={
-    id:editingClientId||uid(), name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
+    id:saleId, customerId:previousClient?.customerId||selectedExistingClientCustomerId||saleId, name, whatsapp:$('#cWhatsapp').value.trim(), accountId,
     platform:account?.platform||$('#cPlatform').value.trim(), profile:hidesAccessFields ? '' : $('#cProfile').value.trim(), pin:hidesAccessFields ? '' : $('#cPin').value.trim(), fullAccountSale, activationByCode,
     dueDate:$('#cDueDisplay').value.trim(), state:$('#cState').value, notes:$('#cNotes').value.trim(),
     salePrice:financeOn ? moneyNumber($('#cSalePrice').value) : moneyNumber(previousClient?.salePrice),
