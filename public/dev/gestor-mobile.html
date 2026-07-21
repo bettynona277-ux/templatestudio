@@ -1490,7 +1490,7 @@ function clientCard(c){
     <div class="card-actions">
       ${dueActions
         ? `<button class="mini" data-renew="${esc(c.id)}">${icon('calendar')}<span>Renovar</span></button><button class="mini" data-no-renew="${esc(c.id)}">${icon('x')}<span>No renovo</span></button><button class="mini" data-wa-renew="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`
-        : `<button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
+        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
     </div>
   </article>`;
 }
@@ -1542,6 +1542,7 @@ function bindSearch(){
 }
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
+  document.querySelectorAll('[data-new-sale-client]').forEach(b => b.onclick = () => openAdditionalSaleForClient(state.clients.find(c => c.id === b.dataset.newSaleClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
   document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
   document.querySelectorAll('[data-account-data-toggle]').forEach(b => b.onclick = () => toggleAccountData(b.dataset.accountDataToggle));
@@ -1562,6 +1563,14 @@ function bindCards(){
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
     if(!a) return;
     openClientSheetWhenReady({ accountId:a.id, platform:a.platform, dueDate:addMonthsISO(todayISO(), 1), state:'Activo' });
+  });
+}
+function openAdditionalSaleForClient(client){
+  if(!client) return;
+  openClientSheetWhenReady({
+    name:client.name || '',
+    whatsapp:client.whatsapp || '',
+    customerId:clientIdentityKey(client)
   });
 }
 
@@ -1765,6 +1774,10 @@ function openClientSheet(item={}){
     </form>`);
   const form = $('#clientForm');
   const suggestions = $('#existingClientSuggestions');
+  if(!c.id && selectedExistingCustomerId && suggestions){
+    suggestions.innerHTML = `<span class="existing-client-selected">Venta adicional para ${esc(clientName(c))}</span>`;
+    suggestions.classList.remove('hidden');
+  }
   const renderExistingClientSuggestions = () => {
     if(c.id || !suggestions) return;
     const matches = findExistingClientMatches(form.elements.name.value, form.elements.whatsapp.value);
@@ -1848,7 +1861,7 @@ function openClientSheet(item={}){
       return;
     }
     const saleId = c.id || id();
-    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:saleId, customerId:c.customerId || selectedExistingCustomerId || saleId, platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
+    const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:saleId, customerId:c.id ? (c.customerId || saleId) : (selectedExistingCustomerId || saleId), platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
       submitBtn.disabled = false;
