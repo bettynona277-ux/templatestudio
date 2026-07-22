@@ -344,7 +344,7 @@ html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="li
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -363,6 +363,7 @@ if (siteKey) {
   initializeAppCheck(app, { provider:new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled:true });
 }
 const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 const db = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
@@ -778,6 +779,23 @@ async function registerGestorDevice(uid){
   await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
   const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
   const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+  const sameFingerprint=activeDevices.find(d=>d.fingerprintHash && d.fingerprintHash===fingerprint.hash);
+  if(sameFingerprint){
+    await setDoc(doc(db,'users',uid,'devices',sameFingerprint.id),{
+      name:fingerprint.label,
+      deviceLabel:fingerprint.label,
+      fingerprintHash:fingerprint.hash,
+      fingerprintSummary:fingerprint.summary,
+      confidenceSignals:fingerprint.confidenceSignals,
+      lastSeen:now,
+      lastLoginAt:now,
+      loginCount:Number(sameFingerprint.loginCount || 0) + 1,
+      revoked:false
+    },{merge:true});
+    try{ localStorage.setItem('ts_device_id',sameFingerprint.id); }catch(_){ }
+    markGestorDeviceTouched(uid,sameFingerprint.id);
+    return {ok:true,reused:true};
+  }
   if(activeDevices.length >= MAX_GESTOR_DEVICES) return {ok:false,count:activeDevices.length};
   const suspicious=detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
   await setDoc(devRef,{

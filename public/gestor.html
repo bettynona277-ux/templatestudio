@@ -28,7 +28,7 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, setDoc, deleteDoc,
@@ -54,6 +54,7 @@ if (APP_CHECK_SITE_KEY) {
   });
 }
 const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 const db   = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
@@ -65,7 +66,6 @@ window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, s
 
 // â”€â”€ Helpers de ruta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function userRef(uid)      { return doc(db, 'users', uid); }
-function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'meta'); }
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
 function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance_movements'); }
@@ -343,6 +343,24 @@ async function registerGestorDevice(uid) {
   await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
   const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
+  const sameFingerprint = activeDevices.find(d => d.fingerprintHash && d.fingerprintHash === fingerprint.hash);
+  if (sameFingerprint) {
+    const matchingRef = doc(db, 'users', uid, 'devices', sameFingerprint.id);
+    await setDoc(matchingRef, {
+      name: fingerprint.label,
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: now,
+      lastLoginAt: now,
+      loginCount: Number(sameFingerprint.loginCount || 0) + 1,
+      revoked: false
+    }, { merge: true });
+    try { localStorage.setItem('ts_device_id', sameFingerprint.id); } catch (_) {}
+    markGestorDeviceTouched(uid, sameFingerprint.id);
+    return { ok: true, reused: true };
+  }
   if (activeDevices.length >= MAX_GESTOR_DEVICES) return { ok: false, count: activeDevices.length };
   const suspicious = detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
   await setDoc(devRef, {
@@ -782,7 +800,6 @@ window.__persistToFirestore = async function(stateData) {
         await batch.commit();
       }
 
-      console.log('âœ… Datos guardados en Firebase (' + ops.length + ' ops)');
       notifySaveStatus('success', 'Cambios sincronizados correctamente.');
     } catch (err) {
       console.error('âŒ Error guardando en Firebase:', err);
@@ -806,10 +823,8 @@ window.__persistSingleDoc = async function(colName, docData) {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
-    console.log('DOC LIMPIO PARA FIRESTORE:', colName, JSON.stringify(safeData, null, 2));
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
-    console.log('âœ… Doc guardado:', colName, safeData.id);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
@@ -830,7 +845,6 @@ window.__persistDeleteDoc = async function(colName, docId) {
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     notifySaveStatus('saving', 'Eliminando dato...');
     await deleteDoc(doc(colRef, docId));
-    console.log('âœ… Doc eliminado:', colName, docId);
     notifySaveStatus('success', 'Dato eliminado correctamente.');
     return true;
   } catch (err) {
@@ -846,7 +860,6 @@ window.__persistSettingsDoc = async function(settingsData) {
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
     await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}), { merge: true });
-    console.log('âœ… Settings guardados');
     notifySaveStatus('success', 'Ajustes guardados.');
     return true;
   } catch (err) {
@@ -5398,14 +5411,6 @@ window.retryFinanceHistoryLoad=function(){
 function touchLocalStateCache(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
 }
-function persist(){
-  if(window.__loadingFromFirestore) return;
-  // Guardar en localStorage como respaldo inmediato
-  touchLocalStateCache();
-  // Marcar INMEDIATAMENTE que hay escritura pendiente para bloquear onSnapshot
-  window.__saving = true;
-  if(window.__persistToFirestore) window.__persistToFirestore(JSON.parse(JSON.stringify(state)));
-}
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
 function persistDoc(colName, docData){
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
@@ -6511,17 +6516,6 @@ function accountPriority(a){
   if(av.free>0) return 2;
   return 3;
 }
-function accountStatusNote(a){
-  const av=accountAvailability(a);
-  const dd=daysUntil(a.dueDate);
-  if(dd!==null && dd<0) return 'Cuenta vencida';
-  if(dd===0) return 'Vence hoy';
-  if(dd===1) return 'Vence manana';
-  if(dd!==null && dd<=1) return `Vence en ${dd} dias`;
-  if(av.free===0) return 'Cuenta llena';
-  return `${av.free} Perfil${av.free===1?'':'es'} Libre${av.free===1?'':'s'}`;
-}
-
 function accountSectionKey(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
@@ -6996,33 +6990,6 @@ function credentialsText(client, account){
 function codeActivationMessageText(){
   return String(state.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim() || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
-function accessTextBlock(client, account){
-  return [
-    '',
-    'Tus datos actuales son:',
-    `Perfil: ${client.profile || '-'}`,
-    `Correo: ${account?.email || '-'}`,
-    `Contrasena: ${account?.password || '-'}`,
-    ...(client.pin ? [`Pin: ${client.pin}`] : [])
-  ].join('\n');
-}
-function whatsappText(client){
-  const account=state.accounts.find(a=>a.id===client.accountId);
-  const platform=friendlyPlatform(client.platform||account?.platform);
-  const dd=daysUntil(client.dueDate);
-  const payment=paymentTextBlock();
-  if(isNoRenewState(client.state) || (dd!==null && dd<0)){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} acaba de vencer y ha sido cortada.\n\nSi mas adelante deseas volver a activarla, me escribes con confianza y te ayudo sin problema.`;
-  }
-  if(dd===0){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence hoy.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
-  }
-  if(dd===1){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el dia de manana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
-  }
-  return credentialsText(client, account);
-}
-
 function whatsappText(client){
   const account=state.accounts.find(a=>a.id===client.accountId);
   const platform=friendlyPlatform(client.platform||account?.platform);
@@ -7293,11 +7260,6 @@ function syncClientAccessMode(){
   const pin=$('#cPin');
   if(profile){ profile.disabled=on; profile.placeholder=activationByCode ? 'Activacion por codigo' : (fullSale ? 'Cuenta completa' : '1'); }
   if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
-}
-function setClientFullAccountMode(enabled){
-  const fullSale=$('#cFullAccountSale');
-  if(fullSale) fullSale.checked=!!enabled;
-  syncClientAccessMode();
 }
 function clientCustomerId(client){ return String(client?.customerId || client?.id || '').trim(); }
 function clientLookupText(value){ return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase(); }

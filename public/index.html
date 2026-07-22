@@ -2185,6 +2185,22 @@ async function registerDevice(uid) {
   await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
   const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
+  const sameFingerprint = activeDevices.find(d => d.fingerprintHash && d.fingerprintHash === fingerprint.hash);
+  if (sameFingerprint) {
+    await fbDb.collection('users').doc(uid).collection('devices').doc(sameFingerprint.id).set({
+      name: fingerprint.label || getDeviceName(),
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: Date.now(),
+      lastLoginAt: Date.now(),
+      loginCount: firebase.firestore.FieldValue.increment(1),
+      revoked: false
+    }, { merge:true });
+    try { localStorage.setItem('ts_device_id', sameFingerprint.id); } catch (_) {}
+    return { ok: true, reused: true };
+  }
   if (activeDevices.length >= MAX_DEVICES) {
     return { ok: false, count: activeDevices.length };
   }
