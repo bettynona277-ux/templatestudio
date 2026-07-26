@@ -8397,10 +8397,11 @@ async function renderDesignToCanvas(scale=2){
       const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2) + (fontSize * 0.5) + 12);
 
       const measureLineVisualWidth = (line)=>{
-        const chars = [...String(line || '')];
+        const text = String(line || '');
+        const chars = [...text];
         if(!chars.length) return 0;
-        if(nativeLetterSpacing) return ctx.measureText(String(line)).width;
-        return chars.reduce((acc, ch, idx)=> acc + ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0), 0);
+        if(nativeLetterSpacing) return ctx.measureText(text).width;
+        return ctx.measureText(text).width + (letterSpacing * (chars.length - 1));
       };
 
       const wrapParagraph = (paragraph)=>{
@@ -8555,12 +8556,17 @@ async function renderDesignToCanvas(scale=2){
         else if(ctx.textAlign === 'right') cursorX = x - total;
 
         const chars = [...line];
+        let prefix = '';
+        ctx.save();
+        ctx.textAlign = 'left';
         chars.forEach((ch, idx)=>{
-          drawFill(ch, cursorX, y);
-          drawInnerShadowFill(ch, cursorX, y);
-          drawStroke(ch, cursorX, y);
-          cursorX += ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0);
+          prefix += ch;
+          const glyphX = cursorX + ctx.measureText(prefix).width - ctx.measureText(ch).width + (idx * letterSpacing);
+          drawFill(ch, glyphX, y);
+          drawInnerShadowFill(ch, glyphX, y);
+          drawStroke(ch, glyphX, y);
         });
+        ctx.restore();
       };
 
       const anchorX =
