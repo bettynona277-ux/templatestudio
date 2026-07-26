@@ -23,7 +23,7 @@ if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
   --accent:#7c5cfc;--blue:#5b8cff;--red:#ff6b81;
   --text:#1a1a2e;--muted:#6b6b80;
 }
-html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);}
+html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 
 /* ── FUENTES PERSONALIZADAS DEL EDITOR PC ── */
 @font-face{font-family:'Horizon';src:url('/fonts/Horizon.otf') format('opentype');font-weight:400;font-style:normal;}
@@ -35,19 +35,23 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .topbar{
   height:52px;background:var(--panel);border-bottom:1px solid var(--border);
   display:flex;align-items:center;justify-content:space-between;
-  padding:0 14px;flex-shrink:0;position:relative;z-index:100;
+  padding:0 14px;position:fixed;top:0;left:0;right:0;z-index:100;
 }
 .topbar-logo{display:flex;align-items:center;gap:8px;}
 .topbar-logo img{height:32px;width:32px;border-radius:7px;object-fit:contain;}
 .topbar-logo span{font-weight:800;font-size:0.9rem;background:linear-gradient(135deg,var(--accent),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-.topbar-actions{display:flex;gap:8px;}
-.tbtn{height:36px;padding:0 14px;border-radius:10px;border:none;font-family:inherit;font-size:0.78rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.topbar-actions{display:flex;gap:8px;min-width:0;}
+.tbtn{height:36px;padding:0 14px;border-radius:10px;border:none;font-family:inherit;font-size:0.78rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;}
 .tbtn-green{background:var(--accent);color:#fff;}
 .tbtn-blue{background:var(--blue);color:#fff;}
 .tbtn-ghost{background:rgba(0,0,0,0.05);color:var(--text);border:1px solid var(--border);}
 
 /* ── LAYOUT ── */
-.layout{display:flex;flex-direction:column;height:calc(100vh - 52px);}
+.layout{display:flex;flex-direction:column;height:calc(100dvh - 52px);margin-top:52px;min-height:0;}
+@media (max-width:360px){
+  .topbar{padding:0 8px;}.topbar-actions{gap:5px}.tbtn{padding:0 9px}.topbar-logo{display:none}
+  .tbtn.topbar-primary{width:36px;min-width:36px;padding:0;justify-content:center}.tbtn.topbar-primary span{display:none}
+}
 .canvas-wrap{
   flex:1;overflow:scroll;
   background:#e8e8ed;
@@ -436,13 +440,13 @@ body.multisel-mode #dots-btn{display:none!important;}
     <button class="tbtn tbtn-ghost" onclick="openProfileModalMob()" title="Mis datos" style="width:36px;min-width:36px;padding:0;justify-content:center;">
       👤
     </button>
-    <button class="tbtn tbtn-ghost" onclick="downloadPNG()" title="Descargar / Guardar en galería">
+    <button class="tbtn tbtn-ghost topbar-primary" onclick="downloadPNG()" title="Descargar / Guardar en galería" aria-label="Descargar imagen">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Descargar
+      <span>Descargar</span>
     </button>
-    <button class="tbtn tbtn-green" onclick="openSave()">
+    <button class="tbtn tbtn-green topbar-primary" onclick="openSave()" aria-label="Guardar diseño">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
-      Guardar
+      <span>Guardar</span>
     </button>
   </div>
 </div>
@@ -2740,6 +2744,38 @@ function openSave(){
 }
 function closeSave(){ document.getElementById('save-overlay').classList.remove('open'); }
 
+function invalidateMobileDesignsCache(uid){
+  if(!uid) return;
+  try{ localStorage.removeItem(`ts_mobile_designs_cache_v2_${uid}`); }catch(_){}
+}
+
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertMobileDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = `ts_mobile_designs_cache_v2_${uid}`;
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const cached = JSON.parse(raw);
+    if(!cached || !Array.isArray(cached.items)) return;
+    const items = cached.items;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].data : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? '',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, data:merged});
+    cached.savedAt = Date.now();
+    localStorage.setItem(key, JSON.stringify(cached));
+  }catch(_){}
+}
+
 async function doSave(){
   if(!fbDb||!fbAuth?.currentUser){ toast('✗ Sin sesión. Vuelve al inicio.'); return; }
   const name = document.getElementById('save-name').value.trim();
@@ -2834,6 +2870,9 @@ async function doSave(){
       u.searchParams.set('did',clientDesignId);
       window.history.replaceState({},'',u.toString());
     }
+    upsertMobileDesignsCache(fbAuth.currentUser.uid, clientDesignId, {
+      name: data.name, thumb: data.thumb, updatedAt: data.updatedAt, createdAt: data.createdAt
+    });
     localStorage.setItem('ts_design_name',name);
     st.textContent='✓ Guardado correctamente';st.style.color='var(--accent)';
     toast('✓ Diseño guardado');
@@ -3190,17 +3229,37 @@ async function renderDesignToCanvas(scale=3){
       else if(tp.textTransform==='lowercase')rawText=rawText.toLowerCase();
       const lineHeight=fontSize*(parseFloat(tp.lineHeight)||1.2);
       const letterSpacing=parseFloat(tp.letterSpacing)||0;
+      const nativeLetterSpacing='letterSpacing' in ctx;
+      if(nativeLetterSpacing)ctx.letterSpacing=`${letterSpacing}px`;
       const maxTextWidth=Math.max(0,(l.w||0)-(padX*2)+(fontSize*0.5)+12);
-      const measureLineVisualWidth=(line)=>{const chars=[...String(line||'')];if(!chars.length)return 0;return chars.reduce((acc,ch,idx)=>acc+ctx.measureText(ch).width+(idx<chars.length-1?letterSpacing:0),0);};
+      const measureLineVisualWidth=(line)=>{const text=String(line||''),chars=[...text];if(!chars.length)return 0;if(nativeLetterSpacing)return ctx.measureText(text).width;return ctx.measureText(text).width+(letterSpacing*(chars.length-1));};
       const wrapParagraph=(paragraph)=>{const text=String(paragraph??'');if(text==='')return[''];if(maxTextWidth<=0)return[text];const outLines=[];let current='',lastBreakIndex=-1;const recompute=()=>{lastBreakIndex=-1;for(let i=current.length-1;i>=0;i--){if(/\s/.test(current[i])){lastBreakIndex=i;break;}}};for(const ch of[...text]){const trial=current+ch;if(current===''||measureLineVisualWidth(trial)<=maxTextWidth){current=trial;if(/\s/.test(ch))lastBreakIndex=current.length-1;continue;}if(lastBreakIndex>=0){const line=current.slice(0,lastBreakIndex).replace(/\s+$/,'');outLines.push(line||current.trimEnd()||current);current=current.slice(lastBreakIndex+1).replace(/^\s+/,'')+ch;recompute();}else{outLines.push(current);current=ch;lastBreakIndex=/\s/.test(ch)?0:-1;}}outLines.push(current);return outLines;};
       const lines=rawText.split('\n').flatMap(p=>wrapParagraph(p));
-      const drawLine=(line,x,y)=>{const sw=Number(tp.strokeWidth||0),shadow=Number(tp.shadowBlur||0);const drawOF=(txt,px,py)=>{if(sw>0){ctx.save();ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=sw*2;ctx.strokeStyle=tp.strokeColor||'#000000';ctx.strokeText(txt,px,py);ctx.restore();}if(shadow>0){ctx.save();ctx.shadowColor=tp.shadowColor||'rgba(0,0,0,0.45)';ctx.shadowBlur=Math.max(3,shadow*0.8);ctx.shadowOffsetY=Math.max(1,Math.round(shadow*0.18));ctx.fillText(txt,px,py);ctx.restore();ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillText(txt,px,py);ctx.restore();}else ctx.fillText(txt,px,py);};if(letterSpacing===0){drawOF(line,x,y);return;}const total=measureLineVisualWidth(line);let cursorX=x;if(ctx.textAlign==='center')cursorX=x-total/2;else if(ctx.textAlign==='right')cursorX=x-total;[...line].forEach((ch,idx)=>{drawOF(ch,cursorX,y);cursorX+=ctx.measureText(ch).width+(idx<line.length-1?letterSpacing:0);});};
+      const drawLine=(line,x,y)=>{const sw=Number(tp.strokeWidth||0),shadow=Number(tp.shadowBlur||0);const drawOF=(txt,px,py)=>{if(sw>0){ctx.save();ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=sw*2;ctx.strokeStyle=tp.strokeColor||'#000000';ctx.strokeText(txt,px,py);ctx.restore();}if(shadow>0){ctx.save();ctx.shadowColor=tp.shadowColor||'rgba(0,0,0,0.45)';ctx.shadowBlur=Math.max(3,shadow*0.8);ctx.shadowOffsetY=Math.max(1,Math.round(shadow*0.18));ctx.fillText(txt,px,py);ctx.restore();ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillText(txt,px,py);ctx.restore();}else ctx.fillText(txt,px,py);};if(letterSpacing===0||nativeLetterSpacing){drawOF(line,x,y);return;}const chars=[...line],total=measureLineVisualWidth(line);let startX=x;if(ctx.textAlign==='center')startX=x-total/2;else if(ctx.textAlign==='right')startX=x-total;let prefix='';ctx.save();ctx.textAlign='left';chars.forEach((ch,idx)=>{prefix+=ch;const glyphX=startX+ctx.measureText(prefix).width-ctx.measureText(ch).width+(idx*letterSpacing);drawOF(ch,glyphX,y);});ctx.restore();};
       const anchorX=tp.align==='center'?textBaseX+l.w/2:tp.align==='right'?textBaseX+l.w-padX:textBaseX+padX;
       const halfLeading=Math.max(0,(lineHeight-fontSize)/2);
-      // Usar 'alphabetic' baseline que es más consistente entre Chrome/Safari/iOS
-      // El ascender típico de una fuente es ~0.8 del fontSize (varía por fuente)
+      // Ajuste de linea base calibrado por motor movil para igualar la vista previa.
       ctx.textBaseline='alphabetic';
-      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize*0.18);
+      const exportUA = navigator.userAgent || '';
+      const isIOSExport = /iPad|iPhone|iPod/.test(exportUA)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isAndroidExport = /Android/i.test(exportUA);
+      const isAndroidEmbeddedExport = isAndroidExport && (
+        /\bwv\b|; wv\)/i.test(exportUA) ||
+        /SamsungBrowser|FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Telegram|TikTok|Twitter|GSA|Line\//i.test(exportUA) ||
+        /EdgA|OPR\//i.test(exportUA) ||
+        !/Chrome\/\d/i.test(exportUA)
+      );
+      // iOS ya tiene una calibracion propia. Android dibuja la linea base un poco mas abajo
+      // en el renderer Canvas, asi que se reduce solamente su compensacion vertical.
+      const mobileBaselineFix = isIOSExport
+        ? 0.80
+        : isAndroidEmbeddedExport
+          ? 0.67
+          : isAndroidExport
+            ? 0.57
+            : 0.69;
+      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix);
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;

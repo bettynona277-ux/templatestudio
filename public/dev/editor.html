@@ -470,7 +470,16 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .cel.frame-el {
   border: 1px solid rgba(21, 214, 164, 0.5); /* Línea fina sólida */
   background: rgba(21, 214, 164, 0.05);
+  contain:layout paint;
+  backface-visibility:hidden;
+  transform-style:flat;
 }.cel.frame-el.has-image{border-style:solid;border-color:transparent;}
+.cel.frame-el .frame-inner,
+.cel.frame-el .frame-clip,
+.cel.frame-el .frame-clip > img{
+  box-sizing:border-box;
+  backface-visibility:hidden;
+}
 .cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:var(--accent);pointer-events:none;font-weight:600;}
 
@@ -2093,7 +2102,7 @@ input[type=range]{filter:none !important;}
           </div>
           <div>
             <div class="mini-lbl">Interlineado</div>
-            <input type="number" class="pp-inp" id="pp-lh" value="1.2" step="0.1" oninput="updTS('lineHeight',this.value)">
+            <input type="number" class="pp-inp" id="pp-lh" value="1.2" min="0.1" step="0.1" oninput="updTS('lineHeight',this.value)">
           </div>
         </div>
         </div>
@@ -3824,7 +3833,7 @@ async function loadPSDData(data){
           italic: !!ld.italic,
           color: ld.fontColor||'#ffffff',
           align: ld.textAlign||'left',
-          lineHeight: ld.lineHeight||1.2,
+          lineHeight: normalizeTextLineHeight(ld.lineHeight),
           letterSpacing: Number(ld.letterSpacing||0),
         };
       })() : null,
@@ -4823,6 +4832,36 @@ function applyLayerTransform(layer){
   layer.el.style.transform = `rotate(${r}deg)`;
   if(typeof syncSelectionControls === 'function') syncSelectionControls(layer);
 }
+function keyboardNudgeStep(ev){
+  const base = ev.shiftKey ? 10 : 1;
+  const z = Math.max(1, Number(zoom_) || 1);
+  return Math.round((base / z) * 100) / 100;
+}
+function setLayerPosition(layer, x, y, opts={}){
+  if(!layer?.el) return;
+  const stableFramePreview = opts.stableFramePreview && layer.type === 'frame' && !!layer.frameImage;
+  layer.x = stableFramePreview ? Math.round(x) : x;
+  layer.y = stableFramePreview ? Math.round(y) : y;
+  if(stableFramePreview){
+    const stableW = Math.max(1, Math.round(Number(layer.w) || layer.el.offsetWidth || 1));
+    const stableH = Math.max(1, Math.round(Number(layer.h) || layer.el.offsetHeight || 1));
+    layer.el.style.width = stableW + 'px';
+    layer.el.style.height = stableH + 'px';
+    const clip = document.getElementById('fc-'+layer.id);
+    if(clip){
+      clip.style.width = '100%';
+      clip.style.height = '100%';
+      const img = document.getElementById('fi-'+layer.id);
+      if(img){
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+      }
+    }
+  }
+  layer.el.style.left = layer.x + 'px';
+  layer.el.style.top = layer.y + 'px';
+}
 function ensureRotationTooltip(){
   if(rotTipEl && rotTipEl.isConnected) return rotTipEl;
   rotTipEl = document.createElement('div');
@@ -4956,6 +4995,7 @@ function mkEl(l){
     clip.style.cssText=`position:absolute;inset:0;border-radius:${l.frameRadius||0}px;overflow:hidden;pointer-events:none;z-index:0;`;
 
     if(l.frameImage){
+      el.classList.add('has-image');
       const img=document.createElement('img');
       img.crossOrigin='anonymous';
       img.id='fi-'+l.id;
@@ -5408,6 +5448,7 @@ function applyImageToFrame(frameLayer, src){
   frameLayer.src = src;
   const el = frameLayer.el;
   if(!el) return;
+  el.classList.add('has-image');
   const clip = document.getElementById('fc-'+frameLayer.id);
   if(!clip) return;
   // Clear EVERYTHING in clip (hint, old image, preview ghosts)
@@ -5559,8 +5600,7 @@ document.addEventListener('mousemove',ev=>{
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
           multiDragStart.forEach(({id,x,y})=>{
             const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
-            l.x=Math.round(x+sdx); l.y=Math.round(y+sdy);
-            l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px';
+            setLayerPosition(l, Math.round(x+sdx), Math.round(y+sdy), {stableFramePreview:true});
           });
         }
       }
@@ -5583,8 +5623,7 @@ document.addEventListener('mousemove',ev=>{
     }
     l.x=nx; l.y=ny;
     const snapped=ev.altKey ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
-    l.x=snapped.x; l.y=snapped.y;
-    l.el.style.left=l.x+'px'; l.el.style.top=l.y+'px'; syncP();
+    setLayerPosition(l, snapped.x, snapped.y, {stableFramePreview:true}); syncP();
 
     // Highlight frame when MOUSE CURSOR is over it (not image center)
     // This way large images behind a frame don't accidentally snap into it
@@ -6765,7 +6804,7 @@ function syncP(){
     const fc=document.getElementById('pp-fc'); if(fc)fc.value=(l.tp.color||'#ffffff').startsWith('#')?l.tp.color:'#ffffff';
     const fch=document.getElementById('pp-fc-hex'); if(fch)fch.value=(l.tp.color||'#ffffff');
     const ls=document.getElementById('pp-ls'); if(ls)ls.value=parseFloat(l.tp.letterSpacing)||0;
-    const lh=document.getElementById('pp-lh'); if(lh)lh.value=l.tp.lineHeight||1.2;
+    const lh=document.getElementById('pp-lh'); if(lh)lh.value=normalizeTextLineHeight(l.tp.lineHeight);
     const sc=document.getElementById('pp-stroke-c'); if(sc)sc.value=l.tp.strokeColor||'#000000';
     const sw=document.getElementById('pp-stroke-w'); if(sw)sw.value=l.tp.strokeWidth||0;
     const ts=document.getElementById('pp-text-shadow'); if(ts)ts.value=l.tp.shadowBlur||0;
@@ -6867,6 +6906,7 @@ function clearFrameImage(){
     clip.appendChild(hint);
   }
   if(l.el){
+    l.el.classList.remove('has-image');
     l.el.style.border='1px solid rgba(21,214,164,0.5)';
     l.el.style.background='rgba(21,214,164,0.05)';
   }
@@ -7065,9 +7105,14 @@ function richStyleForTextProp(p,v){
   if(p==='italic') return {fontStyle:v?'italic':'normal'};
   if(p==='underline') return {textDecoration:v?'underline':'none'};
   if(p==='letterSpacing') return {letterSpacing:(parseFloat(v)||0)+'px'};
-  if(p==='lineHeight') return {lineHeight:String(parseFloat(v)||1.2)};
+  if(p==='lineHeight') return {lineHeight:String(normalizeTextLineHeight(v))};
   if(p==='textTransform') return {textTransform:v||'none'};
   return null;
+}
+
+function normalizeTextLineHeight(value){
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1.2;
 }
 
 function applyColorSmart(color){
@@ -7154,7 +7199,7 @@ function updTS(p,v){
     else if(p==='fontWeight') l.tp.fontWeight=v;
     else if(p==='textAlign') l.tp.align=v;
     else if(p==='letterSpacing') l.tp.letterSpacing=parseFloat(v)||0;
-    else if(p==='lineHeight') l.tp.lineHeight=parseFloat(v)||1.2;
+    else if(p==='lineHeight') l.tp.lineHeight=normalizeTextLineHeight(v);
     applyTextStyles(l);
   });
   if(p==='color'){
@@ -7347,7 +7392,7 @@ function applyTextStyles(layer){
   d.style.fontStyle = tp.italic?'italic':'normal';
   d.style.textDecoration = tp.underline?'underline':'none';
   d.style.letterSpacing = (parseFloat(tp.letterSpacing)||0) + 'px';
-  d.style.lineHeight = String(parseFloat(tp.lineHeight)||1.2);
+  d.style.lineHeight = String(normalizeTextLineHeight(tp.lineHeight));
   d.style.textTransform = tp.textTransform || 'none';
   updateTextInnerShadowLayer(layer);
   updateTextStrokeLayer(layer);
@@ -7703,6 +7748,39 @@ function recompressThumb(dataUrl, w, h, quality){
 }
 
 let clientDesignId=null;
+function invalidateDesktopDesignsCache(uid){
+  if(!uid) return;
+  try{ localStorage.removeItem(`ts_dash_cache_v5_${uid}_designs`); }catch(_){ }
+  try{ localStorage.removeItem(`ts_dash_cache_v6_${uid}_designs`); }catch(_){ }
+  try{ localStorage.removeItem(`ts_dash_cache_v7_${uid}_designs`); }catch(_){ }
+}
+
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertDesktopDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = `ts_dash_cache_v7_${uid}_designs`;
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const parsed = JSON.parse(raw);
+    const items = parsed?.data?.items;
+    if(!Array.isArray(items)) return;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].d : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? 'Sin nombre',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, d:merged});
+    parsed.at = Date.now();
+    localStorage.setItem(key, JSON.stringify(parsed));
+  }catch(_){ }
+}
 async function saveClientDesign(){
   if(!fbDb){ showToast('Firebase no conectado'); return; }
   const btn=document.getElementById('btn-client-save');
@@ -7809,6 +7887,9 @@ async function saveClientDesign(){
       window.history.replaceState({}, '', u.toString());
     }
 
+    upsertDesktopDesignsCache(authUser.uid, clientDesignId, {
+      name: data.name, thumb: data.thumb, updatedAt: data.updatedAt, createdAt: data.createdAt
+    });
     currentClientDesignName = chosenName;
     showToast('✓ Diseño guardado');
     btn.textContent='💾 Guardado ✓';
@@ -8308,15 +8389,19 @@ async function renderDesignToCanvas(scale=2){
       if(tp.textTransform === 'uppercase') rawText = rawText.toUpperCase();
       else if(tp.textTransform === 'lowercase') rawText = rawText.toLowerCase();
 
-      const lineHeight = fontSize * (parseFloat(tp.lineHeight) || 1.2);
+      const lineHeight = fontSize * normalizeTextLineHeight(tp.lineHeight);
       const letterSpacing = parseFloat(tp.letterSpacing) || 0;
+      const nativeLetterSpacing = 'letterSpacing' in ctx;
+      if(nativeLetterSpacing) ctx.letterSpacing = `${letterSpacing}px`;
       // Permitimos un buffer generoso para evitar saltos de línea erróneos
       const maxTextWidth = Math.max(0, (l.w || 0) - (padX * 2) + (fontSize * 0.5) + 12);
 
       const measureLineVisualWidth = (line)=>{
-        const chars = [...String(line || '')];
+        const text = String(line || '');
+        const chars = [...text];
         if(!chars.length) return 0;
-        return chars.reduce((acc, ch, idx)=> acc + ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0), 0);
+        if(nativeLetterSpacing) return ctx.measureText(text).width;
+        return ctx.measureText(text).width + (letterSpacing * (chars.length - 1));
       };
 
       const wrapParagraph = (paragraph)=>{
@@ -8425,6 +8510,7 @@ async function renderDesignToCanvas(scale=2){
             targetCtx.textBaseline = ctx.textBaseline;
             targetCtx.textAlign = 'left';
             targetCtx.fillStyle = '#000';
+            if(nativeLetterSpacing && 'letterSpacing' in targetCtx) targetCtx.letterSpacing = ctx.letterSpacing;
             targetCtx.fillText(txt, x, y);
           };
           const maskTextY = ctx.textBaseline === 'alphabetic' ? margin + exportTextAscent : margin;
@@ -8457,7 +8543,7 @@ async function renderDesignToCanvas(scale=2){
           ctx.drawImage(shade, startX - margin, shadeTopY - margin);
         };
 
-        if(letterSpacing === 0){
+        if(letterSpacing === 0 || nativeLetterSpacing){
           drawFill(line, x, y);
           drawInnerShadowFill(line, x, y);
           drawStroke(line, x, y);
@@ -8470,12 +8556,17 @@ async function renderDesignToCanvas(scale=2){
         else if(ctx.textAlign === 'right') cursorX = x - total;
 
         const chars = [...line];
+        let prefix = '';
+        ctx.save();
+        ctx.textAlign = 'left';
         chars.forEach((ch, idx)=>{
-          drawFill(ch, cursorX, y);
-          drawInnerShadowFill(ch, cursorX, y);
-          drawStroke(ch, cursorX, y);
-          cursorX += ctx.measureText(ch).width + (idx < chars.length - 1 ? letterSpacing : 0);
+          prefix += ch;
+          const glyphX = cursorX + ctx.measureText(prefix).width - ctx.measureText(ch).width + (idx * letterSpacing);
+          drawFill(ch, glyphX, y);
+          drawInnerShadowFill(ch, glyphX, y);
+          drawStroke(ch, glyphX, y);
         });
+        ctx.restore();
       };
 
       const anchorX =
@@ -8484,9 +8575,9 @@ async function renderDesignToCanvas(scale=2){
         textBaseX + padX;
 
       // El editor DOM usa padding de 2px y line-height CSS.
-      // Ajuste visual extra (+ 0.08 * fontSize) para igualar desplazamiento sutil del navegador hacia arriba
+      // Conserva la linea base del export cerca de la vista previa sin elevar demasiado el texto.
       const halfLeading = Math.max(0, (lineHeight - fontSize) / 2);
-      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize * 0.18);
+      const textOffsetY = padY + halfLeading + exportTextAscent - (fontSize * 0.10);
 
       lines.forEach((line, idx)=> drawLine(line, anchorX, textBaseY + textOffsetY + idx * lineHeight));
 
@@ -8865,7 +8956,7 @@ async function buildLayerData(){
       underline: !!l.tp.underline,
       textTransform: l.tp.textTransform||'none',
       letterSpacing: l.tp.letterSpacing||0,
-      lineHeight: l.tp.lineHeight||1.2,
+      lineHeight: normalizeTextLineHeight(l.tp.lineHeight),
       strokeColor: l.tp.strokeColor||'#000000',
       strokeWidth: l.tp.strokeWidth||0,
       shadowBlur: Number(l.tp.shadowBlur||0),
@@ -9812,23 +9903,23 @@ document.addEventListener('keydown',ev=>{
   if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
   if(ev.key==='-'&&selId!==null&&!active){scaleEl(ev.shiftKey?0.8:0.95);ev.preventDefault();}
   const l=layers.find(x=>x.id===selId);if(!l?.el)return;
-  const s=ev.shiftKey?10:1;
+  const s=keyboardNudgeStep(ev);
   if(!active){
     if(ev.key==='ArrowUp'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.y-=s;ll.el.style.top=ll.y+'px';}});
-      else{l.y-=s;l.el.style.top=l.y+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y-s);});
+      else setLayerPosition(l,l.x,l.y-s);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowDown'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.y+=s;ll.el.style.top=ll.y+'px';}});
-      else{l.y+=s;l.el.style.top=l.y+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y+s);});
+      else setLayerPosition(l,l.x,l.y+s);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowLeft'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.x-=s;ll.el.style.left=ll.x+'px';}});
-      else{l.x-=s;l.el.style.left=l.x+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x-s,ll.y);});
+      else setLayerPosition(l,l.x-s,l.y);syncP();ev.preventDefault();
     }
     if(ev.key==='ArrowRight'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el){ll.x+=s;ll.el.style.left=ll.x+'px';}});
-      else{l.x+=s;l.el.style.left=l.x+'px';}syncP();ev.preventDefault();
+      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x+s,ll.y);});
+      else setLayerPosition(l,l.x+s,l.y);syncP();ev.preventDefault();
     }
   }
 });
