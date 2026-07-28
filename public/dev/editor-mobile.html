@@ -76,6 +76,14 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .cel{position:absolute;cursor:pointer;user-select:none;overflow:visible;}
 .cel.active-touch{outline:2px solid var(--accent);outline-offset:2px;}
 .cel.frame-image-editing{outline:2px solid var(--accent);outline-offset:3px;}
+#cvs.frame-image-focus > .cel:not(.frame-image-editing){filter:blur(2px) saturate(.7);opacity:.34;pointer-events:none;}
+.frame-image-transform-box-mobile{position:fixed;border:1.5px dashed var(--accent);pointer-events:none;z-index:12000;transform-origin:center center;box-sizing:border-box;}
+.frame-image-transform-box-mobile::after{content:'Imagen';position:absolute;top:-24px;left:50%;transform:translateX(-50%);padding:3px 8px;border-radius:5px;background:var(--accent);color:#07151a;font-size:10px;font-weight:800;white-space:nowrap;}
+.frame-image-transform-handle-mobile{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:auto;touch-action:none;}
+.frame-image-transform-handle-mobile.tl{top:-10px;left:-10px;}.frame-image-transform-handle-mobile.tr{top:-10px;right:-10px;}.frame-image-transform-handle-mobile.bl{bottom:-10px;left:-10px;}.frame-image-transform-handle-mobile.br{bottom:-10px;right:-10px;}
+#frame-image-edit-actions-mobile{position:fixed;left:50%;transform:translateX(-50%);display:flex;gap:10px;padding:8px;background:rgba(8,15,30,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:13000;}
+#frame-image-edit-actions-mobile button{border:0;border-radius:7px;padding:9px 18px;font:700 12px/1 inherit;cursor:pointer;touch-action:manipulation;}
+#frame-image-edit-cancel-mobile{background:rgba(255,255,255,.12);color:#fff;}#frame-image-edit-done-mobile{background:var(--accent);color:#07151a;}
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
 
 /* ── BOTTOM PANEL ── */
@@ -543,7 +551,7 @@ body.multisel-mode #dots-btn{display:none!important;}
             <button class="size-btn" style="height:32px;padding:0 10px;font-size:0.7rem;" onclick="resetFrameImageTransformMobile()">Restablecer</button>
           </div>
           <div class="field-label">Tama&ntilde;o <span id="mob-frame-crop-scale-lbl" style="color:var(--accent);">100%</span></div>
-          <input type="range" id="mob-frame-crop-scale" min="100" max="250" step="1" value="100" style="width:100%;accent-color:var(--accent);" oninput="updateFrameImageScaleMobile(this.value)">
+          <input type="range" id="mob-frame-crop-scale" min="100" max="400" step="1" value="100" style="width:100%;accent-color:var(--accent);" oninput="updateFrameImageScaleMobile(this.value)">
           <button class="size-btn" style="width:100%;height:40px;margin-top:8px;font-size:0.76rem;font-weight:800;" onclick="exitFrameImageEditMobile()">Listo</button>
         </div>
         <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px;">Orientación</div>
@@ -1585,6 +1593,7 @@ function getImageTargetElement(layer){
 }
 
 let frameImageEditIdMobile = null;
+let frameImageEditInitialMobile = null;
 function frameImageTransformValuesMobile(layer){
   return {
     scale: Math.max(1, Number(layer?.frameImageScale) || 1),
@@ -1599,6 +1608,81 @@ function applyFrameImageTransformMobile(layer){
   const tr=frameImageTransformValuesMobile(layer);
   img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
   img.style.transformOrigin='center center';
+  syncFrameImageTransformBoxMobile(layer);
+}
+function syncFrameImageTransformBoxMobile(layer){
+  const box=document.getElementById('frame-image-transform-box-mobile');
+  if(!box || !layer?.el) return;
+  const rect=layer.el.getBoundingClientRect();
+  const tr=frameImageTransformValuesMobile(layer);
+  box.style.left=rect.left+'px';
+  box.style.top=rect.top+'px';
+  box.style.width=rect.width+'px';
+  box.style.height=rect.height+'px';
+  box.style.transform=`translate(${tr.x*zoom_}px, ${tr.y*zoom_}px) scale(${tr.scale})`;
+}
+function startFrameImageResizeMobile(ev,layer){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const touch=ev.touches[0];
+  const rect=layer.el.getBoundingClientRect();
+  const cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;
+  const startDistance=Math.max(1,Math.hypot(touch.clientX-cx,touch.clientY-cy));
+  const startScale=frameImageTransformValuesMobile(layer).scale;
+  const move=moveEv=>{
+    const t=moveEv.touches[0]; if(!t) return;
+    moveEv.preventDefault();
+    const distance=Math.max(1,Math.hypot(t.clientX-cx,t.clientY-cy));
+    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    applyImageVisuals(layer);
+    syncFrameImageCropMobile(layer);
+  };
+  const end=()=>{
+    document.removeEventListener('touchmove',move);
+    document.removeEventListener('touchend',end);
+    snapshot();
+  };
+  document.addEventListener('touchmove',move,{passive:false});
+  document.addEventListener('touchend',end,{passive:true});
+}
+function createFrameImageTransformBoxMobile(layer){
+  document.getElementById('frame-image-transform-box-mobile')?.remove();
+  const box=document.createElement('div');
+  box.id='frame-image-transform-box-mobile';
+  box.className='frame-image-transform-box-mobile';
+  ['tl','tr','bl','br'].forEach(corner=>{
+    const handle=document.createElement('div');
+    handle.className=`frame-image-transform-handle-mobile ${corner}`;
+    handle.addEventListener('touchstart',ev=>startFrameImageResizeMobile(ev,layer),{passive:false});
+    box.appendChild(handle);
+  });
+  document.body.appendChild(box);
+  syncFrameImageTransformBoxMobile(layer);
+}
+function syncFrameImageEditActionsMobile(){
+  let actions=document.getElementById('frame-image-edit-actions-mobile');
+  if(frameImageEditIdMobile===null){ actions?.remove(); return; }
+  if(!actions){
+    actions=document.createElement('div');
+    actions.id='frame-image-edit-actions-mobile';
+    actions.innerHTML='<button id="frame-image-edit-cancel-mobile" type="button">Cancelar</button><button id="frame-image-edit-done-mobile" type="button">Listo</button>';
+    document.body.appendChild(actions);
+    actions.querySelector('#frame-image-edit-cancel-mobile').addEventListener('click',cancelFrameImageEditMobile);
+    actions.querySelector('#frame-image-edit-done-mobile').addEventListener('click',()=>exitFrameImageEditMobile(true));
+  }
+  const panel=document.getElementById('bottom-panel');
+  const panelTop=panel?.getBoundingClientRect().top ?? window.innerHeight;
+  actions.style.bottom=Math.max(12,window.innerHeight-panelTop+12)+'px';
+}
+function cancelFrameImageEditMobile(){
+  const layer=layers.find(x=>x.id===frameImageEditIdMobile);
+  if(layer && frameImageEditInitialMobile?.id===layer.id){
+    layer.frameImageScale=frameImageEditInitialMobile.scale;
+    layer.frameImageOffsetX=frameImageEditInitialMobile.x;
+    layer.frameImageOffsetY=frameImageEditInitialMobile.y;
+    applyImageVisuals(layer);
+  }
+  exitFrameImageEditMobile(false);
 }
 function syncFrameImageCropMobile(layer){
   const controls=document.getElementById('mob-frame-crop-controls');
@@ -1612,25 +1696,53 @@ function syncFrameImageCropMobile(layer){
 function enterFrameImageEditMobile(layer){
   if(!layer || layer.type!=='frame' || !layer.frameImage || layer.locked) return;
   if(frameImageEditIdMobile!==null && frameImageEditIdMobile!==layer.id){
-    layers.find(x=>x.id===frameImageEditIdMobile)?.el?.classList.remove('frame-image-editing');
+    exitFrameImageEditMobile(false);
+  }
+  if(frameImageEditIdMobile!==layer.id){
+    const tr=frameImageTransformValuesMobile(layer);
+    frameImageEditInitialMobile={id:layer.id,scale:tr.scale,x:tr.x,y:tr.y};
   }
   frameImageEditIdMobile=layer.id;
+  layer._frameImageEditZMobile=layer.el?.style.zIndex||'';
+  if(layer.el) layer.el.style.zIndex='10000';
   layer.el?.classList.add('frame-image-editing');
+  cvs.classList.add('frame-image-focus');
+  createFrameImageTransformBoxMobile(layer);
   selectFrame(layer.id);
+  hideSelBox();
   openImgPanel(layer);
   syncFrameImageCropMobile(layer);
+  syncFrameImageEditActionsMobile();
 }
-function exitFrameImageEditMobile(){
+function exitFrameImageEditMobile(save=true){
   const layer=layers.find(x=>x.id===frameImageEditIdMobile);
-  layer?.el?.classList.remove('frame-image-editing');
+  if(layer){
+    layer.el?.classList.remove('frame-image-editing');
+    if(layer.el && layer._frameImageEditZMobile!==undefined){
+      layer.el.style.zIndex=layer._frameImageEditZMobile;
+      delete layer._frameImageEditZMobile;
+    }
+  }
+  document.getElementById('frame-image-transform-box-mobile')?.remove();
   frameImageEditIdMobile=null;
+  frameImageEditInitialMobile=null;
+  cvs.classList.remove('frame-image-focus');
   syncFrameImageCropMobile(null);
-  snapshot();
+  syncFrameImageEditActionsMobile();
+  if(layer) showSelBox(layer);
+  if(save) snapshot();
 }
+window.addEventListener('resize',()=>{
+  if(frameImageEditIdMobile!==null){
+    const layer=layers.find(x=>x.id===frameImageEditIdMobile);
+    if(layer) syncFrameImageTransformBoxMobile(layer);
+    syncFrameImageEditActionsMobile();
+  }
+});
 function updateFrameImageScaleMobile(value){
   const layer=layers.find(x=>x.id===frameImageEditIdMobile);
   if(!layer || layer.type!=='frame' || !layer.frameImage) return;
-  layer.frameImageScale=Math.max(1, Number(value||100)/100);
+  layer.frameImageScale=Math.max(1,Math.min(4, Number(value||100)/100));
   applyImageVisuals(layer);
   syncFrameImageCropMobile(layer);
   snapshot();
@@ -3770,6 +3882,7 @@ window.addEventListener('load', async()=>{
     );
     panel.style.height = newH + 'px';
     if(activeLayer) requestAnimationFrame(updateSelBox);
+    if(frameImageEditIdMobile!==null) syncFrameImageEditActionsMobile();
   }, {passive: false});
 
   window.addEventListener('touchend', ()=>{ dragging = false; }, {passive: true});
