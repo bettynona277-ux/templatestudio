@@ -3799,6 +3799,7 @@ async function readLocalImage(id){
 }
 async function addLocalImageFile(file, targetFrame=null){
   if(!file || !(file.type||'').startsWith('image/')){ showToast('Selecciona una imagen v\u00e1lida'); return; }
+  if(isVerifiedAdminImageUpload()) return addAdminImageFile(file, targetFrame);
   const localImageKey=await storeLocalImage(file);
   const src=URL.createObjectURL(file);
   if(targetFrame){
@@ -3809,6 +3810,34 @@ async function addLocalImageFile(file, targetFrame=null){
     addImgLayer(src,file.name,{localImageKey});
   }
   showToast(localImageKey ? 'Imagen local: no se sube a la nube' : 'Imagen local: solo en esta sesi\u00f3n',4500);
+}
+
+function isVerifiedAdminImageUpload(){
+  return window.__isVerifiedAdmin === true &&
+    document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+}
+
+async function addAdminImageFile(file, targetFrame=null){
+  showToast('Subiendo imagen de plantilla...');
+  const localSrc = URL.createObjectURL(file);
+  try{
+    const folder = targetFrame ? 'frames' : 'layer-images';
+    const persistentSrc = await normalizePersistableImageSrc(localSrc, folder);
+    if(!persistentSrc || persistentSrc.startsWith('blob:')) throw new Error('Cloudinary no devolvió una URL válida');
+    if(targetFrame){
+      applyImageToFrame(targetFrame, persistentSrc);
+      targetFrame.localImageKey = null;
+      renderList(); snapshotState();
+    }else{
+      addImgLayer(persistentSrc, file.name, {localImageKey:null});
+    }
+    showToast('Imagen subida a Cloudinary');
+  }catch(error){
+    console.error('No se pudo subir la imagen de plantilla:', error);
+    showToast('No se pudo subir la imagen. Intenta de nuevo.');
+  }finally{
+    URL.revokeObjectURL(localSrc);
+  }
 }
 async function hydrateLocalImage(layer){
   if(!layer?.localImageKey || layer.src) return;
@@ -9155,6 +9184,19 @@ async function buildLayerData(){
     }
 
     // Las imágenes locales viven en IndexedDB: Firestore guarda solo su clave local.
+    if(l.localImageKey && isVerifiedAdminImageUpload()){
+      try{
+        const persistentSrc = await normalizePersistableImageSrc(src, l.type==='frame' ? 'frames' : 'layer-images');
+        if(!persistentSrc || persistentSrc.startsWith('blob:')) throw new Error('No se obtuvo una URL persistente');
+        src = persistentSrc;
+        l.src = persistentSrc;
+        if(l.type==='frame') l.frameImage = persistentSrc;
+        l.localImageKey = null;
+      }catch(error){
+        throw new Error(`No se pudo respaldar en Cloudinary la imagen "${l.name||'sin título'}"`);
+      }
+    }
+
     if(src && !l.localImageKey){
       try{
         const normalizedSrc = await normalizePersistableImageSrc(src, 'layer-images');
