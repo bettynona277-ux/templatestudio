@@ -2,9 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
@@ -72,6 +75,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 }
 .cel{position:absolute;cursor:pointer;user-select:none;overflow:visible;}
 .cel.active-touch{outline:2px solid var(--accent);outline-offset:2px;}
+.cel.frame-image-editing{outline:2px solid var(--accent);outline-offset:3px;}
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
 
 /* ── BOTTOM PANEL ── */
@@ -280,7 +284,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   background:rgba(26,26,46,0.9);color:#fff;
   padding:8px 18px;border-radius:999px;font-size:0.78rem;font-weight:600;
   z-index:9999;pointer-events:none;opacity:0;transition:opacity 0.3s;
-  white-space:nowrap;
+  max-width:88vw;white-space:normal;text-align:center;
 }
 
 /* ── SAVE MODAL ── */
@@ -533,6 +537,15 @@ body.multisel-mode #dots-btn{display:none!important;}
 
       <!-- IMG TAB -->
       <div id="tab-img" style="display:none;padding:12px 14px;">
+        <div id="mob-frame-crop-controls" style="display:none;margin-bottom:14px;padding:12px;border:1px solid rgba(21,214,164,0.35);border-radius:12px;background:rgba(21,214,164,0.08);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+            <span style="font-size:0.76rem;font-weight:800;color:var(--accent);">Ajustar imagen</span>
+            <button class="size-btn" style="height:32px;padding:0 10px;font-size:0.7rem;" onclick="resetFrameImageTransformMobile()">Restablecer</button>
+          </div>
+          <div class="field-label">Tama&ntilde;o <span id="mob-frame-crop-scale-lbl" style="color:var(--accent);">100%</span></div>
+          <input type="range" id="mob-frame-crop-scale" min="100" max="250" step="1" value="100" style="width:100%;accent-color:var(--accent);" oninput="updateFrameImageScaleMobile(this.value)">
+          <button class="size-btn" style="width:100%;height:40px;margin-top:8px;font-size:0.76rem;font-weight:800;" onclick="exitFrameImageEditMobile()">Listo</button>
+        </div>
         <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px;">Orientación</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
           <button class="size-btn" style="height:40px;font-size:0.78rem;font-weight:700;" onclick="toggleFlip('x')" id="btn-flipx">↔ Horizontal</button>
@@ -586,6 +599,8 @@ body.multisel-mode #dots-btn{display:none!important;}
         <div class="logos-section-title">👤 Logos propios <span class="logo-count" id="own-logo-count">0/5</span></div>
         <div class="logos-limit-warn" id="own-limit-warn">Límite alcanzado (5/5). Elimina uno para subir otro.</div>
         <label class="logos-upload-btn" for="own-logo-input">ï¼‹ Subir mi logo (PNG / SVG / JPEG)</label>
+        <label class="logos-upload-btn" for="local-image-input" style="margin-bottom:12px;">Anadir imagen desde el celular</label>
+        <input type="file" id="local-image-input" accept="image/*" style="display:none" onchange="handleLocalImageUploadMobile(event)">
         <input type="file" id="own-logo-input" accept="image/png,image/svg+xml,image/webp,image/jpeg" multiple style="display:none" onchange="uploadOwnLogos(event)">
         <div class="logos-empty" id="own-logos-empty">Aún no tienes logos propios.</div>
         <div class="logos-grid" id="own-logos-grid"></div>
@@ -979,12 +994,97 @@ async function initFB(){
 // ══════════════════════════════════════════
 // TOAST
 // ══════════════════════════════════════════
-function toast(msg){
+function toast(msg,duration=2000){
   const t = document.getElementById('m-toast');
   t.textContent = msg; t.style.opacity = '1';
   clearTimeout(t._t);
-  t._t = setTimeout(()=>t.style.opacity='0', 2000);
+  t._t = setTimeout(()=>t.style.opacity='0', duration);
 }
+
+const LOCAL_IMAGE_DB='ds-editor-local-images';
+const LOCAL_IMAGE_STORE='images';
+function openLocalImageDb(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(LOCAL_IMAGE_DB,1);
+    req.onupgradeneeded=()=>req.result.createObjectStore(LOCAL_IMAGE_STORE,{keyPath:'id'});
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+function localImageId(){
+  return 'local-'+(crypto.randomUUID?.()||(`${Date.now()}-${Math.random().toString(36).slice(2)}`));
+}
+async function storeLocalImage(file){
+  const id=localImageId();
+  try{
+    const db=await openLocalImageDb();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(LOCAL_IMAGE_STORE,'readwrite');
+      tx.objectStore(LOCAL_IMAGE_STORE).put({id,blob:file,name:file.name||'Imagen'});
+      tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+    });
+    db.close();
+    return id;
+  }catch(err){
+    console.warn('No se pudo guardar la imagen localmente:',err);
+    return null;
+  }
+}
+async function readLocalImage(id){
+  if(!id) return null;
+  try{
+    const db=await openLocalImageDb();
+    const record=await new Promise((resolve,reject)=>{
+      const tx=db.transaction(LOCAL_IMAGE_STORE,'readonly');
+      const req=tx.objectStore(LOCAL_IMAGE_STORE).get(id);
+      req.onsuccess=()=>resolve(req.result||null); req.onerror=()=>reject(req.error);
+    });
+    db.close();
+    return record?.blob||null;
+  }catch(_){ return null; }
+}
+async function addLocalImageFileMobile(file){
+  if(!file || !(file.type||'').startsWith('image/')){ toast('Selecciona una imagen valida'); return; }
+  const localImageKey=await storeLocalImage(file);
+  const src=URL.createObjectURL(file);
+  if(frameSelId){
+    applyLogoToFrame(src,file.name,localImageKey);
+  }else{
+    addLogoToCanvas(src,file.name,localImageKey);
+  }
+  toast(localImageKey ? 'Imagen local: no se sube a la nube' : 'Imagen local: solo en esta sesion',4500);
+}
+async function handleLocalImageUploadMobile(ev){
+  const file=ev.target.files?.[0];
+  ev.target.value='';
+  if(file) await addLocalImageFileMobile(file);
+}
+async function hydrateLocalImageMobile(layer){
+  if(!layer?.localImageKey || layer.src) return;
+  const blob=await readLocalImage(layer.localImageKey);
+  if(!blob) return;
+  const src=URL.createObjectURL(blob);
+  layer.src=src;
+  if(layer.type==='frame') layer.frameImage=src;
+  if(layer.el) layer.el.remove();
+  buildEl(layer);
+}
+document.addEventListener('paste',ev=>{
+  const tag=document.activeElement?.tagName?.toLowerCase();
+  if(tag==='input' || tag==='textarea' || document.activeElement?.isContentEditable) return;
+  const item=Array.from(ev.clipboardData?.items||[]).find(i=>i.type.startsWith('image/'));
+  const file=item?.getAsFile();
+  if(!file) return;
+  ev.preventDefault();
+  addLocalImageFileMobile(file);
+});
+const localImageDropZone=document.getElementById('cvs');
+localImageDropZone?.addEventListener('dragover',ev=>ev.preventDefault());
+localImageDropZone?.addEventListener('drop',ev=>{
+  ev.preventDefault();
+  const file=Array.from(ev.dataTransfer?.files||[]).find(f=>(f.type||'').startsWith('image/'));
+  if(file) addLocalImageFileMobile(file);
+});
 
 // ══════════════════════════════════════════
 // LOADING
@@ -1040,6 +1140,7 @@ function loadDesign(tpl){
     }
     layers.push(l);
     buildEl(l);
+    if(l.localImageKey) hydrateLocalImageMobile(l);
   });
 
   // Esperar a que el layout esté listo antes de calcular zoom
@@ -1483,6 +1584,68 @@ function getImageTargetElement(layer){
   return null;
 }
 
+let frameImageEditIdMobile = null;
+function frameImageTransformValuesMobile(layer){
+  return {
+    scale: Math.max(1, Number(layer?.frameImageScale) || 1),
+    x: Number(layer?.frameImageOffsetX) || 0,
+    y: Number(layer?.frameImageOffsetY) || 0
+  };
+}
+function applyFrameImageTransformMobile(layer){
+  if(!layer || layer.type!=='frame') return;
+  const img=getImageTargetElement(layer);
+  if(!img) return;
+  const tr=frameImageTransformValuesMobile(layer);
+  img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
+  img.style.transformOrigin='center center';
+}
+function syncFrameImageCropMobile(layer){
+  const controls=document.getElementById('mob-frame-crop-controls');
+  const active=!!layer && layer.type==='frame' && layer.frameImage && frameImageEditIdMobile===layer.id;
+  if(controls) controls.style.display=active?'block':'none';
+  if(!active) return;
+  const scale=Math.round(frameImageTransformValuesMobile(layer).scale*100);
+  const input=document.getElementById('mob-frame-crop-scale'); if(input) input.value=scale;
+  const label=document.getElementById('mob-frame-crop-scale-lbl'); if(label) label.textContent=scale+'%';
+}
+function enterFrameImageEditMobile(layer){
+  if(!layer || layer.type!=='frame' || !layer.frameImage || layer.locked) return;
+  if(frameImageEditIdMobile!==null && frameImageEditIdMobile!==layer.id){
+    layers.find(x=>x.id===frameImageEditIdMobile)?.el?.classList.remove('frame-image-editing');
+  }
+  frameImageEditIdMobile=layer.id;
+  layer.el?.classList.add('frame-image-editing');
+  selectFrame(layer.id);
+  openImgPanel(layer);
+  syncFrameImageCropMobile(layer);
+}
+function exitFrameImageEditMobile(){
+  const layer=layers.find(x=>x.id===frameImageEditIdMobile);
+  layer?.el?.classList.remove('frame-image-editing');
+  frameImageEditIdMobile=null;
+  syncFrameImageCropMobile(null);
+  snapshot();
+}
+function updateFrameImageScaleMobile(value){
+  const layer=layers.find(x=>x.id===frameImageEditIdMobile);
+  if(!layer || layer.type!=='frame' || !layer.frameImage) return;
+  layer.frameImageScale=Math.max(1, Number(value||100)/100);
+  applyImageVisuals(layer);
+  syncFrameImageCropMobile(layer);
+  snapshot();
+}
+function resetFrameImageTransformMobile(){
+  const layer=layers.find(x=>x.id===frameImageEditIdMobile);
+  if(!layer || layer.type!=='frame' || !layer.frameImage) return;
+  layer.frameImageScale=1;
+  layer.frameImageOffsetX=0;
+  layer.frameImageOffsetY=0;
+  applyImageVisuals(layer);
+  syncFrameImageCropMobile(layer);
+  snapshot();
+}
+
 function imageFilterStringMobile(layer, blurScale=1){
   const blur = Number(layer?.blur || 0);
   const hue = Number(layer?.hue || 0);
@@ -1575,6 +1738,13 @@ function renderAdjustedImageCanvasMobile(img, dw, dh, layer, pixelScale=1){
 function applyImageVisuals(layer){
   const img = getImageTargetElement(layer);
   if(!img) return;
+  if(layer.type==='frame'){
+    applyFrameImageTransformMobile(layer);
+    img.style.filter = imageFilterStringMobile(layer);
+    updateImageColorizeOverlayMobile(layer);
+    applyFrameBorderMobile(layer);
+    return;
+  }
   const flipX = !!layer.flipX;
   const flipY = !!layer.flipY;
   img.style.transform = `scale(${flipX ? -1 : 1},${flipY ? -1 : 1})`;
@@ -1655,13 +1825,19 @@ function buildEl(l){
     }
     // Frame: drag para mover, tap para seleccionar/insertar logo
     {
-      let sx,sy,sl,st,moved=false;
+      let sx,sy,sl,st,moved=false,lastTapAt=0,editingImage=false,frameOffsetStart=null;
       el.addEventListener('touchstart',e=>{
         if(l.locked) return;
         if(e.touches.length!==1) return;
         if(multiselActive) return; // multisel maneja esto en cvs capture
         e.stopPropagation();
         const t=e.touches[0];
+        if(frameImageEditIdMobile===l.id && l.frameImage){
+          editingImage=true;
+          sx=t.clientX; sy=t.clientY;
+          frameOffsetStart=frameImageTransformValuesMobile(l);
+          return;
+        }
         sx=t.clientX; sy=t.clientY; sl=l.x; st=l.y; moved=false;
       },{passive:true});
       el.addEventListener('touchmove',e=>{
@@ -1669,6 +1845,12 @@ function buildEl(l){
         if(multiselActive) return;
         e.preventDefault(); e.stopPropagation();
         const t=e.touches[0];
+        if(editingImage && frameOffsetStart){
+          l.frameImageOffsetX=frameOffsetStart.x+(t.clientX-sx)/zoom_;
+          l.frameImageOffsetY=frameOffsetStart.y+(t.clientY-sy)/zoom_;
+          applyImageVisuals(l);
+          return;
+        }
         const dx=(t.clientX-sx)/zoom_, dy=(t.clientY-sy)/zoom_;
         if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
         if(moved){
@@ -1681,8 +1863,23 @@ function buildEl(l){
       el.addEventListener('touchend',e=>{
         if(multiselActive) return;
         e.stopPropagation();
+        if(editingImage){
+          editingImage=false;
+          frameOffsetStart=null;
+          snapshot();
+          return;
+        }
         if(moved){ hideGuides(); snapshot(); }
-        else { selectFrame(l.id); }
+        else {
+          const now=Date.now();
+          if(l.frameImage && now-lastTapAt<320){
+            lastTapAt=0;
+            enterFrameImageEditMobile(l);
+          }else{
+            lastTapAt=now;
+            selectFrame(l.id);
+          }
+        }
         moved=false;
       },{passive:true});
     }
@@ -1865,7 +2062,7 @@ function selectFrame(id){
   }
 }
 
-function applyLogoToFrame(src, name){
+function applyLogoToFrame(src, name, localImageKey=null){
   if(!frameSelId) return false;
   const l = layers.find(x=>x.id===frameSelId);
   if(!l || l.type!=='frame') return false;
@@ -1873,6 +2070,10 @@ function applyLogoToFrame(src, name){
   // Actualizar datos
   l.src = src;
   l.frameImage = src;
+  l.frameImageScale = 1;
+  l.frameImageOffsetX = 0;
+  l.frameImageOffsetY = 0;
+  l.localImageKey = localImageKey;
 
   if(l.el){
     const fBW = Number(l.frameBorderWidth || l.borderWidth || 0);
@@ -2477,7 +2678,7 @@ function handleLogoTap(src, name){
   }
 }
 
-function addLogoToCanvas(src, name){
+function addLogoToCanvas(src, name, localImageKey=null){
   const cw = parseInt(cvs.style.width)||800;
   const ch = parseInt(cvs.style.height)||800;
   // Cargar imagen primero para respetar proporciones reales
@@ -2503,7 +2704,8 @@ function addLogoToCanvas(src, name){
       w, h,
       zIndex: layers.length,
       opacity: 1,
-      visible: true
+      visible: true,
+      localImageKey
     };
     layers.push(l);
     buildEl(l);
@@ -2513,7 +2715,7 @@ function addLogoToCanvas(src, name){
   probe.onerror = () => {
     // Fallback cuadrado si no carga
     const size = Math.round(Math.min(cw,ch)*0.25);
-    const l = {id:Date.now(),type:'img',name:name||'Logo',src,
+    const l = {id:Date.now(),type:'img',name:name||'Logo',src,localImageKey,
       x:Math.round((cw-size)/2),y:Math.round((ch-size)/2),w:size,h:size,
       zIndex:layers.length,opacity:1,visible:true};
     layers.push(l); buildEl(l); snapshot(); toast('✓ Logo añadido');
@@ -2646,6 +2848,7 @@ function syncImagePanelMobile(layer){
     if(document.getElementById('mob-frame-border-lbl')) document.getElementById('mob-frame-border-lbl').textContent = bw+'px';
     if(document.getElementById('mob-frame-border-c')) document.getElementById('mob-frame-border-c').value = bc;
   }
+  syncFrameImageCropMobile(layer);
 }
 
 function openImgPanel(layer){
@@ -2820,11 +3023,15 @@ async function doSave(){
     x:l.x,y:l.y,w:l.w,h:l.h,
     zIndex:l.zIndex,opacity:l.opacity,visible:l.visible,
     // Para frames: guardar src también como frameImage (compatibilidad con editor PC)
-    src: (l.type==='frame') ? null : (l.src||null),
-    frameImage: (l.type==='frame') ? (l.src||null) : null,
+    src: (l.type==='frame' || l.localImageKey) ? null : (l.src||null),
+    frameImage: (l.type==='frame' && !l.localImageKey) ? (l.src||null) : null,
+    localImageKey: l.localImageKey||null,
     tp:l.tp?{...l.tp}:null,
     fill:l.fill||null,shapeType:l.shapeType||null,
     frameRadius:l.frameRadius||null,
+    frameImageScale: l.type==='frame' ? frameImageTransformValuesMobile(l).scale : 1,
+    frameImageOffsetX: l.type==='frame' ? frameImageTransformValuesMobile(l).x : 0,
+    frameImageOffsetY: l.type==='frame' ? frameImageTransformValuesMobile(l).y : 0,
     // Guardar con nombres del editor PC Y legacy para máxima compatibilidad
     frameBorderWidth: l.frameBorderWidth || l.borderWidth || 0,
     frameBorderColor: l.frameBorderColor || l.borderColor || '#00ffc3',
@@ -3173,7 +3380,7 @@ async function renderDesignToCanvas(scale=3){
       if(hasRot){ctx.translate(lCx,lCy);ctx.rotate(rotRad);}
       const fx=hasRot?-l.w/2:l.x, fy=hasRot?-l.h/2:l.y;
       if(drop>0){ctx.save();const dc=l.frameShadowColor||'#000000';const dop=(l.frameShadowOp??39)/100;const r2=parseInt(dc.slice(1,3),16)||0,g2=parseInt(dc.slice(3,5),16)||0,b2=parseInt(dc.slice(5,7),16)||0;ctx.shadowColor=`rgba(${r2},${g2},${b2},${dop})`;ctx.shadowBlur=drop*2.5;ctx.shadowOffsetX=0;ctx.shadowOffsetY=Math.max(2,Math.round(drop*0.3));roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.fillStyle='#ffffff';ctx.fill();ctx.restore();}
-      if(l.frameImage){let img=await loadImgForExport(l.frameImage, layerExportW(l, scale));if(!img){const d=document.getElementById('fi-'+l.id);if(d&&d.complete&&d.naturalWidth>0)img=d;}if(img){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const sw=img.naturalWidth||img.width||l.w,sh=img.naturalHeight||img.height||l.h;const sc2=Math.max(l.w/sw,l.h/sh);const dw=sw*sc2,dh=sh*sc2,dx=fx+(l.w-dw)/2,dy=fy+(l.h-dh)/2;const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l,scale);const lx=hasRot?0:lCx,ly=hasRot?0:lCy;ctx.translate(lx,ly);ctx.scale(l.flipX?-1:1,l.flipY?-1:1);ctx.drawImage(adj,dx-lx,dy-ly,dw,dh);ctx.restore();}}
+      if(l.frameImage){let img=await loadImgForExport(l.frameImage, layerExportW(l, scale));if(!img){const d=document.getElementById('fi-'+l.id);if(d&&d.complete&&d.naturalWidth>0)img=d;}if(img){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const sw=img.naturalWidth||img.width||l.w,sh=img.naturalHeight||img.height||l.h;const tr=frameImageTransformValuesMobile(l),sc2=Math.max(l.w/sw,l.h/sh)*tr.scale;const dw=sw*sc2,dh=sh*sc2,dx=fx+(l.w-dw)/2+tr.x,dy=fy+(l.h-dh)/2+tr.y;const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l,scale);const lx=hasRot?0:lCx,ly=hasRot?0:lCy;ctx.translate(lx,ly);ctx.scale(l.flipX?-1:1,l.flipY?-1:1);ctx.drawImage(adj,dx-lx+(l.flipX?-2*tr.x:0),dy-ly+(l.flipY?-2*tr.y:0),dw,dh);ctx.restore();}}
       if(inner>0){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const ic=l.frameInnerShadowColor||'#000000';const iop=(l.frameInnerShadowOp??100)/100*0.5;const ri=parseInt(ic.slice(1,3),16),gi=parseInt(ic.slice(3,5),16),bi=parseInt(ic.slice(5,7),16);const d=Math.min(inner*1.5,Math.min(l.w,l.h)*0.4);for(const[x0,y0,x1,y1]of[[fx,fy,fx,fy+d],[fx,fy+l.h,fx,fy+l.h-d],[fx,fy,fx+d,fy],[fx+l.w,fy,fx+l.w-d,fy]]){const gr=ctx.createLinearGradient(x0,y0,x1,y1);gr.addColorStop(0,`rgba(${ri},${gi},${bi},${iop})`);gr.addColorStop(1,`rgba(${ri},${gi},${bi},0)`);ctx.fillStyle=gr;ctx.fillRect(fx,fy,l.w,l.h);}ctx.restore();}
       if(bw>0){ctx.save();const ins=Math.max(0.5,bw/2);roundedRectPath(ctx,fx+ins,fy+ins,l.w-(ins*2),l.h-(ins*2),Math.max(0,radius-ins));ctx.lineWidth=bw;ctx.strokeStyle=bc2;ctx.stroke();ctx.restore();}
       ctx.restore();continue;
