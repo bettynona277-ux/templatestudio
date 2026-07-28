@@ -552,7 +552,7 @@ body.multisel-mode #dots-btn{display:none!important;}
             <button class="size-btn" style="height:32px;padding:0 10px;font-size:0.7rem;" onclick="resetFrameImageTransformMobile()">Restablecer</button>
           </div>
           <div class="field-label">Tama&ntilde;o <span id="mob-frame-crop-scale-lbl" style="color:var(--accent);">100%</span></div>
-          <input type="range" id="mob-frame-crop-scale" min="100" max="400" step="1" value="100" style="width:100%;accent-color:var(--accent);" oninput="updateFrameImageScaleMobile(this.value)">
+          <input type="range" id="mob-frame-crop-scale" min="10" max="400" step="1" value="100" style="width:100%;accent-color:var(--accent);" oninput="updateFrameImageScaleMobile(this.value)">
           <button class="size-btn" style="width:100%;height:40px;margin-top:8px;font-size:0.76rem;font-weight:800;" onclick="exitFrameImageEditMobile()">Listo</button>
         </div>
         <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px;">Orientación</div>
@@ -1601,10 +1601,27 @@ function frameImageTransformValuesMobile(layer){
     y: Number(layer?.frameImageOffsetY) || 0
   };
 }
+function frameImageBaseRectMobile(layer,img){
+  const sw=Number(img?.naturalWidth||layer?.origW||0);
+  const sh=Number(img?.naturalHeight||layer?.origH||0);
+  if(!layer || !sw || !sh) return null;
+  const scale=Math.max(layer.w/sw,layer.h/sh);
+  const w=sw*scale,h=sh*scale;
+  return {x:(layer.w-w)/2,y:(layer.h-h)/2,w,h};
+}
 function applyFrameImageTransformMobile(layer){
   if(!layer || layer.type!=='frame') return;
   const img=getImageTargetElement(layer);
   if(!img) return;
+  const base=frameImageBaseRectMobile(layer,img);
+  if(base){
+    img.style.position='absolute';
+    img.style.left=base.x+'px'; img.style.top=base.y+'px';
+    img.style.width=base.w+'px'; img.style.height=base.h+'px';
+    img.style.objectFit='fill';
+  }else if(!img.complete){
+    img.addEventListener('load',()=>applyImageVisuals(layer),{once:true});
+  }
   const tr=frameImageTransformValuesMobile(layer);
   img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
   img.style.transformOrigin='center center';
@@ -1615,10 +1632,15 @@ function syncFrameImageTransformBoxMobile(layer){
   if(!box || !layer?.el) return;
   const rect=layer.el.getBoundingClientRect();
   const tr=frameImageTransformValuesMobile(layer);
-  box.style.left=rect.left+'px';
-  box.style.top=rect.top+'px';
-  box.style.width=rect.width+'px';
-  box.style.height=rect.height+'px';
+  const base=frameImageBaseRectMobile(layer,getImageTargetElement(layer));
+  const x=base ? base.x*zoom_ : 0;
+  const y=base ? base.y*zoom_ : 0;
+  const w=base ? base.w*zoom_ : rect.width;
+  const h=base ? base.h*zoom_ : rect.height;
+  box.style.left=(rect.left+x)+'px';
+  box.style.top=(rect.top+y)+'px';
+  box.style.width=w+'px';
+  box.style.height=h+'px';
   box.style.transform=`translate(${tr.x*zoom_}px, ${tr.y*zoom_}px) scale(${tr.scale})`;
 }
 function startFrameImageResizeMobile(ev,layer){
@@ -1633,7 +1655,7 @@ function startFrameImageResizeMobile(ev,layer){
     const t=moveEv.touches[0]; if(!t) return;
     moveEv.preventDefault();
     const distance=Math.max(1,Math.hypot(t.clientX-cx,t.clientY-cy));
-    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    layer.frameImageScale=Math.max(0.1,Math.min(4,startScale*(distance/startDistance)));
     applyImageVisuals(layer);
     syncFrameImageCropMobile(layer);
   };
@@ -1742,7 +1764,7 @@ window.addEventListener('resize',()=>{
 function updateFrameImageScaleMobile(value){
   const layer=layers.find(x=>x.id===frameImageEditIdMobile);
   if(!layer || layer.type!=='frame' || !layer.frameImage) return;
-  layer.frameImageScale=Math.max(1,Math.min(4, Number(value||100)/100));
+  layer.frameImageScale=Math.max(0.1,Math.min(4, Number(value||100)/100));
   applyImageVisuals(layer);
   syncFrameImageCropMobile(layer);
   snapshot();
