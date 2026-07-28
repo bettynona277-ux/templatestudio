@@ -1731,7 +1731,7 @@ input[type=range]{filter:none !important;}
         <div id="pp-frame-image-position" style="display:none;margin:12px 0 2px;padding-top:12px;border-top:1px solid var(--border);">
           <div class="mini-lbl">Imagen dentro del marco</div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="range" id="pp-frame-image-scale" min="100" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
+            <input type="range" id="pp-frame-image-scale" min="10" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
             <span id="pp-frame-image-scale-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">100%</span>
           </div>
           <button class="pp-btn" style="margin-top:8px;font-size:0.72rem;" onclick="resetFrameImageTransform()">Restablecer imagen</button>
@@ -4960,10 +4960,27 @@ function frameImageTransformValues(layer){
     y: Number(layer?.frameImageOffsetY) || 0
   };
 }
+function frameImageBaseRect(layer,img){
+  const sw=Number(img?.naturalWidth||layer?.origW||0);
+  const sh=Number(img?.naturalHeight||layer?.origH||0);
+  if(!layer || !sw || !sh) return null;
+  const scale=Math.max(layer.w/sw,layer.h/sh);
+  const w=sw*scale,h=sh*scale;
+  return {x:(layer.w-w)/2,y:(layer.h-h)/2,w,h};
+}
 function applyFrameImageTransform(layer){
   if(!layer || layer.type!=='frame') return;
   const img=getImageTargetElement(layer);
   if(!img) return;
+  const base=frameImageBaseRect(layer,img);
+  if(base){
+    img.style.inset='auto';
+    img.style.left=base.x+'px'; img.style.top=base.y+'px';
+    img.style.width=base.w+'px'; img.style.height=base.h+'px';
+    img.style.objectFit='fill';
+  }else if(!img.complete){
+    img.addEventListener('load',()=>applyImageVisuals(layer),{once:true});
+  }
   const tr=frameImageTransformValues(layer);
   img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
   img.style.transformOrigin='center center';
@@ -4973,6 +4990,12 @@ function syncFrameImageTransformBox(layer){
   const box=layer?.el?.querySelector('.frame-image-transform-box');
   if(!box) return;
   const tr=frameImageTransformValues(layer);
+  const base=frameImageBaseRect(layer,getImageTargetElement(layer));
+  if(base){
+    box.style.inset='auto';
+    box.style.left=base.x+'px'; box.style.top=base.y+'px';
+    box.style.width=base.w+'px'; box.style.height=base.h+'px';
+  }
   box.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale})`;
 }
 function startFrameImageResize(ev, layer){
@@ -4984,7 +5007,7 @@ function startFrameImageResize(ev, layer){
   const startScale=frameImageTransformValues(layer).scale;
   const move=moveEv=>{
     const distance=Math.max(1,Math.hypot(moveEv.clientX-cx,moveEv.clientY-cy));
-    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    layer.frameImageScale=Math.max(0.1,Math.min(4,startScale*(distance/startDistance)));
     applyImageVisuals(layer);
     const input=document.getElementById('pp-frame-image-scale'); if(input) input.value=Math.round(layer.frameImageScale*100);
     const label=document.getElementById('pp-frame-image-scale-lbl'); if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
@@ -5054,7 +5077,7 @@ function exitFrameImageEdit(save=true){
 function updFrameImageScale(value){
   const layer=layers.find(x=>x.id===selId);
   if(!layer || layer.type!=='frame' || !layer.frameImage) return;
-  layer.frameImageScale=Math.max(1, Number(value||100)/100);
+  layer.frameImageScale=Math.max(0.1,Math.min(4, Number(value||100)/100));
   applyImageVisuals(layer);
   const label=document.getElementById('pp-frame-image-scale-lbl');
   if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
