@@ -487,6 +487,12 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:var(--accent);pointer-events:none;font-weight:600;}
 .cel.frame-el.frame-image-editing{outline:2px solid var(--accent);outline-offset:3px;cursor:grab;}
 .cel.frame-el.frame-image-editing:active{cursor:grabbing;}
+.cel.frame-el.frame-image-editing .rh,.cel.frame-el.frame-image-editing .rot-line,.cel.frame-el.frame-image-editing .rot-handle{display:none!important;}
+#cvs.frame-image-focus > .cel:not(.frame-image-editing){filter:blur(2px) saturate(.7);opacity:.34;pointer-events:none;}
+.frame-image-transform-box{position:absolute;inset:0;border:1.5px dashed var(--accent);pointer-events:none;z-index:80;transform-origin:center center;box-sizing:border-box;}
+.frame-image-transform-box::after{content:'Imagen';position:absolute;top:-24px;left:50%;transform:translateX(-50%);padding:3px 8px;border-radius:5px;background:var(--accent);color:#07151a;font-size:10px;font-weight:800;font-family:Plus Jakarta Sans,sans-serif;white-space:nowrap;}
+.frame-image-transform-handle{position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--accent);box-shadow:0 1px 5px rgba(0,0,0,.35);pointer-events:auto;z-index:2;}
+.frame-image-transform-handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}.frame-image-transform-handle.tr{top:-7px;right:-7px;cursor:nesw-resize;}.frame-image-transform-handle.bl{bottom:-7px;left:-7px;cursor:nesw-resize;}.frame-image-transform-handle.br{bottom:-7px;right:-7px;cursor:nwse-resize;}
 
 /* SMART GUIDES */
 .smart-guide{position:absolute;pointer-events:none;z-index:12000;display:none;background:#ff4d8d;opacity:.95;}
@@ -1721,10 +1727,11 @@ input[type=range]{filter:none !important;}
         <div id="pp-frame-image-position" style="display:none;margin:12px 0 2px;padding-top:12px;border-top:1px solid var(--border);">
           <div class="mini-lbl">Imagen dentro del marco</div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="range" id="pp-frame-image-scale" min="100" max="250" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
+            <input type="range" id="pp-frame-image-scale" min="100" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
             <span id="pp-frame-image-scale-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">100%</span>
           </div>
           <button class="pp-btn" style="margin-top:8px;font-size:0.72rem;" onclick="resetFrameImageTransform()">Restablecer imagen</button>
+          <button id="pp-frame-image-done" class="pp-btn" style="display:none;margin-top:8px;font-size:0.72rem;" onclick="exitFrameImageEdit()">Listo</button>
         </div>
         </div>
 
@@ -4955,6 +4962,64 @@ function applyFrameImageTransform(layer){
   const tr=frameImageTransformValues(layer);
   img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
   img.style.transformOrigin='center center';
+  syncFrameImageTransformBox(layer);
+}
+function syncFrameImageTransformBox(layer){
+  const box=layer?.el?.querySelector('.frame-image-transform-box');
+  if(!box) return;
+  const tr=frameImageTransformValues(layer);
+  box.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale})`;
+}
+function startFrameImageResize(ev, layer){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const rect=layer.el.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const startDistance=Math.max(1,Math.hypot(ev.clientX-cx,ev.clientY-cy));
+  const startScale=frameImageTransformValues(layer).scale;
+  const move=moveEv=>{
+    const distance=Math.max(1,Math.hypot(moveEv.clientX-cx,moveEv.clientY-cy));
+    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    applyImageVisuals(layer);
+    const input=document.getElementById('pp-frame-image-scale'); if(input) input.value=Math.round(layer.frameImageScale*100);
+    const label=document.getElementById('pp-frame-image-scale-lbl'); if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
+  };
+  const end=()=>{
+    document.removeEventListener('mousemove',move);
+    document.removeEventListener('mouseup',end);
+    snapshotState();
+  };
+  document.addEventListener('mousemove',move);
+  document.addEventListener('mouseup',end);
+}
+function createFrameImageTransformBox(layer){
+  if(!layer?.el) return;
+  layer.el.querySelector('.frame-image-transform-box')?.remove();
+  const box=document.createElement('div');
+  box.className='frame-image-transform-box';
+  ['tl','tr','bl','br'].forEach(corner=>{
+    const handle=document.createElement('div');
+    handle.className=`frame-image-transform-handle ${corner}`;
+    handle.title='Cambiar tamano de imagen';
+    handle.addEventListener('mousedown',ev=>startFrameImageResize(ev,layer));
+    box.appendChild(handle);
+  });
+  layer.el.appendChild(box);
+  syncFrameImageTransformBox(layer);
+}
+function exitFrameImageEdit(save=true){
+  const layer=layers.find(x=>x.id===frameImageEditId);
+  if(!layer) return;
+  layer.el?.classList.remove('frame-image-editing');
+  layer.el?.querySelector('.frame-image-transform-box')?.remove();
+  if(layer.el && layer._frameImageEditZ!==undefined){
+    layer.el.style.zIndex=layer._frameImageEditZ;
+    delete layer._frameImageEditZ;
+  }
+  frameImageEditId=null;
+  cvs.classList.remove('frame-image-focus');
+  if(save) snapshotState();
+  syncP();
 }
 function updFrameImageScale(value){
   const layer=layers.find(x=>x.id===selId);
@@ -4978,10 +5043,14 @@ function resetFrameImageTransform(){
 function enterFrameImageEdit(layer){
   if(!layer || layer.type!=='frame' || !layer.frameImage || layer.locked) return;
   if(frameImageEditId!==null && frameImageEditId!==layer.id){
-    layers.find(x=>x.id===frameImageEditId)?.el?.classList.remove('frame-image-editing');
+    exitFrameImageEdit(false);
   }
   frameImageEditId=layer.id;
+  layer._frameImageEditZ=layer.el?.style.zIndex||'';
+  if(layer.el) layer.el.style.zIndex='10000';
   layer.el?.classList.add('frame-image-editing');
+  cvs.classList.add('frame-image-focus');
+  createFrameImageTransformBox(layer);
   sel(layer.id);
   syncP();
 }
@@ -6142,6 +6211,7 @@ function sel(id, additive=false){
   const lockCheck = layers.find(x=>x.id===id);
   if(lockCheck?.locked) return; // no seleccionar capas bloqueadas
   const clickedLayer = layers.find(x=>x.id===id);
+  if(frameImageEditId!==null && frameImageEditId!==id) exitFrameImageEdit();
   // Get the ids this click represents (single layer or whole group)
   if(styleMode){
     if(!copiedStyle){
@@ -7024,6 +7094,8 @@ function syncP(){
     const fishdOpL=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(fishdOpL) fishdOpL.textContent=(l.frameInnerShadowOp??28)+'%';
     const imagePosition=document.getElementById('pp-frame-image-position');
     if(imagePosition) imagePosition.style.display=l.frameImage?'block':'none';
+    const imageDone=document.getElementById('pp-frame-image-done');
+    if(imageDone) imageDone.style.display=frameImageEditId===l.id?'block':'none';
     if(l.frameImage){
       const scale=Math.round(frameImageTransformValues(l).scale*100);
       const scaleInput=document.getElementById('pp-frame-image-scale'); if(scaleInput) scaleInput.value=scale;
@@ -10108,7 +10180,10 @@ document.addEventListener('keydown',ev=>{
     if(selIds.length>1){ selIds.forEach(id=>delL(id,{stopPropagation:()=>{}})); selIds=[]; desel(); }
     else delSel();
   }
-  if(ev.key==='Escape') desel();
+  if(ev.key==='Escape'){
+    if(frameImageEditId!==null) exitFrameImageEdit();
+    else desel();
+  }
 
   // Scale single selected
   if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
