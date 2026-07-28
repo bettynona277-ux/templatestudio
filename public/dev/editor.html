@@ -493,6 +493,10 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 .frame-image-transform-box::after{content:'Imagen';position:absolute;top:-24px;left:50%;transform:translateX(-50%);padding:3px 8px;border-radius:5px;background:var(--accent);color:#07151a;font-size:10px;font-weight:800;font-family:Plus Jakarta Sans,sans-serif;white-space:nowrap;}
 .frame-image-transform-handle{position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--accent);box-shadow:0 1px 5px rgba(0,0,0,.35);pointer-events:auto;z-index:2;}
 .frame-image-transform-handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}.frame-image-transform-handle.tr{top:-7px;right:-7px;cursor:nesw-resize;}.frame-image-transform-handle.bl{bottom:-7px;left:-7px;cursor:nesw-resize;}.frame-image-transform-handle.br{bottom:-7px;right:-7px;cursor:nwse-resize;}
+#frame-image-edit-actions{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:10px;padding:8px;background:rgba(8,15,30,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:15000;font-family:Plus Jakarta Sans,sans-serif;}
+#frame-image-edit-actions button{border:0;border-radius:7px;padding:9px 18px;font:700 12px/1 Plus Jakarta Sans,sans-serif;cursor:pointer;}
+#frame-image-edit-cancel{background:rgba(255,255,255,.12);color:#fff;}
+#frame-image-edit-done{background:var(--accent);color:#07151a;}
 
 /* SMART GUIDES */
 .smart-guide{position:absolute;pointer-events:none;z-index:12000;display:none;background:#ff4d8d;opacity:.95;}
@@ -4947,6 +4951,7 @@ function setLayerPosition(layer, x, y, opts={}){
   layer.el.style.top = layer.y + 'px';
 }
 let frameImageEditId = null;
+let frameImageEditInitial = null;
 
 function frameImageTransformValues(layer){
   return {
@@ -5007,17 +5012,42 @@ function createFrameImageTransformBox(layer){
   layer.el.appendChild(box);
   syncFrameImageTransformBox(layer);
 }
+function syncFrameImageEditActions(){
+  let actions=document.getElementById('frame-image-edit-actions');
+  if(frameImageEditId===null){ actions?.remove(); return; }
+  if(!actions){
+    actions=document.createElement('div');
+    actions.id='frame-image-edit-actions';
+    actions.innerHTML='<button id="frame-image-edit-cancel" type="button">Cancelar</button><button id="frame-image-edit-done" type="button">Listo</button>';
+    document.body.appendChild(actions);
+    actions.querySelector('#frame-image-edit-cancel').addEventListener('click',cancelFrameImageEdit);
+    actions.querySelector('#frame-image-edit-done').addEventListener('click',()=>exitFrameImageEdit(true));
+  }
+}
+function cancelFrameImageEdit(){
+  const layer=layers.find(x=>x.id===frameImageEditId);
+  if(layer && frameImageEditInitial?.id===layer.id){
+    layer.frameImageScale=frameImageEditInitial.scale;
+    layer.frameImageOffsetX=frameImageEditInitial.x;
+    layer.frameImageOffsetY=frameImageEditInitial.y;
+    applyImageVisuals(layer);
+  }
+  exitFrameImageEdit(false);
+}
 function exitFrameImageEdit(save=true){
   const layer=layers.find(x=>x.id===frameImageEditId);
-  if(!layer) return;
-  layer.el?.classList.remove('frame-image-editing');
-  layer.el?.querySelector('.frame-image-transform-box')?.remove();
-  if(layer.el && layer._frameImageEditZ!==undefined){
-    layer.el.style.zIndex=layer._frameImageEditZ;
-    delete layer._frameImageEditZ;
+  if(layer){
+    layer.el?.classList.remove('frame-image-editing');
+    layer.el?.querySelector('.frame-image-transform-box')?.remove();
+    if(layer.el && layer._frameImageEditZ!==undefined){
+      layer.el.style.zIndex=layer._frameImageEditZ;
+      delete layer._frameImageEditZ;
+    }
   }
   frameImageEditId=null;
+  frameImageEditInitial=null;
   cvs.classList.remove('frame-image-focus');
+  syncFrameImageEditActions();
   if(save) snapshotState();
   syncP();
 }
@@ -5045,12 +5075,17 @@ function enterFrameImageEdit(layer){
   if(frameImageEditId!==null && frameImageEditId!==layer.id){
     exitFrameImageEdit(false);
   }
+  if(frameImageEditId!==layer.id){
+    const tr=frameImageTransformValues(layer);
+    frameImageEditInitial={id:layer.id,scale:tr.scale,x:tr.x,y:tr.y};
+  }
   frameImageEditId=layer.id;
   layer._frameImageEditZ=layer.el?.style.zIndex||'';
   if(layer.el) layer.el.style.zIndex='10000';
   layer.el?.classList.add('frame-image-editing');
   cvs.classList.add('frame-image-focus');
   createFrameImageTransformBox(layer);
+  syncFrameImageEditActions();
   sel(layer.id);
   syncP();
 }
@@ -10181,7 +10216,7 @@ document.addEventListener('keydown',ev=>{
     else delSel();
   }
   if(ev.key==='Escape'){
-    if(frameImageEditId!==null) exitFrameImageEdit();
+    if(frameImageEditId!==null) cancelFrameImageEdit();
     else desel();
   }
 
