@@ -1731,7 +1731,7 @@ input[type=range]{filter:none !important;}
         <div id="pp-frame-image-position" style="display:none;margin:12px 0 2px;padding-top:12px;border-top:1px solid var(--border);">
           <div class="mini-lbl">Imagen dentro del marco</div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="range" id="pp-frame-image-scale" min="100" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
+            <input type="range" id="pp-frame-image-scale" min="10" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
             <span id="pp-frame-image-scale-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">100%</span>
           </div>
           <button class="pp-btn" style="margin-top:8px;font-size:0.72rem;" onclick="resetFrameImageTransform()">Restablecer imagen</button>
@@ -3799,6 +3799,7 @@ async function readLocalImage(id){
 }
 async function addLocalImageFile(file, targetFrame=null){
   if(!file || !(file.type||'').startsWith('image/')){ showToast('Selecciona una imagen v\u00e1lida'); return; }
+  if(isVerifiedAdminImageUpload()) return addAdminImageFile(file, targetFrame);
   const localImageKey=await storeLocalImage(file);
   const src=URL.createObjectURL(file);
   if(targetFrame){
@@ -3809,6 +3810,34 @@ async function addLocalImageFile(file, targetFrame=null){
     addImgLayer(src,file.name,{localImageKey});
   }
   showToast(localImageKey ? 'Imagen local: no se sube a la nube' : 'Imagen local: solo en esta sesi\u00f3n',4500);
+}
+
+function isVerifiedAdminImageUpload(){
+  return window.__isVerifiedAdmin === true &&
+    document.getElementById('mode-pill')?.textContent.includes('ADMIN');
+}
+
+async function addAdminImageFile(file, targetFrame=null){
+  showToast('Subiendo imagen de plantilla...');
+  const localSrc = URL.createObjectURL(file);
+  try{
+    const folder = targetFrame ? 'frames' : 'layer-images';
+    const persistentSrc = await normalizePersistableImageSrc(localSrc, folder);
+    if(!persistentSrc || persistentSrc.startsWith('blob:')) throw new Error('Cloudinary no devolvió una URL válida');
+    if(targetFrame){
+      applyImageToFrame(targetFrame, persistentSrc);
+      targetFrame.localImageKey = null;
+      renderList(); snapshotState();
+    }else{
+      addImgLayer(persistentSrc, file.name, {localImageKey:null});
+    }
+    showToast('Imagen subida a Cloudinary');
+  }catch(error){
+    console.error('No se pudo subir la imagen de plantilla:', error);
+    showToast('No se pudo subir la imagen. Intenta de nuevo.');
+  }finally{
+    URL.revokeObjectURL(localSrc);
+  }
 }
 async function hydrateLocalImage(layer){
   if(!layer?.localImageKey || layer.src) return;
@@ -4960,10 +4989,27 @@ function frameImageTransformValues(layer){
     y: Number(layer?.frameImageOffsetY) || 0
   };
 }
+function frameImageBaseRect(layer,img){
+  const sw=Number(img?.naturalWidth||layer?.origW||0);
+  const sh=Number(img?.naturalHeight||layer?.origH||0);
+  if(!layer || !sw || !sh) return null;
+  const scale=Math.max(layer.w/sw,layer.h/sh);
+  const w=sw*scale,h=sh*scale;
+  return {x:(layer.w-w)/2,y:(layer.h-h)/2,w,h};
+}
 function applyFrameImageTransform(layer){
   if(!layer || layer.type!=='frame') return;
   const img=getImageTargetElement(layer);
   if(!img) return;
+  const base=frameImageBaseRect(layer,img);
+  if(base){
+    img.style.inset='auto';
+    img.style.left=base.x+'px'; img.style.top=base.y+'px';
+    img.style.width=base.w+'px'; img.style.height=base.h+'px';
+    img.style.objectFit='fill';
+  }else if(!img.complete){
+    img.addEventListener('load',()=>applyImageVisuals(layer),{once:true});
+  }
   const tr=frameImageTransformValues(layer);
   img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
   img.style.transformOrigin='center center';
@@ -4973,6 +5019,12 @@ function syncFrameImageTransformBox(layer){
   const box=layer?.el?.querySelector('.frame-image-transform-box');
   if(!box) return;
   const tr=frameImageTransformValues(layer);
+  const base=frameImageBaseRect(layer,getImageTargetElement(layer));
+  if(base){
+    box.style.inset='auto';
+    box.style.left=base.x+'px'; box.style.top=base.y+'px';
+    box.style.width=base.w+'px'; box.style.height=base.h+'px';
+  }
   box.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale})`;
 }
 function startFrameImageResize(ev, layer){
@@ -4984,7 +5036,7 @@ function startFrameImageResize(ev, layer){
   const startScale=frameImageTransformValues(layer).scale;
   const move=moveEv=>{
     const distance=Math.max(1,Math.hypot(moveEv.clientX-cx,moveEv.clientY-cy));
-    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    layer.frameImageScale=Math.max(0.1,Math.min(4,startScale*(distance/startDistance)));
     applyImageVisuals(layer);
     const input=document.getElementById('pp-frame-image-scale'); if(input) input.value=Math.round(layer.frameImageScale*100);
     const label=document.getElementById('pp-frame-image-scale-lbl'); if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
@@ -5054,7 +5106,7 @@ function exitFrameImageEdit(save=true){
 function updFrameImageScale(value){
   const layer=layers.find(x=>x.id===selId);
   if(!layer || layer.type!=='frame' || !layer.frameImage) return;
-  layer.frameImageScale=Math.max(1, Number(value||100)/100);
+  layer.frameImageScale=Math.max(0.1,Math.min(4, Number(value||100)/100));
   applyImageVisuals(layer);
   const label=document.getElementById('pp-frame-image-scale-lbl');
   if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
@@ -9132,6 +9184,19 @@ async function buildLayerData(){
     }
 
     // Las imágenes locales viven en IndexedDB: Firestore guarda solo su clave local.
+    if(l.localImageKey && isVerifiedAdminImageUpload()){
+      try{
+        const persistentSrc = await normalizePersistableImageSrc(src, l.type==='frame' ? 'frames' : 'layer-images');
+        if(!persistentSrc || persistentSrc.startsWith('blob:')) throw new Error('No se obtuvo una URL persistente');
+        src = persistentSrc;
+        l.src = persistentSrc;
+        if(l.type==='frame') l.frameImage = persistentSrc;
+        l.localImageKey = null;
+      }catch(error){
+        throw new Error(`No se pudo respaldar en Cloudinary la imagen "${l.name||'sin título'}"`);
+      }
+    }
+
     if(src && !l.localImageKey){
       try{
         const normalizedSrc = await normalizePersistableImageSrc(src, 'layer-images');
