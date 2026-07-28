@@ -9888,6 +9888,22 @@ document.addEventListener('paste', async (ev) => {
     try{ navigator.clipboard.writeText(''); }catch(_){}
   }
 
+  const clipboardImageItem = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
+  const imageBlob = clipboardImageItem?.getAsFile() || Array.from(cd.files||[]).find(f => (f.type||'').startsWith('image/'));
+  if(imageBlob){
+    addLocalImageFile(imageBlob, null);
+    clearSystemClipboard();
+    return;
+  }
+
+  const html = cd.getData('text/html') || '';
+  const htmlImageSrc = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+  if(htmlImageSrc && /^https?:\/\//i.test(htmlImageSrc)){
+    addImageLayerFromUrl(htmlImageSrc);
+    clearSystemClipboard();
+    return;
+  }
+
   // ¿Vacío o marcador interno? → pegar capas
   if(text === '' || text === '__ds_layer_copy__'){
     pasteLayers();
