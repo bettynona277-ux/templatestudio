@@ -119,6 +119,25 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .panel-body{overflow-y:auto;flex:1;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 80px);}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
+.mobile-nudge-pad{
+  display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,34px);
+  grid-template-areas:'. up .' 'left . right' '. down .';
+  justify-content:center;align-items:center;gap:3px;padding:8px 12px;
+  border-top:1px solid var(--border);background:var(--panel);flex-shrink:0;
+}
+.mobile-nudge-btn{
+  width:42px;height:34px;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel2);color:var(--text);font:700 1rem/1 inherit;
+  touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer;
+  transition:background .12s,transform .12s,color .12s;
+}
+.mobile-nudge-btn[data-nudge="up"]{grid-area:up;}
+.mobile-nudge-btn[data-nudge="left"]{grid-area:left;}
+.mobile-nudge-btn[data-nudge="right"]{grid-area:right;}
+.mobile-nudge-btn[data-nudge="down"]{grid-area:down;}
+.mobile-nudge-btn:active:not(:disabled){background:var(--accent);color:#fff;transform:scale(.94);}
+.mobile-nudge-pad:not(.is-ready){opacity:.42;}
+.mobile-nudge-btn:disabled{cursor:default;}
 
 /* ── TEXT EDITOR PANEL ── */
 .text-panel{padding:10px 14px;}
@@ -619,6 +638,12 @@ body.multisel-mode #dots-btn{display:none!important;}
           <div class="logos-empty" id="logos-empty">Cargando...</div>
         </div>
       </div>
+    </div>
+    <div class="mobile-nudge-pad" id="mobile-nudge-pad" aria-label="Mover selección">
+      <button type="button" class="mobile-nudge-btn" data-nudge="up" aria-label="Mover arriba" title="Mover arriba">↑</button>
+      <button type="button" class="mobile-nudge-btn" data-nudge="left" aria-label="Mover izquierda" title="Mover izquierda">←</button>
+      <button type="button" class="mobile-nudge-btn" data-nudge="right" aria-label="Mover derecha" title="Mover derecha">→</button>
+      <button type="button" class="mobile-nudge-btn" data-nudge="down" aria-label="Mover abajo" title="Mover abajo">↓</button>
     </div>
   </div>
 </div>
@@ -1243,6 +1268,7 @@ function showSelBox(layer){
     dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
     dotsBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
   }
+  syncMobileNudgePad();
 }
 
 function updateSelBox(){
@@ -1279,6 +1305,78 @@ function hideSelBox(){
   const dotsMenu = document.getElementById('dots-menu');
   if(dotsMenu) dotsMenu.style.display = 'none';
   activeLayer = null;
+  syncMobileNudgePad();
+}
+
+// Cruceta táctil: cada pulsación mueve 1 px; al mantenerla repite el movimiento.
+let mobileNudgeDelay = null;
+let mobileNudgeRepeat = null;
+let mobileNudgeMoved = false;
+
+function getMobileNudgeTargets(){
+  const ids = multiselActive && multiselIds.size
+    ? Array.from(multiselIds)
+    : (activeLayer ? [activeLayer.id] : []);
+  return ids.map(id=>layers.find(l=>l.id===id)).filter(l=>l && l.el && !l.locked);
+}
+
+function syncMobileNudgePad(){
+  const pad = document.getElementById('mobile-nudge-pad');
+  if(!pad) return;
+  const ready = getMobileNudgeTargets().length > 0;
+  pad.classList.toggle('is-ready', ready);
+  pad.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
+}
+
+function moveMobileSelectionBy(dx, dy){
+  const targets = getMobileNudgeTargets();
+  if(!targets.length) return false;
+  targets.forEach(layer=>{
+    layer.x = Math.round(layer.x + dx);
+    layer.y = Math.round(layer.y + dy);
+    layer.el.style.left = layer.x + 'px';
+    layer.el.style.top = layer.y + 'px';
+  });
+  if(multiselActive && multiselIds.size) updateMultiselBox();
+  else updateSelBox();
+  return true;
+}
+
+function stopMobileNudge(){
+  if(mobileNudgeDelay) clearTimeout(mobileNudgeDelay);
+  if(mobileNudgeRepeat) clearInterval(mobileNudgeRepeat);
+  mobileNudgeDelay = null;
+  mobileNudgeRepeat = null;
+  if(mobileNudgeMoved) snapshot();
+  mobileNudgeMoved = false;
+}
+
+function startMobileNudge(event, dx, dy){
+  if(event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  stopMobileNudge();
+  mobileNudgeMoved = moveMobileSelectionBy(dx, dy);
+  mobileNudgeDelay = setTimeout(()=>{
+    mobileNudgeRepeat = setInterval(()=>{
+      mobileNudgeMoved = moveMobileSelectionBy(dx, dy) || mobileNudgeMoved;
+    }, 35);
+  }, 260);
+  const finish = ()=>{
+    window.removeEventListener('pointerup', finish);
+    window.removeEventListener('pointercancel', finish);
+    stopMobileNudge();
+  };
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
+}
+
+function initMobileNudgePad(){
+  const directions = {up:[0,-1], left:[-1,0], right:[1,0], down:[0,1]};
+  document.querySelectorAll('.mobile-nudge-btn').forEach(button=>{
+    const vector = directions[button.dataset.nudge];
+    button.addEventListener('pointerdown', event=>startMobileNudge(event, vector[0], vector[1]));
+  });
+  syncMobileNudgePad();
 }
 
 // Handles de escala proporcional desde esquinas
@@ -3784,6 +3882,7 @@ async function downloadPNG(){
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('load', async()=>{
+  initMobileNudgePad();
   showLoad('Conectando...');
   await initFB();
 
@@ -3954,7 +4053,7 @@ function getMultiselBounds(){
 }
 
 function updateMultiselBox(){
-  if(multiselIds.size === 0){ hideMultiselBox(); return; }
+  if(multiselIds.size === 0){ hideMultiselBox(); syncMobileNudgePad(); return; }
   const box = document.getElementById('sel-box-multi');
   const delBtn = document.getElementById('del-btn-multi');
   const doneBtn = document.getElementById('done-btn-multi');
@@ -3982,6 +4081,7 @@ function updateMultiselBox(){
     doneBtn.style.left = (btnCX + 10) + 'px';
     doneBtn.style.top  = btnTop + 'px';
   }
+  syncMobileNudgePad();
 }
 
 function hideMultiselBox(){
@@ -4033,6 +4133,7 @@ function endMultiSelect(){
   });
   removeMultiTapHandlers();
   hideMultiselBox();
+  syncMobileNudgePad();
   toast('✓ Selección múltiple desactivada');
 }
 
