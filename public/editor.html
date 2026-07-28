@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
 // Redirigir móviles al editor móvil preservando todos los parámetros
@@ -15,6 +17,7 @@
 })();
 </script>
 <title>Diseños Streaming — Editor</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
@@ -482,6 +485,18 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-bottom:6px;}
 }
 .cel.frame-el .frame-inner{width:100%;height:100%;object-fit:cover;display:block;}
 .frame-drop-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.75rem;color:var(--accent);pointer-events:none;font-weight:600;}
+.cel.frame-el.frame-image-editing{outline:2px solid var(--accent);outline-offset:3px;cursor:grab;contain:layout!important;overflow:visible!important;}
+.cel.frame-el.frame-image-editing:active{cursor:grabbing;}
+.cel.frame-el.frame-image-editing .rh,.cel.frame-el.frame-image-editing .rot-line,.cel.frame-el.frame-image-editing .rot-handle{display:none!important;}
+#cvs.frame-image-focus > .cel:not(.frame-image-editing){filter:blur(2px) saturate(.7);opacity:.34;pointer-events:none;}
+.frame-image-transform-box{position:absolute;inset:0;border:1.5px dashed var(--accent);pointer-events:none;z-index:80;transform-origin:center center;box-sizing:border-box;}
+.frame-image-transform-box::after{content:'Imagen';position:absolute;top:-24px;left:50%;transform:translateX(-50%);padding:3px 8px;border-radius:5px;background:var(--accent);color:#07151a;font-size:10px;font-weight:800;font-family:Plus Jakarta Sans,sans-serif;white-space:nowrap;}
+.frame-image-transform-handle{position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--accent);box-shadow:0 1px 5px rgba(0,0,0,.35);pointer-events:auto;z-index:2;}
+.frame-image-transform-handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}.frame-image-transform-handle.tr{top:-7px;right:-7px;cursor:nesw-resize;}.frame-image-transform-handle.bl{bottom:-7px;left:-7px;cursor:nesw-resize;}.frame-image-transform-handle.br{bottom:-7px;right:-7px;cursor:nwse-resize;}
+#frame-image-edit-actions{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:10px;padding:8px;background:rgba(8,15,30,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:15000;font-family:Plus Jakarta Sans,sans-serif;}
+#frame-image-edit-actions button{border:0;border-radius:7px;padding:9px 18px;font:700 12px/1 Plus Jakarta Sans,sans-serif;cursor:pointer;}
+#frame-image-edit-cancel{background:rgba(255,255,255,.12);color:#fff;}
+#frame-image-edit-done{background:var(--accent);color:#07151a;}
 
 /* SMART GUIDES */
 .smart-guide{position:absolute;pointer-events:none;z-index:12000;display:none;background:#ff4d8d;opacity:.95;}
@@ -1713,6 +1728,15 @@ input[type=range]{filter:none !important;}
           <input id="pp-frame-op" type="range" min="0" max="100" value="100" style="flex:1;" oninput="updOp(this.value)">
           <span id="pp-frame-op-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">100%</span>
         </div>
+        <div id="pp-frame-image-position" style="display:none;margin:12px 0 2px;padding-top:12px;border-top:1px solid var(--border);">
+          <div class="mini-lbl">Imagen dentro del marco</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" id="pp-frame-image-scale" min="100" max="400" step="1" value="100" style="flex:1;" oninput="updFrameImageScale(this.value)">
+            <span id="pp-frame-image-scale-lbl" style="font-size:0.72rem;color:var(--muted);min-width:36px;">100%</span>
+          </div>
+          <button class="pp-btn" style="margin-top:8px;font-size:0.72rem;" onclick="resetFrameImageTransform()">Restablecer imagen</button>
+          <button id="pp-frame-image-done" class="pp-btn" style="display:none;margin-top:8px;font-size:0.72rem;" onclick="exitFrameImageEdit()">Listo</button>
+        </div>
         </div>
 
         <div class="frame-panel-effects">
@@ -2831,14 +2855,14 @@ function updateUndoUI(){
 }
 
 // Toast notification
-function showToast(msg){
+function showToast(msg,duration=1400){
   let t=document.getElementById('ts-toast');
   if(!t){ t=document.createElement('div'); t.id='ts-toast';
     t.style.cssText='position:fixed;bottom:54px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.82);color:#fff;padding:6px 16px;border-radius:100px;font-size:0.72rem;font-weight:600;z-index:9999;pointer-events:none;transition:opacity 0.3s;font-family:Plus Jakarta Sans,sans-serif;';
     document.body.appendChild(t);
   }
   t.textContent=msg; t.style.opacity='1';
-  clearTimeout(t._timer); t._timer=setTimeout(()=>t.style.opacity='0',1400);
+  clearTimeout(t._timer); t._timer=setTimeout(()=>t.style.opacity='0',duration);
 }
 
 // ── GROUPS ───────────────────────────────────────────────────
@@ -3716,6 +3740,12 @@ const uz=document.getElementById('upload-zone');
 uz.addEventListener('dragover',e=>{e.preventDefault();uz.classList.add('drag-over');});
 uz.addEventListener('dragleave',()=>uz.classList.remove('drag-over'));
 uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('drag-over');const f=e.dataTransfer.files[0];if(f&&f.name.endsWith('.psd'))processPSD(f);});
+cvs.addEventListener('dragover',e=>e.preventDefault());
+cvs.addEventListener('drop',e=>{
+  e.preventDefault();
+  const file=Array.from(e.dataTransfer?.files||[]).find(f=>(f.type||'').startsWith('image/'));
+  if(file) addLocalImageFile(file);
+});
 
 // PSD UPLOAD → SERVER
 async function handleUpload(e){
@@ -3723,27 +3753,85 @@ async function handleUpload(e){
   const psds=files.filter(f=>f.name.toLowerCase().endsWith('.psd'));
   const imgs=files.filter(f=>!f.name.toLowerCase().endsWith('.psd'));
   if(psds.length)await processPSD(psds[0]);
-  imgs.forEach(f=>{const r=new FileReader();r.onload=ev=>addImgLayer(ev.target.result,f.name);r.readAsDataURL(f);});
+  for(const file of imgs) await addLocalImageFile(file);
 }
-function addImgLayer(src,name){
+const LOCAL_IMAGE_DB='ds-editor-local-images';
+const LOCAL_IMAGE_STORE='images';
+function openLocalImageDb(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(LOCAL_IMAGE_DB,1);
+    req.onupgradeneeded=()=>req.result.createObjectStore(LOCAL_IMAGE_STORE,{keyPath:'id'});
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+function localImageId(){
+  return 'local-'+(crypto.randomUUID?.()||(`${Date.now()}-${Math.random().toString(36).slice(2)}`));
+}
+async function storeLocalImage(file){
+  const id=localImageId();
+  try{
+    const db=await openLocalImageDb();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(LOCAL_IMAGE_STORE,'readwrite');
+      tx.objectStore(LOCAL_IMAGE_STORE).put({id,blob:file,name:file.name||'Imagen'});
+      tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+    });
+    db.close();
+    return id;
+  }catch(err){
+    console.warn('No se pudo guardar la imagen localmente:',err);
+    return null;
+  }
+}
+async function readLocalImage(id){
+  if(!id) return null;
+  try{
+    const db=await openLocalImageDb();
+    const record=await new Promise((resolve,reject)=>{
+      const tx=db.transaction(LOCAL_IMAGE_STORE,'readonly');
+      const req=tx.objectStore(LOCAL_IMAGE_STORE).get(id);
+      req.onsuccess=()=>resolve(req.result||null); req.onerror=()=>reject(req.error);
+    });
+    db.close();
+    return record?.blob||null;
+  }catch(_){ return null; }
+}
+async function addLocalImageFile(file, targetFrame=null){
+  if(!file || !(file.type||'').startsWith('image/')){ showToast('Selecciona una imagen v\u00e1lida'); return; }
+  const localImageKey=await storeLocalImage(file);
+  const src=URL.createObjectURL(file);
+  if(targetFrame){
+    applyImageToFrame(targetFrame,src);
+    targetFrame.localImageKey=localImageKey;
+    renderList(); snapshotState();
+  }else{
+    addImgLayer(src,file.name,{localImageKey});
+  }
+  showToast(localImageKey ? 'Imagen local: no se sube a la nube' : 'Imagen local: solo en esta sesi\u00f3n',4500);
+}
+async function hydrateLocalImage(layer){
+  if(!layer?.localImageKey || layer.src) return;
+  const blob=await readLocalImage(layer.localImageKey);
+  if(!blob) return;
+  const src=URL.createObjectURL(blob);
+  layer.src=src;
+  if(layer.type==='frame') layer.frameImage=src;
+  if(layer.el) layer.el.remove();
+  mkEl(layer);
+}
+function addImgLayer(src,name,options={}){
   const img=new Image();
-  img.onload=async ()=>{
+  img.onload=()=>{
     const cw=parseInt(cvs.style.width)||800,ch=parseInt(cvs.style.height)||800;
     let w=img.width,h=img.height;
     const s=Math.min(1,Math.min(cw*0.95/w,ch*0.95/h));
     w=Math.round(w*s);h=Math.round(h*s);
 
-    // Mantener local mientras se edita; se sube a Cloudinary solo si el usuario guarda.
-    let finalSrc=src;
-    const approxKB = typeof src === 'string' && src.startsWith('data:') ? Math.round(src.length * 0.75 / 1024) : 0;
-    if(approxKB > 1800){
-      try{ finalSrc = await compressImage(src, 1800, 1800, 0.86); }
-      catch(e){ console.warn('No se pudo comprimir imagen local:', e.message); }
-    }
-
-    const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src:finalSrc,
+    const l={id:lCtr++,type:'img',name:name.replace(/\.[^.]+$/,''),src,
       x:Math.round((cw-w)/2),y:Math.round((ch-h)/2),w,h,
       opacity:1,visible:true,zIndex:layers.length,tp:null,el:null,rotation:0,origW:img.width,origH:img.height,
+      localImageKey:options.localImageKey||null,
       blur:0,hue:0,saturation:0,lightness:0,colorizeEnabled:false,colorizeColor:'#ff005c',colorizeStrength:0,colorReplaceEnabled:false,colorReplaceFrom:'#004cff',colorReplaceTo:'#ff005c',colorReplaceTolerance:35,colorReplaceStrength:100};
     layers.push(l);mkEl(l);renderList();sel(l.id);
   };img.src=src;
@@ -4862,6 +4950,163 @@ function setLayerPosition(layer, x, y, opts={}){
   layer.el.style.left = layer.x + 'px';
   layer.el.style.top = layer.y + 'px';
 }
+let frameImageEditId = null;
+let frameImageEditInitial = null;
+
+function frameImageTransformValues(layer){
+  return {
+    scale: Math.max(1, Number(layer?.frameImageScale) || 1),
+    x: Number(layer?.frameImageOffsetX) || 0,
+    y: Number(layer?.frameImageOffsetY) || 0
+  };
+}
+function applyFrameImageTransform(layer){
+  if(!layer || layer.type!=='frame') return;
+  const img=getImageTargetElement(layer);
+  if(!img) return;
+  const tr=frameImageTransformValues(layer);
+  img.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale*(layer.flipX?-1:1)}, ${tr.scale*(layer.flipY?-1:1)})`;
+  img.style.transformOrigin='center center';
+  syncFrameImageTransformBox(layer);
+}
+function syncFrameImageTransformBox(layer){
+  const box=layer?.el?.querySelector('.frame-image-transform-box');
+  if(!box) return;
+  const tr=frameImageTransformValues(layer);
+  box.style.transform=`translate(${tr.x}px, ${tr.y}px) scale(${tr.scale})`;
+}
+function startFrameImageResize(ev, layer){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const rect=layer.el.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const startDistance=Math.max(1,Math.hypot(ev.clientX-cx,ev.clientY-cy));
+  const startScale=frameImageTransformValues(layer).scale;
+  const move=moveEv=>{
+    const distance=Math.max(1,Math.hypot(moveEv.clientX-cx,moveEv.clientY-cy));
+    layer.frameImageScale=Math.max(1,Math.min(4,startScale*(distance/startDistance)));
+    applyImageVisuals(layer);
+    const input=document.getElementById('pp-frame-image-scale'); if(input) input.value=Math.round(layer.frameImageScale*100);
+    const label=document.getElementById('pp-frame-image-scale-lbl'); if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
+  };
+  const end=()=>{
+    document.removeEventListener('mousemove',move);
+    document.removeEventListener('mouseup',end);
+    snapshotState();
+  };
+  document.addEventListener('mousemove',move);
+  document.addEventListener('mouseup',end);
+}
+function createFrameImageTransformBox(layer){
+  if(!layer?.el) return;
+  layer.el.querySelector('.frame-image-transform-box')?.remove();
+  const box=document.createElement('div');
+  box.className='frame-image-transform-box';
+  ['tl','tr','bl','br'].forEach(corner=>{
+    const handle=document.createElement('div');
+    handle.className=`frame-image-transform-handle ${corner}`;
+    handle.title='Cambiar tamano de imagen';
+    handle.addEventListener('mousedown',ev=>startFrameImageResize(ev,layer));
+    box.appendChild(handle);
+  });
+  layer.el.appendChild(box);
+  syncFrameImageTransformBox(layer);
+}
+function syncFrameImageEditActions(){
+  let actions=document.getElementById('frame-image-edit-actions');
+  if(frameImageEditId===null){ actions?.remove(); return; }
+  if(!actions){
+    actions=document.createElement('div');
+    actions.id='frame-image-edit-actions';
+    actions.innerHTML='<button id="frame-image-edit-cancel" type="button">Cancelar</button><button id="frame-image-edit-done" type="button">Listo</button>';
+    document.body.appendChild(actions);
+    actions.querySelector('#frame-image-edit-cancel').addEventListener('click',cancelFrameImageEdit);
+    actions.querySelector('#frame-image-edit-done').addEventListener('click',()=>exitFrameImageEdit(true));
+  }
+}
+function cancelFrameImageEdit(){
+  const layer=layers.find(x=>x.id===frameImageEditId);
+  if(layer && frameImageEditInitial?.id===layer.id){
+    layer.frameImageScale=frameImageEditInitial.scale;
+    layer.frameImageOffsetX=frameImageEditInitial.x;
+    layer.frameImageOffsetY=frameImageEditInitial.y;
+    applyImageVisuals(layer);
+  }
+  exitFrameImageEdit(false);
+}
+function exitFrameImageEdit(save=true){
+  const layer=layers.find(x=>x.id===frameImageEditId);
+  if(layer){
+    layer.el?.classList.remove('frame-image-editing');
+    layer.el?.querySelector('.frame-image-transform-box')?.remove();
+    if(layer.el && layer._frameImageEditZ!==undefined){
+      layer.el.style.zIndex=layer._frameImageEditZ;
+      delete layer._frameImageEditZ;
+    }
+  }
+  frameImageEditId=null;
+  frameImageEditInitial=null;
+  cvs.classList.remove('frame-image-focus');
+  syncFrameImageEditActions();
+  if(save) snapshotState();
+  syncP();
+}
+function updFrameImageScale(value){
+  const layer=layers.find(x=>x.id===selId);
+  if(!layer || layer.type!=='frame' || !layer.frameImage) return;
+  layer.frameImageScale=Math.max(1, Number(value||100)/100);
+  applyImageVisuals(layer);
+  const label=document.getElementById('pp-frame-image-scale-lbl');
+  if(label) label.textContent=Math.round(layer.frameImageScale*100)+'%';
+  snapshotState();
+}
+function resetFrameImageTransform(){
+  const layer=layers.find(x=>x.id===selId);
+  if(!layer || layer.type!=='frame' || !layer.frameImage) return;
+  layer.frameImageScale=1;
+  layer.frameImageOffsetX=0;
+  layer.frameImageOffsetY=0;
+  applyImageVisuals(layer);
+  syncP();
+  snapshotState();
+}
+function enterFrameImageEdit(layer){
+  if(!layer || layer.type!=='frame' || !layer.frameImage || layer.locked) return;
+  if(frameImageEditId!==null && frameImageEditId!==layer.id){
+    exitFrameImageEdit(false);
+  }
+  if(frameImageEditId!==layer.id){
+    const tr=frameImageTransformValues(layer);
+    frameImageEditInitial={id:layer.id,scale:tr.scale,x:tr.x,y:tr.y};
+  }
+  frameImageEditId=layer.id;
+  layer._frameImageEditZ=layer.el?.style.zIndex||'';
+  if(layer.el) layer.el.style.zIndex='10000';
+  layer.el?.classList.add('frame-image-editing');
+  cvs.classList.add('frame-image-focus');
+  createFrameImageTransformBox(layer);
+  syncFrameImageEditActions();
+  sel(layer.id);
+  syncP();
+}
+function startFrameImageDrag(ev, layer){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const start=frameImageTransformValues(layer);
+  const startX=ev.clientX, startY=ev.clientY;
+  const move=moveEv=>{
+    layer.frameImageOffsetX=start.x+(moveEv.clientX-startX)/zoom_;
+    layer.frameImageOffsetY=start.y+(moveEv.clientY-startY)/zoom_;
+    applyImageVisuals(layer);
+  };
+  const end=()=>{
+    document.removeEventListener('mousemove',move);
+    document.removeEventListener('mouseup',end);
+    snapshotState();
+  };
+  document.addEventListener('mousemove',move);
+  document.addEventListener('mouseup',end);
+}
 function ensureRotationTooltip(){
   if(rotTipEl && rotTipEl.isConnected) return rotTipEl;
   rotTipEl = document.createElement('div');
@@ -5099,13 +5344,7 @@ function mkEl(l){
       // File drop
       const file=ev.dataTransfer.files[0];
       if(file&&file.type.startsWith('image/')){
-        const reader=new FileReader();
-        reader.onload=async e=>{
-          let src=e.target.result;
-          try{ src=await uploadToStorage(src,`frames/${Date.now()}.jpg`); }catch(_){}
-          doApply(src);
-        };
-        reader.readAsDataURL(file);
+        addLocalImageFile(file,l);
         return;
       }
       // Layer drag (from canvas or layer panel)
@@ -5232,6 +5471,17 @@ function mkEl(l){
   el.onmousedown=ev=>{
     // Allow clicks on resize handles through
     if(ev.target.classList.contains('rh')) return;
+    // Algunos navegadores inician el drag antes de emitir dblclick.
+    if(l.type==='frame' && l.frameImage && ev.button===0 && ev.detail>=2){
+      ev.preventDefault();
+      ev.stopPropagation();
+      enterFrameImageEdit(l);
+      return;
+    }
+    if(l.type==='frame' && frameImageEditId===l.id && l.frameImage){
+      startFrameImageDrag(ev,l);
+      return;
+    }
     if(l.type==='text' && ev.button===0 && ev.detail>=2){
       const d=document.getElementById('ti-'+l.id);
       if(d){
@@ -5298,6 +5548,23 @@ function mkEl(l){
       startDrag(ev, l.id);
     }
   };
+  if(l.type==='frame' && l.frameImage){
+    el.ondblclick=ev=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      enterFrameImageEdit(l);
+    };
+    el.addEventListener('wheel',ev=>{
+      if(frameImageEditId!==l.id) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const current=frameImageTransformValues(l).scale;
+      l.frameImageScale=Math.max(1,Math.min(2.5,current+(ev.deltaY<0?0.05:-0.05)));
+      applyImageVisuals(l);
+      syncP();
+      snapshotState();
+    },{passive:false});
+  }
   l.el=el;cvs.appendChild(el);
   if(l.rotation == null) l.rotation = 0;
   applyLayerTransform(l);
@@ -5446,6 +5713,9 @@ function applyImageToFrame(frameLayer, src){
   // pero src también ayuda a evitar inconsistencias en duplicado/historial.
   frameLayer.frameImage = src;
   frameLayer.src = src;
+  frameLayer.frameImageScale = 1;
+  frameLayer.frameImageOffsetX = 0;
+  frameLayer.frameImageOffsetY = 0;
   const el = frameLayer.el;
   if(!el) return;
   el.classList.add('has-image');
@@ -5976,6 +6246,7 @@ function sel(id, additive=false){
   const lockCheck = layers.find(x=>x.id===id);
   if(lockCheck?.locked) return; // no seleccionar capas bloqueadas
   const clickedLayer = layers.find(x=>x.id===id);
+  if(frameImageEditId!==null && frameImageEditId!==id) exitFrameImageEdit();
   // Get the ids this click represents (single layer or whole group)
   if(styleMode){
     if(!copiedStyle){
@@ -6567,6 +6838,13 @@ function renderAdjustedImageCanvas(img, dw, dh, layer, pixelScale=1){
 function applyImageVisuals(layer){
   const img = getImageTargetElement(layer);
   if(!img) return;
+  if(layer.type==='frame'){
+    applyFrameImageTransform(layer);
+    img.style.filter = imageFilterString(layer);
+    updateImageColorizeOverlay(layer);
+    updateImageReplacePreview(layer);
+    return;
+  }
   const flipX = !!layer.flipX;
   const flipY = !!layer.flipY;
   img.style.transform = `scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`;
@@ -6849,6 +7127,15 @@ function syncP(){
     const fishdC=document.getElementById('pp-frame-inner-shadow-c'); if(fishdC) fishdC.value=l.frameInnerShadowColor||'#000000';
     const fishdOp=document.getElementById('pp-frame-inner-shadow-op'); if(fishdOp) fishdOp.value=l.frameInnerShadowOp??28;
     const fishdOpL=document.getElementById('pp-frame-inner-shadow-op-lbl'); if(fishdOpL) fishdOpL.textContent=(l.frameInnerShadowOp??28)+'%';
+    const imagePosition=document.getElementById('pp-frame-image-position');
+    if(imagePosition) imagePosition.style.display=l.frameImage?'block':'none';
+    const imageDone=document.getElementById('pp-frame-image-done');
+    if(imageDone) imageDone.style.display=frameImageEditId===l.id?'block':'none';
+    if(l.frameImage){
+      const scale=Math.round(frameImageTransformValues(l).scale*100);
+      const scaleInput=document.getElementById('pp-frame-image-scale'); if(scaleInput) scaleInput.value=scale;
+      const scaleLabel=document.getElementById('pp-frame-image-scale-lbl'); if(scaleLabel) scaleLabel.textContent=scale+'%';
+    }
   }
   if(l.type==='img' || (l.type==='frame' && l.frameImage)){
     const ib=document.getElementById('pp-blur'); if(ib) ib.value=Number(l.blur||0);
@@ -8252,17 +8539,18 @@ async function renderDesignToCanvas(scale=2){
           ctx.filter = 'none';
           const sw = img.naturalWidth || img.width || l.w;
           const sh = img.naturalHeight || img.height || l.h;
-          const scaleCover = Math.max(l.w / sw, l.h / sh);
+          const tr = frameImageTransformValues(l);
+          const scaleCover = Math.max(l.w / sw, l.h / sh) * tr.scale;
           const dw = sw * scaleCover;
           const dh = sh * scaleCover;
-          const dx = fx + (l.w - dw)/2;
-          const dy = fy + (l.h - dh)/2;
+          const dx = fx + (l.w - dw)/2 + tr.x;
+          const dy = fy + (l.h - dh)/2 + tr.y;
           const adjustedImg = renderAdjustedImageCanvas(img, dw, dh, l, scale);
           const localCx = hasRotation ? 0 : layerCx;
           const localCy = hasRotation ? 0 : layerCy;
           ctx.translate(localCx, localCy);
           ctx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
-          ctx.drawImage(adjustedImg, dx - localCx, dy - localCy, dw, dh);
+          ctx.drawImage(adjustedImg, dx - localCx + (l.flipX?-2*tr.x:0), dy - localCy + (l.flipY?-2*tr.y:0), dw, dh);
           ctx.restore();
         }
       }
@@ -8843,8 +9131,8 @@ async function buildLayerData(){
       if(cleanSrc !== src){ src = cleanSrc; l.src = cleanSrc; }
     }
 
-    // Normalizar referencias de imagen para que sobrevivan entre sesiones
-    if(src){
+    // Las imágenes locales viven en IndexedDB: Firestore guarda solo su clave local.
+    if(src && !l.localImageKey){
       try{
         const normalizedSrc = await normalizePersistableImageSrc(src, 'layer-images');
         if(normalizedSrc){
@@ -8863,7 +9151,7 @@ async function buildLayerData(){
       id: l.id,
       type: l.type,
       name: l.name||'',
-      src: l.isShape ? '' : src,  // formas: src es blob temporal, se regenera al cargar
+      src: l.isShape || l.localImageKey ? '' : src,  // las imágenes locales nunca salen del dispositivo
       x: Math.round(l.x)||0,
       y: Math.round(l.y)||0,
       w: Math.round(l.w)||10,
@@ -8877,6 +9165,7 @@ async function buildLayerData(){
     if(l.groupId) obj.groupId = l.groupId;
     if(l.origW) obj.origW = l.origW;
     if(l.origH) obj.origH = l.origH;
+    if(l.localImageKey) obj.localImageKey = l.localImageKey;
     if(l.externalUrl){ obj.externalUrl=true; obj._cbust=l._cbust||Date.now(); }
     if(l.isShape){
       obj.isShape=true;
@@ -8917,7 +9206,7 @@ async function buildLayerData(){
         }
         frameSrc = base + parts.slice(si).join('/');
       }
-      if(frameSrc){
+      if(frameSrc && !l.localImageKey){
         try{
           const normalizedFrame = await normalizePersistableImageSrc(frameSrc, 'frames');
           if(normalizedFrame){
@@ -8930,6 +9219,10 @@ async function buildLayerData(){
           console.warn(`No se pudo normalizar imagen de marco "${l.name}":`, e.message);
         }
       }
+      if(l.localImageKey) obj.frameImage = '';
+      obj.frameImageScale = frameImageTransformValues(l).scale;
+      obj.frameImageOffsetX = frameImageTransformValues(l).x;
+      obj.frameImageOffsetY = frameImageTransformValues(l).y;
     }
     obj.blur = Number(l.blur||0);
     obj.hue = Number(l.hue||0);
@@ -9339,6 +9632,7 @@ function loadData(tpl){
     if(typeof l.frameImage === 'string' && l.frameImage.startsWith('blob:')) l.frameImage = '';
     layers.push(l);
     mkEl(l);
+    if(l.localImageKey) hydrateLocalImage(l);
     // Si es imagen sin origW/origH, cargarla para obtener proporciones reales
     if(l.type==='img' && !l.isShape && l.src && (!l.origW || !l.origH)){
       (src=>{
@@ -9436,15 +9730,24 @@ function copyLayers(){
 }
 
 function addImageLayerFromUrl(url){
+  if(/^https?:\/\//i.test(url)){
+    showToast('Cargando imagen...');
+    fetch(url).then(res=>{
+      if(!res.ok) throw new Error('No disponible');
+      return res.blob();
+    }).then(blob=>{
+      if(!blob.type.startsWith('image/')) throw new Error('No es imagen');
+      return addLocalImageFile(new File([blob],'Imagen pegada',{type:blob.type}));
+    }).catch(()=>showToast('No se pudo leer esta imagen como archivo local'));
+    return;
+  }
   const cw = parseInt(cvs.style.width)||1080;
   const ch = parseInt(cvs.style.height)||1080;
   const maxSize = Math.round(Math.min(cw, ch) * 0.6);
   // Cargar via proxy weserv (CORS abierto), comprimir a base64 ~30-50KB y guardar en Firestore
   // Así la imagen es permanente y no depende de URLs externas
-  const proxyUrl = 'https://images.weserv.nl/?url='+encodeURIComponent(url)+'&n=-1';
   showToast('⏳ Cargando imagen...');
   const img = new Image();
-  img.crossOrigin = 'anonymous';
   img.onload = async function(){
     const nat = img.naturalWidth || maxSize;
     const nath = img.naturalHeight || maxSize;
@@ -9478,7 +9781,7 @@ function addImageLayerFromUrl(url){
   img.onerror = function(){
     showToast('✗ No se puede cargar esta imagen. Intenta con otra URL.');
   };
-  img.src = proxyUrl;
+  img.src = url;
 }
 
 let bgRemovalModulePromise = null;
@@ -9699,6 +10002,22 @@ document.addEventListener('paste', async (ev) => {
     try{ navigator.clipboard.writeText(''); }catch(_){}
   }
 
+  const clipboardImageItem = Array.from(cd.items||[]).find(i => i.type.startsWith('image/'));
+  const imageBlob = clipboardImageItem?.getAsFile() || Array.from(cd.files||[]).find(f => (f.type||'').startsWith('image/'));
+  if(imageBlob){
+    addLocalImageFile(imageBlob, null);
+    clearSystemClipboard();
+    return;
+  }
+
+  const html = cd.getData('text/html') || '';
+  const htmlImageSrc = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+  if(htmlImageSrc && /^https?:\/\//i.test(htmlImageSrc)){
+    addImageLayerFromUrl(htmlImageSrc);
+    clearSystemClipboard();
+    return;
+  }
+
   // ¿Vacío o marcador interno? → pegar capas
   if(text === '' || text === '__ds_layer_copy__'){
     pasteLayers();
@@ -9711,7 +10030,7 @@ document.addEventListener('paste', async (ev) => {
   if(imgFile){
     const blob = imgFile.getAsFile();
     if(blob){
-      addImageLayerFromUrl(URL.createObjectURL(blob));
+      addLocalImageFile(blob, null);
       clearSystemClipboard();
       return;
     }
@@ -9776,8 +10095,7 @@ async function pasteLayers(){
         if(item.types.some(t=>t.startsWith('image/'))){
           const mimeType = item.types.find(t=>t.startsWith('image/'));
           const blob = await item.getType(mimeType);
-          const url = URL.createObjectURL(blob);
-          addImageLayerFromUrl(url);
+          addLocalImageFile(blob, null);
           return;
         }
       }
@@ -9897,7 +10215,10 @@ document.addEventListener('keydown',ev=>{
     if(selIds.length>1){ selIds.forEach(id=>delL(id,{stopPropagation:()=>{}})); selIds=[]; desel(); }
     else delSel();
   }
-  if(ev.key==='Escape') desel();
+  if(ev.key==='Escape'){
+    if(frameImageEditId!==null) cancelFrameImageEdit();
+    else desel();
+  }
 
   // Scale single selected
   if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
