@@ -159,7 +159,7 @@ button{border:0;cursor:pointer}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:55;max-height:88vh;overflow:auto;padding:14px 14px calc(18px + env(safe-area-inset-bottom));border-radius:26px 26px 0 0;background:#091322;border:1px solid var(--line);box-shadow:0 -22px 55px rgba(0,0,0,.44);transform:translateY(105%);transition:.22s ease}
 .sheet.show{transform:translateY(0)}.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.sheet h3{margin:0;font-size:18px}.grid{display:grid;gap:10px}.field{display:grid;gap:5px}.field label{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:900}.field input,.field select,.field textarea{width:100%;min-height:46px;border-radius:15px;border:1px solid var(--line);background:#07101d;color:var(--text);padding:0 12px;outline:0}.field textarea{padding:12px;min-height:82px;resize:vertical}
 .existing-client-suggestions{display:grid;gap:6px;padding:10px;border:1px solid rgba(118,92,255,.28);border-radius:15px;background:rgba(118,92,255,.09)}.existing-client-hint{font-size:11px;font-weight:900;color:#cfc6ff;text-transform:uppercase}.existing-client-option{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;padding:8px 10px;border-radius:12px;background:#0d1726;border:1px solid var(--line);color:var(--text);text-align:left}.existing-client-option strong,.existing-client-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.existing-client-option strong{font-size:13px}.existing-client-option span{font-size:12px;color:var(--muted)}.existing-client-option:focus-visible{outline:2px solid var(--brand2);outline-offset:2px}.existing-client-selected{font-size:13px;font-weight:850;color:#9ff3d0}
-.form-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}.toast{position:fixed;left:14px;right:14px;bottom:calc(150px + env(safe-area-inset-bottom));z-index:80;padding:13px 14px;border-radius:17px;background:#132139;color:#fff;border:1px solid var(--line);box-shadow:var(--shadow);font-weight:850;transform:translateY(16px);opacity:0;pointer-events:none;transition:.18s}.toast.show{transform:translateY(0);opacity:1}.toast.ok{border-color:rgba(34,216,154,.35)}.toast.bad{border-color:rgba(255,93,125,.45);background:#321421}
+.form-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}.toast{position:fixed;left:14px;right:14px;bottom:calc(150px + env(safe-area-inset-bottom));z-index:80;max-height:42vh;overflow:auto;padding:13px 14px;border-radius:17px;background:#132139;color:#fff;border:1px solid var(--line);box-shadow:var(--shadow);font-weight:850;white-space:pre-wrap;transform:translateY(16px);opacity:0;pointer-events:none;transition:.18s}.toast.show{transform:translateY(0);opacity:1;pointer-events:auto}.toast.ok{border-color:rgba(34,216,154,.35)}.toast.bad{border-color:rgba(255,93,125,.45);background:#321421}
 .expired{min-height:100vh;display:grid;place-items:center;padding:22px}.expired-box{max-width:420px;width:100%;padding:20px;border-radius:26px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}.expired-box h1{margin:0 0 8px;font-size:24px}.expired-box p{color:var(--muted);line-height:1.5}.hidden{display:none!important}
 /* Tema claro: mantiene los colores de accion y mejora la lectura en pantallas moviles. */
 html[data-theme="light"]{
@@ -1097,8 +1097,28 @@ function toast(msg,type='ok'){
   el.textContent = msg;
   el.className = 'toast show '+type;
   clearTimeout(toast.t);
-  toast.t = setTimeout(()=> el.className='toast', 2600);
+  toast.t = setTimeout(()=> el.className='toast', type === 'bad' ? 11000 : 2600);
 }
+function mobileSupportError(err, scope='operacion'){
+  const raw = String(err?.message || err || 'Error desconocido').replace(/\s+/g, ' ').trim().slice(0, 260);
+  const normalized = raw.toLowerCase();
+  const code = /internal assertion failed|unexpected state/.test(normalized) ? 'FIRESTORE_INTERNAL'
+    : /permission|permissions|insufficient/.test(normalized) ? 'FIRESTORE_PERMISSION'
+    : /network|offline|unavailable|failed to fetch/.test(normalized) ? 'NETWORK'
+    : 'UNEXPECTED';
+  return `Ocurrio un error. Envia este mensaje exacto a Rafael: [GESTOR-MOVIL/${scope}/${code}] Error: ${raw}`;
+}
+function showMobileSupportError(err, scope){
+  console.error(err);
+  toast(mobileSupportError(err, scope), 'bad');
+}
+window.addEventListener('error', event => {
+  const err = event?.error || event?.message;
+  if(err) toast(mobileSupportError(err, 'runtime'), 'bad');
+});
+window.addEventListener('unhandledrejection', event => {
+  if(event?.reason) toast(mobileSupportError(event.reason, 'promise'), 'bad');
+});
 function setView(view){
   if(view === 'finance' && !isFinanceModeEnabled()) view = 'home';
   state.view = view;
@@ -2133,8 +2153,7 @@ async function saveComboFromForm(e){
     render();
     openWhatsAppCombo(rows, 'delivery');
   }catch(err){
-    console.error(err);
-    toast('No se pudo guardar el combo.','bad');
+    showMobileSupportError(err, 'guardar-combo');
   }finally{
     btn.disabled = false;
   }
@@ -2202,10 +2221,7 @@ async function saveItem(kind,data,opts={}){
   }catch(err){
     console.error(err);
     if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
-    const msg = /permission|permissions|insufficient/i.test(err?.message || '')
-      ? 'No se pudo guardar. Actualiza la app o revisa que el usuario este activo.'
-      : 'No se pudo guardar. Revisa la conexion.';
-    toast(msg,'bad');
+    toast(mobileSupportError(err, 'guardar-venta'), 'bad');
   }
 }
 function sanitizeAccountForSave(data={}){
@@ -2282,8 +2298,7 @@ async function removeItem(kind,itemId){
     closeSheet();
     render();
   }catch(err){
-    console.error(err);
-    toast('No se pudo eliminar.','bad');
+    showMobileSupportError(err, 'eliminar');
   }
 }
 async function saveSettings(next){
@@ -2303,8 +2318,7 @@ async function saveSettings(next){
     toast('Ajustes guardados');
     renderSettings();
   }catch(err){
-    console.error(err);
-    toast('No se pudieron guardar los ajustes.','bad');
+    showMobileSupportError(err, 'guardar-ajustes');
   }
 }
 function formatSecurityDate(value){
@@ -2390,7 +2404,7 @@ async function revokeMobileDevice(deviceId){
     await updateSecuritySummary(user);
     renderMobileDeviceList();
   }catch(err){
-    toast('No se pudo cerrar el dispositivo.','bad');
+    showMobileSupportError(err, 'cerrar-dispositivo');
   }
 }
 async function allowMobileDevice(deviceId){
@@ -2403,7 +2417,7 @@ async function allowMobileDevice(deviceId){
     await updateSecuritySummary(user);
     renderMobileDeviceList();
   }catch(err){
-    toast('No se pudo permitir el dispositivo.','bad');
+    showMobileSupportError(err, 'permitir-dispositivo');
   }
 }
 async function sendMobilePasswordReset(){
@@ -2413,7 +2427,7 @@ async function sendMobilePasswordReset(){
     await sendPasswordResetEmail(auth, user.email);
     toast('Enlace enviado al correo');
   }catch(err){
-    toast('No se pudo enviar el correo.','bad');
+    showMobileSupportError(err, 'enviar-correo');
   }
 }
 async function saveSettingsFromForm(e){
@@ -2489,8 +2503,7 @@ function openFinanceExpenseSheet(){
       closeSheet();
       renderFinance();
     }catch(err){
-      console.error(err);
-      toast('No se pudo guardar el gasto.','bad');
+      showMobileSupportError(err, 'guardar-gasto');
     }
   };
 }
@@ -2679,7 +2692,7 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
     toast('Cuenta madre renovada');
     closeSheet();
     render();
-  }catch(err){ console.error(err); toast('No se pudo renovar la cuenta.','bad'); }
+  }catch(err){ showMobileSupportError(err, 'renovar-cuenta'); }
 }
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0){
   if(!c || !nextDate) return;
@@ -2707,8 +2720,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     render();
     setTimeout(()=>sendRenewedMessage?.(), 80);
   }catch(err){
-    console.error(err);
-    toast('No se pudo renovar.','bad');
+    showMobileSupportError(err, 'renovar-cliente');
   }
 }
 async function markNoRenew(c){
@@ -2725,8 +2737,7 @@ async function markNoRenew(c){
     toast('Perfil liberado. Cliente archivado.');
     render();
   }catch(err){
-    console.error(err);
-    toast('No se pudo actualizar.','bad');
+    showMobileSupportError(err, 'actualizar-cliente');
   }
 }
 function openSmartAccountClientWhatsApp(c){
@@ -3053,8 +3064,7 @@ async function loadOnce(showToast=true, forceNetwork=false){
     render();
     if(showToast) toast('Datos actualizados.');
   }catch(err){
-    console.error(err);
-    toast('No se pudieron actualizar los datos.','bad');
+    showMobileSupportError(err, 'actualizar-datos');
   }
 }
 function startLive(){
@@ -3349,8 +3359,7 @@ onAuthStateChanged(auth, async user => {
     await updateSecuritySummary(user);
     render();
   }catch(err){
-    console.error(err);
-    toast('No se pudo iniciar el gestor.','bad');
+    showMobileSupportError(err, 'inicio');
   }
 });
 </script>

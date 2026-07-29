@@ -497,7 +497,12 @@ function notifySaveStatus(type, message) {
     toast.setAttribute('aria-live', 'polite');
     document.body.appendChild(toast);
   }
-  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+  toast.replaceChildren();
+  const titleNode = document.createElement('strong');
+  titleNode.textContent = title;
+  const messageNode = document.createElement('span');
+  messageNode.textContent = message;
+  toast.append(titleNode, messageNode);
   Object.assign(toast.style, {
     position: 'fixed',
     right: '18px',
@@ -535,16 +540,27 @@ function notifySaveStatus(type, message) {
 }
 
 
-function friendlySaveError(err) {
-  const msg = err?.message || 'Verifica tu conexion.';
-  if (/internal assertion failed|unexpected state/i.test(msg)) {
-    return 'No se pudo confirmar el guardado. Tus datos no se borraron; cierra otras pestañas del gestor y vuelve a intentarlo.';
-  }
-  if (/permission|permissions|insufficient/i.test(msg)) {
-    return 'Firestore rechazo el guardado. Publica las reglas del gestor o revisa que este usuario este activo.';
-  }
-  return msg;
+function supportErrorMessage(err, scope = 'operacion') {
+  const raw = String(err?.message || err || 'Error desconocido').replace(/\s+/g, ' ').trim().slice(0, 260);
+  const normalized = raw.toLowerCase();
+  const code = /internal assertion failed|unexpected state/.test(normalized) ? 'FIRESTORE_INTERNAL'
+    : /permission|permissions|insufficient/.test(normalized) ? 'FIRESTORE_PERMISSION'
+    : /network|offline|unavailable|failed to fetch/.test(normalized) ? 'NETWORK'
+    : 'UNEXPECTED';
+  return `Ocurrio un error. Envia este mensaje exacto a Rafael: [GESTOR-PC/${scope}/${code}] Error: ${raw}`;
 }
+
+function friendlySaveError(err, scope = 'guardar') {
+  return supportErrorMessage(err, scope);
+}
+
+window.addEventListener('error', event => {
+  const err = event?.error || event?.message;
+  if (err) notifySaveStatus('error', supportErrorMessage(err, 'runtime'));
+});
+window.addEventListener('unhandledrejection', event => {
+  if (event?.reason) notifySaveStatus('error', supportErrorMessage(event.reason, 'promise'));
+});
 
 async function permissionDebugMessage(uid, colName) {
   const path = `users/${uid}/${colName === 'accounts' ? 'gestor_accounts' : 'gestor_clients'}`;
@@ -863,9 +879,9 @@ window.__persistSingleDoc = async function(colName, docData) {
   } catch (err) {
     console.error('âŒ Error guardando doc:', err);
     const detail = /permission|permissions|insufficient/i.test(err?.message || '')
-      ? await permissionDebugMessage(user.uid, colName)
-      : friendlySaveError(err);
-    notifySaveStatus('error', detail);
+      ? ` ${await permissionDebugMessage(user.uid, colName)}`
+      : '';
+    notifySaveStatus('error', `${friendlySaveError(err, `guardar-${colName}`)}${detail}`);
     return false;
   }
 };
@@ -7990,7 +8006,7 @@ async function saveComboSale(e){
     focusClientAfterSale(rows[0]);
   }catch(err){
     console.error(err);
-    alert('No se pudo guardar el combo. Revisa permisos o conexion.');
+    notifySaveStatus('error', friendlySaveError(err, 'guardar-combo'));
   }finally{
     if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
   }
@@ -8493,7 +8509,7 @@ window.revokeSecurityDevice=async function(deviceId){
     }
     renderSecurityView();
   }catch(err){
-    notifySaveStatus('error','No se pudo cerrar ese dispositivo.');
+    notifySaveStatus('error', friendlySaveError(err, 'cerrar-dispositivo'));
   }
 };
 window.allowSecurityDevice=async function(deviceId){
@@ -8506,7 +8522,7 @@ window.allowSecurityDevice=async function(deviceId){
     notifySaveStatus('success','Dispositivo permitido de nuevo.');
     renderSecurityView();
   }catch(err){
-    notifySaveStatus('error','No se pudo permitir ese dispositivo.');
+    notifySaveStatus('error', friendlySaveError(err, 'permitir-dispositivo'));
   }
 };
 async function sendPasswordResetFromSecurity(){
@@ -8519,7 +8535,7 @@ async function sendPasswordResetFromSecurity(){
     await fns.sendPasswordResetEmail(window.__auth,user.email);
     notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
   }catch(err){
-    notifySaveStatus('error','No se pudo enviar el correo. Intenta de nuevo.');
+    notifySaveStatus('error', friendlySaveError(err, 'enviar-correo'));
   }finally{
     if(btn) btn.disabled=false;
   }
