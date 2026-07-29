@@ -1275,18 +1275,23 @@ async function upsertAccountPurchaseExpense(account){
     occurredAt:new Date().toISOString()
   });
 }
-async function recordAccountRenewalExpense(account, amountOverride){
-  if(!isFinanceModeEnabled()) return;
+function buildAccountRenewalExpense(account, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
   const amount=moneyNumber(amountOverride);
-  if(!amount) return;
-  await persistFinanceMovement({
+  if(!amount) return null;
+  return {
     id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
     type:'expense', source:'account_renewal', amount,
     description:`Renovacion cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
-  });
+  };
+}
+async function recordAccountRenewalExpense(account, amountOverride){
+  const movement=buildAccountRenewalExpense(account, amountOverride);
+  if(!movement) return null;
+  return persistFinanceMovement(movement);
 }
 function movementInRange(movement){
   const date = new Date(movement?.occurredAt || movement?.createdAt || Date.now());
@@ -2660,7 +2665,7 @@ function renewAccount(account){
   const oneYear=addMonthsISO(base,12);
   openSheet(`<div class="sheet-head"><h3>Renovar cuenta madre</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
     <div class="grid">
-      <div class="settings-card"><strong>${esc(accountName(account))}</strong><span class="beta-note">Vence actual: ${esc(account.dueDate || 'Sin fecha')}. Esta acción solo actualiza el vencimiento de la cuenta madre; no modifica clientes, perfiles, finanzas ni mensajes.</span></div>
+      <div class="settings-card"><strong>${esc(accountName(account))}</strong><span class="beta-note">Vence actual: ${esc(account.dueDate || 'Sin fecha')}. Esta acción solo actualiza el vencimiento de la cuenta madre; no modifica clientes, perfiles ni mensajes. Con Finanzas activo registra el gasto de renovación.</span></div>
       <button class="btn ok" id="renewAccountOneMonth">${icon('calendar')}<span>Renovar 1 mes</span></button>
       <button class="btn primary" id="renewAccountThreeMonths">${icon('calendar')}<span>Renovar 3 meses</span></button>
       <button class="btn" id="renewAccountOneYear">${icon('calendar')}<span>Renovar 1 año</span></button>
@@ -2677,10 +2682,16 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
   if(!account || !nextDate) return toast('Selecciona una fecha valida.','bad');
   try{
     const updated={...account,dueDate:nextDate,updatedAt:new Date().toISOString()};
-    await setDoc(accountRef(updated.id),updated,{merge:true});
-    await touchMobileDataRevision();
+    const expense=buildAccountRenewalExpense(updated,expenseAmount);
+    const batch=writeBatch(db);
+    batch.set(accountRef(updated.id),updated,{merge:true});
+    if(expense) batch.set(financeRef(expense.id),expense,{merge:true});
+    batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+    await batch.commit();
     state.accounts=[updated,...state.accounts.filter(item=>item.id!==updated.id)];
-    await recordAccountRenewalExpense(updated,expenseAmount);
+    if(expense) state.financeMovements=[expense,...state.financeMovements.filter(item=>item.id!==expense.id)];
+    state.syncRevision=null;
+    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){ }
     cacheMobileState();
     toast('Cuenta madre renovada');
     closeSheet();

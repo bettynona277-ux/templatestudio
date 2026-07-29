@@ -945,6 +945,28 @@ window.__persistFinanceMovementDoc = async function(docData) {
   }
 };
 
+window.__persistAccountRenewalWithExpense = async function(accountData, expenseData) {
+  const user = auth.currentUser;
+  if (!user || !accountData?.id) return false;
+  try {
+    const safeAccount = sanitizeGestorAccountForFirestore(accountData);
+    const safeExpense = expenseData ? sanitizeFinanceMovementForFirestore(expenseData) : null;
+    const batch = writeBatch(db);
+    batch.set(doc(accountsCol(user.uid), safeAccount.id), safeAccount, { merge:true });
+    if (safeExpense) batch.set(doc(financeCol(user.uid), safeExpense.id), safeExpense, { merge:true });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Renovando cuenta madre...');
+    await batch.commit();
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
+    notifySaveStatus('success', 'Cuenta madre renovada.');
+    return { account:safeAccount, expense:safeExpense };
+  } catch (err) {
+    console.error('Error renovando cuenta madre:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
 window.__persistDeleteFinanceMovementDoc = async function(docId) {
   const user = auth.currentUser;
   if (!user || !docId) return false;
@@ -5708,11 +5730,11 @@ async function upsertAccountPurchaseExpense(account){
     occurredAt:new Date().toISOString()
   });
 }
-async function recordAccountRenewalExpense(account, amountOverride){
-  if(!isFinanceModeEnabled()) return;
+function buildAccountRenewalExpense(account, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
   const amount=moneyNumber(amountOverride);
-  if(!amount) return;
-  await persistFinanceMovement({
+  if(!amount) return null;
+  return {
     id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
     type:'expense',
     source:'account_renewal',
@@ -5723,7 +5745,12 @@ async function recordAccountRenewalExpense(account, amountOverride){
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
-  });
+  };
+}
+async function recordAccountRenewalExpense(account, amountOverride){
+  const movement=buildAccountRenewalExpense(account, amountOverride);
+  if(!movement) return false;
+  return persistFinanceMovement(movement);
 }
 function sanitizeAccountForSave(data={}){
   const purchaseCost=moneyNumber(data.purchaseCost);
@@ -7554,10 +7581,17 @@ async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
     return;
   }
   const updated={...account,dueDate:newDate,updatedAt:new Date().toISOString()};
-  const ok=await persistDoc('accounts',updated);
-  if(!ok) return;
+  const expense=buildAccountRenewalExpense(updated,expenseAmount);
+  const saved=window.__persistAccountRenewalWithExpense
+    ? await window.__persistAccountRenewalWithExpense(updated,expense)
+    : false;
+  if(!saved) return;
   state.accounts=state.accounts.map(item=>item.id===updated.id?updated:item);
-  await recordAccountRenewalExpense(updated,expenseAmount).catch(err=>console.warn('No se pudo registrar el gasto de renovación:',err));
+  if(expense){
+    const cleanExpense=normalizeFinanceMovement(saved.expense || expense);
+    state.financeMovements=state.financeMovements.filter(item=>item.id!==cleanExpense.id);
+    state.financeMovements.unshift(cleanExpense);
+  }
   closeModal('renewModalWrap');
   refreshUI();
   touchLocalStateCache();
@@ -7619,7 +7653,7 @@ function openRenewAccountModal(id){
     <strong>${escapeHtml(accountLabel(account) || 'Cuenta madre')}</strong><br>
     ${platformIcon(account.platform)} ${escapeHtml(friendlyPlatform(account.platform))}<br>
     Vence actualmente: <strong>${fmtDateLong(account.dueDate) || 'Sin fecha'}</strong><br>
-    Solo se actualizara el vencimiento de esta cuenta; no se modificaran clientes, perfiles, finanzas ni mensajes.`;
+    Solo se actualizara el vencimiento de esta cuenta. No se modificaran clientes, perfiles ni mensajes; con Finanzas activo se registrara el gasto de renovacion.`;
   $('#renewCustomAmount').value='1';
   $('#renewCustomUnit').value='months';
   $('#renewExactDate').value=renewalDateFor(account,1,'months');
