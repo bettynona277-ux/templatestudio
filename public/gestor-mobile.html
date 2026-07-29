@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#18d5a2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -9,6 +11,7 @@
 <link rel="manifest" href="/manifest-gestor.json?v=30" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
@@ -345,7 +348,7 @@ html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="li
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -392,10 +395,11 @@ const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
-  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
+  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
 const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
+const MOBILE_STATE_CACHE_REVISION_KEY = MOBILE_STATE_CACHE_KEY + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
@@ -405,7 +409,8 @@ function cacheMobileState(){
       clients:state.clients,
       financeMovements:state.financeMovements,
       financeMovementsFullLoaded:state.financeMovementsFullLoaded===true,
-      settings:state.settings
+      settings:state.settings,
+      syncRevision:state.syncRevision
     }));
     localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
   }catch(_){}
@@ -427,6 +432,7 @@ function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
+    state.syncRevision = data.syncRevision ?? localStorage.getItem(MOBILE_STATE_CACHE_REVISION_KEY) ?? null;
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
     return true;
@@ -605,6 +611,28 @@ async function setClientsBatch(clients){
     const batch = writeBatch(db);
     rows.slice(i, i + 450).forEach(client => batch.set(clientRef(client.id), client, { merge:true }));
     await batch.commit();
+  }
+  await touchMobileDataRevision();
+}
+
+async function touchMobileDataRevision(){
+  try{
+    await setDoc(settingsRef(state.uid), { gestorDataRevision:increment(1) }, { merge:true });
+  }catch(err){
+    console.warn('No se pudo actualizar la revisión del gestor:',err);
+  }finally{
+    state.syncRevision = null;
+    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+  }
+}
+
+async function mobileCacheMatchesRemote(){
+  if(state.syncRevision === null || state.syncRevision === undefined) return false;
+  try{
+    const snap = await getDocFromServer(settingsRef(state.uid));
+    return String(snap.data()?.gestorDataRevision ?? 0) === String(state.syncRevision);
+  }catch(_){
+    return true;
   }
 }
 
@@ -2114,6 +2142,7 @@ async function saveItem(kind,data,opts={}){
   const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
     await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData, { merge:true });
+    await touchMobileDataRevision();
     if(kind === 'account'){
       state.accounts = [cleanData, ...state.accounts.filter(a => a.id !== cleanData.id)];
       state.view = 'accounts';
@@ -2210,6 +2239,7 @@ async function removeItem(kind,itemId){
   if(!confirm('Eliminar este registro?')) return;
   try{
     await deleteDoc(kind === 'account' ? accountRef(itemId) : clientRef(itemId));
+    await touchMobileDataRevision();
     if(kind === 'account') state.accounts = state.accounts.filter(a => a.id !== itemId);
     else state.clients = state.clients.filter(c => c.id !== itemId);
     cacheMobileState();
@@ -2225,7 +2255,9 @@ async function saveSettings(next){
   const wasFinanceOn = isFinanceModeEnabled();
   const nextSettings = normalizeSettings(next);
   try{
-    await setDoc(settingsRef(state.uid), nextSettings, {merge:true});
+    await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
+    state.syncRevision = null;
+    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
     state.settings = nextSettings;
     if(state.settings.financeMode === false && state.view === 'finance') state.view = 'home';
     if(!wasFinanceOn && isFinanceModeEnabled()){
@@ -2588,6 +2620,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     }else{
       const updated = { ...c, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() };
       await setDoc(clientRef(c.id), updated, { merge:true });
+      await touchMobileDataRevision();
       state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
       await recordRenewalIncome(updated, renewalAmount);
       sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
@@ -2610,6 +2643,7 @@ async function markNoRenew(c){
     const platform = clean(c.platform) || clean(acc?.platform) || '';
     const updated = { ...c, accountId:'', platform, state:'No renov\u00f3', updatedAt:new Date().toISOString() };
     await setDoc(clientRef(c.id), updated, { merge:true });
+    await touchMobileDataRevision();
     state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
     cacheMobileState();
     toast('Perfil liberado. Cliente archivado.');
@@ -2905,19 +2939,23 @@ async function exportExcel(){
 async function loadOnceForExpired(){
   await loadOnce(false);
 }
-async function loadOnce(showToast=true){
+async function loadOnce(showToast=true, forceNetwork=false){
   if(!state.uid) return;
   try{
-    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
     if(showToast && !forceFresh && mobileStateCacheAge() < MOBILE_MANUAL_REFRESH_COOLDOWN && restoreMobileStateFromCache(MOBILE_MANUAL_REFRESH_COOLDOWN)){
-      render();
-      toast('Ya esta actualizado.');
-      return;
+      if(await mobileCacheMatchesRemote()){
+        render();
+        toast('Ya está actualizado.');
+        return;
+      }
     }
     if(showToast) toast('Actualizando datos...');
     if(!forceFresh && !showToast && restoreMobileStateFromCache()){
-      render();
-      return;
+      if(await mobileCacheMatchesRemote()){
+        render();
+        return;
+      }
     }
     if(!showToast && !forceFresh && restoreMobileStateFromCache(Infinity)){
       render();
@@ -2933,6 +2971,8 @@ async function loadOnce(showToast=true){
     state.financeMovements = fin.filter(Boolean);
     state.financeMovementsFullLoaded = false;
     state.settings = normalizeSettings(cfg.data() || {});
+    state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
+    try{ localStorage.setItem(MOBILE_STATE_CACHE_REVISION_KEY, String(state.syncRevision)); }catch(_){}
     cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
@@ -3152,7 +3192,7 @@ $('#fab').onclick = () => state.view === 'finance' ? openFinanceExpenseSheet() :
 $('#installBtn').onclick = installGestorApp;
 $('#installBannerBtn').onclick = installGestorApp;
 $('#installDismissBtn').onclick = dismissInstallBanner;
-$('#syncBtn').onclick = () => loadOnce(true);
+$('#syncBtn').onclick = () => loadOnce(true, true);
 $('#exportTop').onclick = exportExcel;
 $('#logoutBtn').onclick = () => signOut(auth);
 window.addEventListener('beforeinstallprompt', ev => {

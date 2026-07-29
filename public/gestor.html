@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Gestor Streaming - Disenos Streaming</title>
 <script>
@@ -14,6 +16,7 @@
     }
   })();
 </script>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script>
@@ -31,7 +34,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, getDoc, setDoc, deleteDoc,
+  doc, getDoc, getDocFromServer, setDoc, deleteDoc,
   collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -389,14 +392,26 @@ async function migrateIfNeeded(uid) {
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
+  const cacheRevisionKey = cacheKey + '_revision';
   const cacheTtlMs = 30 * 60 * 1000;
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
+    const cachedRevision = localStorage.getItem(cacheRevisionKey);
     const forceFresh = new URLSearchParams(location.search).has('fresh');
-    if (!forceFresh && cached && cachedAt && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
-      window.__loadFromFirestore(JSON.parse(cached));
-      return;
+    if (!forceFresh && cached && cachedAt && cachedRevision !== null && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
+      try {
+        const markerSnap = await getDocFromServer(settingsRef(uid));
+        const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
+        if (remoteRevision === cachedRevision) {
+          window.__loadFromFirestore(JSON.parse(cached));
+          return;
+        }
+      } catch (_) {
+        // Sin red: el caché sigue siendo el respaldo de lectura.
+        window.__loadFromFirestore(JSON.parse(cached));
+        return;
+      }
     }
   } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
   const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
@@ -411,7 +426,21 @@ async function loadFromSubcollections(uid) {
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap;
   window.__loadFromFirestore({ accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings });
-  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
+  try {
+    localStorage.setItem(cacheTimeKey, String(Date.now()));
+    localStorage.setItem(cacheRevisionKey, String(settings.gestorDataRevision ?? 0));
+  } catch (e) {}
+}
+
+async function touchGestorDataRevision(uid) {
+  try {
+    await setDoc(settingsRef(uid), { gestorDataRevision: increment(1) }, { merge:true });
+  } catch (err) {
+    console.warn('No se pudo actualizar la revisión del gestor:', err);
+  } finally {
+    // El estado actual sigue siendo válido aquí, pero el siguiente inicio lo verificará.
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
+  }
 }
 
 // Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
@@ -825,6 +854,7 @@ window.__persistSingleDoc = async function(colName, docData) {
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
@@ -845,6 +875,7 @@ window.__persistDeleteDoc = async function(colName, docId) {
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     notifySaveStatus('saving', 'Eliminando dato...');
     await deleteDoc(doc(colRef, docId));
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', 'Dato eliminado correctamente.');
     return true;
   } catch (err) {
@@ -859,7 +890,11 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return false;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
-    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}), { merge: true });
+    await setDoc(settingsRef(user.uid), {
+      ...sanitizeGestorSettingsForFirestore(settingsData || {}),
+      gestorDataRevision: increment(1)
+    }, { merge: true });
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
     return true;
   } catch (err) {
@@ -884,6 +919,7 @@ window.__persistManyDocs = async function(colName, docsData) {
       }
       await batch.commit();
     }
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', 'Datos guardados correctamente.');
     return true;
   } catch (err) {
