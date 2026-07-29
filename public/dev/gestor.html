@@ -3214,6 +3214,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-weight:900;
   line-height:1.25;
 }
+.renewal-phone{display:flex;align-items:center;gap:6px;margin-top:4px;color:#7fa1df;font-size:13px;font-weight:800}.renewal-copy-btn{width:27px;height:27px;padding:0;display:inline-grid;place-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.045);color:#aebfff;cursor:pointer}.renewal-copy-btn:hover,.renewal-copy-btn.is-copied{color:#75f0c4;border-color:rgba(38,205,155,.48);background:rgba(38,205,155,.12)}.renewal-copy-btn.is-copied{animation:renewal-copy-confirm .48s cubic-bezier(.2,.85,.3,1)}.renewal-copy-btn svg{width:14px;height:14px;stroke-width:2.4}@keyframes renewal-copy-confirm{0%{transform:scale(1)}42%{transform:scale(1.28);box-shadow:0 0 0 5px rgba(38,205,155,.16)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(38,205,155,0)}}
 #clientModalWrap .client-full-sale-toggle small{
   display:block;
   margin-top:5px;
@@ -4610,6 +4611,7 @@ html[data-theme="light"] .renewals-head{background:rgba(215,223,232,.72)}
 html[data-theme="light"] .renewal-row{border-color:var(--border)}
 html[data-theme="light"] .renewal-row:hover{background:rgba(102,87,223,.045)}
 html[data-theme="light"] .renewal-account-email{color:var(--accent)}
+html[data-theme="light"] .renewal-phone{color:#566a8e}
 html[data-theme="light"] .renewal-platform-pill{
   background:rgba(242,245,248,.76);
   border-color:var(--border-3);
@@ -6083,11 +6085,14 @@ window.copyRenewalPhone=async function(button,value){
   if(!value) return;
   try{
     await copyTextToClipboard(value);
-    const previous=button?.textContent || 'Copiar numero';
+    const previous=button?.innerHTML || '<i data-lucide="copy"></i>';
     if(button){
-      button.textContent='Copiado';
+      button.innerHTML='<i data-lucide="check"></i>';
+      button.classList.add('is-copied');
+      button.title='Copiado';
+      window.lucide?.createIcons?.();
       clearTimeout(button._copyReset);
-      button._copyReset=setTimeout(()=>{ if(button.isConnected) button.textContent=previous; },1400);
+      button._copyReset=setTimeout(()=>{ if(button.isConnected){ button.innerHTML=previous; button.classList.remove('is-copied'); button.title='Copiar numero'; window.lucide?.createIcons?.(); } },1400);
     }
     notifySaveStatus('copy','Numero copiado');
   }catch(_){
@@ -6946,6 +6951,7 @@ function renderRenewals(){
         <div class="renewal-main">
           <strong>${escapeHtml(client.name||'Cliente')}</strong>
           <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
+          ${client.whatsapp?`<div class="renewal-phone"><span>${escapeHtml(client.whatsapp)}</span><button class="renewal-copy-btn" type="button" title="Copiar numero" aria-label="Copiar numero" onclick="copyRenewalPhone(this,'${escapeJs(client.whatsapp)}')"><i data-lucide="copy"></i></button></div>`:''}
         </div>
       </div>
       <div><span class="renewal-platform-pill">${platformLogo(platform,'chip')} ${escapeHtml(friendlyPlatform(platform)||'-')}</span></div>
@@ -6956,7 +6962,6 @@ function renderRenewals(){
       </div>
       <div class="renewal-actions">
         <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
-        ${client.whatsapp?`<button class="mini" onclick="copyRenewalPhone(this,'${escapeJs(client.whatsapp)}')">Copiar numero</button>`:''}
         <button class="mini" onclick="renewClient('${client.id}')">Renovar</button>
         <details class="action-more">
           <summary class="renewal-more" title="Mas acciones">...</summary>
