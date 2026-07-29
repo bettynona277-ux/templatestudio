@@ -119,27 +119,21 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .panel-body{overflow-y:auto;flex:1;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 80px);}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
-.mobile-nudge-pad{
-  position:fixed;right:12px;bottom:150px;z-index:8900;display:none;
-  grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,34px);
-  grid-template-areas:'. up .' 'left . right' '. down .';
-  justify-content:center;align-items:center;gap:3px;padding:6px;
-  border:1px solid rgba(255,255,255,.16);border-radius:15px;
-  background:rgba(11,18,34,.88);box-shadow:0 8px 24px rgba(0,0,0,.32);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-}
 .mobile-nudge-btn{
-  width:38px;height:34px;border:1px solid rgba(255,255,255,.14);border-radius:8px;
-  background:var(--panel2);color:var(--text);font:700 1rem/1 inherit;
+  position:absolute;display:none;width:28px;height:28px;border:1px solid rgba(255,255,255,.22);border-radius:50%;
+  background:rgba(11,18,34,.94);color:var(--text);font:700 .95rem/1 inherit;
   touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer;
-  transition:background .12s,transform .12s,color .12s;
+  transition:background .12s,transform .12s,color .12s;pointer-events:all;
+  box-shadow:0 3px 10px rgba(0,0,0,.34);
 }
-.mobile-nudge-btn[data-nudge="up"]{grid-area:up;}
-.mobile-nudge-btn[data-nudge="left"]{grid-area:left;}
-.mobile-nudge-btn[data-nudge="right"]{grid-area:right;}
-.mobile-nudge-btn[data-nudge="down"]{grid-area:down;}
-.mobile-nudge-btn:active:not(:disabled){background:var(--accent);color:#fff;transform:scale(.94);}
-.mobile-nudge-pad.is-ready{display:grid;}
+.sel-box.is-nudge-ready .mobile-nudge-btn{display:block;}
+.mobile-nudge-btn[data-nudge="up"]{left:50%;top:-38px;transform:translateX(-50%);}
+.mobile-nudge-btn[data-nudge="left"]{left:-38px;top:50%;transform:translateY(-50%);}
+.mobile-nudge-btn[data-nudge="right"]{right:-38px;top:50%;transform:translateY(-50%);}
+.mobile-nudge-btn[data-nudge="down"]{left:50%;bottom:-38px;transform:translateX(-50%);}
+.mobile-nudge-btn:active:not(:disabled){background:var(--accent);color:#fff;}
+.mobile-nudge-btn[data-nudge="up"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="down"]:active:not(:disabled){transform:translateX(-50%) scale(.94);}
+.mobile-nudge-btn[data-nudge="left"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="right"]:active:not(:disabled){transform:translateY(-50%) scale(.94);}
 .mobile-nudge-btn:disabled{cursor:default;}
 
 /* ── TEXT EDITOR PANEL ── */
@@ -645,20 +639,16 @@ body.multisel-mode #dots-btn{display:none!important;}
   </div>
 </div>
 
-<!-- Cruceta flotante: aparece solo al seleccionar una capa. -->
-<div class="mobile-nudge-pad" id="mobile-nudge-pad" aria-label="Mover selección">
-  <button type="button" class="mobile-nudge-btn" data-nudge="up" aria-label="Mover arriba" title="Mover arriba">↑</button>
-  <button type="button" class="mobile-nudge-btn" data-nudge="left" aria-label="Mover izquierda" title="Mover izquierda">←</button>
-  <button type="button" class="mobile-nudge-btn" data-nudge="right" aria-label="Mover derecha" title="Mover derecha">→</button>
-  <button type="button" class="mobile-nudge-btn" data-nudge="down" aria-label="Mover abajo" title="Mover abajo">↓</button>
-</div>
-
 <!-- SEL BOX (handles de transformación) -->
 <div id="sel-box" class="sel-box" style="display:none;">
   <div class="sel-handle nw" id="sh-nw"></div>
   <div class="sel-handle ne" id="sh-ne"></div>
   <div class="sel-handle sw" id="sh-sw"></div>
   <div class="sel-handle se" id="sh-se"></div>
+  <button type="button" class="mobile-nudge-btn" data-nudge="up" aria-label="Mover arriba" title="Mover arriba">↑</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="left" aria-label="Mover izquierda" title="Mover izquierda">←</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="right" aria-label="Mover derecha" title="Mover derecha">→</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="down" aria-label="Mover abajo" title="Mover abajo">↓</button>
   <button id="del-btn" onclick="deleteActive()">✕ Eliminar</button>
 </div>
 
@@ -1326,16 +1316,11 @@ function getMobileNudgeTargets(){
 }
 
 function syncMobileNudgePad(){
-  const pad = document.getElementById('mobile-nudge-pad');
-  if(!pad) return;
+  const box = getSelBox();
+  if(!box) return;
   const ready = getMobileNudgeTargets().length > 0;
-  pad.classList.toggle('is-ready', ready);
-  pad.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
-  const panel = document.getElementById('bottom-panel');
-  if(panel){
-    const rect = panel.getBoundingClientRect();
-    pad.style.bottom = Math.max(12, window.innerHeight - rect.top + 10) + 'px';
-  }
+  box.classList.toggle('is-nudge-ready', ready && !multiselActive);
+  box.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
 }
 
 function moveMobileSelectionBy(dx, dy){
@@ -4011,7 +3996,6 @@ window.addEventListener('load', async()=>{
     );
     panel.style.height = newH + 'px';
     if(activeLayer) requestAnimationFrame(updateSelBox);
-    syncMobileNudgePad();
     if(frameImageEditIdMobile!==null) syncFrameImageEditActionsMobile();
   }, {passive: false});
 
