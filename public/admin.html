@@ -145,6 +145,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .tpl-actions{display:flex;gap:5px;flex-wrap:wrap;}
 .tpl-actions button{flex:1;padding:5px 4px;border-radius:7px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);font-size:0.72rem;cursor:pointer;font-family:inherit;transition:all 0.15s;}
 .tpl-actions button:hover{border-color:var(--accent);color:var(--accent);}
+.tpl-load-more{grid-column:1/-1;justify-self:center;margin:8px 0 4px;padding:10px 18px;border:1px solid rgba(0,200,150,.35);border-radius:10px;background:rgba(0,200,150,.10);color:var(--accent);font:700 .8rem inherit;cursor:pointer;}
+.tpl-load-more:hover{background:rgba(0,200,150,.18);}
 
 /* USERS TABLE */
 .users-card-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;flex-wrap:wrap;}
@@ -628,7 +630,13 @@ function observeLazyImages(root) {
 
 let _allTemplates = [];
 let _currentFilter = 'all';
-const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v2';
+const ADMIN_TEMPLATE_PAGE_SIZE = 20;
+let adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
+let adminTemplateCatalogVersion = 0;
+let adminTemplateListReady = false;
+let adminTemplateCatalogUnsub = null;
+let adminTemplateRefreshQueued = false;
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v3';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 6 * 60 * 60 * 1000;
@@ -647,6 +655,27 @@ function readAdminCollectionCache(key) {
 function writeAdminCollectionCache(key, rows) {
   try {
     localStorage.setItem(key, JSON.stringify({ at:Date.now(), rows }));
+  } catch(_) {}
+}
+
+function readAdminTemplateCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(ADMIN_TEMPLATES_CACHE_KEY) || 'null');
+    if(!cached || Date.now() - Number(cached.at || 0) >= ADMIN_COLLECTION_CACHE_TTL) return null;
+    if(!Array.isArray(cached.rows)) return null;
+    return { rows:cached.rows, catalogUpdatedAt:Number(cached.catalogUpdatedAt || 0) };
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminTemplateCache(rows, catalogUpdatedAt=0) {
+  try {
+    localStorage.setItem(ADMIN_TEMPLATES_CACHE_KEY, JSON.stringify({
+      at:Date.now(),
+      catalogUpdatedAt:Number(catalogUpdatedAt || 0),
+      rows:compactAdminTemplateItems(rows)
+    }));
   } catch(_) {}
 }
 
@@ -683,7 +712,10 @@ function compactAdminTemplateItems(items) {
 
 function normalizeAdminPublishedTemplateCatalog(data) {
   if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
-  return compactAdminTemplateItems(data.items.map(item => ({ ...item, status:'published' })));
+  return {
+    items:compactAdminTemplateItems(data.items.map(item => ({ ...item, status:'published' }))),
+    updatedAt:Number(data.updatedAt || 0)
+  };
 }
 
 async function loadAdminPublishedTemplateCatalog() {
@@ -694,6 +726,23 @@ async function loadAdminPublishedTemplateCatalog() {
     console.warn('Catalogo de plantillas no disponible:', e.message || e);
     return null;
   }
+}
+
+function watchAdminTemplateCatalog() {
+  if(adminTemplateCatalogUnsub || !fbDb) return;
+  adminTemplateCatalogUnsub = fbDb.collection('public_catalog').doc('templates').onSnapshot(snap => {
+    const nextVersion = Number(snap.data()?.updatedAt || 0);
+    const changed = adminTemplateCatalogVersion > 0 && nextVersion > 0 && nextVersion !== adminTemplateCatalogVersion;
+    adminTemplateCatalogVersion = nextVersion;
+    const templatesVisible = document.getElementById('section-templates')?.classList.contains('active');
+    if(!changed || !adminTemplateListReady || !templatesVisible || adminTemplateRefreshQueued) return;
+    adminTemplateRefreshQueued = true;
+    adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
+    setTimeout(() => {
+      adminTemplateRefreshQueued = false;
+      loadTemplates(true);
+    }, 0);
+  }, e => console.warn('Actualizacion de plantillas no disponible:', e.message || e));
 }
 
 async function publishTemplateCatalog() {
@@ -752,28 +801,32 @@ async function ensurePublicLogoCatalog(logos) {
 
 async function loadTemplates(force=false) {
   if(!fbConnected) return;
+  watchAdminTemplateCatalog();
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
-    const cached = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
-    if(cached) {
-      _allTemplates = compactAdminTemplateItems(cached);
+    const cached = force ? null : readAdminTemplateCache();
+    const published = await loadAdminPublishedTemplateCatalog();
+    if(published) adminTemplateCatalogVersion = published.updatedAt;
+    const cacheIsCurrent = cached && published && cached.catalogUpdatedAt === published.updatedAt;
+    if(cacheIsCurrent || (cached && published === null)) {
+      _allTemplates = compactAdminTemplateItems(cached.rows);
     } else {
-      const published = await loadAdminPublishedTemplateCatalog();
       if(published !== null) {
         const draftsSnap = await fbDb.collection('templates').where('status', '==', 'draft').get();
         const drafts = draftsSnap.docs.map(doc => ({ id:doc.id, ...doc.data() }));
-        _allTemplates = compactAdminTemplateItems([...published, ...drafts]);
+        _allTemplates = compactAdminTemplateItems([...published.items, ...drafts]);
       } else {
         // Compatibilidad durante la primera migracion o si el catalogo no esta disponible.
         const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
         _allTemplates = compactAdminTemplateItems(snap.docs.map(doc => ({ id:doc.id, ...doc.data() })));
         publishTemplateCatalog();
       }
-      writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+      writeAdminTemplateCache(_allTemplates, published?.updatedAt || 0);
     }
     updateTemplateCounts();
     renderTemplates();
+    adminTemplateListReady = true;
   } catch(e) {
     grid.innerHTML = '<p style="color:var(--accent2);">Error al cargar plantillas.</p>';
     console.error(e);
@@ -794,6 +847,7 @@ function updateTemplateCounts() {
 
 function filterTemplates(filter, btn) {
   _currentFilter = filter;
+  adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
   document.querySelectorAll('.tpl-tab').forEach(b => b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   renderTemplates();
@@ -817,7 +871,8 @@ function renderTemplates() {
     return;
   }
 
-  list.forEach(d => {
+  const visible = list.slice(0, adminTemplateVisibleCount);
+  visible.forEach(d => {
     const isDraft = d.status === 'draft';
     const card = document.createElement('div');
     card.className = 'tpl-card';
@@ -838,7 +893,20 @@ function renderTemplates() {
       </div>`;
     grid.appendChild(card);
   });
+  if(visible.length < list.length){
+    const more = document.createElement('button');
+    more.className = 'tpl-load-more';
+    more.type = 'button';
+    more.textContent = `Ver más (${visible.length} de ${list.length})`;
+    more.onclick = showMoreTemplates;
+    grid.appendChild(more);
+  }
   observeLazyImages(grid);
+}
+
+function showMoreTemplates(){
+  adminTemplateVisibleCount += ADMIN_TEMPLATE_PAGE_SIZE;
+  renderTemplates();
 }
 
 function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
@@ -846,7 +914,7 @@ function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
   _allTemplates = compactAdminTemplateItems(_allTemplates);
-  writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  writeAdminTemplateCache(_allTemplates);
   publishTemplateCatalog();
   renderTemplates();
 }
