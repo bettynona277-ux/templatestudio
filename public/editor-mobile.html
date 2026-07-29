@@ -119,6 +119,22 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .panel-body{overflow-y:auto;flex:1;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 80px);}
 .panel-body::-webkit-scrollbar{width:3px;}
 .panel-body::-webkit-scrollbar-thumb{background:var(--panel2);}
+.mobile-nudge-btn{
+  position:absolute;display:none;width:28px;height:28px;border:1px solid rgba(255,255,255,.22);border-radius:50%;
+  background:rgba(11,18,34,.96);color:#fff;font:700 17px/26px Arial,sans-serif;text-align:center;
+  touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer;
+  transition:background .12s,transform .12s,color .12s;pointer-events:all;
+  box-shadow:0 3px 10px rgba(0,0,0,.34);
+}
+.sel-box.is-nudge-ready .mobile-nudge-btn{display:block;}
+.mobile-nudge-btn[data-nudge="up"]{left:50%;top:-38px;transform:translateX(-50%);}
+.mobile-nudge-btn[data-nudge="left"]{left:-38px;top:50%;transform:translateY(-50%);}
+.mobile-nudge-btn[data-nudge="right"]{right:-38px;top:50%;transform:translateY(-50%);}
+.mobile-nudge-btn[data-nudge="down"]{left:50%;bottom:-38px;transform:translateX(-50%);}
+.mobile-nudge-btn:active:not(:disabled){background:var(--accent);color:#fff;}
+.mobile-nudge-btn[data-nudge="up"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="down"]:active:not(:disabled){transform:translateX(-50%) scale(.94);}
+.mobile-nudge-btn[data-nudge="left"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="right"]:active:not(:disabled){transform:translateY(-50%) scale(.94);}
+.mobile-nudge-btn:disabled{cursor:default;}
 
 /* ── TEXT EDITOR PANEL ── */
 .text-panel{padding:10px 14px;}
@@ -629,6 +645,10 @@ body.multisel-mode #dots-btn{display:none!important;}
   <div class="sel-handle ne" id="sh-ne"></div>
   <div class="sel-handle sw" id="sh-sw"></div>
   <div class="sel-handle se" id="sh-se"></div>
+  <button type="button" class="mobile-nudge-btn" data-nudge="up" aria-label="Mover arriba" title="Mover arriba">↑</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="left" aria-label="Mover izquierda" title="Mover izquierda">←</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="right" aria-label="Mover derecha" title="Mover derecha">→</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="down" aria-label="Mover abajo" title="Mover abajo">↓</button>
   <button id="del-btn" onclick="deleteActive()">✕ Eliminar</button>
 </div>
 
@@ -1220,6 +1240,23 @@ function updateUndoBtn(){
 
 function getSelBox(){ return document.getElementById('sel-box'); }
 
+function positionSelectionActions(rect){
+  const actionTop = rect.top >= 100 ? rect.top - 82 : rect.bottom + 56;
+  const delBtn = document.getElementById('del-btn');
+  if(delBtn){
+    delBtn.style.display = 'block';
+    delBtn.style.left = (rect.left + rect.width/2 - 40) + 'px';
+    delBtn.style.top = actionTop + 'px';
+    delBtn.style.transform = 'none';
+  }
+  const dotsBtn = document.getElementById('dots-btn');
+  if(dotsBtn){
+    dotsBtn.style.display = 'block';
+    dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
+    dotsBtn.style.top = actionTop + 'px';
+  }
+}
+
 function showSelBox(layer){
   const box = getSelBox();
   if(!box||!layer||!layer.el) return;
@@ -1229,20 +1266,9 @@ function showSelBox(layer){
   attachHandles(layer);
   // Mostrar botón eliminar usando coordenadas de pantalla
   const rect = layer.el.getBoundingClientRect();
-  const delBtn = document.getElementById('del-btn');
-  if(delBtn){
-    delBtn.style.display = 'block';
-    delBtn.style.left = (rect.left + rect.width/2 - 40) + 'px';
-    delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-    delBtn.style.transform = 'none';
-  }
+  positionSelectionActions(rect);
   // Mostrar botón 3 puntitos al lado del Eliminar
-  const dotsBtn = document.getElementById('dots-btn');
-  if(dotsBtn){
-    dotsBtn.style.display = 'block';
-    dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
-    dotsBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-  }
+  syncMobileNudgePad();
 }
 
 function updateSelBox(){
@@ -1254,19 +1280,7 @@ function updateSelBox(){
   box.style.top    = (rect.top  - 3) + 'px';
   box.style.width  = (rect.width  + 6) + 'px';
   box.style.height = (rect.height + 6) + 'px';
-  // Reposicionar el del-btn
-  const delBtn = document.getElementById('del-btn');
-  if(delBtn && delBtn.style.display !== 'none'){
-    delBtn.style.left = (rect.left + rect.width/2 - 40) + 'px';
-    delBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-    delBtn.style.transform = 'none';
-  }
-  // Reposicionar 3 puntitos
-  const dotsBtn = document.getElementById('dots-btn');
-  if(dotsBtn && dotsBtn.style.display !== 'none'){
-    dotsBtn.style.left = (rect.left + rect.width/2 + 50) + 'px';
-    dotsBtn.style.top  = Math.max(8, rect.top - 44) + 'px';
-  }
+  if(document.getElementById('del-btn')?.style.display !== 'none') positionSelectionActions(rect);
 }
 
 function hideSelBox(){
@@ -1279,6 +1293,79 @@ function hideSelBox(){
   const dotsMenu = document.getElementById('dots-menu');
   if(dotsMenu) dotsMenu.style.display = 'none';
   activeLayer = null;
+  syncMobileNudgePad();
+}
+
+// Cruceta táctil: cada pulsación mueve 1 px; al mantenerla repite el movimiento.
+let mobileNudgeDelay = null;
+let mobileNudgeRepeat = null;
+let mobileNudgeMoved = false;
+
+function getMobileNudgeTargets(){
+  const ids = multiselActive && multiselIds.size
+    ? Array.from(multiselIds)
+    : (activeLayer ? [activeLayer.id] : []);
+  return ids.map(id=>layers.find(l=>l.id===id)).filter(l=>l && l.el && !l.locked);
+}
+
+function syncMobileNudgePad(){
+  const box = getSelBox();
+  if(!box) return;
+  const ready = getMobileNudgeTargets().length > 0;
+  box.classList.toggle('is-nudge-ready', ready && !multiselActive);
+  box.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
+}
+
+function moveMobileSelectionBy(dx, dy){
+  const targets = getMobileNudgeTargets();
+  if(!targets.length) return false;
+  targets.forEach(layer=>{
+    layer.x = Math.round(layer.x + dx);
+    layer.y = Math.round(layer.y + dy);
+    layer.el.style.left = layer.x + 'px';
+    layer.el.style.top = layer.y + 'px';
+  });
+  if(multiselActive && multiselIds.size) updateMultiselBox();
+  else updateSelBox();
+  return true;
+}
+
+function stopMobileNudge(){
+  if(mobileNudgeDelay) clearTimeout(mobileNudgeDelay);
+  if(mobileNudgeRepeat) clearInterval(mobileNudgeRepeat);
+  mobileNudgeDelay = null;
+  mobileNudgeRepeat = null;
+  if(mobileNudgeMoved) snapshot();
+  mobileNudgeMoved = false;
+}
+
+function startMobileNudge(event, dx, dy){
+  if(event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  stopMobileNudge();
+  mobileNudgeMoved = moveMobileSelectionBy(dx, dy);
+  mobileNudgeDelay = setTimeout(()=>{
+    mobileNudgeRepeat = setInterval(()=>{
+      mobileNudgeMoved = moveMobileSelectionBy(dx, dy) || mobileNudgeMoved;
+    }, 35);
+  }, 260);
+  const finish = ()=>{
+    window.removeEventListener('pointerup', finish);
+    window.removeEventListener('pointercancel', finish);
+    stopMobileNudge();
+  };
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
+}
+
+function initMobileNudgePad(){
+  const directions = {up:[0,-1], left:[-1,0], right:[1,0], down:[0,1]};
+  document.querySelectorAll('.mobile-nudge-btn').forEach(button=>{
+    const vector = directions[button.dataset.nudge];
+    button.addEventListener('pointerdown', event=>startMobileNudge(event, vector[0], vector[1]));
+  });
+  window.addEventListener('resize', syncMobileNudgePad);
+  syncMobileNudgePad();
 }
 
 // Handles de escala proporcional desde esquinas
@@ -3784,6 +3871,7 @@ async function downloadPNG(){
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('load', async()=>{
+  initMobileNudgePad();
   showLoad('Conectando...');
   await initFB();
 
@@ -3954,7 +4042,7 @@ function getMultiselBounds(){
 }
 
 function updateMultiselBox(){
-  if(multiselIds.size === 0){ hideMultiselBox(); return; }
+  if(multiselIds.size === 0){ hideMultiselBox(); syncMobileNudgePad(); return; }
   const box = document.getElementById('sel-box-multi');
   const delBtn = document.getElementById('del-btn-multi');
   const doneBtn = document.getElementById('done-btn-multi');
@@ -3982,6 +4070,7 @@ function updateMultiselBox(){
     doneBtn.style.left = (btnCX + 10) + 'px';
     doneBtn.style.top  = btnTop + 'px';
   }
+  syncMobileNudgePad();
 }
 
 function hideMultiselBox(){
@@ -4033,6 +4122,7 @@ function endMultiSelect(){
   });
   removeMultiTapHandlers();
   hideMultiselBox();
+  syncMobileNudgePad();
   toast('✓ Selección múltiple desactivada');
 }
 
