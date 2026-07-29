@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Gestor Streaming - Disenos Streaming</title>
 <script>
@@ -14,6 +16,7 @@
     }
   })();
 </script>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script>
@@ -28,10 +31,10 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, getDoc, setDoc, deleteDoc,
+  doc, getDoc, getDocFromServer, setDoc, deleteDoc,
   collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -54,6 +57,7 @@ if (APP_CHECK_SITE_KEY) {
   });
 }
 const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 const db   = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
@@ -65,7 +69,6 @@ window.__firebaseFns = { doc, getDoc, setDoc, getDocs, collection, onSnapshot, s
 
 // â”€â”€ Helpers de ruta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function userRef(uid)      { return doc(db, 'users', uid); }
-function managerMetaRef(uid){ return doc(db, 'users', uid, 'gestor_config', 'meta'); }
 function accountsCol(uid)  { return collection(db, 'users', uid, 'gestor_accounts'); }
 function clientsCol(uid)   { return collection(db, 'users', uid, 'gestor_clients'); }
 function financeCol(uid)   { return collection(db, 'users', uid, 'gestor_finance_movements'); }
@@ -343,6 +346,24 @@ async function registerGestorDevice(uid) {
   await Promise.all(expired.map(d => deleteDoc(doc(db, 'users', uid, 'devices', d.id)).catch(() => {})));
   const usableDevices = devices.filter(d => !expired.some(x => x.id === d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isGestorDeviceExpired(d));
+  const sameFingerprint = activeDevices.find(d => d.fingerprintHash && d.fingerprintHash === fingerprint.hash);
+  if (sameFingerprint) {
+    const matchingRef = doc(db, 'users', uid, 'devices', sameFingerprint.id);
+    await setDoc(matchingRef, {
+      name: fingerprint.label,
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: now,
+      lastLoginAt: now,
+      loginCount: Number(sameFingerprint.loginCount || 0) + 1,
+      revoked: false
+    }, { merge: true });
+    try { localStorage.setItem('ts_device_id', sameFingerprint.id); } catch (_) {}
+    markGestorDeviceTouched(uid, sameFingerprint.id);
+    return { ok: true, reused: true };
+  }
   if (activeDevices.length >= MAX_GESTOR_DEVICES) return { ok: false, count: activeDevices.length };
   const suspicious = detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
   await setDoc(devRef, {
@@ -371,14 +392,26 @@ async function migrateIfNeeded(uid) {
 async function loadFromSubcollections(uid) {
   const cacheKey = 'gestion_streaming_v5';
   const cacheTimeKey = cacheKey + '_synced_at';
+  const cacheRevisionKey = cacheKey + '_revision';
   const cacheTtlMs = 30 * 60 * 1000;
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
+    const cachedRevision = localStorage.getItem(cacheRevisionKey);
     const forceFresh = new URLSearchParams(location.search).has('fresh');
-    if (!forceFresh && cached && cachedAt && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
-      window.__loadFromFirestore(JSON.parse(cached));
-      return;
+    if (!forceFresh && cached && cachedAt && cachedRevision !== null && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
+      try {
+        const markerSnap = await getDocFromServer(settingsRef(uid));
+        const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
+        if (remoteRevision === cachedRevision) {
+          window.__loadFromFirestore(JSON.parse(cached));
+          return;
+        }
+      } catch (_) {
+        // Sin red: el caché sigue siendo el respaldo de lectura.
+        window.__loadFromFirestore(JSON.parse(cached));
+        return;
+      }
     }
   } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
   const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
@@ -393,7 +426,21 @@ async function loadFromSubcollections(uid) {
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap;
   window.__loadFromFirestore({ accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings });
-  try { localStorage.setItem(cacheTimeKey, String(Date.now())); } catch (e) {}
+  try {
+    localStorage.setItem(cacheTimeKey, String(Date.now()));
+    localStorage.setItem(cacheRevisionKey, String(settings.gestorDataRevision ?? 0));
+  } catch (e) {}
+}
+
+async function touchGestorDataRevision(uid) {
+  try {
+    await setDoc(settingsRef(uid), { gestorDataRevision: increment(1) }, { merge:true });
+  } catch (err) {
+    console.warn('No se pudo actualizar la revisión del gestor:', err);
+  } finally {
+    // El estado actual sigue siendo válido aquí, pero el siguiente inicio lo verificará.
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
+  }
 }
 
 // Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
@@ -782,7 +829,6 @@ window.__persistToFirestore = async function(stateData) {
         await batch.commit();
       }
 
-      console.log('âœ… Datos guardados en Firebase (' + ops.length + ' ops)');
       notifySaveStatus('success', 'Cambios sincronizados correctamente.');
     } catch (err) {
       console.error('âŒ Error guardando en Firebase:', err);
@@ -806,10 +852,9 @@ window.__persistSingleDoc = async function(colName, docData) {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
-    console.log('DOC LIMPIO PARA FIRESTORE:', colName, JSON.stringify(safeData, null, 2));
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
-    console.log('âœ… Doc guardado:', colName, safeData.id);
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
@@ -830,7 +875,7 @@ window.__persistDeleteDoc = async function(colName, docId) {
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     notifySaveStatus('saving', 'Eliminando dato...');
     await deleteDoc(doc(colRef, docId));
-    console.log('âœ… Doc eliminado:', colName, docId);
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', 'Dato eliminado correctamente.');
     return true;
   } catch (err) {
@@ -845,8 +890,11 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return false;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
-    await setDoc(settingsRef(user.uid), sanitizeGestorSettingsForFirestore(settingsData || {}), { merge: true });
-    console.log('âœ… Settings guardados');
+    await setDoc(settingsRef(user.uid), {
+      ...sanitizeGestorSettingsForFirestore(settingsData || {}),
+      gestorDataRevision: increment(1)
+    }, { merge: true });
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
     return true;
   } catch (err) {
@@ -871,6 +919,7 @@ window.__persistManyDocs = async function(colName, docsData) {
       }
       await batch.commit();
     }
+    await touchGestorDataRevision(uid);
     notifySaveStatus('success', 'Datos guardados correctamente.');
     return true;
   } catch (err) {
@@ -1705,6 +1754,13 @@ html[data-theme="light"] .theme-toggle .theme-moon{color:var(--muted-2)}
   color:var(--muted);
   font-size:12px;
 }
+.client-copy-value{display:flex;align-items:center;gap:5px;min-width:0}
+.client-copy-value .copy-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.client-copy-btn{width:28px;height:28px;padding:0;display:inline-grid;place-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.045);color:var(--muted);cursor:pointer}
+.client-copy-btn:hover,.client-copy-btn.is-copied{color:#75f0c4;border-color:rgba(38,205,155,.48);background:rgba(38,205,155,.12)}
+.account-picker-search{margin-top:7px}
+#clientesView table{min-width:1080px;table-layout:fixed}
+#clientesView th:nth-child(1){width:15%}#clientesView th:nth-child(2){width:13%}#clientesView th:nth-child(3){width:11%}#clientesView th:nth-child(4){width:21%}#clientesView th:nth-child(9){width:15%}
 
 .new-sale-btn{
   height:42px;
@@ -4933,7 +4989,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
       <div class="existing-client-suggestions" id="existingClientSuggestions" hidden aria-live="polite"></div>
       <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
-      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
+      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span><input class="input account-picker-search" id="cAccountSearch" type="search" placeholder="Buscar correo, plataforma o perfiles libres" autocomplete="off" /></label>
       <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cActivationByCode" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>No envia correo, contrasena, perfil ni PIN; pide el codigo de pantalla.</small></span></label>
@@ -5034,8 +5090,8 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
 
     <div class="renew-preview" id="renewPreviewText"></div>
 
-    <div class="renew-price-box">
-      <label data-finance-only>Precio de renovacion
+    <div class="renew-price-box" id="renewPriceBox">
+      <label data-finance-only id="renewPriceLabel">Precio de renovacion
         <input class="input" id="renewPrice" type="number" min="0" step="0.01" placeholder="0.00" />
       </label>
       <span>Este monto se guardara como ingreso al renovar.</span>
@@ -5320,6 +5376,7 @@ let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
 let renewingClientId=null;
+let renewingAccountId=null;
 let financeRange='month';
 
 function load(){
@@ -5397,14 +5454,6 @@ window.retryFinanceHistoryLoad=function(){
 };
 function touchLocalStateCache(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
-}
-function persist(){
-  if(window.__loadingFromFirestore) return;
-  // Guardar en localStorage como respaldo inmediato
-  touchLocalStateCache();
-  // Marcar INMEDIATAMENTE que hay escritura pendiente para bloquear onSnapshot
-  window.__saving = true;
-  if(window.__persistToFirestore) window.__persistToFirestore(JSON.parse(JSON.stringify(state)));
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
 function persistDoc(colName, docData){
@@ -5654,6 +5703,23 @@ async function upsertAccountPurchaseExpense(account){
     currency:financeCurrency(),
     symbol:financeSymbol(),
     description:`Compra cuenta madre - ${accountEmailLabel(account) || friendlyPlatform(account.platform) || 'Cuenta'}`,
+    platform:account.platform,
+    accountId:account.id,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function recordAccountRenewalExpense(account, amountOverride){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(amountOverride);
+  if(!amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
+    type:'expense',
+    source:'account_renewal',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:`Renovacion cuenta madre - ${accountEmailLabel(account) || friendlyPlatform(account.platform) || 'Cuenta'}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -6336,9 +6402,11 @@ function renderClientPlatformOptions(selected='', selectedAccountId=''){
   sel.value=selected||'';
 }
 function renderAccountOptions(selectedId='', platform=''){
+  const query=($('#cAccountSearch')?.value||'').trim().toLowerCase();
   const options=sortedAccountsForPick()
     .filter(a=>accountAvailability(a).free>0||a.id===selectedId)
     .filter(a=>!platform||a.platform===platform)
+    .filter(a=>a.id===selectedId || !query || [accountLabel(a),a.platform,a.email,a.provider,`${accountAvailability(a).free} libres`].join(' ').toLowerCase().includes(query))
     .map(a=>{
       const av=accountAvailability(a);
       return `<option value="${a.id}" ${selectedId===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${av.free} Libre${av.free===1?'':'s'}</option>`;
@@ -6369,14 +6437,22 @@ function renderClients(){
   const currentFilter=$('#clientAccountFilter').value||'';
   renderClientFilterOptions(currentFilter);
   const q=$('#clientSearch').value.trim().toLowerCase();
+  const qDigits=q.replace(/\D+/g,'');
+  const isEmailSearch=q.includes('@');
+  const isPhoneSearch=!!qDigits && /^[+\d\s().-]+$/.test(q);
   const f=$('#clientStatusFilter').value;
   const af=$('#clientAccountFilter').value;
   const matchesFilters=c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const platform=(c.platform||account?.platform||'').toLowerCase();
     const blob=[c.name,c.whatsapp,platform,account?.provider,account?.email,c.profile].join(' ').toLowerCase();
+    const phoneDigits=String(c.whatsapp||'').replace(/\D+/g,'');
+    const queryMatches=!q ? true
+      : isEmailSearch ? String(account?.email||'').trim().toLowerCase()===q
+      : isPhoneSearch ? (phoneDigits.includes(qDigits)||qDigits.includes(phoneDigits))
+      : blob.includes(q);
     const st=effectiveClientState(c);
-    return (!q || blob.includes(q)) && (!f || st===f) && (!af || c.accountId===af);
+    return queryMatches && (!f || st===f) && (!af || c.accountId===af);
   };
   const allRows=state.clients.filter(matchesFilters).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
   const tableRows=f==='No renovó' ? allRows : allRows.filter(c=>!isNoRenewState(c.state));
@@ -6393,14 +6469,14 @@ function renderClients(){
           ${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}
         </div>
       </td>
-      <td>${escapeHtml(c.whatsapp||'')}</td>
+      <td><div class="client-copy-value"><span class="copy-value" title="${escapeAttr(c.whatsapp||'')}">${escapeHtml(c.whatsapp||'-')}</span>${c.whatsapp?`<button class="client-copy-btn" title="Copiar WhatsApp" aria-label="Copiar WhatsApp" onclick="copyClientValue(this,'${escapeJs(c.whatsapp)}')"><i data-lucide="copy"></i></button>`:''}</div></td>
       <td>
         <div style="display:flex;align-items:center;gap:6px">
           ${platformLogo(platform,'chip')}
           <span style="font-weight:700;font-size:13px">${escapeHtml(platform||'-')}</span>
         </div>
       </td>
-      <td>${escapeHtml(account ? accountLabel(account) : '-')}</td>
+      <td><div class="client-copy-value"><span class="copy-value" title="${escapeAttr(account?.email||'')}">${escapeHtml(account ? accountLabel(account) : '-')}</span>${account?.email?`<button class="client-copy-btn" title="Copiar correo" aria-label="Copiar correo" onclick="copyClientValue(this,'${escapeJs(account.email)}')"><i data-lucide="copy"></i></button>`:''}</div></td>
       <td>${escapeHtml(c.profile||'')}</td>
       <td>${escapeHtml(c.pin||'-')}</td>
       <td>${fmtDate(c.dueDate)}</td>
@@ -6421,6 +6497,7 @@ function renderClients(){
     </tr>`;
   };
   $('#clientsTable').innerHTML=tableRows.length?tableRows.map(renderRow).join(''):`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
+  if(window.lucide?.createIcons) window.lucide.createIcons();
   const archivedPanel=$('#archivedClientsPanel');
   if(archivedPanel){
     archivedPanel.innerHTML=archivedRows.length ? `
@@ -6511,17 +6588,6 @@ function accountPriority(a){
   if(av.free>0) return 2;
   return 3;
 }
-function accountStatusNote(a){
-  const av=accountAvailability(a);
-  const dd=daysUntil(a.dueDate);
-  if(dd!==null && dd<0) return 'Cuenta vencida';
-  if(dd===0) return 'Vence hoy';
-  if(dd===1) return 'Vence manana';
-  if(dd!==null && dd<=1) return `Vence en ${dd} dias`;
-  if(av.free===0) return 'Cuenta llena';
-  return `${av.free} Perfil${av.free===1?'':'es'} Libre${av.free===1?'':'s'}`;
-}
-
 function accountSectionKey(a){
   const av=accountAvailability(a);
   const dd=daysUntil(a.dueDate);
@@ -6535,6 +6601,17 @@ function accountSectionLabel(key){
   if(key==='available') return ['Disponibles','Con espacio para asignar'];
   return ['Llenas','Sin espacios libres'];
 }
+window.copyClientValue=async(button,value)=>{
+  if(!value) return;
+  try{
+    await copyTextToClipboard(value);
+    button?.classList.add('is-copied');
+    if(button) button.innerHTML='<i data-lucide="check"></i>';
+    window.lucide?.createIcons();
+    notifySaveStatus('copy','Copiado');
+    setTimeout(()=>{ if(!button?.isConnected) return; button.classList.remove('is-copied'); button.innerHTML='<i data-lucide="copy"></i>'; window.lucide?.createIcons(); },1600);
+  }catch(e){ notifySaveStatus('copyFail','No se pudo copiar'); }
+};
 window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email); notifySaveStatus('copy','Email copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el email'); console.warn('clipboard email:',e); } };
 window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider); notifySaveStatus('copy','Proveedor copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el proveedor'); console.warn('clipboard provider:',e); } };
 
@@ -6605,6 +6682,7 @@ function renderAccounts(){
                   ${url?`<button class="mini link" onclick="openPlatform('${url}')">Abrir plataforma</button>`:''}
                   <button class="mini provider" onclick="sendProviderWhatsapp('${a.id}')">WhatsApp proveedor</button>
                   <button class="mini wa" onclick="openAccountClientsModal('${a.id}')">Avisar clientes</button>
+                  <button class="mini" onclick="renewAccount('${a.id}')">Renovar cuenta</button>
                   <button class="mini" onclick="editAccount('${a.id}')">Editar</button>
                   <button class="mini" onclick="deleteAccount('${a.id}')">Borrar</button>
                 </div>
@@ -6775,6 +6853,8 @@ function renderRenewals(){
   const currentFilter=$('#renewalAccountFilter')?.value||'';
   const q=($('#renewalSearch')?.value||'').trim().toLowerCase();
   const qDigits=q.replace(/\D+/g,'');
+  const isEmailSearch=q.includes('@');
+  const isPhoneSearch=!!qDigits && /^[+\d\s().-]+$/.test(q);
   renderRenewalFilterOptions(currentFilter);
   const rows=state.clients.map(c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
@@ -6784,10 +6864,14 @@ function renderRenewals(){
       const phone=String(x.client.whatsapp||'');
       const phoneDigits=phone.replace(/\D+/g,'');
       const blob=[x.client.name,phone,x.platform,x.client.profile,x.account?.email,x.account?.provider,x.account?.notes,accountLabel(x.account||{})].join(' ').toLowerCase();
+      const queryMatches=!q ? true
+        : isEmailSearch ? String(x.account?.email||'').trim().toLowerCase()===q
+        : isPhoneSearch ? (phoneDigits.includes(qDigits)||qDigits.includes(phoneDigits))
+        : blob.includes(q);
       return x.st!=='No renovó'
         && renewalAlertDays(x.dd)
         && (!currentFilter || x.platform===currentFilter)
-        && (!q || blob.includes(q) || (qDigits && phoneDigits.includes(qDigits)));
+        && queryMatches;
     })
     .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
   const expiredCount=rows.filter(x=>x.dd<0).length;
@@ -6996,33 +7080,6 @@ function credentialsText(client, account){
 function codeActivationMessageText(){
   return String(state.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim() || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
-function accessTextBlock(client, account){
-  return [
-    '',
-    'Tus datos actuales son:',
-    `Perfil: ${client.profile || '-'}`,
-    `Correo: ${account?.email || '-'}`,
-    `Contrasena: ${account?.password || '-'}`,
-    ...(client.pin ? [`Pin: ${client.pin}`] : [])
-  ].join('\n');
-}
-function whatsappText(client){
-  const account=state.accounts.find(a=>a.id===client.accountId);
-  const platform=friendlyPlatform(client.platform||account?.platform);
-  const dd=daysUntil(client.dueDate);
-  const payment=paymentTextBlock();
-  if(isNoRenewState(client.state) || (dd!==null && dd<0)){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} acaba de vencer y ha sido cortada.\n\nSi mas adelante deseas volver a activarla, me escribes con confianza y te ayudo sin problema.`;
-  }
-  if(dd===0){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence hoy.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
-  }
-  if(dd===1){
-    return `Hola ${client.name || ''}, tu cuenta de ${platform} vence el dia de manana.\n\nSi deseas renovar, me confirmas enviando tu comprobante.${accessTextBlock(client, account)}${payment}`;
-  }
-  return credentialsText(client, account);
-}
-
 function whatsappText(client){
   const account=state.accounts.find(a=>a.id===client.accountId);
   const platform=friendlyPlatform(client.platform||account?.platform);
@@ -7277,7 +7334,7 @@ function refresh(){
   initDatepickers();
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); requestAnimationFrame(()=>window.syncEnhancedSelects?.()); }
-function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap') renewingClientId=null; if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
+function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap'){ renewingClientId=null; renewingAccountId=null; } if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
 function setClientSubmitMode(isNewSale){
   const btn=$('#saveClientBtn');
   if(!btn) return;
@@ -7293,11 +7350,6 @@ function syncClientAccessMode(){
   const pin=$('#cPin');
   if(profile){ profile.disabled=on; profile.placeholder=activationByCode ? 'Activacion por codigo' : (fullSale ? 'Cuenta completa' : '1'); }
   if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
-}
-function setClientFullAccountMode(enabled){
-  const fullSale=$('#cFullAccountSale');
-  if(fullSale) fullSale.checked=!!enabled;
-  syncClientAccessMode();
 }
 function clientCustomerId(client){ return String(client?.customerId || client?.id || '').trim(); }
 function clientLookupText(value){ return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase(); }
@@ -7338,7 +7390,7 @@ function renderExistingClientSuggestions(){
     box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
   });
 }
-function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cAccountSearch').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -7378,7 +7430,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); $('#cAccountSearch').value=''; renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
@@ -7495,6 +7547,22 @@ async function applyRenewalDate(clientId, newDate){
   touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
 }
+async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
+  const account=state.accounts.find(x=>x.id===accountId);
+  if(!account || !safeDateFromYMD(newDate)){
+    alert('Elige una fecha valida para renovar.');
+    return;
+  }
+  const updated={...account,dueDate:newDate,updatedAt:new Date().toISOString()};
+  const ok=await persistDoc('accounts',updated);
+  if(!ok) return;
+  state.accounts=state.accounts.map(item=>item.id===updated.id?updated:item);
+  await recordAccountRenewalExpense(updated,expenseAmount).catch(err=>console.warn('No se pudo registrar el gasto de renovación:',err));
+  closeModal('renewModalWrap');
+  refreshUI();
+  touchLocalStateCache();
+  notifySaveStatus('saved','Cuenta madre renovada');
+}
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;
   if(unit==='days') return qty===1?'dia':'dias';
@@ -7502,7 +7570,7 @@ function renewUnitLabel(unit, amount){
   return qty===1?'mes':'meses';
 }
 function updateRenewPreview(){
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   const preview=$('#renewPreviewText');
   if(!c || !preview) return;
   const amount=Number($('#renewCustomAmount')?.value||1);
@@ -7515,6 +7583,7 @@ function openRenewModal(id){
   if(!c) return;
   if(typeof closeAllActionMenus==='function') closeAllActionMenus();
   renewingClientId=id;
+  renewingAccountId=null;
   const account=state.accounts.find(a=>a.id===c.accountId);
   const platform=friendlyPlatform(c.platform || account?.platform);
   const base=renewalBaseDate(c);
@@ -7531,29 +7600,58 @@ function openRenewModal(id){
   if(unitEl) unitEl.value='months';
   if(exactEl) exactEl.value=renewalDateFor(c,1,'months');
   const priceEl=$('#renewPrice');
+  $('#renewPriceBox').style.display='';
+  $('#renewPriceLabel').firstChild.textContent='Precio de renovacion';
   if(priceEl) priceEl.value=moneyNumber(c.comboRenewalPrice || c.renewalPrice || c.salePrice) || '';
   updateRenewPreview();
   openModal('renewModalWrap');
   initDatepickers();
 }
+function openRenewAccountModal(id){
+  const account=state.accounts.find(x=>x.id===id);
+  if(!account) return;
+  if(typeof closeAllActionMenus==='function') closeAllActionMenus();
+  renewingClientId=null;
+  renewingAccountId=id;
+  const base=renewalBaseDate(account);
+  $('#renewModalTitle').textContent='Renovar cuenta madre';
+  $('#renewClientSummary').innerHTML=`
+    <strong>${escapeHtml(accountLabel(account) || 'Cuenta madre')}</strong><br>
+    ${platformIcon(account.platform)} ${escapeHtml(friendlyPlatform(account.platform))}<br>
+    Vence actualmente: <strong>${fmtDateLong(account.dueDate) || 'Sin fecha'}</strong><br>
+    Solo se actualizara el vencimiento de esta cuenta; no se modificaran clientes, perfiles, finanzas ni mensajes.`;
+  $('#renewCustomAmount').value='1';
+  $('#renewCustomUnit').value='months';
+  $('#renewExactDate').value=renewalDateFor(account,1,'months');
+  $('#renewPriceBox').style.display=isFinanceModeEnabled()?'':'none';
+  $('#renewPriceLabel').firstChild.textContent='Costo de renovación';
+  $('#renewPrice').value=moneyNumber(account.purchaseCost || platformPriceFor(account.platform).purchaseCost) || '';
+  updateRenewPreview();
+  openModal('renewModalWrap');
+  initDatepickers();
+}
 window.renewClient=(id)=>openRenewModal(id);
+window.renewAccount=(id)=>openRenewAccountModal(id);
 window.applyRenewClientDuration=(amount,unit)=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
-  applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
+  const next=renewalDateFor(c,amount,unit);
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.applyCustomRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
   const amount=Number($('#renewCustomAmount')?.value||0);
   const unit=$('#renewCustomUnit')?.value||'months';
   if(!amount || amount<1){ alert('Ingresa una cantidad valida.'); return; }
-  applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
+  const next=renewalDateFor(c,amount,unit);
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.applyExactRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
-  applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
+  const next=($('#renewExactDate')?.value||'').trim();
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.setNoRenew=async(id)=>{
   const c=state.clients.find(x=>x.id===id);
@@ -8024,6 +8122,12 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
+$('#cAccountSearch').oninput=()=>{
+  const selected=$('#cAccount').value;
+  const platform=$('#cPlatform').value;
+  renderAccountOptions(selected,platform);
+  window.syncEnhancedSelects?.();
+};
 $('#cFullAccountSale')?.addEventListener('change',syncClientAccessMode);
 $('#cActivationByCode')?.addEventListener('change',syncClientAccessMode);
 $('#cPlatform').addEventListener('change',()=>{ const platform=$('#cPlatform').value; renderAccountOptions('',platform); applyDefaultClientPrices(platform,{fillMissingForExisting:!!editingClientId,overwrite:!editingClientId}); });

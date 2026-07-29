@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#18d5a2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -9,6 +11,7 @@
 <link rel="manifest" href="/manifest-gestor.json?v=30" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
@@ -266,6 +269,7 @@ body:has(.sheet.show) .install-banner{display:none!important}
 .mobile-select-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-select-chevron{width:18px;height:18px;flex:0 0 18px;color:#9eacf0;transition:transform .16s ease,color .16s ease}.mobile-select-shell.is-open .mobile-select-chevron{transform:rotate(180deg);color:#c4b5fd}
 .mobile-select-popover{position:fixed;z-index:100;display:grid;gap:4px;max-height:min(310px,calc(100vh - 22px));padding:7px;overflow:auto;overscroll-behavior:contain;border:1px solid rgba(158,177,214,.25);border-radius:17px;background:#101a2c;box-shadow:0 18px 46px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.05)}
 .mobile-select-option{width:100%;min-height:43px;padding:9px 10px;border:0;border-radius:11px;background:transparent;color:#dce6f8;display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:center;gap:9px;text-align:left;font-size:13px;font-weight:800;line-height:1.3}.mobile-select-option-label{min-width:0;overflow-wrap:anywhere;word-break:break-word}.mobile-select-option:hover,.mobile-select-option:focus-visible{outline:0;background:rgba(118,92,255,.16);color:#fff}.mobile-select-option.is-selected{background:rgba(118,92,255,.24);color:#fff}.mobile-select-option-check{width:17px;height:17px;color:#a99eff;opacity:0}.mobile-select-option.is-selected .mobile-select-option-check{opacity:1}.mobile-select-option:disabled{cursor:not-allowed;opacity:.42}.mobile-select-empty{padding:14px;color:var(--muted);font-size:13px;text-align:center}
+html.ios-native-select .field select[data-mobile-select="false"],html.ios-native-select .country-select[data-mobile-select="false"]{-webkit-appearance:menulist;appearance:auto;opacity:1;pointer-events:auto}
 .phone-row .mobile-select-shell{width:100px;flex:0 0 100px}.phone-row .mobile-select-trigger{padding:0 8px;font-size:13px}
 html[data-theme="light"] .mobile-select-trigger{background:#fff;color:#182235;border-color:rgba(70,88,116,.26)}
 html[data-theme="light"] .mobile-select-chevron{color:#5d69bb}html[data-theme="light"] .mobile-select-shell.is-open .mobile-select-chevron{color:#5544d0}
@@ -343,8 +347,8 @@ html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="li
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -362,6 +366,7 @@ if (siteKey) {
   initializeAppCheck(app, { provider:new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled:true });
 }
 const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 const db = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
@@ -390,10 +395,11 @@ const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
-  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}
+  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null
 };
 const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
 const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
+const MOBILE_STATE_CACHE_REVISION_KEY = MOBILE_STATE_CACHE_KEY + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
@@ -403,7 +409,8 @@ function cacheMobileState(){
       clients:state.clients,
       financeMovements:state.financeMovements,
       financeMovementsFullLoaded:state.financeMovementsFullLoaded===true,
-      settings:state.settings
+      settings:state.settings,
+      syncRevision:state.syncRevision
     }));
     localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
   }catch(_){}
@@ -425,6 +432,7 @@ function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
+    state.syncRevision = data.syncRevision ?? localStorage.getItem(MOBILE_STATE_CACHE_REVISION_KEY) ?? null;
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
     return true;
@@ -604,6 +612,28 @@ async function setClientsBatch(clients){
     rows.slice(i, i + 450).forEach(client => batch.set(clientRef(client.id), client, { merge:true }));
     await batch.commit();
   }
+  await touchMobileDataRevision();
+}
+
+async function touchMobileDataRevision(){
+  try{
+    await setDoc(settingsRef(state.uid), { gestorDataRevision:increment(1) }, { merge:true });
+  }catch(err){
+    console.warn('No se pudo actualizar la revisión del gestor:',err);
+  }finally{
+    state.syncRevision = null;
+    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+  }
+}
+
+async function mobileCacheMatchesRemote(){
+  if(state.syncRevision === null || state.syncRevision === undefined) return false;
+  try{
+    const snap = await getDocFromServer(settingsRef(state.uid));
+    return String(snap.data()?.gestorDataRevision ?? 0) === String(state.syncRevision);
+  }catch(_){
+    return true;
+  }
 }
 
 const MAX_GESTOR_DEVICES = 5;
@@ -777,6 +807,23 @@ async function registerGestorDevice(uid){
   await Promise.all(expired.map(d=>deleteDoc(doc(db,'users',uid,'devices',d.id)).catch(()=>{})));
   const usableDevices=devices.filter(d=>!expired.some(x=>x.id===d.id));
   const activeDevices=usableDevices.filter(d=>!d.revoked && !isGestorDeviceExpired(d));
+  const sameFingerprint=activeDevices.find(d=>d.fingerprintHash && d.fingerprintHash===fingerprint.hash);
+  if(sameFingerprint){
+    await setDoc(doc(db,'users',uid,'devices',sameFingerprint.id),{
+      name:fingerprint.label,
+      deviceLabel:fingerprint.label,
+      fingerprintHash:fingerprint.hash,
+      fingerprintSummary:fingerprint.summary,
+      confidenceSignals:fingerprint.confidenceSignals,
+      lastSeen:now,
+      lastLoginAt:now,
+      loginCount:Number(sameFingerprint.loginCount || 0) + 1,
+      revoked:false
+    },{merge:true});
+    try{ localStorage.setItem('ts_device_id',sameFingerprint.id); }catch(_){ }
+    markGestorDeviceTouched(uid,sameFingerprint.id);
+    return {ok:true,reused:true};
+  }
   if(activeDevices.length >= MAX_GESTOR_DEVICES) return {ok:false,count:activeDevices.length};
   const suspicious=detectGestorDeviceSuspicion(null, fingerprint, activeDevices, true);
   await setDoc(devRef,{
@@ -1059,8 +1106,16 @@ function setView(view){
 }
 function matches(item,q){
   if(!q) return true;
-  const query = q.toLowerCase();
+  const query = q.toLowerCase().trim();
   const account = item?.accountId && !isNoRenewState(item?.state) ? state.accounts.find(a => a.id === item.accountId) : null;
+  const queryDigits=query.replace(/\D+/g,'');
+  const isEmailSearch=query.includes('@');
+  const isPhoneSearch=!!queryDigits && /^[+\d\s().-]+$/.test(query);
+  if(isEmailSearch) return clean(account?.email).toLowerCase() === query;
+  if(isPhoneSearch){
+    const phoneDigits=clean(item?.whatsapp).replace(/\D+/g,'');
+    return !!phoneDigits && (phoneDigits.includes(queryDigits) || queryDigits.includes(phoneDigits));
+  }
   const accountSearch = account ? [
     accountName(account),
     account.email,
@@ -1215,6 +1270,19 @@ async function upsertAccountPurchaseExpense(account){
     id:movementId,
     type:'expense', source:'account_purchase', amount:account.purchaseCost,
     description:`Compra cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
+    platform:account.platform,
+    accountId:account.id,
+    occurredAt:new Date().toISOString()
+  });
+}
+async function recordAccountRenewalExpense(account, amountOverride){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(amountOverride);
+  if(!amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
+    type:'expense', source:'account_renewal', amount,
+    description:`Renovacion cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
     accountId:account.id,
     occurredAt:new Date().toISOString()
@@ -1490,7 +1558,7 @@ function clientCard(c){
     <div class="card-actions">
       ${dueActions
         ? `<button class="mini" data-renew="${esc(c.id)}">${icon('calendar')}<span>Renovar</span></button><button class="mini" data-no-renew="${esc(c.id)}">${icon('x')}<span>No renovo</span></button><button class="mini" data-wa-renew="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`
-        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
+        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>${c.whatsapp?`<button class="mini" data-copy-client-phone="${esc(c.id)}" title="Copiar WhatsApp">${icon('copy')}<span>Copiar número</span></button>`:''}${acc?.email?`<button class="mini" data-copy-client-account="${esc(c.id)}" title="Copiar correo de cuenta madre">${icon('copy')}<span>Copiar correo</span></button>`:''}`}
     </div>
   </article>`;
 }
@@ -1520,7 +1588,7 @@ function accountCard(a){
       <div class="info"><b>${esc(accountName(a))}</b><div class="meta">
         <span class="pill brand">${esc(cat)}</span><span class="pill ${fullSold?'warn':'ok'}">${fullSold?'Cuenta completa':free+' libres'}</span><span class="pill">${used}/${cap || '-'}</span><span class="pill">${assigned} clientes</span><span class="pill ${ds.cls}">${esc(ds.label)}</span>
       </div></div></div>
-    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-account-data-toggle="${esc(a.id)}">${icon('eye')}<span>Ver datos</span></button>${showProviderRenewal?`<button class="mini" data-provider-renew="${esc(a.id)}">${icon('message')}<span>Renovar</span></button>`:''}${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
+    <div class="card-actions"><button class="mini" data-edit-account="${esc(a.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-account-clients="${esc(a.id)}">${icon('users')}<span>Clientes</span></button><button class="mini" data-account-data-toggle="${esc(a.id)}">${icon('eye')}<span>Ver datos</span></button><button class="mini" data-renew-account="${esc(a.id)}">${icon('calendar')}<span>Renovar cuenta</span></button>${showProviderRenewal?`<button class="mini" data-provider-renew="${esc(a.id)}">${icon('message')}<span>Proveedor</span></button>`:''}${free>0?`<button class="mini" data-sell-account="${esc(a.id)}">${icon('user-plus')}<span>Vender</span></button>`:''}</div>
     <div class="account-data hidden" id="account-data-${esc(a.id)}">
       <div class="account-data-head">Ver datos</div>
       <div class="account-data-row"><span>Correo</span><b>${esc(email)}</b><button class="account-copy" data-copy-account-field="email" data-account-id="${esc(a.id)}">Copiar</button></div>
@@ -1544,6 +1612,7 @@ function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
   document.querySelectorAll('[data-new-sale-client]').forEach(b => b.onclick = () => openAdditionalSaleForClient(state.clients.find(c => c.id === b.dataset.newSaleClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
+  document.querySelectorAll('[data-renew-account]').forEach(b => b.onclick = () => renewAccount(state.accounts.find(a => a.id === b.dataset.renewAccount)));
   document.querySelectorAll('[data-account-clients]').forEach(b => b.onclick = () => openAccountClientsSheet(state.accounts.find(a => a.id === b.dataset.accountClients)));
   document.querySelectorAll('[data-account-data-toggle]').forEach(b => b.onclick = () => toggleAccountData(b.dataset.accountDataToggle));
   document.querySelectorAll('[data-copy-account-field]').forEach(b => b.onclick = () => copyAccountField(b.dataset.accountId, b.dataset.copyAccountField, b));
@@ -1551,6 +1620,15 @@ function bindCards(){
   document.querySelectorAll('[data-wa]').forEach(b => b.onclick = () => {
     const c = state.clients.find(x => x.id === b.dataset.wa);
     c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'delivery') : openWhatsApp(c, 'delivery');
+  });
+  document.querySelectorAll('[data-copy-client-phone]').forEach(b => b.onclick = () => {
+    const client=state.clients.find(c=>c.id===b.dataset.copyClientPhone);
+    copyClientFieldMobile(client?.whatsapp,b,'Número');
+  });
+  document.querySelectorAll('[data-copy-client-account]').forEach(b => b.onclick = () => {
+    const client=state.clients.find(c=>c.id===b.dataset.copyClientAccount);
+    const account=state.accounts.find(a=>a.id===client?.accountId);
+    copyClientFieldMobile(account?.email,b,'Correo');
   });
   document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => {
     const c = state.clients.find(x => x.id === b.dataset.waRenew);
@@ -1755,7 +1833,7 @@ function openClientSheet(item={}){
         <div class="field"><label>Plataforma</label><select name="platform" required>${salePlatformOptions(platformValue)}</select></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
-      <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale, platformValue)}</select></div>
+      <div class="field"><label>Cuenta madre</label><input name="accountSearch" type="search" placeholder="Buscar correo, plataforma o perfiles libres" autocomplete="off"><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale, platformValue)}</select></div>
       <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       <label class="combo-mobile-toggle"><span>Activar por codigo</span><input type="checkbox" name="activationByCode" value="1" ${c.activationByCode?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
@@ -1808,14 +1886,21 @@ function openClientSheet(item={}){
     const fullSale = !!form.elements.fullAccountSale?.checked;
     const selectedAccount = state.accounts.find(a=>a.id===selected);
     const platform = form.elements.platform?.value || '';
+    const search = clean(form.elements.accountSearch?.value).toLowerCase();
     const keepSelected = selected && selectedAccount && sameSalePlatform(selectedAccount.platform,platform) && accountSelectableForSale(selected, c.id || '', fullSale);
-    form.elements.accountId.innerHTML = saleAccountOptions(keepSelected ? selected : '', c.id || '', fullSale, platform);
+    const available=state.accounts
+      .filter(a=>a.id===selected || accountSelectableForSale(a.id,c.id||'',fullSale))
+      .filter(a=>!platform || sameSalePlatform(a.platform,platform))
+      .filter(a=>a.id===selected || !search || [accountName(a),a.email,a.provider,a.platform,`${accountFreeSlots(a.id)} libres`].join(' ').toLowerCase().includes(search));
+    const prompt=!platform ? 'Primero elige una plataforma' : (fullSale ? 'No hay cuentas vacias para vender completa' : 'No hay cuentas con perfiles libres');
+    form.elements.accountId.innerHTML=`<option value="">${esc(available.length ? 'Elige cuenta madre' : prompt)}</option>${available.sort((a,b)=>accountUsed(a.id)-accountUsed(b.id)).map(a=>`<option value="${esc(a.id)}" ${a.id===(keepSelected?selected:'')?'selected':''}>${esc(accountEmailLabel(a)||a.provider||'Cuenta sin correo')} - ${accountFreeSlots(a.id)} libres</option>`).join('')}`;
     if(selected && !keepSelected){
       form.elements.accountId.value = '';
       if(form.elements.profile && !fullSale) form.elements.profile.value = '';
     }
     window.syncMobileSelects?.();
   };
+  form.elements.accountSearch?.addEventListener('input', refreshClientAccountOptions);
   if(form.elements.accountId) form.elements.accountId.onchange = () => {
     const account = state.accounts.find(a => a.id === form.elements.accountId.value);
     if(account?.platform){
@@ -2095,6 +2180,7 @@ async function saveItem(kind,data,opts={}){
   const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
     await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData, { merge:true });
+    await touchMobileDataRevision();
     if(kind === 'account'){
       state.accounts = [cleanData, ...state.accounts.filter(a => a.id !== cleanData.id)];
       state.view = 'accounts';
@@ -2191,6 +2277,7 @@ async function removeItem(kind,itemId){
   if(!confirm('Eliminar este registro?')) return;
   try{
     await deleteDoc(kind === 'account' ? accountRef(itemId) : clientRef(itemId));
+    await touchMobileDataRevision();
     if(kind === 'account') state.accounts = state.accounts.filter(a => a.id !== itemId);
     else state.clients = state.clients.filter(c => c.id !== itemId);
     cacheMobileState();
@@ -2206,7 +2293,9 @@ async function saveSettings(next){
   const wasFinanceOn = isFinanceModeEnabled();
   const nextSettings = normalizeSettings(next);
   try{
-    await setDoc(settingsRef(state.uid), nextSettings, {merge:true});
+    await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
+    state.syncRevision = null;
+    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
     state.settings = nextSettings;
     if(state.settings.financeMode === false && state.view === 'finance') state.view = 'home';
     if(!wasFinanceOn && isFinanceModeEnabled()){
@@ -2472,6 +2561,15 @@ function copyTextToClipboard(text){
     area.remove();
   }
 }
+async function copyClientFieldMobile(value,button,label='Dato'){
+  if(!clean(value)) return toast(`${label} vacio.`,'bad');
+  try{
+    await copyTextToClipboard(value);
+    const previous=button?.innerHTML;
+    if(button){ button.innerHTML=`${icon('check')}<span>Copiado</span>`; clearTimeout(button._copyReset); button._copyReset=setTimeout(()=>{ if(button.isConnected) button.innerHTML=previous; },1600); }
+    toast(`${label} copiado.`);
+  }catch(_){ toast('No se pudo copiar.','bad'); }
+}
 function toggleAccountData(accountId){
   const panel = document.getElementById(`account-data-${accountId}`);
   if(!panel) return;
@@ -2523,11 +2621,6 @@ async function copyDuePhonesMobile(){
     toast('No se pudo copiar.','bad');
   }
 }
-function addDaysISO(date, days){
-  const d = new Date((date || todayISO()) + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0,10);
-}
 function renewClient(c){
   if(!c) return;
   const currentDue = clean(c.dueDate) || todayISO();
@@ -2559,6 +2652,41 @@ function renewClient(c){
     applyClientRenewal(c, customDate, 'Cliente renovado hasta ' + customDate, moneyNumber(fd.get('renewalPrice')));
   });
 }
+function renewAccount(account){
+  if(!account) return;
+  const base=clean(account.dueDate) || todayISO();
+  const oneMonth=addMonthsISO(base,1);
+  const threeMonths=addMonthsISO(base,3);
+  const oneYear=addMonthsISO(base,12);
+  openSheet(`<div class="sheet-head"><h3>Renovar cuenta madre</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
+    <div class="grid">
+      <div class="settings-card"><strong>${esc(accountName(account))}</strong><span class="beta-note">Vence actual: ${esc(account.dueDate || 'Sin fecha')}. Esta acción solo actualiza el vencimiento de la cuenta madre; no modifica clientes, perfiles, finanzas ni mensajes.</span></div>
+      <button class="btn ok" id="renewAccountOneMonth">${icon('calendar')}<span>Renovar 1 mes</span></button>
+      <button class="btn primary" id="renewAccountThreeMonths">${icon('calendar')}<span>Renovar 3 meses</span></button>
+      <button class="btn" id="renewAccountOneYear">${icon('calendar')}<span>Renovar 1 año</span></button>
+      <form id="renewAccountCustomForm" class="grid">${isFinanceModeEnabled()?`<div class="field"><label>Costo de renovación</label><input name="renewalCost" value="${esc(moneyNumber(account.purchaseCost || platformPriceFor(account.platform).purchaseCost) || '')}" inputmode="decimal" placeholder="${esc(financeSymbol())} 0.00"></div>`:''}<div class="field"><label>Seleccionar fecha</label><input type="date" name="dueDate" value="${esc(oneMonth)}" required></div><button class="btn">${icon('save')}<span>Guardar fecha personalizada</span></button></form>
+    </div>`);
+  const renewalCost=()=>moneyNumber($('#renewAccountCustomForm')?.elements?.renewalCost?.value);
+  const apply=nextDate=>applyAccountRenewal(account,nextDate,renewalCost());
+  $('#renewAccountOneMonth')?.addEventListener('click',()=>apply(oneMonth));
+  $('#renewAccountThreeMonths')?.addEventListener('click',()=>apply(threeMonths));
+  $('#renewAccountOneYear')?.addEventListener('click',()=>apply(oneYear));
+  $('#renewAccountCustomForm')?.addEventListener('submit',event=>{ event.preventDefault(); apply(clean(new FormData(event.currentTarget).get('dueDate'))); });
+}
+async function applyAccountRenewal(account,nextDate,expenseAmount=0){
+  if(!account || !nextDate) return toast('Selecciona una fecha valida.','bad');
+  try{
+    const updated={...account,dueDate:nextDate,updatedAt:new Date().toISOString()};
+    await setDoc(accountRef(updated.id),updated,{merge:true});
+    await touchMobileDataRevision();
+    state.accounts=[updated,...state.accounts.filter(item=>item.id!==updated.id)];
+    await recordAccountRenewalExpense(updated,expenseAmount);
+    cacheMobileState();
+    toast('Cuenta madre renovada');
+    closeSheet();
+    render();
+  }catch(err){ console.error(err); toast('No se pudo renovar la cuenta.','bad'); }
+}
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0){
   if(!c || !nextDate) return;
   try{
@@ -2574,6 +2702,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     }else{
       const updated = { ...c, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() };
       await setDoc(clientRef(c.id), updated, { merge:true });
+      await touchMobileDataRevision();
       state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
       await recordRenewalIncome(updated, renewalAmount);
       sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
@@ -2596,6 +2725,7 @@ async function markNoRenew(c){
     const platform = clean(c.platform) || clean(acc?.platform) || '';
     const updated = { ...c, accountId:'', platform, state:'No renov\u00f3', updatedAt:new Date().toISOString() };
     await setDoc(clientRef(c.id), updated, { merge:true });
+    await touchMobileDataRevision();
     state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
     cacheMobileState();
     toast('Perfil liberado. Cliente archivado.');
@@ -2891,19 +3021,23 @@ async function exportExcel(){
 async function loadOnceForExpired(){
   await loadOnce(false);
 }
-async function loadOnce(showToast=true){
+async function loadOnce(showToast=true, forceNetwork=false){
   if(!state.uid) return;
   try{
-    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
     if(showToast && !forceFresh && mobileStateCacheAge() < MOBILE_MANUAL_REFRESH_COOLDOWN && restoreMobileStateFromCache(MOBILE_MANUAL_REFRESH_COOLDOWN)){
-      render();
-      toast('Ya esta actualizado.');
-      return;
+      if(await mobileCacheMatchesRemote()){
+        render();
+        toast('Ya está actualizado.');
+        return;
+      }
     }
     if(showToast) toast('Actualizando datos...');
     if(!forceFresh && !showToast && restoreMobileStateFromCache()){
-      render();
-      return;
+      if(await mobileCacheMatchesRemote()){
+        render();
+        return;
+      }
     }
     if(!showToast && !forceFresh && restoreMobileStateFromCache(Infinity)){
       render();
@@ -2919,6 +3053,8 @@ async function loadOnce(showToast=true){
     state.financeMovements = fin.filter(Boolean);
     state.financeMovementsFullLoaded = false;
     state.settings = normalizeSettings(cfg.data() || {});
+    state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
+    try{ localStorage.setItem(MOBILE_STATE_CACHE_REVISION_KEY, String(state.syncRevision)); }catch(_){}
     cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
@@ -2935,6 +3071,8 @@ function startLive(){
 
 /* Select visual: conserva el select real para formularios, eventos y accesibilidad. */
 const MOBILE_SELECT_SELECTOR = 'select:not([multiple]):not([data-mobile-select="false"])';
+const USE_IOS_NATIVE_SELECTS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if(USE_IOS_NATIVE_SELECTS) document.documentElement.classList.add('ios-native-select');
 let activeMobileSelect = null;
 let mobileSelectSyncQueued = false;
 function mobileSelectLabel(select){
@@ -3047,6 +3185,12 @@ function openMobileSelect(select,{keyboard=false}={}){
   if(keyboard) requestAnimationFrame(()=>popover.querySelector('.mobile-select-option.is-selected, .mobile-select-option:not(:disabled)')?.focus());
 }
 function enhanceMobileSelect(select){
+  if(USE_IOS_NATIVE_SELECTS){
+    select.dataset.mobileSelect = 'false';
+    select.removeAttribute('aria-hidden');
+    select.tabIndex = 0;
+    return;
+  }
   if(!(select instanceof HTMLSelectElement) || select.dataset.mobileSelect === 'true') return;
   const shell = document.createElement('div');
   shell.className = 'mobile-select-shell';
@@ -3130,7 +3274,7 @@ $('#fab').onclick = () => state.view === 'finance' ? openFinanceExpenseSheet() :
 $('#installBtn').onclick = installGestorApp;
 $('#installBannerBtn').onclick = installGestorApp;
 $('#installDismissBtn').onclick = dismissInstallBanner;
-$('#syncBtn').onclick = () => loadOnce(true);
+$('#syncBtn').onclick = () => loadOnce(true, true);
 $('#exportTop').onclick = exportExcel;
 $('#logoutBtn').onclick = () => signOut(auth);
 window.addEventListener('beforeinstallprompt', ev => {
