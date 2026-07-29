@@ -945,6 +945,28 @@ window.__persistFinanceMovementDoc = async function(docData) {
   }
 };
 
+window.__persistAccountRenewalWithExpense = async function(accountData, expenseData) {
+  const user = auth.currentUser;
+  if (!user || !accountData?.id) return false;
+  try {
+    const safeAccount = sanitizeGestorAccountForFirestore(accountData);
+    const safeExpense = expenseData ? sanitizeFinanceMovementForFirestore(expenseData) : null;
+    const batch = writeBatch(db);
+    batch.set(doc(accountsCol(user.uid), safeAccount.id), safeAccount, { merge:true });
+    if (safeExpense) batch.set(doc(financeCol(user.uid), safeExpense.id), safeExpense, { merge:true });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Renovando cuenta madre...');
+    await batch.commit();
+    try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
+    notifySaveStatus('success', 'Cuenta madre renovada.');
+    return { account:safeAccount, expense:safeExpense };
+  } catch (err) {
+    console.error('Error renovando cuenta madre:', err);
+    notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
 window.__persistDeleteFinanceMovementDoc = async function(docId) {
   const user = auth.currentUser;
   if (!user || !docId) return false;
@@ -1754,6 +1776,13 @@ html[data-theme="light"] .theme-toggle .theme-moon{color:var(--muted-2)}
   color:var(--muted);
   font-size:12px;
 }
+.client-copy-value{display:flex;align-items:center;gap:5px;min-width:0}
+.client-copy-value .copy-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.client-copy-btn{width:28px;height:28px;padding:0;display:inline-grid;place-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.045);color:var(--muted);cursor:pointer}
+.client-copy-btn:hover,.client-copy-btn.is-copied{color:#75f0c4;border-color:rgba(38,205,155,.48);background:rgba(38,205,155,.12)}
+.account-picker-search{margin-top:7px}
+#clientesView table{min-width:1080px;table-layout:fixed}
+#clientesView th:nth-child(1){width:15%}#clientesView th:nth-child(2){width:13%}#clientesView th:nth-child(3){width:11%}#clientesView th:nth-child(4){width:21%}#clientesView th:nth-child(9){width:15%}
 
 .new-sale-btn{
   height:42px;
@@ -1912,6 +1941,7 @@ select option:checked{
   background:#101a2c;
   box-shadow:0 20px 55px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.04);
 }
+.select-search{width:100%;min-height:42px;padding:0 11px;border:1px solid rgba(158,177,214,.28);border-radius:10px;background:#091323;color:var(--text);outline:none;font:inherit;font-size:13px}.select-search:focus{border-color:rgba(124,109,255,.74);box-shadow:0 0 0 3px rgba(124,109,255,.14)}
 .select-option{
   width:100%;
   min-height:40px;
@@ -3184,6 +3214,7 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
   font-weight:900;
   line-height:1.25;
 }
+.renewal-phone{display:flex;align-items:center;gap:6px;margin-top:4px;color:#7fa1df;font-size:13px;font-weight:800}.renewal-copy-btn{width:27px;height:27px;padding:0;display:inline-grid;place-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.045);color:#aebfff;cursor:pointer}.renewal-copy-btn:hover,.renewal-copy-btn.is-copied{color:#75f0c4;border-color:rgba(38,205,155,.48);background:rgba(38,205,155,.12)}.renewal-copy-btn.is-copied{animation:renewal-copy-confirm .48s cubic-bezier(.2,.85,.3,1)}.renewal-copy-btn svg{width:14px;height:14px;stroke-width:2.4}@keyframes renewal-copy-confirm{0%{transform:scale(1)}42%{transform:scale(1.28);box-shadow:0 0 0 5px rgba(38,205,155,.16)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(38,205,155,0)}}
 #clientModalWrap .client-full-sale-toggle small{
   display:block;
   margin-top:5px;
@@ -4414,6 +4445,7 @@ html[data-theme="light"] .select-popover{
   border-color:rgba(33,47,71,.18);
   box-shadow:0 20px 48px rgba(44,57,78,.22),inset 0 1px 0 rgba(255,255,255,.8);
 }
+html[data-theme="light"] .select-search{background:#fff;color:#182235;border-color:rgba(33,47,71,.24)}
 html[data-theme="light"] .select-option{color:#344158}
 html[data-theme="light"] .select-option:hover,
 html[data-theme="light"] .select-option:focus-visible{background:rgba(102,87,223,.10);color:#251b68}
@@ -4579,6 +4611,7 @@ html[data-theme="light"] .renewals-head{background:rgba(215,223,232,.72)}
 html[data-theme="light"] .renewal-row{border-color:var(--border)}
 html[data-theme="light"] .renewal-row:hover{background:rgba(102,87,223,.045)}
 html[data-theme="light"] .renewal-account-email{color:var(--accent)}
+html[data-theme="light"] .renewal-phone{color:#566a8e}
 html[data-theme="light"] .renewal-platform-pill{
   background:rgba(242,245,248,.76);
   border-color:var(--border-3);
@@ -4982,7 +5015,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
       <div class="existing-client-suggestions" id="existingClientSuggestions" hidden aria-live="polite"></div>
       <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
-      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
+      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount" data-select-search="true" data-select-search-placeholder="Buscar correo o plataforma..."></select></span></label>
       <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cActivationByCode" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>No envia correo, contrasena, perfil ni PIN; pide el codigo de pantalla.</small></span></label>
@@ -5083,8 +5116,8 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
 
     <div class="renew-preview" id="renewPreviewText"></div>
 
-    <div class="renew-price-box">
-      <label data-finance-only>Precio de renovacion
+    <div class="renew-price-box" id="renewPriceBox">
+      <label data-finance-only id="renewPriceLabel">Precio de renovacion
         <input class="input" id="renewPrice" type="number" min="0" step="0.01" placeholder="0.00" />
       </label>
       <span>Este monto se guardara como ingreso al renovar.</span>
@@ -5369,6 +5402,7 @@ let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
 let renewingClientId=null;
+let renewingAccountId=null;
 let financeRange='month';
 
 function load(){
@@ -5700,6 +5734,28 @@ async function upsertAccountPurchaseExpense(account){
     occurredAt:new Date().toISOString()
   });
 }
+function buildAccountRenewalExpense(account, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride);
+  if(!amount) return null;
+  return {
+    id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
+    type:'expense',
+    source:'account_renewal',
+    amount,
+    currency:financeCurrency(),
+    symbol:financeSymbol(),
+    description:`Renovacion cuenta madre - ${accountEmailLabel(account) || friendlyPlatform(account.platform) || 'Cuenta'}`,
+    platform:account.platform,
+    accountId:account.id,
+    occurredAt:new Date().toISOString()
+  };
+}
+async function recordAccountRenewalExpense(account, amountOverride){
+  const movement=buildAccountRenewalExpense(account, amountOverride);
+  if(!movement) return false;
+  return persistFinanceMovement(movement);
+}
 function sanitizeAccountForSave(data={}){
   const purchaseCost=moneyNumber(data.purchaseCost);
   const now=new Date().toISOString();
@@ -6023,6 +6079,24 @@ window.copyRenewalPhones=async function(){
     notifySaveStatus('success',`${phones.length} numeros copiados.`);
   }catch(_){
     notifySaveStatus('error','No se pudo copiar.');
+  }
+};
+window.copyRenewalPhone=async function(button,value){
+  if(!value) return;
+  try{
+    await copyTextToClipboard(value);
+    const previous=button?.innerHTML || '<i data-lucide="copy"></i>';
+    if(button){
+      button.innerHTML='<i data-lucide="check"></i>';
+      button.classList.add('is-copied');
+      button.title='Copiado';
+      window.lucide?.createIcons?.();
+      clearTimeout(button._copyReset);
+      button._copyReset=setTimeout(()=>{ if(button.isConnected){ button.innerHTML=previous; button.classList.remove('is-copied'); button.title='Copiar numero'; window.lucide?.createIcons?.(); } },1400);
+    }
+    notifySaveStatus('copy','Numero copiado');
+  }catch(_){
+    notifySaveStatus('copyFail','No se pudo copiar el numero');
   }
 };
 function secretMask(v){ return v ? '*'.repeat(Math.max(6,String(v).length)) : '-'; }
@@ -6410,14 +6484,22 @@ function renderClients(){
   const currentFilter=$('#clientAccountFilter').value||'';
   renderClientFilterOptions(currentFilter);
   const q=$('#clientSearch').value.trim().toLowerCase();
+  const qDigits=q.replace(/\D+/g,'');
+  const isEmailSearch=q.includes('@');
+  const isPhoneSearch=!!qDigits && /^[+\d\s().-]+$/.test(q);
   const f=$('#clientStatusFilter').value;
   const af=$('#clientAccountFilter').value;
   const matchesFilters=c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
     const platform=(c.platform||account?.platform||'').toLowerCase();
     const blob=[c.name,c.whatsapp,platform,account?.provider,account?.email,c.profile].join(' ').toLowerCase();
+    const phoneDigits=String(c.whatsapp||'').replace(/\D+/g,'');
+    const queryMatches=!q ? true
+      : isEmailSearch ? String(account?.email||'').trim().toLowerCase()===q
+      : isPhoneSearch ? (phoneDigits.includes(qDigits)||qDigits.includes(phoneDigits))
+      : blob.includes(q);
     const st=effectiveClientState(c);
-    return (!q || blob.includes(q)) && (!f || st===f) && (!af || c.accountId===af);
+    return queryMatches && (!f || st===f) && (!af || c.accountId===af);
   };
   const allRows=state.clients.filter(matchesFilters).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
   const tableRows=f==='No renovó' ? allRows : allRows.filter(c=>!isNoRenewState(c.state));
@@ -6434,14 +6516,14 @@ function renderClients(){
           ${c.notes?`<div class="sub">${escapeHtml(c.notes)}</div>`:''}
         </div>
       </td>
-      <td>${escapeHtml(c.whatsapp||'')}</td>
+      <td><div class="client-copy-value"><span class="copy-value" title="${escapeAttr(c.whatsapp||'')}">${escapeHtml(c.whatsapp||'-')}</span>${c.whatsapp?`<button class="client-copy-btn" title="Copiar WhatsApp" aria-label="Copiar WhatsApp" onclick="copyClientValue(this,'${escapeJs(c.whatsapp)}')"><i data-lucide="copy"></i></button>`:''}</div></td>
       <td>
         <div style="display:flex;align-items:center;gap:6px">
           ${platformLogo(platform,'chip')}
           <span style="font-weight:700;font-size:13px">${escapeHtml(platform||'-')}</span>
         </div>
       </td>
-      <td>${escapeHtml(account ? accountLabel(account) : '-')}</td>
+      <td><div class="client-copy-value"><span class="copy-value" title="${escapeAttr(account?.email||'')}">${escapeHtml(account ? accountLabel(account) : '-')}</span>${account?.email?`<button class="client-copy-btn" title="Copiar correo" aria-label="Copiar correo" onclick="copyClientValue(this,'${escapeJs(account.email)}')"><i data-lucide="copy"></i></button>`:''}</div></td>
       <td>${escapeHtml(c.profile||'')}</td>
       <td>${escapeHtml(c.pin||'-')}</td>
       <td>${fmtDate(c.dueDate)}</td>
@@ -6462,6 +6544,7 @@ function renderClients(){
     </tr>`;
   };
   $('#clientsTable').innerHTML=tableRows.length?tableRows.map(renderRow).join(''):`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
+  if(window.lucide?.createIcons) window.lucide.createIcons();
   const archivedPanel=$('#archivedClientsPanel');
   if(archivedPanel){
     archivedPanel.innerHTML=archivedRows.length ? `
@@ -6565,6 +6648,17 @@ function accountSectionLabel(key){
   if(key==='available') return ['Disponibles','Con espacio para asignar'];
   return ['Llenas','Sin espacios libres'];
 }
+window.copyClientValue=async(button,value)=>{
+  if(!value) return;
+  try{
+    await copyTextToClipboard(value);
+    button?.classList.add('is-copied');
+    if(button) button.innerHTML='<i data-lucide="check"></i>';
+    window.lucide?.createIcons();
+    notifySaveStatus('copy','Copiado');
+    setTimeout(()=>{ if(!button?.isConnected) return; button.classList.remove('is-copied'); button.innerHTML='<i data-lucide="copy"></i>'; window.lucide?.createIcons(); },1600);
+  }catch(e){ notifySaveStatus('copyFail','No se pudo copiar'); }
+};
 window.copyAccountEmail=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.email) return; try{ await navigator.clipboard.writeText(acc.email); notifySaveStatus('copy','Email copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el email'); console.warn('clipboard email:',e); } };
 window.copyAccountProvider=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.provider) return; try{ await navigator.clipboard.writeText(acc.provider); notifySaveStatus('copy','Proveedor copiado'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar el proveedor'); console.warn('clipboard provider:',e); } };
 
@@ -6635,6 +6729,7 @@ function renderAccounts(){
                   ${url?`<button class="mini link" onclick="openPlatform('${url}')">Abrir plataforma</button>`:''}
                   <button class="mini provider" onclick="sendProviderWhatsapp('${a.id}')">WhatsApp proveedor</button>
                   <button class="mini wa" onclick="openAccountClientsModal('${a.id}')">Avisar clientes</button>
+                  <button class="mini" onclick="renewAccount('${a.id}')">Renovar cuenta</button>
                   <button class="mini" onclick="editAccount('${a.id}')">Editar</button>
                   <button class="mini" onclick="deleteAccount('${a.id}')">Borrar</button>
                 </div>
@@ -6805,6 +6900,8 @@ function renderRenewals(){
   const currentFilter=$('#renewalAccountFilter')?.value||'';
   const q=($('#renewalSearch')?.value||'').trim().toLowerCase();
   const qDigits=q.replace(/\D+/g,'');
+  const isEmailSearch=q.includes('@');
+  const isPhoneSearch=!!qDigits && /^[+\d\s().-]+$/.test(q);
   renderRenewalFilterOptions(currentFilter);
   const rows=state.clients.map(c=>{
     const account=state.accounts.find(a=>a.id===c.accountId);
@@ -6814,10 +6911,14 @@ function renderRenewals(){
       const phone=String(x.client.whatsapp||'');
       const phoneDigits=phone.replace(/\D+/g,'');
       const blob=[x.client.name,phone,x.platform,x.client.profile,x.account?.email,x.account?.provider,x.account?.notes,accountLabel(x.account||{})].join(' ').toLowerCase();
+      const queryMatches=!q ? true
+        : isEmailSearch ? String(x.account?.email||'').trim().toLowerCase()===q
+        : isPhoneSearch ? (phoneDigits.includes(qDigits)||qDigits.includes(phoneDigits))
+        : blob.includes(q);
       return x.st!=='No renovó'
         && renewalAlertDays(x.dd)
         && (!currentFilter || x.platform===currentFilter)
-        && (!q || blob.includes(q) || (qDigits && phoneDigits.includes(qDigits)));
+        && queryMatches;
     })
     .sort((a,b)=>(a.dd-b.dd) || friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)) || (a.client.name||'').localeCompare(b.client.name||''));
   const expiredCount=rows.filter(x=>x.dd<0).length;
@@ -6850,6 +6951,7 @@ function renderRenewals(){
         <div class="renewal-main">
           <strong>${escapeHtml(client.name||'Cliente')}</strong>
           <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
+          ${client.whatsapp?`<div class="renewal-phone"><span>${escapeHtml(client.whatsapp)}</span><button class="renewal-copy-btn" type="button" title="Copiar numero" aria-label="Copiar numero" onclick="copyRenewalPhone(this,'${escapeJs(client.whatsapp)}')"><i data-lucide="copy"></i></button></div>`:''}
         </div>
       </div>
       <div><span class="renewal-platform-pill">${platformLogo(platform,'chip')} ${escapeHtml(friendlyPlatform(platform)||'-')}</span></div>
@@ -7280,7 +7382,7 @@ function refresh(){
   initDatepickers();
 }
 function openModal(id){ if(typeof closeAllActionMenus==='function') closeAllActionMenus(); $('#'+id).classList.add('show'); document.body.classList.add('modal-open'); requestAnimationFrame(()=>window.syncEnhancedSelects?.()); }
-function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap') renewingClientId=null; if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
+function closeModal(id){ $('#'+id).classList.remove('show'); if(id==='renewModalWrap'){ renewingClientId=null; renewingAccountId=null; } if(!document.querySelector('.modal-backdrop.show')) document.body.classList.remove('modal-open'); }
 function setClientSubmitMode(isNewSale){
   const btn=$('#saveClientBtn');
   if(!btn) return;
@@ -7493,6 +7595,29 @@ async function applyRenewalDate(clientId, newDate){
   touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
 }
+async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
+  const account=state.accounts.find(x=>x.id===accountId);
+  if(!account || !safeDateFromYMD(newDate)){
+    alert('Elige una fecha valida para renovar.');
+    return;
+  }
+  const updated={...account,dueDate:newDate,updatedAt:new Date().toISOString()};
+  const expense=buildAccountRenewalExpense(updated,expenseAmount);
+  const saved=window.__persistAccountRenewalWithExpense
+    ? await window.__persistAccountRenewalWithExpense(updated,expense)
+    : false;
+  if(!saved) return;
+  state.accounts=state.accounts.map(item=>item.id===updated.id?updated:item);
+  if(expense){
+    const cleanExpense=normalizeFinanceMovement(saved.expense || expense);
+    state.financeMovements=state.financeMovements.filter(item=>item.id!==cleanExpense.id);
+    state.financeMovements.unshift(cleanExpense);
+  }
+  closeModal('renewModalWrap');
+  refreshUI();
+  touchLocalStateCache();
+  notifySaveStatus('saved','Cuenta madre renovada');
+}
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;
   if(unit==='days') return qty===1?'dia':'dias';
@@ -7500,7 +7625,7 @@ function renewUnitLabel(unit, amount){
   return qty===1?'mes':'meses';
 }
 function updateRenewPreview(){
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   const preview=$('#renewPreviewText');
   if(!c || !preview) return;
   const amount=Number($('#renewCustomAmount')?.value||1);
@@ -7513,6 +7638,7 @@ function openRenewModal(id){
   if(!c) return;
   if(typeof closeAllActionMenus==='function') closeAllActionMenus();
   renewingClientId=id;
+  renewingAccountId=null;
   const account=state.accounts.find(a=>a.id===c.accountId);
   const platform=friendlyPlatform(c.platform || account?.platform);
   const base=renewalBaseDate(c);
@@ -7529,29 +7655,58 @@ function openRenewModal(id){
   if(unitEl) unitEl.value='months';
   if(exactEl) exactEl.value=renewalDateFor(c,1,'months');
   const priceEl=$('#renewPrice');
+  $('#renewPriceBox').style.display='';
+  $('#renewPriceLabel').firstChild.textContent='Precio de renovacion';
   if(priceEl) priceEl.value=moneyNumber(c.comboRenewalPrice || c.renewalPrice || c.salePrice) || '';
   updateRenewPreview();
   openModal('renewModalWrap');
   initDatepickers();
 }
+function openRenewAccountModal(id){
+  const account=state.accounts.find(x=>x.id===id);
+  if(!account) return;
+  if(typeof closeAllActionMenus==='function') closeAllActionMenus();
+  renewingClientId=null;
+  renewingAccountId=id;
+  const base=renewalBaseDate(account);
+  $('#renewModalTitle').textContent='Renovar cuenta madre';
+  $('#renewClientSummary').innerHTML=`
+    <strong>${escapeHtml(accountLabel(account) || 'Cuenta madre')}</strong><br>
+    ${platformIcon(account.platform)} ${escapeHtml(friendlyPlatform(account.platform))}<br>
+    Vence actualmente: <strong>${fmtDateLong(account.dueDate) || 'Sin fecha'}</strong><br>
+    Solo se actualizara el vencimiento de esta cuenta. No se modificaran clientes, perfiles ni mensajes; con Finanzas activo se registrara el gasto de renovacion.`;
+  $('#renewCustomAmount').value='1';
+  $('#renewCustomUnit').value='months';
+  $('#renewExactDate').value=renewalDateFor(account,1,'months');
+  $('#renewPriceBox').style.display=isFinanceModeEnabled()?'':'none';
+  $('#renewPriceLabel').firstChild.textContent='Costo de renovación';
+  $('#renewPrice').value=moneyNumber(account.purchaseCost || platformPriceFor(account.platform).purchaseCost) || '';
+  updateRenewPreview();
+  openModal('renewModalWrap');
+  initDatepickers();
+}
 window.renewClient=(id)=>openRenewModal(id);
+window.renewAccount=(id)=>openRenewAccountModal(id);
 window.applyRenewClientDuration=(amount,unit)=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
-  applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
+  const next=renewalDateFor(c,amount,unit);
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.applyCustomRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
   const amount=Number($('#renewCustomAmount')?.value||0);
   const unit=$('#renewCustomUnit')?.value||'months';
   if(!amount || amount<1){ alert('Ingresa una cantidad valida.'); return; }
-  applyRenewalDate(c.id, renewalDateFor(c,amount,unit));
+  const next=renewalDateFor(c,amount,unit);
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.applyExactRenewClient=()=>{
-  const c=state.clients.find(x=>x.id===renewingClientId);
+  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
   if(!c) return;
-  applyRenewalDate(c.id, ($('#renewExactDate')?.value||'').trim());
+  const next=($('#renewExactDate')?.value||'').trim();
+  renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.setNoRenew=async(id)=>{
   const c=state.clients.find(x=>x.id===id);
@@ -8515,7 +8670,27 @@ refresh();
   function renderOptions(context){
     const { select, popover } = context;
     popover.replaceChildren();
-    const options = [...select.options];
+    const searchEnabled = select.dataset.selectSearch === 'true';
+    if(searchEnabled){
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'select-search';
+      search.placeholder = select.dataset.selectSearchPlaceholder || 'Buscar...';
+      search.value = context.query || '';
+      search.setAttribute('aria-label',search.placeholder);
+      search.addEventListener('input',()=>{
+        context.query = search.value.trim().toLowerCase();
+        renderOptions(context);
+        requestAnimationFrame(()=>popover.querySelector('.select-search')?.focus());
+      });
+      search.addEventListener('keydown',event=>{
+        if(event.key === 'Escape'){ event.preventDefault(); closeSelect({restoreFocus:true}); }
+        if(event.key === 'ArrowDown'){ event.preventDefault(); focusOption(context,'selected'); }
+      });
+      popover.appendChild(search);
+    }
+    const query = (context.query || '').toLowerCase();
+    const options = [...select.options].filter(option=>!option.hidden && (!query ? true : option.value !== '' && option.textContent.toLowerCase().includes(query)));
     if(!options.length){
       const empty = document.createElement('div');
       empty.className = 'select-empty';
@@ -8524,8 +8699,8 @@ refresh();
       positionPopover(context);
       return;
     }
-    options.forEach((option,index)=>{
-      if(option.hidden) return;
+    options.forEach(option=>{
+      const index = [...select.options].indexOf(option);
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'select-option';
@@ -8582,12 +8757,13 @@ refresh();
     popover.id = `${select.id || 'select'}-options-${Math.random().toString(36).slice(2,7)}`;
     popover.setAttribute('role','listbox');
     document.body.appendChild(popover);
-    activeSelect = {select,shell,trigger,popover};
+    activeSelect = {select,shell,trigger,popover,query:''};
     shell.classList.add('is-open');
     trigger.setAttribute('aria-expanded','true');
     trigger.setAttribute('aria-controls',popover.id);
     renderOptions(activeSelect);
-    if(keyboard) requestAnimationFrame(()=>focusOption(activeSelect,'selected'));
+    if(select.dataset.selectSearch === 'true') requestAnimationFrame(()=>popover.querySelector('.select-search')?.focus());
+    else if(keyboard) requestAnimationFrame(()=>focusOption(activeSelect,'selected'));
   }
 
   function enhanceSelect(select){
