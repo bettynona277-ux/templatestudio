@@ -1941,6 +1941,7 @@ select option:checked{
   background:#101a2c;
   box-shadow:0 20px 55px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.04);
 }
+.select-search{width:100%;min-height:42px;padding:0 11px;border:1px solid rgba(158,177,214,.28);border-radius:10px;background:#091323;color:var(--text);outline:none;font:inherit;font-size:13px}.select-search:focus{border-color:rgba(124,109,255,.74);box-shadow:0 0 0 3px rgba(124,109,255,.14)}
 .select-option{
   width:100%;
   min-height:40px;
@@ -4443,6 +4444,7 @@ html[data-theme="light"] .select-popover{
   border-color:rgba(33,47,71,.18);
   box-shadow:0 20px 48px rgba(44,57,78,.22),inset 0 1px 0 rgba(255,255,255,.8);
 }
+html[data-theme="light"] .select-search{background:#fff;color:#182235;border-color:rgba(33,47,71,.24)}
 html[data-theme="light"] .select-option{color:#344158}
 html[data-theme="light"] .select-option:hover,
 html[data-theme="light"] .select-option:focus-visible{background:rgba(102,87,223,.10);color:#251b68}
@@ -5011,8 +5013,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <label>WhatsApp<span class="field-control"><i data-lucide="phone"></i><input class="input" id="cWhatsapp" placeholder="974834197" /></span></label>
       <div class="existing-client-suggestions" id="existingClientSuggestions" hidden aria-live="polite"></div>
       <div class="form-group-label"><i data-lucide="key-round"></i>Cuenta y plataforma</div>
-      <label>Buscar cuenta madre<span class="field-control"><i data-lucide="search"></i><input class="input" id="cAccountSearch" type="search" placeholder="Correo, plataforma o perfiles libres" autocomplete="off" /></span></label>
-      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount"></select></span></label>
+      <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select" id="cAccount" data-select-search="true" data-select-search-placeholder="Buscar correo o plataforma..."></select></span></label>
       <label>Plataforma<span class="field-control"><i data-lucide="monitor"></i><select class="select" id="cPlatform"></select></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cFullAccountSale" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Vendo la cuenta completa</strong><small>Activa esta opción si el cliente recibe la cuenta completa.</small></span></label>
       <label class="checkline full client-full-sale-toggle"><input type="checkbox" id="cActivationByCode" /><span class="switch-ui" aria-hidden="true"></span><span><strong>Activar por codigo</strong><small>No envia correo, contrasena, perfil ni PIN; pide el codigo de pantalla.</small></span></label>
@@ -6430,11 +6431,9 @@ function renderClientPlatformOptions(selected='', selectedAccountId=''){
   sel.value=selected||'';
 }
 function renderAccountOptions(selectedId='', platform=''){
-  const query=($('#cAccountSearch')?.value||'').trim().toLowerCase();
   const options=sortedAccountsForPick()
     .filter(a=>accountAvailability(a).free>0||a.id===selectedId)
     .filter(a=>!platform||a.platform===platform)
-    .filter(a=>a.id===selectedId || !query || [accountLabel(a),a.platform,a.email,a.provider,`${accountAvailability(a).free} libres`].join(' ').toLowerCase().includes(query))
     .map(a=>{
       const av=accountAvailability(a);
       return `<option value="${a.id}" ${selectedId===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${av.free} Libre${av.free===1?'':'s'}</option>`;
@@ -7418,7 +7417,7 @@ function renderExistingClientSuggestions(){
     box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
   });
 }
-function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#cAccountSearch').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -7458,7 +7457,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); $('#cAccountSearch').value=''; renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
@@ -8157,12 +8156,6 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
-$('#cAccountSearch').oninput=()=>{
-  const selected=$('#cAccount').value;
-  const platform=$('#cPlatform').value;
-  renderAccountOptions(selected,platform);
-  window.syncEnhancedSelects?.();
-};
 $('#cFullAccountSale')?.addEventListener('change',syncClientAccessMode);
 $('#cActivationByCode')?.addEventListener('change',syncClientAccessMode);
 $('#cPlatform').addEventListener('change',()=>{ const platform=$('#cPlatform').value; renderAccountOptions('',platform); applyDefaultClientPrices(platform,{fillMissingForExisting:!!editingClientId,overwrite:!editingClientId}); });
@@ -8656,7 +8649,27 @@ refresh();
   function renderOptions(context){
     const { select, popover } = context;
     popover.replaceChildren();
-    const options = [...select.options];
+    const searchEnabled = select.dataset.selectSearch === 'true';
+    if(searchEnabled){
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'select-search';
+      search.placeholder = select.dataset.selectSearchPlaceholder || 'Buscar...';
+      search.value = context.query || '';
+      search.setAttribute('aria-label',search.placeholder);
+      search.addEventListener('input',()=>{
+        context.query = search.value.trim().toLowerCase();
+        renderOptions(context);
+        requestAnimationFrame(()=>popover.querySelector('.select-search')?.focus());
+      });
+      search.addEventListener('keydown',event=>{
+        if(event.key === 'Escape'){ event.preventDefault(); closeSelect({restoreFocus:true}); }
+        if(event.key === 'ArrowDown'){ event.preventDefault(); focusOption(context,'selected'); }
+      });
+      popover.appendChild(search);
+    }
+    const query = (context.query || '').toLowerCase();
+    const options = [...select.options].filter(option=>!option.hidden && (!query ? true : option.value !== '' && option.textContent.toLowerCase().includes(query)));
     if(!options.length){
       const empty = document.createElement('div');
       empty.className = 'select-empty';
@@ -8665,8 +8678,8 @@ refresh();
       positionPopover(context);
       return;
     }
-    options.forEach((option,index)=>{
-      if(option.hidden) return;
+    options.forEach(option=>{
+      const index = [...select.options].indexOf(option);
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'select-option';
@@ -8723,12 +8736,13 @@ refresh();
     popover.id = `${select.id || 'select'}-options-${Math.random().toString(36).slice(2,7)}`;
     popover.setAttribute('role','listbox');
     document.body.appendChild(popover);
-    activeSelect = {select,shell,trigger,popover};
+    activeSelect = {select,shell,trigger,popover,query:''};
     shell.classList.add('is-open');
     trigger.setAttribute('aria-expanded','true');
     trigger.setAttribute('aria-controls',popover.id);
     renderOptions(activeSelect);
-    if(keyboard) requestAnimationFrame(()=>focusOption(activeSelect,'selected'));
+    if(select.dataset.selectSearch === 'true') requestAnimationFrame(()=>popover.querySelector('.select-search')?.focus());
+    else if(keyboard) requestAnimationFrame(()=>focusOption(activeSelect,'selected'));
   }
 
   function enhanceSelect(select){
