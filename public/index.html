@@ -2,6 +2,8 @@
 <html lang="es" data-theme="light">
 <head>
 <meta charset="UTF-8">
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#15d6a4">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,6 +43,7 @@ if('serviceWorker' in navigator && (location.protocol === 'http:' || location.pr
 })();
 </script>
 <title>Diseños Streaming</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check-compat.js"></script>
@@ -149,6 +152,11 @@ body{
   outline:none;margin-bottom:16px;transition:all 0.2s;
 }
 .login-field:focus{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(124,92,252,0.12);}
+.password-field-wrap{position:relative;margin-bottom:16px;}
+.password-field-wrap .login-field{margin-bottom:0;padding-right:52px;}
+.login-password-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;background:transparent;color:var(--text2);cursor:pointer;border-radius:10px;}
+.login-password-toggle:hover,.login-password-toggle:focus-visible{background:rgba(124,92,252,0.12);color:var(--text);outline:none;}
+.login-password-toggle svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .phone-row{display:flex;gap:8px;margin-bottom:16px;}
 .phone-prefix{
   background:var(--surface2);border:1.5px solid var(--border);
@@ -1198,7 +1206,10 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
       <label class="login-label">Correo Gmail</label>
       <input type="email" class="login-field" id="login-phone" placeholder="tucorreo@gmail.com" style="margin-bottom:16px;" onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()">
       <label class="login-label">Contraseña</label>
-      <input type="password" class="login-field" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="password-field-wrap">
+        <input type="password" class="login-field" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="login-password-toggle" id="login-pass-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false" onclick="toggleLoginPassword()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></button>
+      </div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
       <div class="login-err" id="login-err"></div>
       <div class="login-divider-text"><span>Nuevo cliente</span></div>
@@ -1833,6 +1844,12 @@ function observeLazyImages(root) {
 
 let fbApp = null, fbDb = null, fbAuth = null;
 let currentUser = null;
+let _userDocRead = { uid:'', at:0, promise:null };
+function readCurrentUserDoc(uid){
+  if(_userDocRead.uid === uid && _userDocRead.promise && Date.now() - _userDocRead.at < 5000) return _userDocRead.promise;
+  _userDocRead = { uid, at:Date.now(), promise:fbDb.collection('users').doc(uid).get() };
+  return _userDocRead.promise;
+}
 let currentDesignId = null;
 let editingDesignName = '';
 
@@ -1935,7 +1952,7 @@ window.addEventListener('load', async () => {
       try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
       fbAuth.onAuthStateChanged(async user => {
         if(user){
-          const doc = await fbDb.collection('users').doc(user.uid).get().catch(()=>null);
+          const doc = await readCurrentUserDoc(user.uid).catch(()=>null);
           if(doc && doc.exists && doc.data().active !== false){
             const devResult = await registerDevice(user.uid);
             if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
@@ -1973,7 +1990,7 @@ window.addEventListener('load', async () => {
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       // User is signed in — get their profile from Firestore
-      const doc = await fbDb.collection('users').doc(user.uid).get();
+      const doc = await readCurrentUserDoc(user.uid);
       if (doc.exists && doc.data().active !== false) {
         // Verificar límite de dispositivos
         const devResult = await registerDevice(user.uid);
@@ -2252,7 +2269,7 @@ async function completePostLogin(user, errEl) {
   if(_postLoginCompleting) return true;
   _postLoginCompleting = true;
   try {
-    const doc = await fbDb.collection('users').doc(user.uid).get();
+    const doc = await readCurrentUserDoc(user.uid);
     if(!doc.exists || doc.data().active === false) {
       await fbAuth.signOut();
       localStorage.removeItem('ts_session');
@@ -2301,6 +2318,19 @@ async function completePostLogin(user, errEl) {
   } finally {
     _postLoginCompleting = false;
   }
+}
+
+function toggleLoginPassword(){
+  const input=document.getElementById('login-pass');
+  const button=document.getElementById('login-pass-toggle');
+  if(!input || !button) return;
+  const visible=input.type === 'text';
+  input.type=visible ? 'password' : 'text';
+  button.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
+  button.setAttribute('aria-pressed', String(!visible));
+  button.innerHTML=visible
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.1A11.8 11.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.1 3.8"></path><path d="M6.6 6.6C3.6 8.5 2 12 2 12s3.5 7 10 7a10 10 0 0 0 2.1-.2"></path></svg>';
 }
 
 async function doLogin() {
@@ -3144,6 +3174,23 @@ function addBuiltinLogos(){
 
 // ── SHARED LOGO LIBRARY (from Firestore, uploaded by admin) ──────
 let sharedLogoLibraryLoaded = false;
+async function loadCompactSharedLogoCatalog(){
+  try{
+    const snap=await fbDb.collection('public_catalog').doc('logos').get();
+    const data=snap.exists ? snap.data() : null;
+    if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+    return data.items.map(logo => ({
+      id:String(logo?.id || ''),
+      url:String(logo?.url || ''),
+      name:String(logo?.name || ''),
+      categoria:String(logo?.categoria || 'Logos oficiales'),
+      createdAt:Number(logo?.createdAt || 0)
+    })).filter(logo => logo.id && logo.url);
+  }catch(e){
+    console.warn('Catalogo compacto de logos no disponible:', e.message || e);
+    return null;
+  }
+}
 async function ensureSharedLogoLibrary(){
   if(sharedLogoLibraryLoaded) return;
   await loadSharedLogoLibrary();
@@ -3152,15 +3199,19 @@ async function loadSharedLogoLibrary(){
   const grid=document.getElementById('shared-logo-grid');
   if(!grid||!fbDb) return;
   try{
-    const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    const catalogLogos=await loadCompactSharedLogoCatalog();
+    let sharedLogos=catalogLogos;
+    if(sharedLogos === null){
+      const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      sharedLogos=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    }
     grid.innerHTML='';
-    if(snap.empty){
+    if(!sharedLogos.length){
       sharedLogoLibraryLoaded = true;
       grid.innerHTML='<div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Sin logos disponibles.</div>';
       return;
     }
-    snap.forEach(doc=>{
-      const d=doc.data();
+    sharedLogos.forEach(d=>{
       const item=document.createElement('div');
       item.className='logo-item';
       item.title=d.name||'Logo';

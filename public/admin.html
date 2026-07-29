@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diseños Streaming — Admin</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -627,7 +628,7 @@ function observeLazyImages(root) {
 
 let _allTemplates = [];
 let _currentFilter = 'all';
-const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v2';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 6 * 60 * 60 * 1000;
@@ -668,6 +669,33 @@ function compactTemplateCatalogItems(items) {
     .sort((a,b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
 }
 
+function compactAdminTemplateItems(items) {
+  return (items || []).map(t => ({
+    id:String(t?.id || ''),
+    name:String(t?.name || 'Plantilla').slice(0, 140),
+    thumb:String(t?.thumb || '').slice(0, 800),
+    category:String(t?.category || '').slice(0, 80),
+    status:t?.status === 'draft' ? 'draft' : 'published',
+    createdAt:Number(t?.createdAt || 0),
+    updatedAt:Number(t?.updatedAt || t?.createdAt || 0)
+  })).filter(t => t.id).sort((a,b) => b.updatedAt - a.updatedAt);
+}
+
+function normalizeAdminPublishedTemplateCatalog(data) {
+  if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+  return compactAdminTemplateItems(data.items.map(item => ({ ...item, status:'published' })));
+}
+
+async function loadAdminPublishedTemplateCatalog() {
+  try {
+    const snap = await fbDb.collection('public_catalog').doc('templates').get();
+    return snap.exists ? normalizeAdminPublishedTemplateCatalog(snap.data() || {}) : null;
+  } catch(e) {
+    console.warn('Catalogo de plantillas no disponible:', e.message || e);
+    return null;
+  }
+}
+
 async function publishTemplateCatalog() {
   if(!fbConnected || !fbDb) return;
   const items = compactTemplateCatalogItems(_allTemplates);
@@ -683,6 +711,45 @@ async function publishTemplateCatalog() {
   }
 }
 
+function compactLogoCatalogItems(logos) {
+  return (logos || [])
+    .map(logo => ({
+      id:String(logo?.id || ''),
+      url:String(logo?.url || '').slice(0, 900),
+      name:String(logo?.name || '').slice(0, 160),
+      categoria:String(logo?.categoria || 'Logos oficiales').slice(0, 80),
+      createdAt:Number(logo?.createdAt || 0)
+    }))
+    .filter(logo => logo.id && logo.url)
+    .sort((a,b) => b.createdAt - a.createdAt);
+}
+
+async function publishPublicLogoCatalog(logos) {
+  if(!fbDb) return;
+  const items = compactLogoCatalogItems(logos);
+  const updatedAt = Date.now();
+  await Promise.all([
+    fbDb.collection('public_catalog').doc('logos').set({ complete:true, total:items.length, updatedAt, items }, { merge:false }),
+    fbDb.collection('_config').doc('logo_version').set({ updatedAt }, { merge:true })
+  ]);
+}
+
+async function rebuildPublicLogoCatalog() {
+  const snap = await fbDb.collection('logos').orderBy('createdAt', 'desc').get();
+  const logos = snap.docs.map(doc => ({ id:doc.id, ...doc.data() }));
+  await publishPublicLogoCatalog(logos);
+  return logos;
+}
+
+async function ensurePublicLogoCatalog(logos) {
+  try {
+    const catalog = await fbDb.collection('public_catalog').doc('logos').get();
+    if(!catalog.exists || catalog.data()?.complete !== true) await publishPublicLogoCatalog(logos);
+  } catch(e) {
+    console.warn('No se pudo verificar el catalogo compacto de logos:', e);
+  }
+}
+
 async function loadTemplates(force=false) {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
@@ -690,13 +757,20 @@ async function loadTemplates(force=false) {
   try {
     const cached = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
     if(cached) {
-      _allTemplates = cached;
+      _allTemplates = compactAdminTemplateItems(cached);
     } else {
-      const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      _allTemplates = [];
-      snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
+      const published = await loadAdminPublishedTemplateCatalog();
+      if(published !== null) {
+        const draftsSnap = await fbDb.collection('templates').where('status', '==', 'draft').get();
+        const drafts = draftsSnap.docs.map(doc => ({ id:doc.id, ...doc.data() }));
+        _allTemplates = compactAdminTemplateItems([...published, ...drafts]);
+      } else {
+        // Compatibilidad durante la primera migracion o si el catalogo no esta disponible.
+        const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+        _allTemplates = compactAdminTemplateItems(snap.docs.map(doc => ({ id:doc.id, ...doc.data() })));
+        publishTemplateCatalog();
+      }
       writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
-      publishTemplateCatalog();
     }
     updateTemplateCounts();
     renderTemplates();
@@ -771,6 +845,7 @@ function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
 
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
+  _allTemplates = compactAdminTemplateItems(_allTemplates);
   writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
   publishTemplateCatalog();
   renderTemplates();
@@ -1700,6 +1775,7 @@ async function uploadAdminLogos(){
   document.getElementById('admin-logo-files').value = '';
   if(ok > 0) {
     invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    try { await rebuildPublicLogoCatalog(); } catch(e) { console.warn('Catalogo de logos pendiente:', e); }
     loadAdminLogos(true);
   }
 }
@@ -1710,11 +1786,13 @@ async function loadAdminLogos(force=false){
   container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
   try{
     let all = force ? null : readAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    if(all) ensurePublicLogoCatalog(all);
     if(!all) {
       const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
       all = [];
       snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
       writeAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY, all);
+      ensurePublicLogoCatalog(all);
     }
 
     if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
@@ -1771,7 +1849,8 @@ async function deleteAdminLogo(id, btn){
   try{
     await fbDb.collection('logos').doc(id).delete();
     invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
-    btn.closest('div[style*="aspect-ratio"]').remove();
+    try { await rebuildPublicLogoCatalog(); } catch(e) { console.warn('Catalogo de logos pendiente:', e); }
+    loadAdminLogos(true);
     showStatus && showStatus('','','');
   }catch(e){ alert('Error: '+e.message); }
 }
