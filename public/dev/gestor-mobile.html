@@ -1563,7 +1563,7 @@ function clientCard(c){
     <div class="card-actions">
       ${dueActions
         ? `<button class="mini" data-renew="${esc(c.id)}">${icon('calendar')}<span>Renovar</span></button><button class="mini" data-no-renew="${esc(c.id)}">${icon('x')}<span>No renovo</span></button><button class="mini" data-wa-renew="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`
-        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>${c.whatsapp?`<button class="mini" data-copy-client-phone="${esc(c.id)}" title="Copiar WhatsApp">${icon('copy')}<span>Copiar número</span></button>`:''}${acc?.email?`<button class="mini" data-copy-client-account="${esc(c.id)}" title="Copiar correo de cuenta madre">${icon('copy')}<span>Copiar correo</span></button>`:''}`}
+        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
     </div>
   </article>`;
 }
@@ -1626,15 +1626,6 @@ function bindCards(){
     const c = state.clients.find(x => x.id === b.dataset.wa);
     c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'delivery') : openWhatsApp(c, 'delivery');
   });
-  document.querySelectorAll('[data-copy-client-phone]').forEach(b => b.onclick = () => {
-    const client=state.clients.find(c=>c.id===b.dataset.copyClientPhone);
-    copyClientFieldMobile(client?.whatsapp,b,'Número');
-  });
-  document.querySelectorAll('[data-copy-client-account]').forEach(b => b.onclick = () => {
-    const client=state.clients.find(c=>c.id===b.dataset.copyClientAccount);
-    const account=state.accounts.find(a=>a.id===client?.accountId);
-    copyClientFieldMobile(account?.email,b,'Correo');
-  });
   document.querySelectorAll('[data-wa-renew]').forEach(b => b.onclick = () => {
     const c = state.clients.find(x => x.id === b.dataset.waRenew);
     c?.comboId ? openWhatsAppCombo(activeComboClients(c.comboId), 'renewal') : openWhatsApp(c, 'renewal');
@@ -1691,7 +1682,8 @@ let deferredInstallPrompt = null;
 async function registerGestorServiceWorker(){
   if(!IS_WEB_CONTEXT || !('serviceWorker' in navigator)) return;
   try{
-    await navigator.serviceWorker.register('/sw.js');
+    const serviceWorkerUrl = location.pathname.startsWith('/dev/') ? '/dev/sw.js' : '/sw.js';
+    await navigator.serviceWorker.register(serviceWorkerUrl);
     await navigator.serviceWorker.ready;
   }catch(err){
     console.warn('Service worker no disponible:', err);
@@ -1838,7 +1830,8 @@ function openClientSheet(item={}){
         <div class="field"><label>Plataforma</label><select name="platform" required>${salePlatformOptions(platformValue)}</select></div>
         <div class="field"><label>Vence</label><input type="date" name="dueDate" value="${esc(c.dueDate || addMonthsISO(todayISO(), 1))}"></div>
       </div>
-      <div class="field"><label>Cuenta madre</label><input name="accountSearch" type="search" placeholder="Buscar correo, plataforma o perfiles libres" autocomplete="off"><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale, platformValue)}</select></div>
+      <div class="field"><label>Buscar cuenta madre</label><input name="accountSearch" type="search" placeholder="Correo, plataforma o perfiles libres" autocomplete="off"></div>
+      <div class="field"><label>Cuenta madre</label><select name="accountId">${saleAccountOptions(c.accountId || '', c.id || '', !!c.fullAccountSale, platformValue)}</select></div>
       <label class="combo-mobile-toggle"><span>Estoy vendiendo la cuenta completa</span><input type="checkbox" name="fullAccountSale" value="1" ${c.fullAccountSale?'checked':''}></label>
       <label class="combo-mobile-toggle"><span>Activar por codigo</span><input type="checkbox" name="activationByCode" value="1" ${c.activationByCode?'checked':''}></label>
       ${isFinanceModeEnabled() ? `<div class="grid two">
@@ -2565,15 +2558,6 @@ function copyTextToClipboard(text){
   }finally{
     area.remove();
   }
-}
-async function copyClientFieldMobile(value,button,label='Dato'){
-  if(!clean(value)) return toast(`${label} vacio.`,'bad');
-  try{
-    await copyTextToClipboard(value);
-    const previous=button?.innerHTML;
-    if(button){ button.innerHTML=`${icon('check')}<span>Copiado</span>`; clearTimeout(button._copyReset); button._copyReset=setTimeout(()=>{ if(button.isConnected) button.innerHTML=previous; },1600); }
-    toast(`${label} copiado.`);
-  }catch(_){ toast('No se pudo copiar.','bad'); }
 }
 function toggleAccountData(accountId){
   const panel = document.getElementById(`account-data-${accountId}`);
