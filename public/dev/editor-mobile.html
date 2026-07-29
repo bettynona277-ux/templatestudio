@@ -127,6 +127,7 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
   box-shadow:0 3px 10px rgba(0,0,0,.34);
 }
 .sel-box.is-nudge-ready .mobile-nudge-btn{display:block;}
+.sel-box-multi.is-nudge-ready .mobile-nudge-btn{display:block;}
 .mobile-nudge-btn[data-nudge="up"]{left:50%;top:-38px;transform:translateX(-50%);}
 .mobile-nudge-btn[data-nudge="left"]{left:-38px;top:50%;transform:translateY(-50%);}
 .mobile-nudge-btn[data-nudge="right"]{right:-38px;top:50%;transform:translateY(-50%);}
@@ -135,6 +136,12 @@ html,body{height:100%;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif
 .mobile-nudge-btn[data-nudge="up"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="down"]:active:not(:disabled){transform:translateX(-50%) scale(.94);}
 .mobile-nudge-btn[data-nudge="left"]:active:not(:disabled),.mobile-nudge-btn[data-nudge="right"]:active:not(:disabled){transform:translateY(-50%) scale(.94);}
 .mobile-nudge-btn:disabled{cursor:default;}
+/* En selección múltiple la cruceta va debajo del conjunto para no chocar con Eliminar y Listo. */
+.sel-box-multi .mobile-nudge-btn[data-nudge="up"]{left:50%;top:auto;bottom:-38px;transform:translateX(-50%);}
+.sel-box-multi .mobile-nudge-btn[data-nudge="left"]{left:calc(50% - 32px);top:auto;bottom:-66px;transform:translateX(-50%);}
+.sel-box-multi .mobile-nudge-btn[data-nudge="right"]{left:calc(50% + 32px);right:auto;top:auto;bottom:-66px;transform:translateX(-50%);}
+.sel-box-multi .mobile-nudge-btn[data-nudge="down"]{left:50%;top:auto;bottom:-94px;transform:translateX(-50%);}
+.sel-box-multi .mobile-nudge-btn[data-nudge="up"]:active:not(:disabled),.sel-box-multi .mobile-nudge-btn[data-nudge="down"]:active:not(:disabled),.sel-box-multi .mobile-nudge-btn[data-nudge="left"]:active:not(:disabled),.sel-box-multi .mobile-nudge-btn[data-nudge="right"]:active:not(:disabled){transform:translateX(-50%) scale(.94);}
 
 /* ── TEXT EDITOR PANEL ── */
 .text-panel{padding:10px 14px;}
@@ -670,11 +677,15 @@ body.multisel-mode #dots-btn{display:none!important;}
 <!-- BOTÓN LISTO (desactivar multi-select) — ahora está en del-btn-multi -->
 
 <!-- SEL BOX MULTI (rectángulo conjunto para selección múltiple) -->
-<div id="sel-box-multi" style="display:none;position:fixed;pointer-events:none;z-index:9000;border:2.5px dashed var(--accent);box-shadow:0 0 0 1px rgba(0,0,0,0.4),0 0 12px rgba(21,214,164,0.25);">
+<div id="sel-box-multi" class="sel-box-multi" style="display:none;position:fixed;pointer-events:none;z-index:9000;border:2.5px dashed var(--accent);box-shadow:0 0 0 1px rgba(0,0,0,0.4),0 0 12px rgba(21,214,164,0.25);">
   <div id="sh-multi-nw" style="position:absolute;width:20px;height:20px;background:var(--accent);border:2.5px solid #fff;border-radius:5px;pointer-events:all;cursor:pointer;transform:translate(-50%,-50%);z-index:9001;box-shadow:0 2px 8px rgba(0,0,0,0.5);top:0;left:0;touch-action:none;"></div>
   <div id="sh-multi-ne" style="position:absolute;width:20px;height:20px;background:var(--accent);border:2.5px solid #fff;border-radius:5px;pointer-events:all;cursor:pointer;transform:translate(-50%,-50%);z-index:9001;box-shadow:0 2px 8px rgba(0,0,0,0.5);top:0;left:100%;touch-action:none;"></div>
   <div id="sh-multi-sw" style="position:absolute;width:20px;height:20px;background:var(--accent);border:2.5px solid #fff;border-radius:5px;pointer-events:all;cursor:pointer;transform:translate(-50%,-50%);z-index:9001;box-shadow:0 2px 8px rgba(0,0,0,0.5);top:100%;left:0;touch-action:none;"></div>
   <div id="sh-multi-se" style="position:absolute;width:20px;height:20px;background:var(--accent);border:2.5px solid #fff;border-radius:5px;pointer-events:all;cursor:pointer;transform:translate(-50%,-50%);z-index:9001;box-shadow:0 2px 8px rgba(0,0,0,0.5);top:100%;left:100%;touch-action:none;"></div>
+  <button type="button" class="mobile-nudge-btn" data-nudge="up" aria-label="Mover selección arriba" title="Mover arriba">↑</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="left" aria-label="Mover selección izquierda" title="Mover izquierda">←</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="right" aria-label="Mover selección derecha" title="Mover derecha">→</button>
+  <button type="button" class="mobile-nudge-btn" data-nudge="down" aria-label="Mover selección abajo" title="Mover abajo">↓</button>
 </div>
 <!-- Botones sobre el sel-box-multi -->
 <button id="del-btn-multi" style="display:none;position:fixed;z-index:9002;background:linear-gradient(135deg,#ff4757,#ff6b81);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:0.78rem;font-weight:800;font-family:inherit;cursor:pointer;white-space:nowrap;box-shadow:0 4px 16px rgba(255,71,87,0.5);border:1.5px solid rgba(255,255,255,0.2);" onclick="multiselDelete()">🗑 Eliminar</button>
@@ -1309,11 +1320,17 @@ function getMobileNudgeTargets(){
 }
 
 function syncMobileNudgePad(){
-  const box = getSelBox();
-  if(!box) return;
+  const singleBox = getSelBox();
+  const multiBox = document.getElementById('sel-box-multi');
   const ready = getMobileNudgeTargets().length > 0;
-  box.classList.toggle('is-nudge-ready', ready && !multiselActive);
-  box.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
+  if(singleBox){
+    singleBox.classList.toggle('is-nudge-ready', ready && !multiselActive);
+    singleBox.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
+  }
+  if(multiBox){
+    multiBox.classList.toggle('is-nudge-ready', ready && multiselActive);
+    multiBox.querySelectorAll('.mobile-nudge-btn').forEach(btn=>{ btn.disabled = !ready; });
+  }
 }
 
 function moveMobileSelectionBy(dx, dy){
@@ -2580,6 +2597,29 @@ function watchLogoVersion(){
     },err=>console.warn('logo_version watch:',err));
 }
 
+function normalizePublicLogoCatalogMob(data){
+  if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+  return data.items
+    .map(logo => ({
+      id:String(logo?.id || ''),
+      url:String(logo?.url || ''),
+      name:String(logo?.name || ''),
+      categoria:String(logo?.categoria || 'Logos oficiales'),
+      createdAt:Number(logo?.createdAt || 0)
+    }))
+    .filter(logo => logo.id && logo.url);
+}
+
+async function loadPublicLogoCatalogMob(){
+  try{
+    const snap=await fbDb.collection('public_catalog').doc('logos').get();
+    return snap.exists ? normalizePublicLogoCatalogMob(snap.data() || {}) : null;
+  }catch(e){
+    console.warn('Catalogo compacto de logos no disponible:', e.message || e);
+    return null;
+  }
+}
+
 async function loadLogos(){
   const empty = document.getElementById('logos-empty');
   if(!fbDb){ if(empty) empty.textContent='Firebase no conectado.'; return; }
@@ -2605,9 +2645,14 @@ async function loadLogos(){
 
   if(empty){ empty.textContent='Cargando...'; empty.style.display='block'; }
   try{
-    const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
-    logoCache = [];
-    snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    const catalogLogos=await loadPublicLogoCatalogMob();
+    if(catalogLogos !== null){
+      logoCache=catalogLogos;
+    }else{
+      const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      logoCache = [];
+      snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
+    }
     _logoLoadedAtMob = now;
     try{ localStorage.setItem('ds_logo_lib_cache', JSON.stringify({ts: now, logos: logoCache})); }catch(_){}
     renderLogos();
@@ -4078,6 +4123,7 @@ function hideMultiselBox(){
   const delBtn = document.getElementById('del-btn-multi');
   const doneBtn = document.getElementById('done-btn-multi');
   if(box) box.style.display = 'none';
+  if(box) box.classList.remove('is-nudge-ready');
   if(delBtn) delBtn.style.display = 'none';
   if(doneBtn) doneBtn.style.display = 'none';
 }
