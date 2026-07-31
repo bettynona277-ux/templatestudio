@@ -1424,20 +1424,76 @@ input[type=range]{filter:none !important;}
 }
 .smart-guide.v{width:1px !important;}
 .smart-guide.h{height:1px !important;}
-#hover-controls-layer{
-  display:none;
+:root{
+  --canva-select:#8b3dff;
+  --canva-select-soft:rgba(139,61,255,.30);
 }
+#hover-controls-layer{display:none;}
 .hover-control-box{
-  border:1px solid rgba(20,167,255,0.78) !important;
-  border-radius:2px !important;
+  border:none !important;
+  outline:2px solid var(--canva-select-soft) !important;
+  outline-offset:0 !important;
+  border-radius:1px !important;
 }
-.cel.sel{
-  outline:1px solid rgba(21,214,164,0.18) !important;
+.cel:not(.sel):not(.frame-image-editing):hover{
+  outline:2px solid var(--canva-select-soft) !important;
   outline-offset:0 !important;
 }
+.cel.sel{
+  outline:none !important;
+}
 .selection-control-box{
-  border:1px solid rgba(21,214,164,0.86) !important;
-  border-radius:2px !important;
+  border:none !important;
+  outline:2px solid var(--canva-select) !important;
+  outline-offset:0 !important;
+  border-radius:1px !important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.07), inset 0 0 0 1px rgba(255,255,255,.07) !important;
+}
+.selection-control-box .rh,
+#multi-box .mrh{
+  width:24px !important;
+  height:24px !important;
+  background:transparent !important;
+  border:none !important;
+  box-shadow:none !important;
+}
+.selection-control-box .rh::before,
+#multi-box .mrh::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  border:1px solid rgba(53,65,90,.20);
+  background:radial-gradient(var(--canva-select), var(--canva-select) 2px, #fff 2px, #fff);
+  box-shadow:0 0 5px 1px rgba(57,70,96,.14);
+  transform:translate(-50%,-50%);
+}
+.selection-control-box .rh.tl,#multi-box .mrh.tl{top:-12px !important;left:-12px !important;}
+.selection-control-box .rh.tr,#multi-box .mrh.tr{top:-12px !important;right:-12px !important;}
+.selection-control-box .rh.bl,#multi-box .mrh.bl{bottom:-12px !important;left:-12px !important;}
+.selection-control-box .rh.br,#multi-box .mrh.br{bottom:-12px !important;right:-12px !important;}
+.selection-control-box .rh.tm,#multi-box .mrh.tm{top:-12px !important;left:calc(50% - 12px) !important;}
+.selection-control-box .rh.bm,#multi-box .mrh.bm{bottom:-12px !important;left:calc(50% - 12px) !important;}
+.selection-control-box .rh.ml,#multi-box .mrh.ml{left:-12px !important;top:calc(50% - 12px) !important;}
+.selection-control-box .rh.mr,#multi-box .mrh.mr{right:-12px !important;top:calc(50% - 12px) !important;}
+#multi-box{
+  border:none !important;
+  outline:2px solid var(--canva-select) !important;
+  outline-offset:0 !important;
+  border-radius:1px !important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.07), inset 0 0 0 1px rgba(255,255,255,.07) !important;
+}
+.rot-line,
+#multi-box .mrot-line{
+  background:var(--canva-select) !important;
+}
+.rot-handle,
+#multi-box .mrot-handle{
+  border-color:var(--canva-select) !important;
+  color:var(--canva-select) !important;
 }
 .cel.sel:not(.frame-el),
 .cel.frame-el.sel{
@@ -2631,9 +2687,24 @@ function hideHoverControls(){
   if(layer) layer.style.display='none';
 }
 
+function ensureHoverControls(){
+  let layer=document.getElementById('hover-controls-layer');
+  if(!layer){
+    layer=document.createElement('div');
+    layer.id='hover-controls-layer';
+    layer.innerHTML='<div class="hover-control-box"></div>';
+    cvs.prepend(layer);
+  }else if(!layer.querySelector('.hover-control-box')){
+    const box=document.createElement('div');
+    box.className='hover-control-box';
+    layer.appendChild(box);
+  }
+  return layer;
+}
+
 function syncHoverControls(l){
-  const layer=document.getElementById('hover-controls-layer');
-  const box=layer?.querySelector('.hover-control-box');
+  const layer=ensureHoverControls();
+  const box=layer.querySelector('.hover-control-box');
   if(!layer || !box || !l?.el || l.visible===false || l.locked || selIds.includes(l.id) || isDrag || isRes || isRot || isMarquee || isMultiRot || isMultiRes || frameImageEditId!==null){
     hideHoverControls();
     return;
@@ -2854,7 +2925,7 @@ function restoreSnapshot(snap){
   _suppressHistory = true;
 
   const data = JSON.parse(snap);
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='hover-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
   hideSelectionControls();
   layers = [];
   groups = {};
@@ -3944,7 +4015,7 @@ async function processPSD(file){
 
 async function loadPSDData(data){
   // Remove cel elements but keep multi-box
-  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
+  Array.from(cvs.children).forEach(el=>{ if(el.id!=='selection-controls-layer' && el.id!=='hover-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove(); });
   hideSelectionControls();
   layers=[]; lCtr=0;
   // Reset canvas background según tema (evita el fondo negro mientras cargan imágenes)
@@ -9781,7 +9852,7 @@ function loadData(tpl){
 
   // Remove all .cel elements but keep multi-box and marquee
   Array.from(cvs.children).forEach(el=>{
-    if(el.id!=='selection-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove();
+    if(el.id!=='selection-controls-layer' && el.id!=='hover-controls-layer' && el.id!=='multi-box' && el.id!=='marquee-el' && !el.classList.contains('smart-guide')) el.remove();
   });
   hideSelectionControls();
   layers=[]; lCtr=0;
