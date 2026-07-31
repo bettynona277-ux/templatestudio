@@ -1337,10 +1337,7 @@ function moveMobileSelectionBy(dx, dy){
   const targets = getMobileNudgeTargets();
   if(!targets.length) return false;
   targets.forEach(layer=>{
-    layer.x = Math.round(layer.x + dx);
-    layer.y = Math.round(layer.y + dy);
-    layer.el.style.left = layer.x + 'px';
-    layer.el.style.top = layer.y + 'px';
+    setLayerPositionMobile(layer, layer.x + dx, layer.y + dy);
   });
   if(multiselActive && multiselIds.size) updateMultiselBox();
   else updateSelBox();
@@ -1489,9 +1486,7 @@ function makeDraggable(el, layer, onTap){
     if(Math.abs(dx)>MOVE_THRESHOLD||Math.abs(dy)>MOVE_THRESHOLD) moved=true;
     if(moved){
       const snapped = applySnapSingle(layer, startL+dx, startT+dy);
-      layer.x = snapped.x; layer.y = snapped.y;
-      el.style.left=layer.x+'px';
-      el.style.top=layer.y+'px';
+      setLayerPositionMobile(layer, snapped.x, snapped.y, {preview:true});
       updateSelBox();
     }
   },{passive:false});
@@ -1500,6 +1495,7 @@ function makeDraggable(el, layer, onTap){
     e.stopPropagation();
     if(multiselActive) return; // en modo multi-select, lo maneja installMultiTapHandlers
     if(moved){
+      commitLayerMovePreviewMobile(layer);
       hideGuides();
       snapshot(); // guardar después de mover
     }
@@ -1685,8 +1681,48 @@ function updateTextStrokeLayerMobile(layer){
 function applyLayerTransform(layer){
   if(!layer?.el) return;
   const rot = parseFloat(layer.rotation || 0) || 0;
+  const parts = [];
+  if(layer._movePreview){
+    const dx = (Number(layer.x) || 0) - (Number(layer._movePreview.x) || 0);
+    const dy = (Number(layer.y) || 0) - (Number(layer._movePreview.y) || 0);
+    if(dx || dy) parts.push(`translate3d(${dx}px, ${dy}px, 0)`);
+  }
+  if(rot) parts.push(`rotate(${rot}deg)`);
   layer.el.style.transformOrigin = 'center center';
-  layer.el.style.transform = rot ? `rotate(${rot}deg)` : '';
+  layer.el.style.transform = parts.join(' ');
+}
+
+function setLayerPositionMobile(layer, x, y, opts={}){
+  if(!layer?.el) return;
+  layer.x = opts.round === false ? x : Math.round(x);
+  layer.y = opts.round === false ? y : Math.round(y);
+  if(opts.preview){
+    if(!layer._movePreview){
+      layer._movePreview = {
+        x: parseFloat(layer.el.style.left) || 0,
+        y: parseFloat(layer.el.style.top) || 0
+      };
+      layer.el.style.willChange = 'transform';
+    }
+    applyLayerTransform(layer);
+    return;
+  }
+  layer.el.style.left = layer.x + 'px';
+  layer.el.style.top = layer.y + 'px';
+  if(layer._movePreview){
+    delete layer._movePreview;
+    layer.el.style.willChange = '';
+    applyLayerTransform(layer);
+  }
+}
+
+function commitLayerMovePreviewMobile(layer){
+  if(!layer?.el || !layer._movePreview) return;
+  layer.el.style.left = layer.x + 'px';
+  layer.el.style.top = layer.y + 'px';
+  delete layer._movePreview;
+  layer.el.style.willChange = '';
+  applyLayerTransform(layer);
 }
 
 function getImageTargetElement(layer){
@@ -2093,8 +2129,7 @@ function buildEl(l){
         if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
         if(moved){
           const sn = applySnapSingle(l, sl+dx, st+dy);
-          l.x=sn.x; l.y=sn.y;
-          el.style.left=l.x+'px'; el.style.top=l.y+'px';
+          setLayerPositionMobile(l, sn.x, sn.y, {preview:true});
           if(activeLayer===l) updateSelBox();
         }
       },{passive:false});
@@ -2107,7 +2142,7 @@ function buildEl(l){
           snapshot();
           return;
         }
-        if(moved){ hideGuides(); snapshot(); }
+        if(moved){ commitLayerMovePreviewMobile(l); hideGuides(); snapshot(); }
         else {
           const now=Date.now();
           if(l.frameImage && now-lastTapAt<320){
@@ -4255,9 +4290,7 @@ function _msCvsMove(e){
     const sn = applySnapMulti(ddx, ddy, _msStartPositions, origB);
     layers.forEach(x=>{
       if(multiselIds.has(x.id) && _msStartPositions[x.id]){
-        x.x = Math.round(_msStartPositions[x.id].x + sn.dx);
-        x.y = Math.round(_msStartPositions[x.id].y + sn.dy);
-        if(x.el){ x.el.style.left=x.x+'px'; x.el.style.top=x.y+'px'; }
+        setLayerPositionMobile(x, _msStartPositions[x.id].x + sn.dx, _msStartPositions[x.id].y + sn.dy, {preview:true});
       }
     });
     updateMultiselBox();
@@ -4269,6 +4302,7 @@ function _msCvsEnd(e){
   if(!_msGlobalStart.moved && _msGlobalStart.layer){
     toggleMultiselLayer(_msGlobalStart.layer);
   } else if(_msGlobalStart.moved && _msGlobalStart.dragActive){
+    multiselIds.forEach(id=>commitLayerMovePreviewMobile(layers.find(x=>x.id===id)));
     hideGuides(); snapshot();
   }
   _msGlobalStart = null;
