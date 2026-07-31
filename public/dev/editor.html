@@ -5141,6 +5141,14 @@ function keyboardNudgeStep(ev){
   const z = Math.max(1, Number(zoom_) || 1);
   return Math.round((base / z) * 100) / 100;
 }
+let keyboardNudgeSnapshotTimer=null;
+function scheduleKeyboardNudgeSnapshot(){
+  clearTimeout(keyboardNudgeSnapshotTimer);
+  keyboardNudgeSnapshotTimer=setTimeout(()=>{
+    keyboardNudgeSnapshotTimer=null;
+    snapshotState();
+  },180);
+}
 function setLayerPosition(layer, x, y, opts={}){
   if(!layer?.el) return;
   const stableFramePreview = opts.stableFramePreview && layer.type === 'frame' && !!layer.frameImage;
@@ -5181,6 +5189,18 @@ function setLayerPosition(layer, x, y, opts={}){
     layer.el.style.willChange = '';
     applyLayerTransform(layer);
   }
+}
+function moveSelectionBy(dx, dy, opts={}){
+  const ids=[...new Set(selIds.length ? selIds : (selId!==null ? [selId] : []))];
+  const targets=ids.map(id=>layers.find(x=>x.id===id)).filter(l=>l?.el && !l.locked);
+  if(!targets.length) return false;
+  targets.forEach(l=>{
+    setLayerPosition(l, l.x + dx, l.y + dy, opts);
+  });
+  if(targets.length>1) updateMultiBox();
+  else syncSelectionControls(targets[0]);
+  syncP();
+  return true;
 }
 function commitLayerMovePreview(layer){
   if(!layer?.el || !layer._movePreview) return;
@@ -5845,6 +5865,7 @@ function mkEl(l){
 
 // DRAG — supports multi-select + Alt=duplicate
 function startDrag(ev, id){
+  const altDuplicatedDrag = !!ev.altKey;
   if(ev.altKey){
     const srcL = layers.find(x=>x.id===id);
     if(srcL?.locked) return;
@@ -5877,6 +5898,7 @@ function startDrag(ev, id){
     dOff.startX=b?.x||0; dOff.startY=b?.y||0;
     dOff.mouseStartX=mxStart; dOff.mouseStartY=myStart;
     dOff.axisLocked=null;
+    dOff.altDuplicatedDrag=altDuplicatedDrag;
     isDrag=true;
   } else {
     const l=layers.find(x=>x.id===id);
@@ -5896,6 +5918,7 @@ function startDrag(ev, id){
     dOff.mouseStartX=mouseX;   // posición real del mouse para Shift
     dOff.mouseStartY=mouseY;
     dOff.axisLocked=null;
+    dOff.altDuplicatedDrag=altDuplicatedDrag;
   }
   ev.preventDefault();
 }
@@ -5918,7 +5941,7 @@ function duplicateSelected(sourceId, noOffset=false){
       layers.filter(x=>x.groupId===l.groupId).forEach(x=>expandedIds.add(x.id));
     }
   });
-  ids = [...expandedIds];
+  ids = [...expandedIds].sort((a,b)=>layers.findIndex(x=>x.id===a)-layers.findIndex(x=>x.id===b));
 
   // Check if all selected ids belong to the same group (duplicating a whole group)
   const srcGroupIds = [...new Set(ids.map(id=>layers.find(x=>x.id===id)?.groupId).filter(Boolean))];
@@ -6137,7 +6160,7 @@ document.addEventListener('mousemove',ev=>{
             dOff.axisLocked=null;
           }
           const ghost={id:-1,x:nextX,y:nextY,w:baseBox.w,h:baseBox.h};
-          const snapped=ev.altKey ? (hideSmartGuides(), {x:ghost.x,y:ghost.y}) : applySmartSnapToLayer(ghost, ids);
+          const snapped=(ev.altKey && !dOff.altDuplicatedDrag) ? (hideSmartGuides(), {x:ghost.x,y:ghost.y}) : applySmartSnapToLayer(ghost, ids);
           const sdx=snapped.x-baseBox.x, sdy=snapped.y-baseBox.y;
           multiDragStart.forEach(({id,x,y})=>{
             const l=layers.find(xl=>xl.id===id); if(!l?.el||l.locked) return;
@@ -6163,7 +6186,7 @@ document.addEventListener('mousemove',ev=>{
       dOff.axisLocked=null;
     }
     l.x=nx; l.y=ny;
-    const snapped=ev.altKey ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
+    const snapped=(ev.altKey && !dOff.altDuplicatedDrag) ? (hideSmartGuides(), {x:l.x,y:l.y}) : applySmartSnapToLayer(l, selIds);
     setLayerPosition(l, snapped.x, snapped.y, {stableFramePreview:true, preview:true}); syncP();
 
     // Highlight frame when MOUSE CURSOR is over it (not image center)
@@ -6269,6 +6292,7 @@ window.addEventListener('blur', ()=>{
   if(isDrag){
     commitMovePreviews(isMultiDrag ? selIds : [selId]);
     isDrag=false;
+    dOff={x:0,y:0};
   }
   if(isRot){ isRot=false; rotSt={}; hideRotationTooltip(); }
   if(isMultiRot){ isMultiRot=false; mRotSt={}; hideRotationTooltip(); }
@@ -6359,7 +6383,7 @@ document.addEventListener('mouseup',ev=>{
       applyImageToFrame(targetFrame, srcToInsert);
       renderList();
       snapshotState();
-      isDrag=false; isRes=false; isMultiDrag=false; rSt={}; dOff.axisLocked=null;
+      isDrag=false; isRes=false; isMultiDrag=false; rSt={}; dOff={x:0,y:0};
       return;
     }
   }
@@ -6372,7 +6396,7 @@ document.addEventListener('mouseup',ev=>{
   }
   if(isDrag) commitMovePreviews(isMultiDrag ? selIds : [selId]);
   if(isDrag || isRes) snapshotState();
-  isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff.axisLocked=null;
+  isDrag=false; isRes=false; isMultiDrag=false; multiDragStartBounds=null; rSt={}; dOff={x:0,y:0};
 });
 
 // SCROLL TO SCALE
@@ -10599,24 +10623,23 @@ document.addEventListener('keydown',ev=>{
   // Scale single selected
   if((ev.key==='+'||ev.key==='=')&&selId!==null&&!active){scaleEl(ev.shiftKey?1.2:1.05);ev.preventDefault();}
   if(ev.key==='-'&&selId!==null&&!active){scaleEl(ev.shiftKey?0.8:0.95);ev.preventDefault();}
-  const l=layers.find(x=>x.id===selId);if(!l?.el)return;
   const s=keyboardNudgeStep(ev);
   if(!active){
     if(ev.key==='ArrowUp'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y-s);});
-      else setLayerPosition(l,l.x,l.y-s);syncP();ev.preventDefault();
+      if(moveSelectionBy(0,-s)) scheduleKeyboardNudgeSnapshot();
+      if(selIds.length || selId!==null) ev.preventDefault();
     }
     if(ev.key==='ArrowDown'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x,ll.y+s);});
-      else setLayerPosition(l,l.x,l.y+s);syncP();ev.preventDefault();
+      if(moveSelectionBy(0,s)) scheduleKeyboardNudgeSnapshot();
+      if(selIds.length || selId!==null) ev.preventDefault();
     }
     if(ev.key==='ArrowLeft'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x-s,ll.y);});
-      else setLayerPosition(l,l.x-s,l.y);syncP();ev.preventDefault();
+      if(moveSelectionBy(-s,0)) scheduleKeyboardNudgeSnapshot();
+      if(selIds.length || selId!==null) ev.preventDefault();
     }
     if(ev.key==='ArrowRight'){
-      if(selIds.length>1) selIds.forEach(id=>{const ll=layers.find(x=>x.id===id);if(ll?.el)setLayerPosition(ll,ll.x+s,ll.y);});
-      else setLayerPosition(l,l.x+s,l.y);syncP();ev.preventDefault();
+      if(moveSelectionBy(s,0)) scheduleKeyboardNudgeSnapshot();
+      if(selIds.length || selId!==null) ev.preventDefault();
     }
   }
 });
