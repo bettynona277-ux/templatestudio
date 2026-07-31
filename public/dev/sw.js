@@ -1,4 +1,4 @@
-const CACHE_NAME = `disenos-streaming-${self.registration.scope.includes('/dev/') ? 'dev-' : ''}v256`;
+const CACHE_NAME = `disenos-streaming-${self.registration.scope.includes('/dev/') ? 'dev-' : ''}v257`;
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const ASSETS = [
   '/manifest.json',

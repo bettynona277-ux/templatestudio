@@ -8038,26 +8038,109 @@ function scaleEl(f){
   refreshLayerEffects(l);
   syncP();
 }
-function bringFwd(){
-  const idx=layers.findIndex(x=>x.id===selId); if(idx<0||idx>=layers.length-1) return;
-  [layers[idx],layers[idx+1]]=[layers[idx+1],layers[idx]];
-  layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;}); renderList();
+function selectedArrangeIds(){
+  const ids = selIds.length ? selIds : (selId!==null ? [selId] : []);
+  return [...new Set(ids)].filter(id=>{
+    const l=layers.find(x=>x.id===id);
+    return l && !l.locked;
+  });
 }
-function sendBck(){
-  const idx=layers.findIndex(x=>x.id===selId); if(idx<=0) return;
-  [layers[idx],layers[idx-1]]=[layers[idx-1],layers[idx]];
-  layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;}); renderList();
+function layerArrangeBounds(l){
+  if(!l) return null;
+  const rotation = Math.abs(normalizeRotation(l.rotation||0));
+  if(rotation < 0.01) return {x:l.x,y:l.y,w:l.w,h:l.h,right:l.x+l.w,bottom:l.y+l.h};
+  const rad = rotation * Math.PI / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const w = l.w*cos + l.h*sin;
+  const h = l.w*sin + l.h*cos;
+  const cx = l.x + l.w/2;
+  const cy = l.y + l.h/2;
+  return {x:cx-w/2,y:cy-h/2,w,h,right:cx+w/2,bottom:cy+h/2};
 }
-function bringToFront(){
-  const idx=layers.findIndex(x=>x.id===selId); if(idx<0) return;
-  const [l]=layers.splice(idx,1); layers.push(l);
-  layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;}); renderList();
+function mergedArrangeBounds(ids){
+  const boxes = ids.map(id=>layerArrangeBounds(layers.find(x=>x.id===id))).filter(Boolean);
+  if(!boxes.length) return null;
+  const x=Math.min(...boxes.map(b=>b.x));
+  const y=Math.min(...boxes.map(b=>b.y));
+  const right=Math.max(...boxes.map(b=>b.right));
+  const bottom=Math.max(...boxes.map(b=>b.bottom));
+  return {x,y,right,bottom,w:right-x,h:bottom-y};
 }
-function sendToBack(){
-  const idx=layers.findIndex(x=>x.id===selId); if(idx<0) return;
-  const [l]=layers.splice(idx,1); layers.unshift(l);
-  layers.forEach((l,i)=>{l.zIndex=i;if(l.el)l.el.style.zIndex=i;}); renderList();
+function arrangeOverlapScore(a,b){
+  if(!a || !b) return 0;
+  const ix=Math.max(0, Math.min(a.right,b.right)-Math.max(a.x,b.x));
+  const iy=Math.max(0, Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y));
+  const area=ix*iy;
+  if(area<=0) return 0;
+  const minArea=Math.max(1, Math.min(a.w*a.h, b.w*b.h));
+  return area/minArea;
 }
+function normalizeLayerStack(){
+  layers.forEach((l,i)=>{
+    l.zIndex=i;
+    if(l.el) l.el.style.zIndex=i;
+  });
+}
+function finishArrangeChange(message){
+  normalizeLayerStack();
+  renderList();
+  if(selIds.length>1) updateMultiBox();
+  else syncSelectionControls();
+  snapshotState();
+  if(message) showToast(message);
+}
+function moveSelectionBlockToIndex(ids, targetIndex){
+  const idSet=new Set(ids);
+  const block=layers.filter(l=>idSet.has(l.id));
+  if(!block.length) return false;
+  const rest=layers.filter(l=>!idSet.has(l.id));
+  const beforeCount=layers.slice(0, targetIndex).filter(l=>!idSet.has(l.id)).length;
+  const insertAt=Math.max(0, Math.min(rest.length, beforeCount));
+  const next=[...rest.slice(0,insertAt), ...block, ...rest.slice(insertAt)];
+  const changed=next.some((l,i)=>layers[i]?.id!==l.id);
+  if(!changed) return false;
+  layers=next;
+  return true;
+}
+function arrangeSelection(mode){
+  const ids=selectedArrangeIds();
+  if(!ids.length) return;
+  const idSet=new Set(ids);
+  const selectedIndexes=ids.map(id=>layers.findIndex(l=>l.id===id)).filter(i=>i>=0);
+  if(!selectedIndexes.length) return;
+  const minIdx=Math.min(...selectedIndexes);
+  const maxIdx=Math.max(...selectedIndexes);
+  let changed=false;
+
+  if(mode==='front'){
+    changed=moveSelectionBlockToIndex(ids, layers.length);
+  }else if(mode==='back'){
+    changed=moveSelectionBlockToIndex(ids, 0);
+  }else{
+    const selectedBox=mergedArrangeBounds(ids);
+    const candidates=layers
+      .map((l,i)=>({l,i,score:arrangeOverlapScore(selectedBox, layerArrangeBounds(l))}))
+      .filter(c=>!idSet.has(c.l.id) && c.l.visible!==false && !c.l.locked && c.score>0);
+    let target=null;
+    if(mode==='forward'){
+      target=candidates.filter(c=>c.i>maxIdx).sort((a,b)=>a.i-b.i || b.score-a.score)[0];
+      if(!target && maxIdx<layers.length-1) target={i:maxIdx+1};
+      changed=target ? moveSelectionBlockToIndex(ids, target.i+1) : false;
+    }else if(mode==='backward'){
+      target=candidates.filter(c=>c.i<minIdx).sort((a,b)=>b.i-a.i || b.score-a.score)[0];
+      if(!target && minIdx>0) target={i:minIdx-1};
+      changed=target ? moveSelectionBlockToIndex(ids, target.i) : false;
+    }
+  }
+
+  if(changed) finishArrangeChange(ids.length>1 ? 'Orden de capas actualizado' : 'Capa reordenada');
+  else showToast('No hay otra capa en esa dirección');
+}
+function bringFwd(){ arrangeSelection('forward'); }
+function sendBck(){ arrangeSelection('backward'); }
+function bringToFront(){ arrangeSelection('front'); }
+function sendToBack(){ arrangeSelection('back'); }
 function delSel(){
   const toDelete = selIds.length>0 ? [...selIds] : (selId!==null?[selId]:[]);
   toDelete.forEach(id=>{
