@@ -236,6 +236,21 @@ body.theme-light #cvs {box-shadow:0 12px 32px rgba(15,23,42,0.1);}
 #cvs.selection-overlay-active .cel.sel .rot-handle{
   display:none !important;
 }
+#hover-controls-layer{
+  position:absolute;
+  inset:0;
+  z-index:8400;
+  pointer-events:none;
+  display:none;
+}
+.hover-control-box{
+  position:absolute;
+  box-sizing:border-box;
+  pointer-events:none;
+  border:1px solid color-mix(in srgb, var(--accent) 68%, #ffffff 32%);
+  border-radius:2px;
+  transform-origin:center center;
+}
 
 .txt-inner{outline:none;white-space:pre-wrap;word-break:break-word;line-height:1.2;padding:2px;pointer-events:none;}
 
@@ -1409,9 +1424,20 @@ input[type=range]{filter:none !important;}
 }
 .smart-guide.v{width:1px !important;}
 .smart-guide.h{height:1px !important;}
+#hover-controls-layer{
+  display:none;
+}
+.hover-control-box{
+  border:1px solid rgba(20,167,255,0.78) !important;
+  border-radius:2px !important;
+}
 .cel.sel{
-  outline:1px solid rgba(21,214,164,0.55) !important;
+  outline:1px solid rgba(21,214,164,0.18) !important;
   outline-offset:0 !important;
+}
+.selection-control-box{
+  border:1px solid rgba(21,214,164,0.86) !important;
+  border-radius:2px !important;
 }
 .cel.sel:not(.frame-el),
 .cel.frame-el.sel{
@@ -1634,6 +1660,7 @@ input[type=range]{filter:none !important;}
       <button type="button" class="tb-btn wide tb-mode" data-tb-kind="shape" title="Ordenar y alinear" onclick="openContextToolbarPanel('shape','position')">Posición</button>
     </div>
     <div id="cvs" style="width:800px;height:800px;background:#0a0a1a;">
+      <div id="hover-controls-layer"><div class="hover-control-box"></div></div>
       <div id="selection-controls-layer"></div>
       <div id="multi-box">
         <div class="m-label" id="multi-label"></div>
@@ -2597,6 +2624,34 @@ function hideSelectionControls(){
   const layer=document.getElementById('selection-controls-layer');
   if(layer) layer.style.display='none';
   cvs.classList.remove('selection-overlay-active');
+}
+
+function hideHoverControls(){
+  const layer=document.getElementById('hover-controls-layer');
+  if(layer) layer.style.display='none';
+}
+
+function syncHoverControls(l){
+  const layer=document.getElementById('hover-controls-layer');
+  const box=layer?.querySelector('.hover-control-box');
+  if(!layer || !box || !l?.el || l.visible===false || l.locked || selIds.includes(l.id) || isDrag || isRes || isRot || isMarquee || isMultiRot || isMultiRes || frameImageEditId!==null){
+    hideHoverControls();
+    return;
+  }
+  layer.style.display='block';
+  box.style.left=l.x+'px';
+  box.style.top=l.y+'px';
+  box.style.width=l.w+'px';
+  box.style.height=l.h+'px';
+  box.style.transform=`rotate(${getLayerRotation(l)}deg)`;
+}
+
+function layerFromCanvasTarget(target){
+  const el=target?.closest?.('.cel');
+  if(!el || !cvs.contains(el)) return null;
+  const id=parseInt(String(el.id||'').replace('el-',''),10);
+  if(Number.isNaN(id)) return null;
+  return layers.find(x=>x.id===id) || null;
 }
 
 function syncSelectionControls(layerArg){
@@ -6444,6 +6499,11 @@ function canvasClick(ev){
   if(_justMarqueed){ _justMarqueed=false; return; } // ignorar click post-marquee
   if(ev.target===cvs||ev.target.id==='canvas-area') desel();
 }
+
+cvs.addEventListener('mousemove',ev=>{
+  syncHoverControls(layerFromCanvasTarget(ev.target));
+});
+cvs.addEventListener('mouseleave',hideHoverControls);
 
 // Marquee: start rubber-band on empty canvas OR when dragging with no layer hit
 let _marqueeMouseStart = null;
