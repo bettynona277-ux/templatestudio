@@ -3170,17 +3170,50 @@ function renderMobileSelectOptions(context){
     check.setAttribute('aria-hidden','true');
     check.innerHTML = '<path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
     button.append(label,check);
+    let pressState = null;
+    const beginPress = event => {
+      const point = event.touches?.[0] || event;
+      pressState = {
+        x: point.clientX || 0,
+        y: point.clientY || 0,
+        t: Date.now(),
+        moved:false,
+        chosen:false
+      };
+    };
+    const trackPress = event => {
+      if(!pressState) return;
+      const point = event.touches?.[0] || event;
+      const dx = Math.abs((point.clientX || 0) - pressState.x);
+      const dy = Math.abs((point.clientY || 0) - pressState.y);
+      if(dx > 8 || dy > 8) pressState.moved = true;
+    };
+    const isTapPress = event => {
+      if(event?.type === 'click' && MOBILE_SELECT_TOUCH_DEVICE) return false;
+      if(!MOBILE_SELECT_TOUCH_DEVICE || event?.type === 'click') return true;
+      if(!pressState) return false;
+      return !pressState.moved && Date.now() - pressState.t < 700;
+    };
     const chooseOption = event => {
       if(!popover.isConnected) return;
       if(option.disabled) return;
+      if(!isTapPress(event)){
+        pressState = null;
+        return;
+      }
       event?.preventDefault?.();
       event?.stopPropagation?.();
+      if(pressState) pressState.chosen = true;
       select.selectedIndex = index;
       select.dispatchEvent(new Event('input',{bubbles:true}));
       select.dispatchEvent(new Event('change',{bubbles:true}));
       syncMobileSelect(select);
       closeMobileSelect({restoreFocus:!MOBILE_SELECT_TOUCH_DEVICE});
     };
+    button.addEventListener('pointerdown',beginPress);
+    button.addEventListener('pointermove',trackPress);
+    button.addEventListener('touchstart',beginPress,{passive:true});
+    button.addEventListener('touchmove',trackPress,{passive:true});
     button.addEventListener('pointerup',chooseOption);
     button.addEventListener('touchend',chooseOption,{passive:false});
     button.addEventListener('click',chooseOption);
