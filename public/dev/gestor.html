@@ -29,14 +29,14 @@
 })();
 </script>
 <script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js';
+import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, getDocFromServer, setDoc, deleteDoc,
   collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -497,7 +497,12 @@ function notifySaveStatus(type, message) {
     toast.setAttribute('aria-live', 'polite');
     document.body.appendChild(toast);
   }
-  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+  toast.replaceChildren();
+  const titleNode = document.createElement('strong');
+  titleNode.textContent = title;
+  const messageNode = document.createElement('span');
+  messageNode.textContent = message;
+  toast.append(titleNode, messageNode);
   Object.assign(toast.style, {
     position: 'fixed',
     right: '18px',
@@ -535,13 +540,30 @@ function notifySaveStatus(type, message) {
 }
 
 
-function friendlySaveError(err) {
-  const msg = err?.message || 'Verifica tu conexion.';
-  if (/permission|permissions|insufficient/i.test(msg)) {
-    return 'Firestore rechazo el guardado. Publica las reglas del gestor o revisa que este usuario este activo.';
-  }
-  return msg;
+function supportErrorMessage(err, scope = 'operacion') {
+  const raw = String(err?.message || err || 'Error desconocido').replace(/\s+/g, ' ').trim().slice(0, 260);
+  const normalized = raw.toLowerCase();
+  const code = /internal assertion failed|unexpected state/.test(normalized) ? 'FIRESTORE_INTERNAL'
+    : /permission|permissions|insufficient/.test(normalized) ? 'FIRESTORE_PERMISSION'
+    : /network|offline|unavailable|failed to fetch/.test(normalized) ? 'NETWORK'
+    : 'UNEXPECTED';
+  return `Ocurrio un error. Envia este mensaje exacto a Rafael: [GESTOR-PC/${scope}/${code}] Error: ${raw}`;
 }
+
+function friendlySaveError(err, scope = 'guardar') {
+  return supportErrorMessage(err, scope);
+}
+// Los paneles de seguridad se renderizan en scripts no modulares.
+window.notifySaveStatus = notifySaveStatus;
+window.friendlySaveError = friendlySaveError;
+
+window.addEventListener('error', event => {
+  const err = event?.error || event?.message;
+  if (err) notifySaveStatus('error', supportErrorMessage(err, 'runtime'));
+});
+window.addEventListener('unhandledrejection', event => {
+  if (event?.reason) notifySaveStatus('error', supportErrorMessage(event.reason, 'promise'));
+});
 
 async function permissionDebugMessage(uid, colName) {
   const path = `users/${uid}/${colName === 'accounts' ? 'gestor_accounts' : 'gestor_clients'}`;
@@ -860,9 +882,9 @@ window.__persistSingleDoc = async function(colName, docData) {
   } catch (err) {
     console.error('âŒ Error guardando doc:', err);
     const detail = /permission|permissions|insufficient/i.test(err?.message || '')
-      ? await permissionDebugMessage(user.uid, colName)
-      : friendlySaveError(err);
-    notifySaveStatus('error', detail);
+      ? ` ${await permissionDebugMessage(user.uid, colName)}`
+      : '';
+    notifySaveStatus('error', `${friendlySaveError(err, `guardar-${colName}`)}${detail}`);
     return false;
   }
 };
@@ -1620,6 +1642,31 @@ html[data-theme="light"] .theme-toggle .theme-moon{color:var(--muted-2)}
 .checkline input{width:18px;height:18px;accent-color:var(--accent)}
 .finance-head{align-items:center}
 .finance-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.finance-date-range{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(130px,1fr));
+  gap:8px;
+  align-items:end;
+}
+.finance-date-range.is-hidden{display:none!important}
+.finance-date-field{
+  display:grid;
+  gap:5px;
+  min-width:0;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:900;
+  line-height:1;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.finance-date-field .input{
+  width:100%;
+  min-height:42px;
+  height:42px;
+  padding:0 12px;
+  font-size:13px;
+}
 .finance-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 18px}
 .finance-card{padding:18px;border-radius:18px;border:1px solid var(--border);background:rgba(255,255,255,.035)}
 .finance-card span{display:block;color:var(--muted);font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
@@ -1971,6 +2018,10 @@ select option:checked{
 @media(max-width:720px){
   .tools > .select-shell,
   .finance-actions > .select-shell{width:100%;min-width:0}
+  .finance-date-range{width:100%;grid-template-columns:1fr 1fr}
+}
+@media(max-width:560px){
+  .finance-date-range{grid-template-columns:1fr}
 }
 
 /* Top search */
@@ -4940,8 +4991,19 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
             <option value="today">Hoy</option>
             <option value="7days">7 dias</option>
             <option value="month" selected>Este mes</option>
+            <option value="custom">Por fechas</option>
             <option value="all">Todo</option>
           </select>
+          <div class="finance-date-range is-hidden" id="financeCustomRange">
+            <label class="finance-date-field" for="financeDateFrom">
+              <span>Desde</span>
+              <input class="input" id="financeDateFrom" type="date">
+            </label>
+            <label class="finance-date-field" for="financeDateTo">
+              <span>Hasta</span>
+              <input class="input" id="financeDateTo" type="date">
+            </label>
+          </div>
           <button class="btn primary small" id="openFinanceExpenseBtn" type="button"><i data-lucide="plus"></i><span>Gasto</span></button>
         </div>
       </div>
@@ -5404,6 +5466,8 @@ let flatpickrInstances=[];
 let renewingClientId=null;
 let renewingAccountId=null;
 let financeRange='month';
+let financeDateFrom='';
+let financeDateTo='';
 
 function load(){
   // Intentar cargar desde localStorage como respaldo (Firebase lo sobreescribira al cargar)
@@ -5467,7 +5531,7 @@ async function ensureFullFinanceMovements(){
       .catch(err=>{
         console.warn('No se pudo cargar el historial completo de finanzas:', err);
         state.financeMovementsFullLoadError=true;
-        if(financeRange==='all') renderFinance();
+        if(financeRange==='all' || financeRange==='custom') renderFinance();
         return state.financeMovements || [];
       })
       .finally(()=>{ financeFullLoadPromise=null; });
@@ -6990,6 +7054,13 @@ function movementInRange(m){
   if(financeRange==='all') return true;
   const d=new Date(String(m.occurredAt||m.createdAt||''));
   if(Number.isNaN(d.getTime())) return false;
+  if(financeRange==='custom'){
+    const from=financeDateFrom ? new Date(`${financeDateFrom}T00:00:00`) : null;
+    const to=financeDateTo ? new Date(`${financeDateTo}T23:59:59.999`) : null;
+    if(from && !Number.isNaN(from.getTime()) && d<from) return false;
+    if(to && !Number.isNaN(to.getTime()) && d>to) return false;
+    return true;
+  }
   const now=new Date();
   const start=new Date(now);
   start.setHours(0,0,0,0);
@@ -7049,8 +7120,24 @@ function financeMovementAccountEmail(m){
 }
 function renderFinance(){
   const rangeEl=$('#financeRange');
-  if(rangeEl) financeRange=rangeEl.value||financeRange||'month';
-  if(financeRange==='all' && !state.financeMovementsFullLoaded){
+  if(rangeEl){
+    financeRange=rangeEl.value||financeRange||'month';
+    if(rangeEl.value!==financeRange) rangeEl.value=financeRange;
+  }
+  const customWrap=$('#financeCustomRange');
+  const fromEl=$('#financeDateFrom');
+  const toEl=$('#financeDateTo');
+  const isCustomRange=financeRange==='custom';
+  if(customWrap) customWrap.classList.toggle('is-hidden', !isCustomRange);
+  if(isCustomRange){
+    const today=todayStr();
+    if(!financeDateFrom) financeDateFrom=today;
+    if(!financeDateTo) financeDateTo=today;
+    if(financeDateFrom && financeDateTo && financeDateFrom>financeDateTo) financeDateTo=financeDateFrom;
+  }
+  if(fromEl && fromEl.value!==financeDateFrom) fromEl.value=financeDateFrom;
+  if(toEl && toEl.value!==financeDateTo) toEl.value=financeDateTo;
+  if((financeRange==='all' || financeRange==='custom') && !state.financeMovementsFullLoaded){
     const wrap=$('#financeMovementsList');
     if(state.financeMovementsFullLoadError){
       if(wrap) wrap.innerHTML='<div class="empty">No se pudo cargar todo el historial. Puedes seguir viendo este mes o reintentarlo.<br><button class="btn soft" type="button" style="margin-top:12px" onclick="retryFinanceHistoryLoad()">Reintentar historial</button></div>';
@@ -7987,7 +8074,7 @@ async function saveComboSale(e){
     focusClientAfterSale(rows[0]);
   }catch(err){
     console.error(err);
-    alert('No se pudo guardar el combo. Revisa permisos o conexion.');
+    notifySaveStatus('error', friendlySaveError(err, 'guardar-combo'));
   }finally{
     if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
   }
@@ -8219,7 +8306,28 @@ document.addEventListener('change',e=>{
   if(e.target && (e.target.id==='renewCustomAmount' || e.target.id==='renewCustomUnit')) updateRenewPreview();
 });
 document.addEventListener('change',e=>{
-  if(e.target && e.target.id==='financeRange') renderFinance();
+  if(!e.target) return;
+  if(e.target.id==='financeRange'){
+    financeRange=e.target.value||'month';
+    if(financeRange==='custom'){
+      const today=todayStr();
+      if(!financeDateFrom) financeDateFrom=today;
+      if(!financeDateTo) financeDateTo=today;
+      ensureFullFinanceMovements();
+    }
+    if(financeRange==='all') ensureFullFinanceMovements();
+    renderFinance();
+  }
+  if(e.target.id==='financeDateFrom'){
+    financeDateFrom=e.target.value||'';
+    if(financeDateFrom && financeDateTo && financeDateFrom>financeDateTo) financeDateTo=financeDateFrom;
+    renderFinance();
+  }
+  if(e.target.id==='financeDateTo'){
+    financeDateTo=e.target.value||'';
+    if(financeDateFrom && financeDateTo && financeDateTo<financeDateFrom) financeDateFrom=financeDateTo;
+    renderFinance();
+  }
 });
 
 function openFinanceExpenseModal(){
@@ -8490,7 +8598,7 @@ window.revokeSecurityDevice=async function(deviceId){
     }
     renderSecurityView();
   }catch(err){
-    notifySaveStatus('error','No se pudo cerrar ese dispositivo.');
+    notifySaveStatus('error', friendlySaveError(err, 'cerrar-dispositivo'));
   }
 };
 window.allowSecurityDevice=async function(deviceId){
@@ -8503,20 +8611,20 @@ window.allowSecurityDevice=async function(deviceId){
     notifySaveStatus('success','Dispositivo permitido de nuevo.');
     renderSecurityView();
   }catch(err){
-    notifySaveStatus('error','No se pudo permitir ese dispositivo.');
+    notifySaveStatus('error', friendlySaveError(err, 'permitir-dispositivo'));
   }
 };
 async function sendPasswordResetFromSecurity(){
   const fns = window.__firebaseFns || {};
   const user=window.__auth?.currentUser;
-  if(!user?.email) return notifySaveStatus('error','No hay correo de acceso.');
+  if(!user?.email) return window.notifySaveStatus('error','No hay correo de acceso.');
   const btn=$('#sendPasswordResetBtn');
   if(btn) btn.disabled=true;
   try{
     await fns.sendPasswordResetEmail(window.__auth,user.email);
-    notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
+    window.notifySaveStatus('success','Te enviamos el enlace de cambio de contrasena al correo.');
   }catch(err){
-    notifySaveStatus('error','No se pudo enviar el correo. Intenta de nuevo.');
+    window.notifySaveStatus('error', window.friendlySaveError(err, 'enviar-correo'));
   }finally{
     if(btn) btn.disabled=false;
   }
