@@ -76,6 +76,8 @@ function settingsRef(uid)  { return doc(db, 'users', uid, 'gestor_config', 'sett
 function devicesCol(uid)   { return collection(db, 'users', uid, 'devices'); }
 function adminGestorUsageRef(day){ return doc(db, 'admin_metrics', `gestor_usage_${day}`); }
 const FINANCE_RECENT_LIMIT = 350;
+const FINANCE_FULL_CACHE_PREFIX = 'gestion_streaming_v5_finance_all_';
+const FINANCE_FULL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function usageDayId(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -118,11 +120,51 @@ function financeMonthStartIso() {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 }
 
+function financeFullCacheKey(uid) {
+  return `${FINANCE_FULL_CACHE_PREFIX}${uid}`;
+}
+
+function currentGestorRevision() {
+  try { return localStorage.getItem('gestion_streaming_v5_revision') || ''; }
+  catch (_) { return ''; }
+}
+
+function readFinanceFullCache(uid) {
+  try {
+    const raw = localStorage.getItem(financeFullCacheKey(uid));
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    const at = Number(cached?.at || 0);
+    const movements = Array.isArray(cached?.movements) ? cached.movements : null;
+    if (!at || !movements || Date.now() - at > FINANCE_FULL_CACHE_TTL_MS) return null;
+    const localRevision = currentGestorRevision();
+    if (localRevision && String(cached.revision || '') !== String(localRevision)) return null;
+    return movements;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeFinanceFullCache(uid, movements) {
+  if (!uid || !Array.isArray(movements)) return;
+  try {
+    localStorage.setItem(financeFullCacheKey(uid), JSON.stringify({
+      at: Date.now(),
+      revision: currentGestorRevision(),
+      movements
+    }));
+  } catch (_) {}
+}
+
 async function getFinanceMovements(uid, scope = 'current') {
   const col = financeCol(uid);
   if (scope === 'all') {
+    const cached = readFinanceFullCache(uid);
+    if (cached) return cached;
     const snap = await getDocs(col);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const movements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    writeFinanceFullCache(uid, movements);
+    return movements;
   }
   try {
     const snap = await getDocs(query(
@@ -444,6 +486,12 @@ async function touchGestorDataRevision(uid) {
 }
 
 // Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
+
+window.__cacheFinanceMovementsLocally = function(financeMovements) {
+  const user = auth.currentUser;
+  if (!user) return;
+  writeFinanceFullCache(user.uid, Array.isArray(financeMovements) ? financeMovements : []);
+};
 
 window.__reloadFinanceMovementsFromFirestore = async function(scope = 'all') {
   const user = auth.currentUser;
@@ -1675,6 +1723,72 @@ html[data-theme="light"] .theme-toggle .theme-moon{color:var(--muted-2)}
 .finance-card.expense strong,.finance-row.expense .finance-amount{color:#ff8ca0}
 .finance-card.profit strong{color:#9ad6ff}
 .finance-card.renewals strong{color:#c9c0ff}
+.finance-insights{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(260px,.65fr);
+  gap:12px;
+  margin:0 0 18px;
+}
+.finance-widget{
+  min-width:0;
+  padding:16px;
+  border-radius:18px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.026);
+}
+.finance-widget-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+.finance-widget-head h4{margin:0;font-size:14px;line-height:1.15}
+.finance-widget-head span{color:var(--muted);font-size:11px;font-weight:800;text-align:right}
+.finance-legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:11px;font-weight:800}
+.finance-legend i{display:inline-block;width:8px;height:8px;border-radius:999px;margin-right:5px;vertical-align:1px}
+.finance-legend .income{background:#53f0b8}
+.finance-legend .expense{background:#ff8ca0}
+.finance-month-chart{
+  display:grid;
+  grid-template-columns:repeat(6,minmax(0,1fr));
+  gap:10px;
+  min-height:190px;
+  align-items:end;
+}
+.finance-month{
+  min-width:0;
+  display:grid;
+  gap:8px;
+  align-items:end;
+}
+.finance-bars{
+  height:116px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+  align-items:end;
+  padding:0 4px;
+  border-bottom:1px solid rgba(148,163,184,.18);
+}
+.finance-bar{
+  min-height:4px;
+  border-radius:8px 8px 3px 3px;
+  opacity:.94;
+}
+.finance-bar.income{height:var(--income);background:linear-gradient(180deg,#6fffd1,#27d2a2)}
+.finance-bar.expense{height:var(--expense);background:linear-gradient(180deg,#ffadb9,#ef5f7d)}
+.finance-month-meta{display:grid;gap:3px;text-align:center}
+.finance-month-meta strong{font-size:11px;text-transform:capitalize;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.finance-month-meta span{font-size:11px;color:var(--muted);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.finance-platform-rank{display:grid;gap:10px}
+.finance-platform-row{display:grid;gap:6px}
+.finance-platform-line{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;font-weight:850}
+.finance-platform-line span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.finance-platform-line span:last-child{color:#53f0b8;white-space:nowrap}
+.finance-platform-track{height:7px;border-radius:999px;background:rgba(148,163,184,.13);overflow:hidden}
+.finance-platform-fill{height:100%;width:var(--value);border-radius:inherit;background:linear-gradient(90deg,#53f0b8,#8fb8ff)}
+.finance-widget-empty{min-height:116px;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center}
 .finance-list-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 10px}
 .finance-list-head h4{margin:0;font-size:16px}
 .finance-list-head span{color:var(--muted);font-size:12px;font-weight:800}
@@ -1697,9 +1811,13 @@ html[data-theme="light"] .theme-toggle .theme-moon{color:var(--muted-2)}
 .renew-price-box span{color:var(--muted);font-size:12px}
 @media (max-width:900px){
   .finance-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .finance-insights{grid-template-columns:1fr}
   .finance-row{grid-template-columns:auto minmax(0,1fr);gap:10px}
   .finance-amount{grid-column:2}
   .finance-delete{grid-column:2;justify-self:start}
+}
+@media (max-width:620px){
+  .finance-month-chart{grid-template-columns:repeat(3,minmax(0,1fr));min-height:0}
 }
 
 /* Quick Sale Panel */
@@ -5013,6 +5131,25 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
         <article class="finance-card profit"><span>Ganancia</span><strong id="financeProfit">S/ 0.00</strong></article>
         <article class="finance-card renewals"><span>Renovaciones cobradas</span><strong id="financeRenewals">0</strong></article>
       </div>
+      <div class="finance-insights" id="financeInsights">
+        <section class="finance-widget">
+          <div class="finance-widget-head">
+            <div>
+              <h4>Tendencia mensual</h4>
+              <div class="finance-legend"><span><i class="income"></i>Ingresos</span><span><i class="expense"></i>Gastos</span></div>
+            </div>
+            <span id="financeTrendScope">Ultimos 6 meses</span>
+          </div>
+          <div class="finance-month-chart" id="financeMonthChart"></div>
+        </section>
+        <section class="finance-widget">
+          <div class="finance-widget-head">
+            <h4>Top plataformas</h4>
+            <span>Ingresos</span>
+          </div>
+          <div class="finance-platform-rank" id="financePlatformRank"></div>
+        </section>
+      </div>
       <div class="finance-list-head">
         <h4>Movimientos</h4>
         <span id="financeMovementCount">0 movimientos</span>
@@ -5544,6 +5681,9 @@ window.retryFinanceHistoryLoad=function(){
 };
 function touchLocalStateCache(){
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
+  if(state.financeMovementsFullLoaded && typeof window.__cacheFinanceMovementsLocally === 'function'){
+    window.__cacheFinanceMovementsLocally(state.financeMovements || []);
+  }
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
 function persistDoc(colName, docData){
@@ -7118,6 +7258,75 @@ function financeMovementAccountEmail(m){
   }
   return accountEmailLabel(account);
 }
+function financeMonthKey(date){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+}
+function financeMonthLabel(key){
+  const [year,month]=String(key||'').split('-').map(Number);
+  if(!year || !month) return '';
+  return new Date(year, month-1, 1).toLocaleDateString('es-PE',{month:'short'});
+}
+function financeMonthBuckets(movements, count=6){
+  const now=new Date();
+  const buckets=[];
+  for(let i=count-1;i>=0;i--){
+    const date=new Date(now.getFullYear(), now.getMonth()-i, 1);
+    buckets.push({key:financeMonthKey(date), label:financeMonthLabel(financeMonthKey(date)), income:0, expense:0});
+  }
+  const byKey=new Map(buckets.map(bucket=>[bucket.key,bucket]));
+  movements.forEach(m=>{
+    const date=new Date(String(m.occurredAt||m.createdAt||''));
+    if(Number.isNaN(date.getTime())) return;
+    const bucket=byKey.get(financeMonthKey(date));
+    if(!bucket) return;
+    if(m.type==='expense') bucket.expense+=moneyNumber(m.amount);
+    else if(m.type==='income') bucket.income+=moneyNumber(m.amount);
+  });
+  return buckets;
+}
+function renderFinanceInsights(movements){
+  const chart=$('#financeMonthChart');
+  const rank=$('#financePlatformRank');
+  if(!chart && !rank) return;
+  const normalized=Array.isArray(movements) ? movements : [];
+  const buckets=financeMonthBuckets(normalized,6);
+  const maxAmount=Math.max(1,...buckets.flatMap(b=>[b.income,b.expense]));
+  if(chart){
+    chart.innerHTML=buckets.map(bucket=>{
+      const incomePct=Math.max(4,Math.round((bucket.income/maxAmount)*100));
+      const expensePct=Math.max(4,Math.round((bucket.expense/maxAmount)*100));
+      const profit=bucket.income-bucket.expense;
+      return `<div class="finance-month" title="${escapeHtml(bucket.label)}: ${escapeHtml(formatMoney(profit))} ganancia">
+        <div class="finance-bars">
+          <span class="finance-bar income" style="--income:${incomePct}%"></span>
+          <span class="finance-bar expense" style="--expense:${expensePct}%"></span>
+        </div>
+        <div class="finance-month-meta">
+          <strong>${escapeHtml(bucket.label)}</strong>
+          <span>${escapeHtml(formatMoney(profit))}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  putText('#financeTrendScope', state.financeMovementsFullLoaded ? 'Ultimos 6 meses' : 'Cargando historial');
+  if(rank){
+    const platformTotals=new Map();
+    normalized.forEach(m=>{
+      if(m.type!=='income') return;
+      const platform=financeMovementPlatform(m) || 'Sin plataforma';
+      platformTotals.set(platform,(platformTotals.get(platform)||0)+moneyNumber(m.amount));
+    });
+    const rows=[...platformTotals.entries()].sort((a,b)=>b[1]-a[1]).slice(0,4);
+    const maxPlatform=Math.max(1,...rows.map(row=>row[1]));
+    rank.innerHTML=rows.length ? rows.map(([platform,total])=>{
+      const pct=Math.max(5,Math.round((total/maxPlatform)*100));
+      return `<div class="finance-platform-row">
+        <div class="finance-platform-line"><span>${escapeHtml(friendlyPlatform(platform)||platform)}</span><span>${escapeHtml(formatMoney(total))}</span></div>
+        <div class="finance-platform-track"><span class="finance-platform-fill" style="--value:${pct}%"></span></div>
+      </div>`;
+    }).join('') : '<div class="finance-widget-empty">Sin ingresos para comparar todavia.</div>';
+  }
+}
 function renderFinance(){
   const rangeEl=$('#financeRange');
   if(rangeEl){
@@ -7149,7 +7358,10 @@ function renderFinance(){
     }
     return;
   }
-  const list=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
+  if(!state.financeMovementsFullLoaded && !state.financeMovementsFullLoadError) ensureFullFinanceMovements();
+  const allMovements=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean);
+  renderFinanceInsights(allMovements);
+  const list=allMovements.filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income=list.filter(m=>m.type==='income').reduce((n,m)=>n+moneyNumber(m.amount),0);
   const expense=list.filter(m=>m.type==='expense').reduce((n,m)=>n+moneyNumber(m.amount),0);
   const renewals=list.filter(m=>m.source==='renewal'||m.source==='combo_renewal');
