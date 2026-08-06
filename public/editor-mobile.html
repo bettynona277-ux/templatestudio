@@ -803,6 +803,7 @@ function applyProfileToLayers(){
       }
     });
     if(changed){
+      l.tp.isProfileVariableText = true;
       autoScaleFontForLayerMob(l);
       // Al aplicar variables del perfil, el rich text se reemplaza con texto plano
       l.tp.html = null;
@@ -826,6 +827,21 @@ function autoScaleFontForLayerMob(l){
     const ratio = Math.max(0.6, origLen / newLen);
     l.tp.fontSize = Math.round(origSize * ratio);
   }
+  const scaledShift = Math.round((origSize - Number(l.tp.fontSize || origSize)) * 0.45);
+  const variableBaselineShift = l.tp.isProfileVariableText
+    ? Math.round(Number(l.tp.fontSize || origSize) * 0.18)
+    : 0;
+  l.tp.variableShiftY = Math.max(0, scaledShift, variableBaselineShift);
+}
+
+function isProfileVariableLayerMob(layer, tp){
+  const name = String(layer?.name || '').toLowerCase();
+  const text = String(tp?.text || '').toLowerCase();
+  return !!(
+    tp?.isProfileVariableText ||
+    /\{\{\s*(whatsapp|moneda|precio_)/.test(name) ||
+    /\{\{\s*(whatsapp|moneda|precio_)/.test(text)
+  );
 }
 
 // ══════════════════════════════════════════
@@ -1569,6 +1585,13 @@ function applyTextStylesMobile(layer){
   d.style.width = '100%';
   d.style.height = '100%';
   d.style.display = 'block';
+  d.style.boxSizing = 'border-box';
+  const isIOSPreview = (/iPad|iPhone|iPod/.test(navigator.userAgent || '') && !window.MSStream)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const previewVariableShift = isProfileVariableLayerMob(layer, tp) && isIOSPreview
+    ? Math.max(Number(tp.variableShiftY || 0), Math.round(Number(tp.fontSize || 16) * 0.18))
+    : Number(tp.variableShiftY || 0);
+  d.style.paddingTop = `${Math.max(0, previewVariableShift)}px`;
   d.style.fontStyle = tp.italic ? 'italic' : 'normal';
   d.style.textDecoration = tp.underline ? 'underline' : 'none';
   d.style.letterSpacing = (parseFloat(tp.letterSpacing)||0) + 'px';
@@ -2578,6 +2601,146 @@ async function uploadToCloudinary(dataUrl, publicId){
   return data.secure_url;
 }
 
+const EXPORT_RENDER_VERSION = 'visible-v2';
+const IOS_EXPORT_COOLDOWN_MS = 15000;
+const IOS_EXPORT_DAILY_LIMIT = 30;
+let lastIosExportUploadAt = 0;
+
+function simpleHashString(str){
+  let h = 2166136261;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+async function sha256Text(text){
+  try{
+    if(window.crypto?.subtle){
+      const bytes = new TextEncoder().encode(text);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+  }catch(_){}
+  return simpleHashString(text);
+}
+
+async function getExportDesignHash(){
+  const payload = JSON.stringify({
+    renderVersion: EXPORT_RENDER_VERSION,
+    w: parseInt(cvs.style.width)||1080,
+    h: parseInt(cvs.style.height)||1080,
+    name: localStorage.getItem('ts_design_name') || '',
+    layers: layers.map(l=>({
+      id:l.id,type:l.type,name:l.name,x:l.x,y:l.y,w:l.w,h:l.h,rot:l.rot,opacity:l.opacity,
+      visible:l.visible,src:l.src,frameImage:l.frameImage,imgFill:l.imgFill,blur:l.blur,tp:l.tp
+    }))
+  });
+  return sha256Text(payload);
+}
+
+function exportCacheKey(hash){
+  const uid = fbAuth?.currentUser?.uid || 'anon';
+  return `ds_ios_export_${uid}_${hash}`;
+}
+
+function readIosExportCache(hash){
+  try{
+    const cached = JSON.parse(localStorage.getItem(exportCacheKey(hash)) || 'null');
+    if(cached?.url && cached.ts && Date.now() - Number(cached.ts) < 24*60*60*1000) return cached;
+  }catch(_){}
+  return null;
+}
+
+function writeIosExportCache(hash, url){
+  try{ localStorage.setItem(exportCacheKey(hash), JSON.stringify({url, ts:Date.now()})); }catch(_){}
+}
+
+function canUseIosExportUpload(){
+  try{
+    const today = new Date().toISOString().slice(0,10);
+    const key = `ds_ios_export_daily_${today}`;
+    const count = Number(localStorage.getItem(key) || 0);
+    if(count >= IOS_EXPORT_DAILY_LIMIT) return false;
+    if(Date.now() - lastIosExportUploadAt < IOS_EXPORT_COOLDOWN_MS) return false;
+    localStorage.setItem(key, String(count + 1));
+    lastIosExportUploadAt = Date.now();
+    return true;
+  }catch(_){
+    return Date.now() - lastIosExportUploadAt >= IOS_EXPORT_COOLDOWN_MS;
+  }
+}
+
+function cloudinaryAttachmentUrl(url, fileName){
+  if(!url || !url.includes('/image/upload/')) return url;
+  const clean = stripCloudinaryTransforms(url);
+  const uploadIdx = clean.indexOf('/image/upload/');
+  const base = clean.slice(0, uploadIdx + '/image/upload/'.length);
+  const rest = clean.slice(uploadIdx + '/image/upload/'.length);
+  const safe = encodeURIComponent((fileName || 'diseno.jpg').replace(/[^\w.\-]/g,'_'));
+  return `${base}fl_attachment:${safe}/${rest}`;
+}
+
+async function uploadExportBlobToCloudinary(blob, publicId){
+  const fd = new FormData();
+  fd.append('file', blob, 'export.jpg');
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  fd.append('folder', 'templatestudio/exports');
+  if(publicId) fd.append('public_id', publicId);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {method:'POST', body:fd});
+  const data = await res.json();
+  if(!data.secure_url) throw new Error('Cloudinary export error: '+(data.error?.message||'desconocido'));
+  return data.secure_url;
+}
+
+function showCloudinaryExportModal(blob, fileName, displayName, exportUrl){
+  const modal = document.getElementById('save-img-modal');
+  const preview = document.getElementById('save-img-preview');
+  const tip = document.getElementById('save-img-tip');
+  const shareBtn = document.getElementById('save-img-share');
+  const webviewTip = document.getElementById('save-img-webview-tip');
+  if(!modal || !preview) return;
+  const attachmentUrl = cloudinaryAttachmentUrl(exportUrl, fileName);
+  preview.src = exportUrl;
+  if(tip) tip.innerHTML = 'Imagen lista en servidor.<br><span style="color:#15d6a4;font-weight:700;">Mantén presionada o usa Compartir</span>';
+  if(webviewTip) webviewTip.style.display = 'none';
+  if(shareBtn){
+    shareBtn.style.display = 'flex';
+    shareBtn.onclick = async () => {
+      try{
+        const shareFile = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+        if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
+          await navigator.share({ files: [shareFile], title: displayName });
+        } else if(navigator.share){
+          await navigator.share({ title: displayName, url: exportUrl });
+        } else {
+          window.open(attachmentUrl, '_blank');
+        }
+      }catch(e){
+        if(e.name !== 'AbortError') window.open(attachmentUrl, '_blank');
+      }
+    };
+  }
+  modal.style.display = 'flex';
+  toast('Imagen lista para guardar');
+}
+
+async function getOrUploadExportUrl(blob, fileName){
+  const hash = await getExportDesignHash();
+  const cached = readIosExportCache(hash);
+  if(cached?.url) return cached.url;
+  if(!canUseIosExportUpload()){
+    throw new Error('Límite temporal de exportaciones alcanzado. Intenta nuevamente en unos segundos.');
+  }
+  const uid = (fbAuth?.currentUser?.uid || 'anon').replace(/[^\w\-]/g,'').slice(0,48) || 'anon';
+  const day = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const publicId = `${uid}_${String(hash).slice(0,24)}_${day}`;
+  const url = await uploadExportBlobToCloudinary(blob, publicId);
+  writeIosExportCache(hash, url);
+  return url;
+}
+
 // ── Cargar logos de plataformas (colección global, con categorías) ──
 const LOGO_CACHE_TTL_MOB = 7 * 24 * 60 * 60 * 1000; // 7 días
 let _logoLoadedAtMob = (()=>{ try{ const s=localStorage.getItem('ds_logo_lib_cache'); if(s){ const p=JSON.parse(s); return p.ts||0; } }catch(_){} return 0; })();
@@ -2649,7 +2812,7 @@ async function loadLogos(){
     if(catalogLogos !== null){
       logoCache=catalogLogos;
     }else{
-      const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      const snap = await fbDb.collection('logos').orderBy('createdAt','desc').limit(300).get();
       logoCache = [];
       snap.forEach(doc=>logoCache.push({id:doc.id,...doc.data()}));
     }
@@ -2742,7 +2905,8 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
   const webviewTip = document.getElementById('save-img-webview-tip');
   if(!modal || !preview) return;
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isIOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   // iOS: usar dataURL para el preview (blob URLs se revocan y Safari da "sin conexión")
   // Android: blob URL funciona bien
@@ -2756,7 +2920,11 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
     preview.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 60000); }, {once:true});
   }
 
-  if(isWebView){
+  if(isIOS){
+    if(tip) tip.innerHTML = 'Mantén presionada la imagen y elige<br><span style="color:#15d6a4;font-weight:700;">"Guardar en Fotos"</span>';
+    if(webviewTip) webviewTip.style.display = isWebView ? 'block' : 'none';
+    toast('Mantén presionada la imagen o usa Compartir');
+  } else if(isWebView){
     if(tip) tip.innerHTML = 'Estás en un navegador interno.<br>Para guardar en tu galería:';
     if(webviewTip) webviewTip.style.display = 'block';
     toast('📤 Usa el botón compartir para guardar');
@@ -3729,7 +3897,12 @@ async function renderDesignToCanvas(scale=3){
           : isAndroidExport
             ? 0.57
             : 0.69;
-      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix);
+      const variableShiftY = Math.max(
+        0,
+        Number(tp.variableShiftY || 0),
+        isProfileVariableLayerMob(l, tp) && (isIOSExport || isAndroidExport) ? Math.round(fontSize * 0.28) : 0
+      );
+      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix) + variableShiftY;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;
@@ -3771,6 +3944,36 @@ function canvasToJpegDataUrl(canvas, quality = 0.92){
   return canvasToJpegCanvas(canvas).toDataURL('image/jpeg', quality);
 }
 
+async function renderVisibleDesignToCanvas(exportScale, canvasW, canvasH){
+  const rectMap = {};
+  for(const l of layers){
+    if(!(Number(l.blur || 0) > 0)) continue;
+    const img = getImageTargetElement(l);
+    if(img){
+      const r = img.getBoundingClientRect();
+      rectMap[l.id] = {width: r.width, height: r.height};
+    }
+  }
+  const patches = await prepareBlurForExport(rectMap);
+  try{
+    const rendered = await html2canvas(cvs,{
+      scale: exportScale,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: null,
+      logging: false,
+      width: canvasW,
+      height: canvasH,
+      windowWidth: canvasW,
+      windowHeight: canvasH,
+    });
+    return { rendered, patches };
+  }catch(e){
+    restoreBlurAfterExport(patches);
+    throw e;
+  }
+}
+
 async function downloadPNG(){
   desel();
   syncLayerStackFromDom();
@@ -3787,8 +3990,8 @@ async function downloadPNG(){
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
 
-    // Usar renderer manual Canvas 2D — no re-descarga imágenes de Cloudinary
-    // Esperar que todas las fuentes del diseño carguen antes de renderizar (evita texto desplazado en iOS)
+    // La exportacion principal captura el editor visible para conservar posiciones reales.
+    // El renderer manual queda solo como fallback si html2canvas falla.
     const fontSpecs = [...new Set(
       layers.filter(l => l.tp?.fontFamily).map(l => {
         const fw = l.tp.fontWeight || '400';
@@ -3810,40 +4013,34 @@ async function downloadPNG(){
     const exportScale = mobileExportScale(canvasW, canvasH);
 
     let rendered;
+    const ua = navigator.userAgent || '';
+    const isIOS = (/iPad|iPhone|iPod/.test(ua) && !window.MSStream)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     try{
-      rendered = await renderDesignToCanvas(exportScale);
+      const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
+      rendered = visibleCapture.rendered;
+      blurPatches = visibleCapture.patches;
       if(!rendered || !rendered.width || !rendered.height){
         throw new Error('Canvas vacío');
       }
     }catch(renderErr){
-      console.warn('Renderer manual falló, usando html2canvas:', renderErr.message);
-      const rectMap = {};
-      for(const l of layers){
-        if(!(Number(l.blur || 0) > 0)) continue;
-        const img = getImageTargetElement(l);
-        if(img){ const r = img.getBoundingClientRect(); rectMap[l.id] = {width: r.width, height: r.height}; }
-      }
-      blurPatches = await prepareBlurForExport(rectMap);
-      rendered = await html2canvas(cvs,{
-        scale: exportScale,
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: null,
-        logging: false,
-        width: canvasW,
-        height: canvasH,
-        windowWidth: canvasW,
-        windowHeight: canvasH,
-      });
+      console.warn('Render principal fallo, usando fallback:', renderErr.message);
+      restoreBlurAfterExport(blurPatches);
+      blurPatches = [];
+      rendered = await renderDesignToCanvas(exportScale);
     }
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
     const fileName = safeName + '.jpg';
     const blob = await canvasToJpegBlob(rendered);
-
-    const ua = navigator.userAgent || '';
-    const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    let exportUrl = '';
+    try{
+      toast('Preparando descarga compatible...');
+      exportUrl = await getOrUploadExportUrl(blob, fileName);
+    }catch(uploadErr){
+      console.warn('Cloudinary export fallback:', uploadErr.message);
+    }
 
     // Detectar navegadores embebidos: Telegram, WhatsApp, Instagram, Facebook, etc.
     // Estos bloquean a.download y el archivo va a carpeta temporal invisible para el usuario
@@ -3860,7 +4057,8 @@ async function downloadPNG(){
     // ── WEBVIEW (Telegram, WhatsApp, Instagram, etc.) ──
     // a.download no funciona → ir directo al modal con botón compartir
     if(isWebView){
-      showDownloadModal(blob, fileName, safeName, true);
+      if(exportUrl) showCloudinaryExportModal(blob, fileName, safeName, exportUrl);
+      else showDownloadModal(blob, fileName, safeName, true);
       return;
     }
 
@@ -3874,33 +4072,15 @@ async function downloadPNG(){
       a.click();
       document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url), 8000);
-      showDownloadModal(blob, fileName, safeName, false);
+      if(exportUrl) showCloudinaryExportModal(blob, fileName, safeName, exportUrl);
+      else showDownloadModal(blob, fileName, safeName, false);
       return;
     }
 
-    // ── iOS: Web Share API (abre menú nativo con Guardar en Fotos) ──
-    const shareFile = new File([blob], fileName, { type: 'image/jpeg' });
-    if(navigator.canShare && navigator.canShare({ files: [shareFile] })){
-      try{
-        await navigator.share({ files: [shareFile], title: safeName });
-        toast('✓ Listo');
-        return;
-      }catch(shareErr){
-        if(shareErr.name === 'AbortError'){ toast('Cancelado'); return; }
-        console.warn('Share falló:', shareErr);
-      }
-    }
-
-    // ── iOS sin Share API / fallback: modal con dataURL (no blob) ──
-    // Safari iOS revoca blob URLs rápido → usar dataURL para que el usuario pueda mantener presionada
-    const dataUrl2 = canvasToJpegDataUrl(rendered);
-    const modal = document.getElementById('save-img-modal');
-    const preview = document.getElementById('save-img-preview');
-    if(modal && preview){
-      preview.src = dataUrl2;
-      modal.style.display = 'flex';
-      toast('💡 Mantén presionada la imagen y elige "Guardar imagen"');
-    }
+    // iOS: mostrar un preview real capturado del editor.
+    // Desde ahi puede mantener presionado o tocar Compartir con gesto directo.
+    if(exportUrl) showCloudinaryExportModal(blob, fileName, safeName, exportUrl);
+    else showDownloadModal(blob, fileName, safeName, false);
 
   }catch(e){
     console.error('JPG error:', e);
