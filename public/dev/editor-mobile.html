@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2601,6 +2601,7 @@ async function uploadToCloudinary(dataUrl, publicId){
   return data.secure_url;
 }
 
+const EXPORT_RENDER_VERSION = 'visible-v2';
 const IOS_EXPORT_COOLDOWN_MS = 15000;
 const IOS_EXPORT_DAILY_LIMIT = 30;
 let lastIosExportUploadAt = 0;
@@ -2627,6 +2628,7 @@ async function sha256Text(text){
 
 async function getExportDesignHash(){
   const payload = JSON.stringify({
+    renderVersion: EXPORT_RENDER_VERSION,
     w: parseInt(cvs.style.width)||1080,
     h: parseInt(cvs.style.height)||1080,
     name: localStorage.getItem('ts_design_name') || '',
@@ -3898,7 +3900,7 @@ async function renderDesignToCanvas(scale=3){
       const variableShiftY = Math.max(
         0,
         Number(tp.variableShiftY || 0),
-        isProfileVariableLayerMob(l, tp) && isIOSExport ? Math.round(fontSize * 0.18) : 0
+        isProfileVariableLayerMob(l, tp) && (isIOSExport || isAndroidExport) ? Math.round(fontSize * 0.28) : 0
       );
       const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix) + variableShiftY;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
@@ -3988,8 +3990,8 @@ async function downloadPNG(){
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
 
-    // Usar renderer manual Canvas 2D — no re-descarga imágenes de Cloudinary
-    // Esperar que todas las fuentes del diseño carguen antes de renderizar (evita texto desplazado en iOS)
+    // La exportacion principal captura el editor visible para conservar posiciones reales.
+    // El renderer manual queda solo como fallback si html2canvas falla.
     const fontSpecs = [...new Set(
       layers.filter(l => l.tp?.fontFamily).map(l => {
         const fw = l.tp.fontWeight || '400';
@@ -4015,13 +4017,9 @@ async function downloadPNG(){
     const isIOS = (/iPad|iPhone|iPod/.test(ua) && !window.MSStream)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     try{
-      if(isIOS){
-        const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
-        rendered = visibleCapture.rendered;
-        blurPatches = visibleCapture.patches;
-      } else {
-        rendered = await renderDesignToCanvas(exportScale);
-      }
+      const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
+      rendered = visibleCapture.rendered;
+      blurPatches = visibleCapture.patches;
       if(!rendered || !rendered.width || !rendered.height){
         throw new Error('Canvas vacío');
       }
@@ -4029,13 +4027,7 @@ async function downloadPNG(){
       console.warn('Render principal fallo, usando fallback:', renderErr.message);
       restoreBlurAfterExport(blurPatches);
       blurPatches = [];
-      if(isIOS){
-        rendered = await renderDesignToCanvas(exportScale);
-      } else {
-        const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
-        rendered = visibleCapture.rendered;
-        blurPatches = visibleCapture.patches;
-      }
+      rendered = await renderDesignToCanvas(exportScale);
     }
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
