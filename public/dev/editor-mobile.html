@@ -804,6 +804,7 @@ function applyProfileToLayers(){
     });
     if(changed){
       autoScaleFontForLayerMob(l);
+      l.tp.variableShiftY = Math.max(0, Number(l.tp.variableShiftY || 0));
       // Al aplicar variables del perfil, el rich text se reemplaza con texto plano
       l.tp.html = null;
       const d = document.getElementById('ti-'+l.id);
@@ -826,6 +827,7 @@ function autoScaleFontForLayerMob(l){
     const ratio = Math.max(0.6, origLen / newLen);
     l.tp.fontSize = Math.round(origSize * ratio);
   }
+  l.tp.variableShiftY = Math.max(0, Math.round((origSize - Number(l.tp.fontSize || origSize)) * 0.45));
 }
 
 // ══════════════════════════════════════════
@@ -1337,7 +1339,10 @@ function moveMobileSelectionBy(dx, dy){
   const targets = getMobileNudgeTargets();
   if(!targets.length) return false;
   targets.forEach(layer=>{
-    setLayerPositionMobile(layer, layer.x + dx, layer.y + dy);
+    layer.x = Math.round(layer.x + dx);
+    layer.y = Math.round(layer.y + dy);
+    layer.el.style.left = layer.x + 'px';
+    layer.el.style.top = layer.y + 'px';
   });
   if(multiselActive && multiselIds.size) updateMultiselBox();
   else updateSelBox();
@@ -1486,7 +1491,9 @@ function makeDraggable(el, layer, onTap){
     if(Math.abs(dx)>MOVE_THRESHOLD||Math.abs(dy)>MOVE_THRESHOLD) moved=true;
     if(moved){
       const snapped = applySnapSingle(layer, startL+dx, startT+dy);
-      setLayerPositionMobile(layer, snapped.x, snapped.y, {preview:true});
+      layer.x = snapped.x; layer.y = snapped.y;
+      el.style.left=layer.x+'px';
+      el.style.top=layer.y+'px';
       updateSelBox();
     }
   },{passive:false});
@@ -1495,7 +1502,6 @@ function makeDraggable(el, layer, onTap){
     e.stopPropagation();
     if(multiselActive) return; // en modo multi-select, lo maneja installMultiTapHandlers
     if(moved){
-      commitLayerMovePreviewMobile(layer);
       hideGuides();
       snapshot(); // guardar después de mover
     }
@@ -1574,6 +1580,8 @@ function applyTextStylesMobile(layer){
   d.style.wordBreak = 'break-word';
   d.style.overflow = 'visible';
   d.style.pointerEvents = 'none';
+  d.style.boxSizing = 'border-box';
+  d.style.paddingTop = `${Math.max(0, Number(tp.variableShiftY || 0))}px`;
   updateTextInnerShadowLayerMobile(layer);
   updateTextStrokeLayerMobile(layer);
 }
@@ -1681,48 +1689,8 @@ function updateTextStrokeLayerMobile(layer){
 function applyLayerTransform(layer){
   if(!layer?.el) return;
   const rot = parseFloat(layer.rotation || 0) || 0;
-  const parts = [];
-  if(layer._movePreview){
-    const dx = (Number(layer.x) || 0) - (Number(layer._movePreview.x) || 0);
-    const dy = (Number(layer.y) || 0) - (Number(layer._movePreview.y) || 0);
-    if(dx || dy) parts.push(`translate3d(${dx}px, ${dy}px, 0)`);
-  }
-  if(rot) parts.push(`rotate(${rot}deg)`);
   layer.el.style.transformOrigin = 'center center';
-  layer.el.style.transform = parts.join(' ');
-}
-
-function setLayerPositionMobile(layer, x, y, opts={}){
-  if(!layer?.el) return;
-  layer.x = opts.round === false ? x : Math.round(x);
-  layer.y = opts.round === false ? y : Math.round(y);
-  if(opts.preview){
-    if(!layer._movePreview){
-      layer._movePreview = {
-        x: parseFloat(layer.el.style.left) || 0,
-        y: parseFloat(layer.el.style.top) || 0
-      };
-      layer.el.style.willChange = 'transform';
-    }
-    applyLayerTransform(layer);
-    return;
-  }
-  layer.el.style.left = layer.x + 'px';
-  layer.el.style.top = layer.y + 'px';
-  if(layer._movePreview){
-    delete layer._movePreview;
-    layer.el.style.willChange = '';
-    applyLayerTransform(layer);
-  }
-}
-
-function commitLayerMovePreviewMobile(layer){
-  if(!layer?.el || !layer._movePreview) return;
-  layer.el.style.left = layer.x + 'px';
-  layer.el.style.top = layer.y + 'px';
-  delete layer._movePreview;
-  layer.el.style.willChange = '';
-  applyLayerTransform(layer);
+  layer.el.style.transform = rot ? `rotate(${rot}deg)` : '';
 }
 
 function getImageTargetElement(layer){
@@ -2129,7 +2097,8 @@ function buildEl(l){
         if(Math.abs(dx)>8||Math.abs(dy)>8) moved=true;
         if(moved){
           const sn = applySnapSingle(l, sl+dx, st+dy);
-          setLayerPositionMobile(l, sn.x, sn.y, {preview:true});
+          l.x=sn.x; l.y=sn.y;
+          el.style.left=l.x+'px'; el.style.top=l.y+'px';
           if(activeLayer===l) updateSelBox();
         }
       },{passive:false});
@@ -2142,7 +2111,7 @@ function buildEl(l){
           snapshot();
           return;
         }
-        if(moved){ commitLayerMovePreviewMobile(l); hideGuides(); snapshot(); }
+        if(moved){ hideGuides(); snapshot(); }
         else {
           const now=Date.now();
           if(l.frameImage && now-lastTapAt<320){
@@ -3764,7 +3733,8 @@ async function renderDesignToCanvas(scale=3){
           : isAndroidExport
             ? 0.57
             : 0.69;
-      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix);
+      const variableShiftY = Math.max(0, Number(tp.variableShiftY || 0));
+      const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix) + variableShiftY;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
       ctx.restore();continue;
@@ -4290,7 +4260,9 @@ function _msCvsMove(e){
     const sn = applySnapMulti(ddx, ddy, _msStartPositions, origB);
     layers.forEach(x=>{
       if(multiselIds.has(x.id) && _msStartPositions[x.id]){
-        setLayerPositionMobile(x, _msStartPositions[x.id].x + sn.dx, _msStartPositions[x.id].y + sn.dy, {preview:true});
+        x.x = Math.round(_msStartPositions[x.id].x + sn.dx);
+        x.y = Math.round(_msStartPositions[x.id].y + sn.dy);
+        if(x.el){ x.el.style.left=x.x+'px'; x.el.style.top=x.y+'px'; }
       }
     });
     updateMultiselBox();
@@ -4302,7 +4274,6 @@ function _msCvsEnd(e){
   if(!_msGlobalStart.moved && _msGlobalStart.layer){
     toggleMultiselLayer(_msGlobalStart.layer);
   } else if(_msGlobalStart.moved && _msGlobalStart.dragActive){
-    multiselIds.forEach(id=>commitLayerMovePreviewMobile(layers.find(x=>x.id===id)));
     hideGuides(); snapshot();
   }
   _msGlobalStart = null;
