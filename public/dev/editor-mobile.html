@@ -803,6 +803,7 @@ function applyProfileToLayers(){
       }
     });
     if(changed){
+      l.tp.isProfileVariableText = true;
       autoScaleFontForLayerMob(l);
       l.tp.variableShiftY = Math.max(0, Number(l.tp.variableShiftY || 0));
       // Al aplicar variables del perfil, el rich text se reemplaza con texto plano
@@ -827,7 +828,11 @@ function autoScaleFontForLayerMob(l){
     const ratio = Math.max(0.6, origLen / newLen);
     l.tp.fontSize = Math.round(origSize * ratio);
   }
-  l.tp.variableShiftY = Math.max(0, Math.round((origSize - Number(l.tp.fontSize || origSize)) * 0.45));
+  const scaledShift = Math.round((origSize - Number(l.tp.fontSize || origSize)) * 0.45);
+  const variableBaselineShift = l.tp.isProfileVariableText
+    ? Math.round(Number(l.tp.fontSize || origSize) * 0.12)
+    : 0;
+  l.tp.variableShiftY = Math.max(0, scaledShift, variableBaselineShift);
 }
 
 // ══════════════════════════════════════════
@@ -1581,7 +1586,12 @@ function applyTextStylesMobile(layer){
   d.style.overflow = 'visible';
   d.style.pointerEvents = 'none';
   d.style.boxSizing = 'border-box';
-  d.style.paddingTop = `${Math.max(0, Number(tp.variableShiftY || 0))}px`;
+  const isIOSPreview = /iPad|iPhone|iPod/.test(navigator.userAgent || '')
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const previewVariableShift = tp.isProfileVariableText && isIOSPreview
+    ? Math.max(Number(tp.variableShiftY || 0), Math.round(Number(tp.fontSize || 16) * 0.12))
+    : Number(tp.variableShiftY || 0);
+  d.style.paddingTop = `${Math.max(0, previewVariableShift)}px`;
   updateTextInnerShadowLayerMobile(layer);
   updateTextStrokeLayerMobile(layer);
 }
@@ -3733,7 +3743,11 @@ async function renderDesignToCanvas(scale=3){
           : isAndroidExport
             ? 0.57
             : 0.69;
-      const variableShiftY = Math.max(0, Number(tp.variableShiftY || 0));
+      const variableShiftY = Math.max(
+        0,
+        Number(tp.variableShiftY || 0),
+        tp.isProfileVariableText && isIOSExport ? Math.round(fontSize * 0.12) : 0
+      );
       const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix) + variableShiftY;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
       if(tp.underline){lines.forEach((line,idx)=>{const width=measureLineVisualWidth(line);let startX=textBaseX+padX;if(tp.align==='center')startX=textBaseX+l.w/2-width/2;if(tp.align==='right')startX=textBaseX+l.w-padX-width;const y=textBaseY+textOffsetY+idx*lineHeight+(fontSize*0.12);ctx.strokeStyle=tp.color||'#ffffff';ctx.lineWidth=Math.max(1,fontSize/15);ctx.beginPath();ctx.moveTo(startX,y);ctx.lineTo(startX+width,y);ctx.stroke();});}
