@@ -399,14 +399,15 @@ const state = {
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null
 };
-const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
-const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
-const MOBILE_STATE_CACHE_REVISION_KEY = MOBILE_STATE_CACHE_KEY + '_revision';
+const MOBILE_STATE_CACHE_BASE_KEY = 'gestion_streaming_mobile_v1';
+const mobileStateCacheKey = () => `${MOBILE_STATE_CACHE_BASE_KEY}_${state.uid || 'anon'}`;
+const mobileStateCacheTimeKey = () => mobileStateCacheKey() + '_synced_at';
+const mobileStateCacheRevisionKey = () => mobileStateCacheKey() + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
   try{
-    localStorage.setItem(MOBILE_STATE_CACHE_KEY, JSON.stringify({
+    localStorage.setItem(mobileStateCacheKey(), JSON.stringify({
       accounts:state.accounts,
       clients:state.clients,
       financeMovements:state.financeMovements,
@@ -414,12 +415,12 @@ function cacheMobileState(){
       settings:state.settings,
       syncRevision:state.syncRevision
     }));
-    localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
+    localStorage.setItem(mobileStateCacheTimeKey(), String(Date.now()));
   }catch(_){}
 }
 function mobileStateCacheAge(){
   try{
-    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
+    const cachedAt = Number(localStorage.getItem(mobileStateCacheTimeKey()) || 0);
     return cachedAt ? Date.now() - cachedAt : Infinity;
   }catch(_){
     return Infinity;
@@ -427,14 +428,14 @@ function mobileStateCacheAge(){
 }
 function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
   try{
-    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
-    const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
+    const cachedAt = Number(localStorage.getItem(mobileStateCacheTimeKey()) || 0);
+    const raw = localStorage.getItem(mobileStateCacheKey());
     if(!raw || !cachedAt || Date.now() - cachedAt > maxAgeMs) return false;
     const data = JSON.parse(raw);
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
-    state.syncRevision = data.syncRevision ?? localStorage.getItem(MOBILE_STATE_CACHE_REVISION_KEY) ?? null;
+    state.syncRevision = data.syncRevision ?? localStorage.getItem(mobileStateCacheRevisionKey()) ?? null;
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
     return true;
@@ -624,7 +625,7 @@ async function touchMobileDataRevision(){
     console.warn('No se pudo actualizar la revisión del gestor:',err);
   }finally{
     state.syncRevision = null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
   }
 }
 
@@ -2307,7 +2308,7 @@ async function saveSettings(next){
   try{
     await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
     state.syncRevision = null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
     state.settings = nextSettings;
     if(state.settings.financeMode === false && state.view === 'finance') state.view = 'home';
     if(!wasFinanceOn && isFinanceModeEnabled()){
@@ -2687,7 +2688,7 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
     state.accounts=[updated,...state.accounts.filter(item=>item.id!==updated.id)];
     if(expense) state.financeMovements=[expense,...state.financeMovements.filter(item=>item.id!==expense.id)];
     state.syncRevision=null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){ }
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){ }
     cacheMobileState();
     toast('Cuenta madre renovada');
     closeSheet();
@@ -2746,6 +2747,12 @@ function openSmartAccountClientWhatsApp(c){
   // Los avisos de vencimiento se mantienen en su flujo original de vencidos / por vencer.
   openWhatsApp(c, 'delivery');
 }
+function whatsappAppIntent(packageName, phone, encodedText, fallbackUrl=''){
+  // El paquete explicito evita que Android entregue el enlace a la app predeterminada.
+  // Business no tiene fallback: wa.me volveria a abrir WhatsApp normal si no esta instalada.
+  const fallback = fallbackUrl ? `S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};` : '';
+  return `intent://send/?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=${packageName};${fallback}end`;
+}
 function openWhatsApp(c, mode='delivery', targetWindow=null){
   const payload = whatsappPayloadForClient(c, mode);
   if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
@@ -2773,8 +2780,8 @@ function openProviderRenewWhatsApp(account){
     text,
     encodedText,
     webUrl:`https://wa.me/${phone}?text=${encodedText}`,
-    normalUrl:`https://wa.me/${phone}?text=${encodedText}`,
-    businessUrl:`https://wa.me/${phone}?text=${encodedText}`,
+    normalUrl:whatsappAppIntent('com.whatsapp', phone, encodedText, `https://wa.me/${phone}?text=${encodedText}`),
+    businessUrl:whatsappAppIntent('com.whatsapp.w4b', phone, encodedText),
     chooserUrl:`whatsapp://send?phone=${phone}&text=${encodedText}`,
     mode:'provider-renewal'
   });
@@ -2830,8 +2837,8 @@ function openWhatsAppCombo(clients, mode='delivery'){
     text,
     encodedText: encodeURIComponent(text),
     webUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-    normalUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-    businessUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
+    normalUrl:whatsappAppIntent('com.whatsapp', phone, encodeURIComponent(text), `https://wa.me/${phone}?text=${encodeURIComponent(text)}`),
+    businessUrl:whatsappAppIntent('com.whatsapp.w4b', phone, encodeURIComponent(text)),
     chooserUrl:`whatsapp://send?phone=${phone}&text=${encodeURIComponent(text)}`,
     mode
   });
@@ -2879,8 +2886,8 @@ function whatsappPayloadForClient(c, mode='delivery'){
     ].join('\n');
     const encodedText = encodeURIComponent(text);
     const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
-    const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-    const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+    const normalUrl = whatsappAppIntent('com.whatsapp', phone, encodedText, webUrl);
+    const businessUrl = whatsappAppIntent('com.whatsapp.w4b', phone, encodedText);
     const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
     return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
   }
@@ -2932,8 +2939,8 @@ function whatsappPayloadForClient(c, mode='delivery'){
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
-  const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-  const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const normalUrl = whatsappAppIntent('com.whatsapp', phone, encodedText, webUrl);
+  const businessUrl = whatsappAppIntent('com.whatsapp.w4b', phone, encodedText);
   const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
   return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
 }
@@ -2978,6 +2985,10 @@ function navigatePreparedWhatsapp(targetWindow, url){
     catch(err){
       try{ targetWindow.location.href = url; return; }catch(e){}
     }
+  }
+  if(/^(intent|whatsapp):/i.test(url)){
+    window.location.href = url;
+    return;
   }
   window.open(url, '_blank', 'noopener');
 }
@@ -3059,7 +3070,7 @@ async function loadOnce(showToast=true, forceNetwork=false){
     state.financeMovementsFullLoaded = false;
     state.settings = normalizeSettings(cfg.data() || {});
     state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
-    try{ localStorage.setItem(MOBILE_STATE_CACHE_REVISION_KEY, String(state.syncRevision)); }catch(_){}
+    try{ localStorage.setItem(mobileStateCacheRevisionKey(), String(state.syncRevision)); }catch(_){}
     cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
