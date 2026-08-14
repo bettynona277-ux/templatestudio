@@ -116,6 +116,7 @@ button{border:0;cursor:pointer}
 .settings-card{padding:14px;border:1px solid var(--line);border-radius:20px;background:#0d1726;display:grid;gap:12px;contain:layout paint}
 .setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}.setting-toggle strong{display:block}.setting-toggle span{display:block;margin-top:3px;color:var(--muted);font-size:12px;line-height:1.35}.switch{position:relative;width:52px;height:30px;flex:0 0 auto}.switch input{position:absolute;opacity:0;inset:0}.switch i{position:absolute;inset:0;border-radius:999px;background:rgba(148,163,184,.22);border:1px solid rgba(255,255,255,.1);transition:.18s}.switch i:before{content:"";position:absolute;width:22px;height:22px;left:4px;top:3px;border-radius:50%;background:#dbe7ff;transition:.18s}.switch input:checked + i{background:linear-gradient(135deg,var(--brand),var(--brand2));border-color:transparent}.switch input:checked + i:before{transform:translateX(21px);background:#fff}
 .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.finance-mini{min-height:96px;padding:14px;border-radius:22px;border:1px solid var(--line);background:#101b2f;display:grid;align-content:center;gap:4px;contain:layout paint}.finance-mini b{font-size:22px}.finance-mini span{font-size:12px;color:var(--muted);font-weight:850}.finance-mini.good{border-color:rgba(34,216,154,.26)}.finance-mini.bad{border-color:rgba(255,93,125,.26)}.finance-mini.warn{border-color:rgba(251,191,36,.25)}.finance-row{padding:13px;border-radius:19px;border:1px solid rgba(255,255,255,.08);background:#0d1726;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;isolation:isolate;contain:layout paint;overflow:hidden}.finance-dot{width:36px;height:36px;border-radius:14px;display:grid;place-items:center;font-weight:950}.finance-dot.income{background:rgba(34,216,154,.14);color:#22d89a}.finance-dot.expense{background:rgba(255,93,125,.14);color:#ff6f8f}.finance-row strong{display:block;font-size:14px}.finance-row small{display:block;color:var(--muted);font-weight:750;margin-top:3px}.finance-amount{font-weight:950}.finance-amount.income{color:#22d89a}.finance-amount.expense{color:#ff6f8f}
+.finance-row{grid-template-columns:auto minmax(0,1fr) auto auto}.finance-amount{white-space:nowrap}.finance-delete{width:38px;height:38px;border-radius:13px;border:1px solid rgba(255,93,125,.28);background:rgba(255,93,125,.1);color:#ffb8c6;display:grid;place-items:center;flex:0 0 auto}.finance-delete:disabled{opacity:.55}
 .security-box{padding:14px;border:1px solid rgba(45,212,191,.22);border-radius:20px;background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(118,92,255,.07));display:grid;gap:12px}
 .security-box h3{margin:0;font-size:16px}.security-box p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
 .due-copy-box{padding:13px;border:1px solid rgba(138,161,255,.18);border-radius:20px;background:rgba(255,255,255,.045);display:grid;gap:10px;margin-bottom:12px}
@@ -394,19 +395,20 @@ const DEFAULT_COMBO_TEMPLATES = [
   { id:'combo_premium', name:'Combo Premium', platforms:['Netflix','Disney','HBO Max'] }
 ];
 const state = {
-  uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month', financeDateFrom:'', financeDateTo:'',
+  uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null
 };
-const MOBILE_STATE_CACHE_KEY = 'gestion_streaming_mobile_v1';
-const MOBILE_STATE_CACHE_TIME_KEY = MOBILE_STATE_CACHE_KEY + '_synced_at';
-const MOBILE_STATE_CACHE_REVISION_KEY = MOBILE_STATE_CACHE_KEY + '_revision';
+const MOBILE_STATE_CACHE_BASE_KEY = 'gestion_streaming_mobile_v1';
+const mobileStateCacheKey = () => `${MOBILE_STATE_CACHE_BASE_KEY}_${state.uid || 'anon'}`;
+const mobileStateCacheTimeKey = () => mobileStateCacheKey() + '_synced_at';
+const mobileStateCacheRevisionKey = () => mobileStateCacheKey() + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 function cacheMobileState(){
   try{
-    localStorage.setItem(MOBILE_STATE_CACHE_KEY, JSON.stringify({
+    localStorage.setItem(mobileStateCacheKey(), JSON.stringify({
       accounts:state.accounts,
       clients:state.clients,
       financeMovements:state.financeMovements,
@@ -414,12 +416,12 @@ function cacheMobileState(){
       settings:state.settings,
       syncRevision:state.syncRevision
     }));
-    localStorage.setItem(MOBILE_STATE_CACHE_TIME_KEY, String(Date.now()));
+    localStorage.setItem(mobileStateCacheTimeKey(), String(Date.now()));
   }catch(_){}
 }
 function mobileStateCacheAge(){
   try{
-    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
+    const cachedAt = Number(localStorage.getItem(mobileStateCacheTimeKey()) || 0);
     return cachedAt ? Date.now() - cachedAt : Infinity;
   }catch(_){
     return Infinity;
@@ -427,14 +429,14 @@ function mobileStateCacheAge(){
 }
 function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
   try{
-    const cachedAt = Number(localStorage.getItem(MOBILE_STATE_CACHE_TIME_KEY) || 0);
-    const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
+    const cachedAt = Number(localStorage.getItem(mobileStateCacheTimeKey()) || 0);
+    const raw = localStorage.getItem(mobileStateCacheKey());
     if(!raw || !cachedAt || Date.now() - cachedAt > maxAgeMs) return false;
     const data = JSON.parse(raw);
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
-    state.syncRevision = data.syncRevision ?? localStorage.getItem(MOBILE_STATE_CACHE_REVISION_KEY) ?? null;
+    state.syncRevision = data.syncRevision ?? localStorage.getItem(mobileStateCacheRevisionKey()) ?? null;
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
     return true;
@@ -624,7 +626,7 @@ async function touchMobileDataRevision(){
     console.warn('No se pudo actualizar la revisión del gestor:',err);
   }finally{
     state.syncRevision = null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
   }
 }
 
@@ -1194,6 +1196,7 @@ async function deleteFinanceMovement(movementId){
   if(!state.uid || !movementId) return;
   await deleteDoc(financeRef(movementId));
   state.financeMovements = state.financeMovements.filter(m => m.id !== movementId);
+  await touchMobileDataRevision();
   cacheMobileState();
 }
 function clientFinanceLabel(client, prefix){
@@ -1302,7 +1305,8 @@ function buildAccountRenewalExpense(account, amountOverride){
   const amount=moneyNumber(amountOverride);
   if(!amount) return null;
   return {
-    id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
+    // Una misma cuenta renovada hasta la misma fecha representa un solo gasto.
+    id:financeMovementId('account_renewal', `${account.id}_${account.dueDate || 'sin_fecha'}`),
     type:'expense', source:'account_renewal', amount,
     description:`Renovacion cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
@@ -1318,20 +1322,6 @@ async function recordAccountRenewalExpense(account, amountOverride){
 function movementInRange(movement){
   const date = new Date(movement?.occurredAt || movement?.createdAt || Date.now());
   if(Number.isNaN(date.getTime()) || state.financeRange === 'all') return true;
-  if(state.financeRange === 'custom'){
-    const fromValue = clean(state.financeDateFrom);
-    const toValue = clean(state.financeDateTo);
-    if(!fromValue && !toValue) return true;
-    if(fromValue){
-      const from = new Date(fromValue + 'T00:00:00');
-      if(!Number.isNaN(from.getTime()) && date < from) return false;
-    }
-    if(toValue){
-      const to = new Date(toValue + 'T23:59:59.999');
-      if(!Number.isNaN(to.getTime()) && date > to) return false;
-    }
-    return true;
-  }
   const now = new Date();
   const start = new Date(now);
   if(state.financeRange === 'today'){
@@ -1439,18 +1429,16 @@ function renderDue(){
   bindCards();
 }
 function renderFinance(){
-  const needsFullFinanceHistory = (state.financeRange === 'all' || state.financeRange === 'custom') && !state.financeMovementsFullLoaded;
-  if(needsFullFinanceHistory){
+  if(state.financeRange === 'all' && !state.financeMovementsFullLoaded){
     if(!state.financeMovementsFullLoadError) ensureFullFinanceMovements();
     const content = state.financeMovementsFullLoadError
       ? `<div class="empty">No se pudo cargar todo el historial. Puedes seguir viendo este mes o reintentarlo.</div>
          <button class="btn" onclick="retryFinanceHistoryLoad()">${icon('refresh')}<span>Reintentar historial</span></button>`
-      : `<div class="empty">Cargando historial de finanzas...</div>`;
-    $('#view').innerHTML = `<section class="section">
+      : `<div class="empty">Cargando historial completo de finanzas...</div>`;
+    return `<section class="section">
       <div class="section-head"><h2>Finanzas</h2><span>${state.financeMovementsFullLoadError?'Historial no cargado':'Cargando historial...'}</span></div>
       ${content}
     </section>`;
-    return;
   }
   const movements = state.financeMovements.map(normalizeFinanceMovement).filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income = movements.filter(m=>m.type==='income').reduce((sum,m)=>sum+moneyNumber(m.amount),0);
@@ -1464,13 +1452,8 @@ function renderFinance(){
         <option value="today" ${state.financeRange==='today'?'selected':''}>Hoy</option>
         <option value="7days" ${state.financeRange==='7days'?'selected':''}>7 dias</option>
         <option value="month" ${state.financeRange==='month'?'selected':''}>Este mes</option>
-        <option value="custom" ${state.financeRange==='custom'?'selected':''}>Por fechas</option>
         <option value="all" ${state.financeRange==='all'?'selected':''}>Todo</option>
       </select></div>
-      <div class="grid two ${state.financeRange==='custom'?'':'hidden'}" id="financeCustomRange">
-        <div class="field"><label>Desde</label><input type="date" id="financeDateFrom" value="${esc(state.financeDateFrom)}"></div>
-        <div class="field"><label>Hasta</label><input type="date" id="financeDateTo" value="${esc(state.financeDateTo)}"></div>
-      </div>
     </div>
     <div class="finance-grid">
       <div class="finance-mini good"><b>${formatMoney(income)}</b><span>Ingresos</span></div>
@@ -1485,29 +1468,25 @@ function renderFinance(){
       <div class="finance-dot ${m.type}">${m.type === 'income' ? '+' : '-'}</div>
       <div><strong>${esc(m.description)}</strong><small>${esc(clean(m.platform) || (m.source === 'manual' ? 'Sin plataforma' : 'Streaming'))}${accountEmail ? ` - ${esc(accountEmail)}` : ''} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
       <div class="finance-amount ${m.type}">${m.type === 'income' ? '+' : '-'}${formatMoney(m.amount)}</div>
+      <button class="finance-delete" type="button" data-delete-finance="${esc(m.id)}" title="Eliminar movimiento" aria-label="Eliminar movimiento">${icon('trash')}</button>
     </div>`;
     }).join('') || empty('Aun no hay movimientos financieros.')}</div>
   </section>`;
-  $('#financeRange').onchange = e => {
-    state.financeRange = e.target.value;
-    if(state.financeRange === 'custom'){
-      if(!state.financeDateFrom) state.financeDateFrom = todayISO();
-      if(!state.financeDateTo) state.financeDateTo = todayISO();
-      ensureFullFinanceMovements();
-    }
-    renderFinance();
-  };
-  $('#financeDateFrom')?.addEventListener('change', e => {
-    state.financeDateFrom = e.target.value;
-    if(state.financeDateTo && state.financeDateFrom > state.financeDateTo) state.financeDateTo = state.financeDateFrom;
-    renderFinance();
-  });
-  $('#financeDateTo')?.addEventListener('change', e => {
-    state.financeDateTo = e.target.value;
-    if(state.financeDateFrom && state.financeDateTo < state.financeDateFrom) state.financeDateFrom = state.financeDateTo;
-    renderFinance();
-  });
+  $('#financeRange').onchange = e => { state.financeRange = e.target.value; renderFinance(); };
   $('#addFinanceExpense').onclick = openFinanceExpenseSheet;
+  document.querySelectorAll('[data-delete-finance]').forEach(button => button.onclick = async () => {
+    const movement = state.financeMovements.find(item => item.id === button.dataset.deleteFinance);
+    if(!movement || !confirm(`Eliminar ${movement.type === 'expense' ? 'este gasto' : 'este ingreso'}?`)) return;
+    button.disabled = true;
+    try{
+      await deleteFinanceMovement(movement.id);
+      toast('Movimiento eliminado.');
+      renderFinance();
+    }catch(err){
+      button.disabled = false;
+      showMobileSupportError(err, 'eliminar-movimiento-financiero');
+    }
+  });
 }
 function financeMovementAccountEmail(m){
   let account = null;
@@ -2346,7 +2325,7 @@ async function saveSettings(next){
   try{
     await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
     state.syncRevision = null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){}
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
     state.settings = nextSettings;
     if(state.settings.financeMode === false && state.view === 'finance') state.view = 'home';
     if(!wasFinanceOn && isFinanceModeEnabled()){
@@ -2713,8 +2692,13 @@ function renewAccount(account){
   $('#renewAccountOneYear')?.addEventListener('click',()=>apply(oneYear));
   $('#renewAccountCustomForm')?.addEventListener('submit',event=>{ event.preventDefault(); apply(clean(new FormData(event.currentTarget).get('dueDate'))); });
 }
+const accountRenewalsInFlight=new Set();
 async function applyAccountRenewal(account,nextDate,expenseAmount=0){
   if(!account || !nextDate) return toast('Selecciona una fecha valida.','bad');
+  const renewalKey=`${account.id}:${nextDate}`;
+  if(accountRenewalsInFlight.has(renewalKey)) return;
+  accountRenewalsInFlight.add(renewalKey);
+  document.querySelectorAll('#renewAccountOneMonth,#renewAccountThreeMonths,#renewAccountOneYear,#renewAccountCustomForm button').forEach(button=>button.disabled=true);
   try{
     const updated={...account,dueDate:nextDate,updatedAt:new Date().toISOString()};
     const expense=buildAccountRenewalExpense(updated,expenseAmount);
@@ -2726,12 +2710,13 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
     state.accounts=[updated,...state.accounts.filter(item=>item.id!==updated.id)];
     if(expense) state.financeMovements=[expense,...state.financeMovements.filter(item=>item.id!==expense.id)];
     state.syncRevision=null;
-    try{ localStorage.removeItem(MOBILE_STATE_CACHE_REVISION_KEY); }catch(_){ }
+    try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){ }
     cacheMobileState();
     toast('Cuenta madre renovada');
     closeSheet();
     render();
   }catch(err){ showMobileSupportError(err, 'renovar-cuenta'); }
+  finally{ accountRenewalsInFlight.delete(renewalKey); }
 }
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0){
   if(!c || !nextDate) return;
@@ -2785,6 +2770,12 @@ function openSmartAccountClientWhatsApp(c){
   // Los avisos de vencimiento se mantienen en su flujo original de vencidos / por vencer.
   openWhatsApp(c, 'delivery');
 }
+function whatsappAppIntent(packageName, phone, encodedText, fallbackUrl=''){
+  // El paquete explicito evita que Android entregue el enlace a la app predeterminada.
+  // Business no tiene fallback: wa.me volveria a abrir WhatsApp normal si no esta instalada.
+  const fallback = fallbackUrl ? `S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};` : '';
+  return `intent://send/?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=${packageName};${fallback}end`;
+}
 function openWhatsApp(c, mode='delivery', targetWindow=null){
   const payload = whatsappPayloadForClient(c, mode);
   if(!payload || !payload.phone) return toast('Ese cliente no tiene WhatsApp.','bad');
@@ -2812,8 +2803,8 @@ function openProviderRenewWhatsApp(account){
     text,
     encodedText,
     webUrl:`https://wa.me/${phone}?text=${encodedText}`,
-    normalUrl:`https://wa.me/${phone}?text=${encodedText}`,
-    businessUrl:`https://wa.me/${phone}?text=${encodedText}`,
+    normalUrl:whatsappAppIntent('com.whatsapp', phone, encodedText, `https://wa.me/${phone}?text=${encodedText}`),
+    businessUrl:whatsappAppIntent('com.whatsapp.w4b', phone, encodedText),
     chooserUrl:`whatsapp://send?phone=${phone}&text=${encodedText}`,
     mode:'provider-renewal'
   });
@@ -2869,8 +2860,8 @@ function openWhatsAppCombo(clients, mode='delivery'){
     text,
     encodedText: encodeURIComponent(text),
     webUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-    normalUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-    businessUrl:`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
+    normalUrl:whatsappAppIntent('com.whatsapp', phone, encodeURIComponent(text), `https://wa.me/${phone}?text=${encodeURIComponent(text)}`),
+    businessUrl:whatsappAppIntent('com.whatsapp.w4b', phone, encodeURIComponent(text)),
     chooserUrl:`whatsapp://send?phone=${phone}&text=${encodeURIComponent(text)}`,
     mode
   });
@@ -2918,8 +2909,8 @@ function whatsappPayloadForClient(c, mode='delivery'){
     ].join('\n');
     const encodedText = encodeURIComponent(text);
     const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
-    const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-    const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+    const normalUrl = whatsappAppIntent('com.whatsapp', phone, encodedText, webUrl);
+    const businessUrl = whatsappAppIntent('com.whatsapp.w4b', phone, encodedText);
     const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
     return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
   }
@@ -2971,8 +2962,8 @@ function whatsappPayloadForClient(c, mode='delivery'){
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
-  const normalUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-  const businessUrl = `intent://send?phone=${phone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+  const normalUrl = whatsappAppIntent('com.whatsapp', phone, encodedText, webUrl);
+  const businessUrl = whatsappAppIntent('com.whatsapp.w4b', phone, encodedText);
   const chooserUrl = `whatsapp://send?phone=${phone}&text=${encodedText}`;
   return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
 }
@@ -2980,8 +2971,12 @@ function openWhatsAppAppSelector(payload, targetWindow=null){
   const isAndroid = /Android/i.test(navigator.userAgent || '');
   const go = url => {
     closeSheet();
-    // Espera a que la animación del sheet termine antes de abrir WhatsApp
-    // para no corromper el compositor GPU de Android en mid-transition
+    // Android solo garantiza abrir otra app durante el toque real del usuario.
+    // Retrasarlo puede hacer que algunos navegadores bloqueen o desvíen el intent.
+    if(isAndroid && /^(intent|whatsapp):/i.test(url)){
+      navigatePreparedWhatsapp(targetWindow, url);
+      return;
+    }
     setTimeout(() => navigatePreparedWhatsapp(targetWindow, url), 300);
   };
   openSheet(`<div class="sheet-head"><h3>Enviar por WhatsApp</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div>
@@ -3017,6 +3012,10 @@ function navigatePreparedWhatsapp(targetWindow, url){
     catch(err){
       try{ targetWindow.location.href = url; return; }catch(e){}
     }
+  }
+  if(/^(intent|whatsapp):/i.test(url)){
+    window.location.href = url;
+    return;
   }
   window.open(url, '_blank', 'noopener');
 }
@@ -3098,7 +3097,7 @@ async function loadOnce(showToast=true, forceNetwork=false){
     state.financeMovementsFullLoaded = false;
     state.settings = normalizeSettings(cfg.data() || {});
     state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
-    try{ localStorage.setItem(MOBILE_STATE_CACHE_REVISION_KEY, String(state.syncRevision)); }catch(_){}
+    try{ localStorage.setItem(mobileStateCacheRevisionKey(), String(state.syncRevision)); }catch(_){}
     cacheMobileState();
     render();
     if(showToast) toast('Datos actualizados.');
