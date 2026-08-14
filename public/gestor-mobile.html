@@ -116,6 +116,7 @@ button{border:0;cursor:pointer}
 .settings-card{padding:14px;border:1px solid var(--line);border-radius:20px;background:#0d1726;display:grid;gap:12px;contain:layout paint}
 .setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}.setting-toggle strong{display:block}.setting-toggle span{display:block;margin-top:3px;color:var(--muted);font-size:12px;line-height:1.35}.switch{position:relative;width:52px;height:30px;flex:0 0 auto}.switch input{position:absolute;opacity:0;inset:0}.switch i{position:absolute;inset:0;border-radius:999px;background:rgba(148,163,184,.22);border:1px solid rgba(255,255,255,.1);transition:.18s}.switch i:before{content:"";position:absolute;width:22px;height:22px;left:4px;top:3px;border-radius:50%;background:#dbe7ff;transition:.18s}.switch input:checked + i{background:linear-gradient(135deg,var(--brand),var(--brand2));border-color:transparent}.switch input:checked + i:before{transform:translateX(21px);background:#fff}
 .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.finance-mini{min-height:96px;padding:14px;border-radius:22px;border:1px solid var(--line);background:#101b2f;display:grid;align-content:center;gap:4px;contain:layout paint}.finance-mini b{font-size:22px}.finance-mini span{font-size:12px;color:var(--muted);font-weight:850}.finance-mini.good{border-color:rgba(34,216,154,.26)}.finance-mini.bad{border-color:rgba(255,93,125,.26)}.finance-mini.warn{border-color:rgba(251,191,36,.25)}.finance-row{padding:13px;border-radius:19px;border:1px solid rgba(255,255,255,.08);background:#0d1726;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;isolation:isolate;contain:layout paint;overflow:hidden}.finance-dot{width:36px;height:36px;border-radius:14px;display:grid;place-items:center;font-weight:950}.finance-dot.income{background:rgba(34,216,154,.14);color:#22d89a}.finance-dot.expense{background:rgba(255,93,125,.14);color:#ff6f8f}.finance-row strong{display:block;font-size:14px}.finance-row small{display:block;color:var(--muted);font-weight:750;margin-top:3px}.finance-amount{font-weight:950}.finance-amount.income{color:#22d89a}.finance-amount.expense{color:#ff6f8f}
+.finance-row{grid-template-columns:auto minmax(0,1fr) auto auto}.finance-amount{white-space:nowrap}.finance-delete{width:38px;height:38px;border-radius:13px;border:1px solid rgba(255,93,125,.28);background:rgba(255,93,125,.1);color:#ffb8c6;display:grid;place-items:center;flex:0 0 auto}.finance-delete:disabled{opacity:.55}
 .security-box{padding:14px;border:1px solid rgba(45,212,191,.22);border-radius:20px;background:linear-gradient(135deg,rgba(45,212,191,.10),rgba(118,92,255,.07));display:grid;gap:12px}
 .security-box h3{margin:0;font-size:16px}.security-box p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
 .due-copy-box{padding:13px;border:1px solid rgba(138,161,255,.18);border-radius:20px;background:rgba(255,255,255,.045);display:grid;gap:10px;margin-bottom:12px}
@@ -1195,6 +1196,7 @@ async function deleteFinanceMovement(movementId){
   if(!state.uid || !movementId) return;
   await deleteDoc(financeRef(movementId));
   state.financeMovements = state.financeMovements.filter(m => m.id !== movementId);
+  await touchMobileDataRevision();
   cacheMobileState();
 }
 function clientFinanceLabel(client, prefix){
@@ -1303,7 +1305,8 @@ function buildAccountRenewalExpense(account, amountOverride){
   const amount=moneyNumber(amountOverride);
   if(!amount) return null;
   return {
-    id:financeMovementId('account_renewal', `${account.id}_${Date.now()}`),
+    // Una misma cuenta renovada hasta la misma fecha representa un solo gasto.
+    id:financeMovementId('account_renewal', `${account.id}_${account.dueDate || 'sin_fecha'}`),
     type:'expense', source:'account_renewal', amount,
     description:`Renovacion cuenta madre - ${accountEmailLabel(account) || platformShort(account.platform)}`,
     platform:account.platform,
@@ -1465,11 +1468,25 @@ function renderFinance(){
       <div class="finance-dot ${m.type}">${m.type === 'income' ? '+' : '-'}</div>
       <div><strong>${esc(m.description)}</strong><small>${esc(clean(m.platform) || (m.source === 'manual' ? 'Sin plataforma' : 'Streaming'))}${accountEmail ? ` - ${esc(accountEmail)}` : ''} - ${new Date(m.occurredAt).toLocaleDateString('es-PE')}</small></div>
       <div class="finance-amount ${m.type}">${m.type === 'income' ? '+' : '-'}${formatMoney(m.amount)}</div>
+      <button class="finance-delete" type="button" data-delete-finance="${esc(m.id)}" title="Eliminar movimiento" aria-label="Eliminar movimiento">${icon('trash')}</button>
     </div>`;
     }).join('') || empty('Aun no hay movimientos financieros.')}</div>
   </section>`;
   $('#financeRange').onchange = e => { state.financeRange = e.target.value; renderFinance(); };
   $('#addFinanceExpense').onclick = openFinanceExpenseSheet;
+  document.querySelectorAll('[data-delete-finance]').forEach(button => button.onclick = async () => {
+    const movement = state.financeMovements.find(item => item.id === button.dataset.deleteFinance);
+    if(!movement || !confirm(`Eliminar ${movement.type === 'expense' ? 'este gasto' : 'este ingreso'}?`)) return;
+    button.disabled = true;
+    try{
+      await deleteFinanceMovement(movement.id);
+      toast('Movimiento eliminado.');
+      renderFinance();
+    }catch(err){
+      button.disabled = false;
+      showMobileSupportError(err, 'eliminar-movimiento-financiero');
+    }
+  });
 }
 function financeMovementAccountEmail(m){
   let account = null;
@@ -2675,8 +2692,13 @@ function renewAccount(account){
   $('#renewAccountOneYear')?.addEventListener('click',()=>apply(oneYear));
   $('#renewAccountCustomForm')?.addEventListener('submit',event=>{ event.preventDefault(); apply(clean(new FormData(event.currentTarget).get('dueDate'))); });
 }
+const accountRenewalsInFlight=new Set();
 async function applyAccountRenewal(account,nextDate,expenseAmount=0){
   if(!account || !nextDate) return toast('Selecciona una fecha valida.','bad');
+  const renewalKey=`${account.id}:${nextDate}`;
+  if(accountRenewalsInFlight.has(renewalKey)) return;
+  accountRenewalsInFlight.add(renewalKey);
+  document.querySelectorAll('#renewAccountOneMonth,#renewAccountThreeMonths,#renewAccountOneYear,#renewAccountCustomForm button').forEach(button=>button.disabled=true);
   try{
     const updated={...account,dueDate:nextDate,updatedAt:new Date().toISOString()};
     const expense=buildAccountRenewalExpense(updated,expenseAmount);
@@ -2694,6 +2716,7 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
     closeSheet();
     render();
   }catch(err){ showMobileSupportError(err, 'renovar-cuenta'); }
+  finally{ accountRenewalsInFlight.delete(renewalKey); }
 }
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0){
   if(!c || !nextDate) return;
