@@ -495,7 +495,45 @@ async function touchGestorDataRevision(uid) {
   }
 }
 
-// Carga solo al abrir o al recargar la pagina para reducir lecturas de Firestore.
+// Una revisión ligera mantiene la PC actualizada sin listeners permanentes.
+const GESTOR_AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const GESTOR_AUTO_SYNC_MIN_GAP_MS = 60 * 1000;
+let gestorAutoSyncTimer = null;
+let gestorAutoSyncInFlight = false;
+let gestorLastAutoSyncCheck = 0;
+let gestorAutoSyncEventsBound = false;
+
+async function syncGestorIfChanged(uid) {
+  if (!uid || gestorAutoSyncInFlight || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+  if (Date.now() - gestorLastAutoSyncCheck < GESTOR_AUTO_SYNC_MIN_GAP_MS) return;
+  gestorAutoSyncInFlight = true;
+  gestorLastAutoSyncCheck = Date.now();
+  try {
+    const markerSnap = await getDocFromServer(settingsRef(uid));
+    const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
+    if (remoteRevision !== String(currentGestorRevision() || '')) {
+      await loadFromSubcollections(uid, true);
+    }
+  } catch (err) {
+    console.warn('No se pudo comprobar la sincronización automática:', err);
+  } finally {
+    gestorAutoSyncInFlight = false;
+  }
+}
+
+function startGestorAutoSync(uid) {
+  if (gestorAutoSyncTimer) clearInterval(gestorAutoSyncTimer);
+  gestorAutoSyncTimer = setInterval(() => syncGestorIfChanged(uid), GESTOR_AUTO_SYNC_INTERVAL_MS);
+  if (!gestorAutoSyncEventsBound) {
+    gestorAutoSyncEventsBound = true;
+    window.addEventListener('focus', () => syncGestorIfChanged(auth.currentUser?.uid || ''), { passive:true });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') syncGestorIfChanged(auth.currentUser?.uid || '');
+    });
+  }
+}
+
+// Carga inicial, sincronización manual y revisión ligera en segundo plano.
 
 window.__cacheFinanceMovementsLocally = function(financeMovements) {
   const user = auth.currentUser;
@@ -692,9 +730,9 @@ onAuthStateChanged(auth, async user => {
   // Migrar si es necesario
   await migrateIfNeeded(user.uid);
 
-  // Cargar datos una sola vez al iniciar.
-  // Se quitaron las escuchas en tiempo real para reducir lecturas de Firestore.
+  // Carga inicial y comprobación ligera periódica, sin listeners en tiempo real.
   await loadFromSubcollections(user.uid);
+  startGestorAutoSync(user.uid);
 });
 
 // â”€â”€ Sanitizadores Firestore â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
