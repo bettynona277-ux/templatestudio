@@ -441,6 +441,9 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
   const cacheTimeKey = cacheKey + '_synced_at';
   const cacheRevisionKey = cacheKey + '_revision';
   const cacheTtlMs = 30 * 60 * 1000;
+  if (forceNetwork) {
+    try { localStorage.removeItem(financeFullCacheKey(uid)); } catch (_) {}
+  }
   try {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
@@ -475,12 +478,12 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
   const clients   = cliSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const financeMovements = finSnap;
   const payload = { accounts, clients, financeMovements, financeMovementsFullLoaded: false, settings };
-  window.__loadFromFirestore(payload);
   try {
     localStorage.setItem(cacheKey, JSON.stringify(payload));
     localStorage.setItem(cacheTimeKey, String(Date.now()));
     localStorage.setItem(cacheRevisionKey, String(settings.gestorDataRevision ?? 0));
   } catch (e) {}
+  window.__loadFromFirestore(payload);
 }
 
 async function touchGestorDataRevision(uid) {
@@ -7397,7 +7400,6 @@ function renderFinance(){
     }
     return;
   }
-  if(!state.financeMovementsFullLoaded && !state.financeMovementsFullLoadError) ensureFullFinanceMovements();
   const allMovements=(state.financeMovements||[]).map(normalizeFinanceMovement).filter(Boolean);
   renderFinanceInsights(allMovements);
   const list=allMovements.filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
