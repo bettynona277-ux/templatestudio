@@ -495,25 +495,16 @@ async function touchGestorDataRevision(uid) {
   }
 }
 
-// Una revisión ligera mantiene la PC actualizada sin listeners permanentes.
-const GESTOR_AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
-const GESTOR_AUTO_SYNC_MIN_GAP_MS = 60 * 1000;
-let gestorAutoSyncTimer = null;
+// Un único listener de revisión mantiene la PC al día sin escuchar colecciones.
+let gestorAutoSyncUnsub = null;
 let gestorAutoSyncInFlight = false;
-let gestorLastAutoSyncCheck = 0;
-let gestorAutoSyncEventsBound = false;
 
-async function syncGestorIfChanged(uid) {
-  if (!uid || gestorAutoSyncInFlight || document.visibilityState !== 'visible' || navigator.onLine === false) return;
-  if (Date.now() - gestorLastAutoSyncCheck < GESTOR_AUTO_SYNC_MIN_GAP_MS) return;
+async function syncGestorIfChanged(uid, remoteRevision) {
+  if (!uid || gestorAutoSyncInFlight) return;
+  if (String(remoteRevision ?? 0) === String(currentGestorRevision() || '')) return;
   gestorAutoSyncInFlight = true;
-  gestorLastAutoSyncCheck = Date.now();
   try {
-    const markerSnap = await getDocFromServer(settingsRef(uid));
-    const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
-    if (remoteRevision !== String(currentGestorRevision() || '')) {
-      await loadFromSubcollections(uid, true);
-    }
+    await loadFromSubcollections(uid, true);
   } catch (err) {
     console.warn('No se pudo comprobar la sincronización automática:', err);
   } finally {
@@ -522,18 +513,13 @@ async function syncGestorIfChanged(uid) {
 }
 
 function startGestorAutoSync(uid) {
-  if (gestorAutoSyncTimer) clearInterval(gestorAutoSyncTimer);
-  gestorAutoSyncTimer = setInterval(() => syncGestorIfChanged(uid), GESTOR_AUTO_SYNC_INTERVAL_MS);
-  if (!gestorAutoSyncEventsBound) {
-    gestorAutoSyncEventsBound = true;
-    window.addEventListener('focus', () => syncGestorIfChanged(auth.currentUser?.uid || ''), { passive:true });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') syncGestorIfChanged(auth.currentUser?.uid || '');
-    });
-  }
+  if (gestorAutoSyncUnsub) gestorAutoSyncUnsub();
+  gestorAutoSyncUnsub = onSnapshot(settingsRef(uid), snap => {
+    syncGestorIfChanged(uid, snap.data()?.gestorDataRevision ?? 0);
+  }, err => console.warn('No se pudo escuchar la sincronización del gestor:', err));
 }
 
-// Carga inicial, sincronización manual y revisión ligera en segundo plano.
+// Carga inicial, sincronización manual y revisión remota mínima.
 
 window.__cacheFinanceMovementsLocally = function(financeMovements) {
   const user = auth.currentUser;
@@ -1055,6 +1041,7 @@ window.__persistFinanceMovementDoc = async function(docData) {
     const safeData = sanitizeFinanceMovementForFirestore(docData);
     notifySaveStatus('saving', 'Guardando movimiento...');
     await setDoc(doc(financeCol(user.uid), safeData.id), safeData);
+    await touchGestorDataRevision(user.uid);
     notifySaveStatus('success', safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
     return safeData;
   } catch (err) {
@@ -1093,6 +1080,7 @@ window.__persistDeleteFinanceMovementDoc = async function(docId) {
   try {
     notifySaveStatus('saving', 'Eliminando movimiento...');
     await deleteDoc(doc(financeCol(user.uid), docId));
+    await touchGestorDataRevision(user.uid);
     notifySaveStatus('success', 'Movimiento eliminado.');
     return true;
   } catch (err) {
