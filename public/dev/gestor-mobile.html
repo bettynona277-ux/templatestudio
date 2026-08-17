@@ -1187,6 +1187,7 @@ async function persistFinanceMovement(data){
   const movement = normalizeFinanceMovement(data);
   if(!state.uid || !movement.amount) return null;
   await setDoc(financeRef(movement.id), movement, { merge:true });
+  await touchMobileDataRevision();
   state.financeMovements = [movement, ...state.financeMovements.filter(m => m.id !== movement.id)];
   cacheMobileState();
   return movement;
@@ -1603,7 +1604,7 @@ function clientCard(c){
     <div class="card-actions">
       ${dueActions
         ? `<button class="mini" data-renew="${esc(c.id)}">${icon('calendar')}<span>Renovar</span></button><button class="mini" data-no-renew="${esc(c.id)}">${icon('x')}<span>No renovo</span></button><button class="mini" data-wa-renew="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`
-        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button><button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button><button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
+        : `<button class="mini" data-new-sale-client="${esc(c.id)}">${icon('user-plus')}<span>Nueva venta</span></button>${c.comboId?`<button class="mini" data-change-combo="${esc(c.id)}">${icon('stack')}<span>Cambiar combo</span></button>`:`<button class="mini" data-edit-client="${esc(c.id)}">${icon('edit')}<span>Editar</span></button>`}<button class="mini" data-wa="${esc(c.id)}">${icon('message')}<span>WhatsApp</span></button>`}
     </div>
   </article>`;
 }
@@ -1655,6 +1656,7 @@ function bindSearch(){
 }
 function bindCards(){
   document.querySelectorAll('[data-edit-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.editClient)));
+  document.querySelectorAll('[data-change-combo]').forEach(b => b.onclick = () => openChangeComboSheet(state.clients.find(c => c.id === b.dataset.changeCombo)));
   document.querySelectorAll('[data-new-sale-client]').forEach(b => b.onclick = () => openAdditionalSaleForClient(state.clients.find(c => c.id === b.dataset.newSaleClient)));
   document.querySelectorAll('[data-edit-account]').forEach(b => b.onclick = () => openAccountSheet(state.accounts.find(a => a.id === b.dataset.editAccount)));
   document.querySelectorAll('[data-renew-account]').forEach(b => b.onclick = () => renewAccount(state.accounts.find(a => a.id === b.dataset.renewAccount)));
@@ -2811,6 +2813,46 @@ function openProviderRenewWhatsApp(account){
 }
 function activeComboClients(comboId){
   return state.clients.filter(c => c.comboId === comboId && !isNoRenewState(c.state)).sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
+}
+function openChangeComboSheet(client){
+  const current=activeComboClients(client?.comboId);
+  const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+  if(!current.length || !templates.length) return toast('No hay combos configurados.','bad');
+  const currentPlatforms=current.map(c=>clean(c.platform));
+  openSheet(`<div class="sheet-head"><h3>Cambiar combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><div class="grid"><div class="settings-card"><strong>${esc(clientName(client))}</strong><span class="beta-note">Se conservan los accesos de las apps que coinciden.</span></div><div class="field"><label>Nuevo combo</label><select id="changeComboTemplate">${templates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} - ${t.platforms.length} apps</option>`).join('')}</select></div><div class="settings-card" id="changeComboPreview"></div><button class="btn primary" id="confirmChangeCombo">${icon('save')}<span>Aplicar cambio</span></button></div>`);
+  const preview=()=>{
+    const tpl=templates.find(t=>t.id===$('#changeComboTemplate').value) || templates[0];
+    const next=tpl.platforms.map(clean);
+    const keep=next.filter(p=>currentPlatforms.some(old=>sameSalePlatform(old,p)));
+    const add=next.filter(p=>!currentPlatforms.some(old=>sameSalePlatform(old,p)));
+    const remove=currentPlatforms.filter(p=>!next.some(target=>sameSalePlatform(target,p)));
+    $('#changeComboPreview').innerHTML=`<strong>${esc(tpl.name)}</strong><span class="beta-note">Se mantienen: ${esc(keep.join(', ')||'Ninguna')}<br>Se agregan: ${esc(add.join(', ')||'Ninguna')}<br>Se liberan: ${esc(remove.join(', ')||'Ninguna')}</span>`;
+  };
+  preview();
+  $('#changeComboTemplate').onchange=preview;
+  $('#confirmChangeCombo').onclick=async()=>{
+    const tpl=templates.find(t=>t.id===$('#changeComboTemplate').value) || templates[0];
+    const used=new Set(), planned={};
+    const rows=[];
+    for(const platform of tpl.platforms){
+      const existing=current.find(c=>!used.has(c.id) && sameSalePlatform(c.platform,platform));
+      if(existing){ used.add(existing.id); rows.push({...existing,platform,comboName:tpl.name,comboSize:tpl.platforms.length,updatedAt:new Date().toISOString()}); continue; }
+      const account=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountFreeSlots(a.id)-(planned[a.id]||0)>0);
+      if(!account) return toast(`No hay perfil libre para ${platform}.`,'bad');
+      planned[account.id]=(planned[account.id]||0)+1;
+      const profile=nextProfileSuggestionMobile(account.id);
+      rows.push({...current[0],id:id(),accountId:account.id,platform:account.platform||platform,profile,pin:'',activationByCode:false,comboName:tpl.name,comboSize:tpl.platforms.length,updatedAt:new Date().toISOString()});
+    }
+    const removed=current.filter(c=>!used.has(c.id));
+    const comboId=id();
+    rows.forEach(row=>{row.comboId=comboId;row.customerId=current[0].customerId||current[0].id;});
+    const batch=writeBatch(db);
+    rows.forEach(row=>batch.set(clientRef(row.id),row,{merge:true}));
+    removed.forEach(row=>batch.delete(clientRef(row.id)));
+    batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+    const btn=$('#confirmChangeCombo');btn.disabled=true;
+    try{await batch.commit();state.clients=[...rows,...state.clients.filter(c=>!current.some(old=>old.id===c.id))];cacheMobileState();toast('Combo actualizado.');closeSheet();render();}catch(err){btn.disabled=false;showMobileSupportError(err,'cambiar-combo');}
+  };
 }
 function comboText(clients, mode='delivery'){
   const first = clients[0] || {};
