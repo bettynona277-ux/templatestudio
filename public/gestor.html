@@ -35,7 +35,7 @@ import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersis
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, getDocFromServer, setDoc, deleteDoc,
-  collection, getDocs, writeBatch, onSnapshot, query, where, orderBy, limit, increment
+  collection, getDocs, getDocsFromServer, writeBatch, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -160,18 +160,19 @@ function writeFinanceFullCache(uid, movements) {
   } catch (_) {}
 }
 
-async function getFinanceMovements(uid, scope = 'current') {
+async function getFinanceMovements(uid, scope = 'current', forceNetwork = false) {
   const col = financeCol(uid);
+  const readDocs = forceNetwork ? getDocsFromServer : getDocs;
   if (scope === 'all') {
-    const cached = readFinanceFullCache(uid);
+    const cached = forceNetwork ? null : readFinanceFullCache(uid);
     if (cached) return cached;
-    const snap = await getDocs(col);
+    const snap = await readDocs(col);
     const movements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     writeFinanceFullCache(uid, movements);
     return movements;
   }
   try {
-    const snap = await getDocs(query(
+    const snap = await readDocs(query(
       col,
       where('occurredAt', '>=', financeMonthStartIso()),
       orderBy('occurredAt', 'desc')
@@ -180,10 +181,10 @@ async function getFinanceMovements(uid, scope = 'current') {
   } catch (err) {
     console.warn('No se pudo cargar finanzas por periodo; usando carga limitada:', err);
     try {
-      const snap = await getDocs(query(col, orderBy('occurredAt', 'desc'), limit(FINANCE_RECENT_LIMIT)));
+      const snap = await readDocs(query(col, orderBy('occurredAt', 'desc'), limit(FINANCE_RECENT_LIMIT)));
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (_) {
-      const snap = await getDocs(query(col, limit(FINANCE_RECENT_LIMIT)));
+      const snap = await readDocs(query(col, limit(FINANCE_RECENT_LIMIT)));
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     }
   }
@@ -435,7 +436,7 @@ async function migrateIfNeeded(uid) {
 }
 
 // â”€â”€ Cargar datos desde subcolecciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-async function loadFromSubcollections(uid) {
+async function loadFromSubcollections(uid, forceNetwork = false) {
   const cacheKey = gestorStateCacheKey(uid);
   const cacheTimeKey = cacheKey + '_synced_at';
   const cacheRevisionKey = cacheKey + '_revision';
@@ -444,7 +445,7 @@ async function loadFromSubcollections(uid) {
     const cachedAt = Number(localStorage.getItem(cacheTimeKey) || 0);
     const cached = localStorage.getItem(cacheKey);
     const cachedRevision = localStorage.getItem(cacheRevisionKey);
-    const forceFresh = new URLSearchParams(location.search).has('fresh');
+    const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
     if (!forceFresh && cached && cachedAt && cachedRevision !== null && Date.now() - cachedAt < cacheTtlMs && window.__loadFromFirestore) {
       try {
         const markerSnap = await getDocFromServer(settingsRef(uid));
@@ -460,11 +461,13 @@ async function loadFromSubcollections(uid) {
       }
     }
   } catch (e) { console.warn('Cache local inválida, recargando desde Firestore:', e); }
+  const readDoc = forceNetwork ? getDocFromServer : getDoc;
+  const readDocs = forceNetwork ? getDocsFromServer : getDocs;
   const [setSnap, accSnap, cliSnap, finSnap] = await Promise.all([
-    getDoc(settingsRef(uid)),
-    getDocs(accountsCol(uid)),
-    getDocs(clientsCol(uid)),
-    getFinanceMovements(uid, 'current')
+    readDoc(settingsRef(uid)),
+    readDocs(accountsCol(uid)),
+    readDocs(clientsCol(uid)),
+    getFinanceMovements(uid, 'current', forceNetwork)
   ]);
   const settings = setSnap.exists() ? setSnap.data()
     : { paymentMethods: [], whatsappPrefix: '51', freeSort: 'platform', financeMode: false };
@@ -1062,7 +1065,7 @@ window.__persistDeleteFinanceMovementDoc = async function(docId) {
 };
 window.__forceSyncFromFirestore = async () => {
   const user = auth.currentUser;
-  if(user) await loadFromSubcollections(user.uid);
+  if(user) await loadFromSubcollections(user.uid, true);
 };
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -8911,14 +8914,22 @@ $('#syncBtn').onclick=async()=>{
   const orig=btn.innerHTML;
   btn.innerHTML='<i data-lucide="refresh-cw"></i><span>Sincronizando...</span>';
   if(window.lucide) lucide.createIcons();
+  let resultHtml='<i data-lucide="check"></i><span>Actualizado</span>';
   try{
-    localStorage.removeItem('gestion_streaming_v5_synced_at');
-    if(window.__forceSyncFromFirestore) await window.__forceSyncFromFirestore();
-  }catch(e){ console.warn('Sync error:',e); }
+    if(!window.__forceSyncFromFirestore) throw new Error('La sincronización no está disponible.');
+    await window.__forceSyncFromFirestore();
+  }catch(e){
+    console.warn('Sync error:',e);
+    resultHtml='<i data-lucide="wifi-off"></i><span>Error al sincronizar</span>';
+  }
   finally{
-    btn.innerHTML=orig;
+    btn.innerHTML=resultHtml;
     if(window.lucide) lucide.createIcons();
-    btn.disabled=false;
+    setTimeout(()=>{
+      btn.innerHTML=orig;
+      if(window.lucide) lucide.createIcons();
+      btn.disabled=false;
+    }, 1200);
   }
 };
 $('#exportBtn').onclick=()=>downloadGestorExcel();
