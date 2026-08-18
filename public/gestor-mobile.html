@@ -968,9 +968,10 @@ function paymentMethodsText(value=state.settings.paymentMethods){
 function codeActivationMessageText(){
   return clean(state.settings?.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
-function codeActivationAccessLines(client, includeInstruction=true){
+function codeActivationAccessLines(client, account, includeInstruction=true){
   return [
     includeInstruction ? codeActivationMessageText() : '',
+    clean(account?.email) ? `Correo: ${clean(account.email)}` : '',
     clean(client?.profile) ? `Perfil: ${clean(client.profile)}` : '',
     clean(client?.pin) ? `PIN: ${clean(client.pin)}` : ''
   ].filter(Boolean);
@@ -2837,7 +2838,7 @@ function comboText(clients, mode='delivery'){
     const acc = state.accounts.find(a => a.id === c.accountId);
     lines.push(`${i+1}. ${platformShort(c.platform || acc?.platform)}`);
     if(isActivationByCode(c.activationByCode)){
-      lines.push(...codeActivationAccessLines(c, mode !== 'renewal'));
+      lines.push(...codeActivationAccessLines(c, acc, mode !== 'renewal'));
     }else{
       lines.push(`Correo: ${clean(acc?.email) || '-'}`);
       lines.push(`Contrasena: ${clean(acc?.password) || '-'}`);
@@ -2897,7 +2898,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
     const payText = renewalPaymentLines();
     const accessLines = isActivationByCode(c.activationByCode) ? [
       '',
-      ...codeActivationAccessLines(c, false)
+      ...codeActivationAccessLines(c, acc, false)
     ] : [
       '',
       `\ud83c\udfac Perfil: ${clean(c.profile) || '-'}`,
@@ -2924,7 +2925,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
     return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
   }
   if(mode === 'renewed'){
-    const accountEmail = isActivationByCode(c.activationByCode) ? '' : clean(acc?.email);
+    const accountEmail = clean(acc?.email);
     text = [
       `Hola ${clientName(c)} \u2728`,
       '',
@@ -2967,7 +2968,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
       `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
       final
     ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
-    if(isActivationByCode(c.activationByCode)) text = codeActivationAccessLines(c).join('\n');
+    if(isActivationByCode(c.activationByCode)) text = codeActivationAccessLines(c, acc).join('\n');
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
