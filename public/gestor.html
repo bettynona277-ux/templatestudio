@@ -7450,7 +7450,7 @@ function renewalPaymentLines(){
     .join('\n');
 }
 function credentialsText(client, account){
-  if(isActivationByCode(client?.activationByCode)) return codeActivationMessageText();
+  if(isActivationByCode(client?.activationByCode)) return codeActivationAccessLines(client).join('\n');
   const platform=friendlyPlatform(client.platform||account?.platform);
   const finalMessage=String(state.settings?.finalMessage || '').trim();
   const isFullAccount=client.fullAccountSale===true;
@@ -7468,6 +7468,13 @@ function credentialsText(client, account){
 function codeActivationMessageText(){
   return String(state.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim() || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
+function codeActivationAccessLines(client, includeInstruction=true){
+  return [
+    includeInstruction ? codeActivationMessageText() : '',
+    client?.profile ? `Perfil: ${client.profile}` : '',
+    client?.pin ? `PIN: ${client.pin}` : ''
+  ].filter(Boolean);
+}
 function whatsappText(client){
   const account=state.accounts.find(a=>a.id===client.accountId);
   const platform=friendlyPlatform(client.platform||account?.platform);
@@ -7481,7 +7488,10 @@ function whatsappText(client){
         ? `venci\u00f3 el ${fmtDateLong(client.dueDate) || client.dueDate || 'd\u00eda indicado'}`
         : 'est\u00e1 pr\u00f3xima a vencer';
   if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
-    const accessLines=isActivationByCode(client?.activationByCode) ? [] : [
+    const accessLines=isActivationByCode(client?.activationByCode) ? [
+      '',
+      ...codeActivationAccessLines(client,false)
+    ] : [
       '',
       `\ud83c\udfac Perfil: ${client.profile || '-'}`,
       `\ud83d\udce7 Correo: ${account?.email || '-'}`,
@@ -7508,7 +7518,7 @@ function accountClientsForNotify(accountId){
   return state.clients.filter(c=>c.accountId===accountId && effectiveClientState(c)!=='No renovó');
 }
 function accountClientUpdateText(client, account){
-  if(isActivationByCode(client?.activationByCode)) return codeActivationMessageText();
+  if(isActivationByCode(client?.activationByCode)) return codeActivationAccessLines(client).join('\n');
   const platform=friendlyPlatform(client.platform||account?.platform);
   return [
     `Hola ${client.name || ''}, tuvimos que actualizar los datos de tu ${platform}. Te paso los nuevos accesos:`,
@@ -7732,12 +7742,10 @@ function setClientSubmitMode(isNewSale){
 }
 function syncClientAccessMode(){
   const fullSale=$('#cFullAccountSale')?.checked===true;
-  const activationByCode=$('#cActivationByCode')?.checked===true;
-  const on=fullSale || activationByCode;
   const profile=$('#cProfile');
   const pin=$('#cPin');
-  if(profile){ profile.disabled=on; profile.placeholder=activationByCode ? 'Activacion por codigo' : (fullSale ? 'Cuenta completa' : '1'); }
-  if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
+  if(profile){ profile.disabled=fullSale; profile.placeholder=fullSale ? 'Cuenta completa' : 'Perfil del cliente'; }
+  if(pin){ pin.disabled=fullSale; pin.placeholder=fullSale ? 'No aplica' : 'PIN (opcional)'; }
 }
 function clientCustomerId(client){ return String(client?.customerId || client?.id || '').trim(); }
 function clientLookupText(value){ return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase(); }
@@ -8207,7 +8215,7 @@ function comboText(clients, context='delivery'){
     const account=state.accounts.find(a=>a.id===client.accountId);
     lines.push(`${index+1}. ${friendlyPlatform(client.platform||account?.platform)}`);
     if(isActivationByCode(client.activationByCode)){
-      if(context!=='renewal') lines.push(codeActivationMessageText());
+      lines.push(...codeActivationAccessLines(client,context!=='renewal'));
     }else{
       lines.push(`Correo: ${account?.email || '-'}`);
       lines.push(`Contrasena: ${account?.password || '-'}`);
@@ -8292,8 +8300,8 @@ async function saveComboSale(e){
       whatsapp,
       accountId,
       platform:account?.platform || row.dataset.platform || '',
-      profile:activationByCode ? '' : (row.querySelector('.combo-profile')?.value.trim() || ''),
-      pin:activationByCode ? '' : (row.querySelector('.combo-pin')?.value.trim() || ''),
+      profile:row.querySelector('.combo-profile')?.value.trim() || '',
+      pin:row.querySelector('.combo-pin')?.value.trim() || '',
       activationByCode,
       dueDate:split ? (row.querySelector('.combo-due')?.value.trim() || dueDate) : dueDate,
       state:'Activo',
@@ -8533,8 +8541,8 @@ $('#comboRows')?.addEventListener('change',e=>{
   const on=e.target.checked===true;
   const profile=row?.querySelector('.combo-profile');
   const pin=row?.querySelector('.combo-pin');
-  if(profile){ profile.disabled=on; profile.placeholder=on ? 'Activacion por codigo' : '1'; }
-  if(pin){ pin.disabled=on; pin.placeholder=on ? 'No aplica' : '1234'; }
+  if(profile){ profile.disabled=false; profile.placeholder=on ? 'Perfil para indicar al cliente' : '1'; }
+  if(pin){ pin.disabled=false; pin.placeholder=on ? 'PIN para indicar al cliente (opcional)' : '1234'; }
 });
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
 $('#comboSplitDates').onchange=()=>renderComboRows();
@@ -8669,7 +8677,7 @@ $('#saveClientBtn').onclick=async ()=>{
   const financeOn=isFinanceModeEnabled();
   const fullAccountSale=$('#cFullAccountSale')?.checked===true;
   const activationByCode=$('#cActivationByCode')?.checked===true;
-  const hidesAccessFields=fullAccountSale || activationByCode;
+  const hidesAccessFields=fullAccountSale;
   const now=new Date().toISOString();
   const saleId=editingClientId||uid();
   const data={
