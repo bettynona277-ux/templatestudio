@@ -968,6 +968,13 @@ function paymentMethodsText(value=state.settings.paymentMethods){
 function codeActivationMessageText(){
   return clean(state.settings?.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
+function codeActivationAccessLines(client, includeInstruction=true){
+  return [
+    includeInstruction ? codeActivationMessageText() : '',
+    clean(client?.profile) ? `Perfil: ${clean(client.profile)}` : '',
+    clean(client?.pin) ? `PIN: ${clean(client.pin)}` : ''
+  ].filter(Boolean);
+}
 function renewalPaymentLines(value=state.settings.paymentMethods){
   const methods = normalizePaymentMethods(value);
   return methods.map(p=>{
@@ -1948,11 +1955,9 @@ function openClientSheet(item={}){
   };
   const syncClientAccessMode = () => {
     const fullSale = !!form.elements.fullAccountSale?.checked;
-    const activationByCode = !!form.elements.activationByCode?.checked;
-    const on = fullSale || activationByCode;
     refreshClientAccountOptions();
-    if(form.elements.profile){ form.elements.profile.disabled = on; form.elements.profile.placeholder = activationByCode ? 'Activacion por codigo' : (fullSale ? 'Cuenta completa' : ''); }
-    if(form.elements.pin){ form.elements.pin.disabled = on; form.elements.pin.placeholder = on ? 'No aplica' : ''; }
+    if(form.elements.profile){ form.elements.profile.disabled = fullSale; form.elements.profile.placeholder = fullSale ? 'Cuenta completa' : 'Perfil del cliente'; }
+    if(form.elements.pin){ form.elements.pin.disabled = fullSale; form.elements.pin.placeholder = fullSale ? 'No aplica' : 'PIN (opcional)'; }
   };
   form.elements.fullAccountSale?.addEventListener('change', syncClientAccessMode);
   form.elements.activationByCode?.addEventListener('change', syncClientAccessMode);
@@ -1974,7 +1979,7 @@ function openClientSheet(item={}){
       : { salePrice:c.salePrice || 0, renewalPrice:c.renewalPrice || 0 };
     const fullAccountSale = fd.fullAccountSale === '1' || fd.fullAccountSale === 'on';
     const activationByCode = fd.activationByCode === '1' || fd.activationByCode === 'on';
-    const hidesAccessFields = fullAccountSale || activationByCode;
+    const hidesAccessFields = fullAccountSale;
     if(!fd.platform){
       toast('Selecciona una plataforma para continuar.','bad');
       submitBtn.disabled = false;
@@ -2120,8 +2125,8 @@ function openComboSheet(){
     const on = !!e.target.checked;
     const profile = row?.querySelector('.combo-profile');
     const pin = row?.querySelector('.combo-pin');
-    if(profile){ profile.disabled = on; profile.placeholder = on ? 'Activacion por codigo' : '1'; }
-    if(pin){ pin.disabled = on; pin.placeholder = on ? 'No aplica' : '1234'; }
+    if(profile){ profile.disabled = false; profile.placeholder = on ? 'Perfil para indicar al cliente' : '1'; }
+    if(pin){ pin.disabled = false; pin.placeholder = on ? 'PIN para indicar al cliente (opcional)' : '1234'; }
   });
   $('#comboForm').onsubmit = saveComboFromForm;
 }
@@ -2143,8 +2148,8 @@ async function saveComboFromForm(e){
     return {
       id:id(), customerId:comboId, name:fd.name, whatsapp:fd.whatsapp, accountId,
       platform: account?.platform || row.dataset.platform || '',
-      profile: activationByCode ? '' : (row.querySelector('.combo-profile')?.value || ''),
-      pin: activationByCode ? '' : (row.querySelector('.combo-pin')?.value || ''),
+      profile: row.querySelector('.combo-profile')?.value || '',
+      pin: row.querySelector('.combo-pin')?.value || '',
       activationByCode,
       dueDate: splitDates ? (row.querySelector('.combo-due')?.value || fd.dueDate) : fd.dueDate, state:'Activo', notes:fd.notes || '',
       salePrice:0, renewalPrice:0,
@@ -2832,7 +2837,7 @@ function comboText(clients, mode='delivery'){
     const acc = state.accounts.find(a => a.id === c.accountId);
     lines.push(`${i+1}. ${platformShort(c.platform || acc?.platform)}`);
     if(isActivationByCode(c.activationByCode)){
-      if(mode !== 'renewal') lines.push(codeActivationMessageText());
+      lines.push(...codeActivationAccessLines(c, mode !== 'renewal'));
     }else{
       lines.push(`Correo: ${clean(acc?.email) || '-'}`);
       lines.push(`Contrasena: ${clean(acc?.password) || '-'}`);
@@ -2890,7 +2895,10 @@ function whatsappPayloadForClient(c, mode='delivery'){
             ? `est\u00e1 por vencer el ${clean(c.dueDate) || 'd\u00eda indicado'}`
             : 'est\u00e1 pr\u00f3xima a vencer';
     const payText = renewalPaymentLines();
-    const accessLines = isActivationByCode(c.activationByCode) ? [] : [
+    const accessLines = isActivationByCode(c.activationByCode) ? [
+      '',
+      ...codeActivationAccessLines(c, false)
+    ] : [
       '',
       `\ud83c\udfac Perfil: ${clean(c.profile) || '-'}`,
       `\ud83d\udce7 Correo: ${clean(acc?.email) || '-'}`,
@@ -2916,7 +2924,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
     return { phone, text, encodedText, webUrl, normalUrl, businessUrl, chooserUrl, mode };
   }
   if(mode === 'renewed'){
-    const accountEmail = clean(acc?.email);
+    const accountEmail = isActivationByCode(c.activationByCode) ? '' : clean(acc?.email);
     text = [
       `Hola ${clientName(c)} \u2728`,
       '',
@@ -2959,7 +2967,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
       `\ud83d\udcc5 Vencimiento: ${fmtDateLong(c.dueDate) || '-'}`,
       final
     ].join('\n').replace(/\n{3,}/g,'\n\n').trim();
-    if(isActivationByCode(c.activationByCode)) text = codeActivationMessageText();
+    if(isActivationByCode(c.activationByCode)) text = codeActivationAccessLines(c).join('\n');
   }
   const encodedText = encodeURIComponent(text);
   const webUrl = `https://wa.me/${phone}?text=${encodedText}`;
