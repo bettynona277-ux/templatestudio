@@ -1285,7 +1285,7 @@ async function recordRenewalIncome(client, amountOverride){
     occurredAt:new Date().toISOString()
   });
 }
-async function recordPartialComboRenewalIncome(client, amountOverride){
+async function recordPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
   if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(amountOverride ?? client?.renewalPrice);
   if(!amount) return;
@@ -1293,7 +1293,7 @@ async function recordPartialComboRenewalIncome(client, amountOverride){
     id:financeMovementId('combo_partial_renewal', `${client.id}_${Date.now()}`),
     type:'income', source:'combo_partial_renewal', amount,
     description:`Renovacion parcial - ${platformShort(client.platform)} - ${clientName(client)}`,
-    platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:client.comboId,
+    platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:clean(originalComboId) || client.comboId,
     occurredAt:new Date().toISOString()
   });
 }
@@ -1670,7 +1670,7 @@ function clientCardArchived(c){
       <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
         <span class="pill bad">${esc(archivedClientStateLabel(c.state))}</span>${c.platform ? `<span class="pill brand">${esc(c.platform)}</span>` : ''}${c.whatsapp ? `<span class="pill">${esc(c.whatsapp)}</span>` : ''}
       </div></div>
-      <button class="mini" style="flex:0 0 auto;min-width:100px" ${canRejoin ? `data-rejoin-combo="${esc(c.id)}"` : `data-restore-client="${esc(c.id)}"`}>${icon('refresh')}<span>${canRejoin ? 'Reincorporar' : (isRetiredComboApp ? 'Crear venta' : 'Activar')}</span></button>
+      <button class="mini" style="flex:0 0 auto;min-width:100px" ${canRejoin ? `data-rejoin-combo="${esc(c.id)}"` : (isRetiredComboApp ? `data-create-sale-from-archived="${esc(c.id)}"` : `data-restore-client="${esc(c.id)}"`)}>${icon(isRetiredComboApp ? 'user-plus' : 'refresh')}<span>${canRejoin ? 'Reincorporar' : (isRetiredComboApp ? 'Crear venta' : 'Activar')}</span></button>
     </div>
   </article>`;
 }
@@ -1732,6 +1732,7 @@ function bindCards(){
   document.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => renewClient(state.clients.find(c => c.id === b.dataset.renew)));
   document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
   document.querySelectorAll('[data-restore-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.restoreClient)));
+  document.querySelectorAll('[data-create-sale-from-archived]').forEach(b => b.onclick = () => openAdditionalSaleForClient(state.clients.find(c => c.id === b.dataset.createSaleFromArchived)));
   document.querySelectorAll('[data-rejoin-combo]').forEach(b => b.onclick = () => openRejoinComboSheet(state.clients.find(c => c.id === b.dataset.rejoinCombo)));
   document.querySelectorAll('[data-retire-combo]').forEach(b => b.onclick = () => openRetireComboAppsSheet(state.clients.find(c => c.id === b.dataset.retireCombo)));
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
@@ -2731,9 +2732,16 @@ function renewClient(c){
   const selectedIds=()=>combo.length?Array.from(document.querySelectorAll('[data-renew-app]:checked')).map(input=>input.dataset.renewApp):[c.id];
   const updateScope=()=>{ const selected=combo.filter(item=>selectedIds().includes(item.id)); const removed=combo.filter(item=>!selectedIds().includes(item.id)); const help=$('#renewScopeHelp'); if(help) help.textContent=removed.length?`Se renovarán: ${selected.map(item=>platformShort(item.platform)).join(', ')}. Se retirarán: ${removed.map(item=>platformShort(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
   document.querySelectorAll('[data-renew-app]').forEach(input=>input.addEventListener('change',updateScope));
-  const apply=(date,message)=>{ const ids=selectedIds(); if(!ids.length) return toast('Selecciona al menos una app para renovar.','bad'); return applyClientRenewal(c,date,message,moneyNumber($('#renewPriceMobile')?.value),{selectedIds:ids}); };
-  $('#renewOneMonth')?.addEventListener('click', () => applyClientRenewal(c, oneMonth, 'Renovación guardada', moneyNumber($('#renewPriceMobile')?.value),{selectedIds:selectedIds(),durationMonths:1}));
-  $('#renewThreeMonths')?.addEventListener('click', () => applyClientRenewal(c, threeMonths, 'Renovación guardada', moneyNumber($('#renewPriceMobile')?.value),{selectedIds:selectedIds(),durationMonths:3}));
+  const confirmRenewal=(ids, date, durationMonths=0)=>{
+    const selected=(combo.length?combo:[c]).filter(item=>ids.includes(item.id));
+    if(!selected.length) return false;
+    const dates=selected.map(item=>`${platformShort(item.platform)}: ${durationMonths ? addMonthsISO(clean(item.dueDate)||todayISO(),durationMonths) : date}`);
+    const exactNote=durationMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
+    return confirm(`Se renovarán estas apps:\n${dates.join('\n')}${exactNote}`);
+  };
+  const apply=(date,message,durationMonths=0)=>{ const ids=selectedIds(); if(!ids.length) return toast('Selecciona al menos una app para renovar.','bad'); if(!confirmRenewal(ids,date,durationMonths)) return; return applyClientRenewal(c,date,message,moneyNumber($('#renewPriceMobile')?.value),{selectedIds:ids,durationMonths}); };
+  $('#renewOneMonth')?.addEventListener('click', () => apply(oneMonth, 'Renovación guardada', 1));
+  $('#renewThreeMonths')?.addEventListener('click', () => apply(threeMonths, 'Renovación guardada', 3));
   $('#renewCustomForm')?.addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -2795,12 +2803,12 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     let sendRenewedMessage = null;
     const pricePatch = c.comboId ? { comboRenewalPrice:renewalAmount || moneyNumber(c.comboRenewalPrice) } : { renewalPrice:renewalAmount || moneyNumber(c.renewalPrice) };
     if(c.comboId && Array.isArray(options.selectedIds) && options.selectedIds.length){
-      const combo=activeComboClients(c.comboId); const selected=combo.filter(item=>options.selectedIds.includes(item.id)); const removed=combo.filter(item=>!options.selectedIds.includes(item.id));
+      const originalComboId=c.comboId; const combo=activeComboClients(c.comboId); const selected=combo.filter(item=>options.selectedIds.includes(item.id)); const removed=combo.filter(item=>!options.selectedIds.includes(item.id));
       if(!selected.length) return toast('Selecciona al menos una app para renovar.','bad');
       const now=new Date().toISOString(); const nextSize=selected.length;
       const updated=[...selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
       await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
-      if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount); else await recordComboRenewalIncome(updated,renewalAmount);
+      if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId); else await recordComboRenewalIncome(updated,renewalAmount);
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
     }else if(c.comboId){
       const combo = activeComboClients(c.comboId);
