@@ -1647,7 +1647,7 @@ function clientCard(c){
         <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span>${dueAccountEmail ? `<span class="pill account-email">${esc(dueAccountEmail)}</span>` : ''}<span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${c.comboId ? `<span class="pill brand">${esc(c.comboName || 'Combo')} · ${esc(c.comboSize || '')} apps</span>` : ''}
       </div></div></div>
     ${actions ? `<div class="card-actions">${actions}</div>` : ''}
-    ${isComboPrimary && c.comboId ? `<button class="mini combo-manage" data-change-combo="${esc(c.id)}">${icon('stack')}<span>Gestionar combo · afecta ${esc(c.comboSize || '')} apps</span></button>` : ''}
+    ${isComboPrimary && c.comboId ? `<div class="card-actions"><button class="mini combo-manage" data-change-combo="${esc(c.id)}">${icon('stack')}<span>Gestionar combo</span></button><button class="mini" data-retire-combo="${esc(c.id)}">${icon('scissors')}<span>Retirar apps</span></button></div>` : ''}
     ${c.comboId && !isComboPrimary ? `<div class="combo-secondary-note">Esta app se gestiona desde la primera tarjeta del combo.</div>` : ''}
   </article>`;
 }
@@ -1721,6 +1721,7 @@ function bindCards(){
   document.querySelectorAll('[data-no-renew]').forEach(b => b.onclick = () => markNoRenew(state.clients.find(c => c.id === b.dataset.noRenew)));
   document.querySelectorAll('[data-restore-client]').forEach(b => b.onclick = () => openClientSheet(state.clients.find(c => c.id === b.dataset.restoreClient)));
   document.querySelectorAll('[data-rejoin-combo]').forEach(b => b.onclick = () => openRejoinComboSheet(state.clients.find(c => c.id === b.dataset.rejoinCombo)));
+  document.querySelectorAll('[data-retire-combo]').forEach(b => b.onclick = () => openRetireComboAppsSheet(state.clients.find(c => c.id === b.dataset.retireCombo)));
   document.querySelectorAll('[data-sell-account]').forEach(b => b.onclick = () => {
     const a = state.accounts.find(x => x.id === b.dataset.sellAccount);
     if(!a) return;
@@ -2891,6 +2892,23 @@ function openEditComboSheet(client){
     const updated=rows.map(row=>({...row,name:clean(data.name),whatsapp:clean(data.whatsapp),dueDate:updateDueDate?clean(data.dueDate):row.dueDate,notes:clean(data.notes),comboTotalPrice:isFinanceModeEnabled()?moneyNumber(data.comboTotalPrice):row.comboTotalPrice,comboRenewalPrice:isFinanceModeEnabled()?moneyNumber(data.comboRenewalPrice):row.comboRenewalPrice,updatedAt:new Date().toISOString()}));
     const button=form.querySelector('button[type="submit"]');button.disabled=true;
     try{await setClientsBatch(updated);state.clients=[...updated,...state.clients.filter(item=>!rows.some(row=>row.id===item.id))];cacheMobileState();toast('Datos del combo actualizados.');closeSheet();render();}catch(err){button.disabled=false;showMobileSupportError(err,'editar-combo');}
+  };
+}
+function openRetireComboAppsSheet(client){
+  const rows=activeComboClients(client?.comboId);
+  if(rows.length<2) return toast('Este combo ya solo tiene una app activa.','bad');
+  openSheet(`<div class="sheet-head"><h3>Retirar apps del combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="retireComboAppsForm" class="grid"><div class="settings-card"><strong>${esc(rows[0].comboName || 'Combo')}</strong><span class="beta-note">Deja marcadas las apps que continuarán. Las que desmarques se retirarán y liberarán su perfil.</span></div><div class="list">${rows.map(row=>`<label class="combo-mobile-toggle"><span>${esc(platformShort(row.platform))}<small class="activation-code-help">Perfil ${esc(row.profile || '-')}</small></span><input type="checkbox" data-keep-combo-app="${esc(row.id)}" checked></label>`).join('')}</div><div class="settings-card"><span class="beta-note" id="retireComboSummary">Continuarán las ${rows.length} apps. No se liberará ningún perfil.</span></div><button class="btn bad" type="submit">${icon('scissors')}<span>Confirmar retiro</span></button></form>`);
+  const selectedIds=()=>Array.from(document.querySelectorAll('[data-keep-combo-app]:checked')).map(input=>input.dataset.keepComboApp);
+  const updateSummary=()=>{ const kept=rows.filter(row=>selectedIds().includes(row.id)); const removed=rows.filter(row=>!selectedIds().includes(row.id)); const summary=$('#retireComboSummary'); if(summary) summary.textContent=removed.length?`Continuarán: ${kept.map(row=>platformShort(row.platform)).join(', ')}. Se retirarán: ${removed.map(row=>platformShort(row.platform)).join(', ')} y se liberarán sus perfiles.`:`Continuarán las ${kept.length} apps. No se liberará ningún perfil.`; };
+  document.querySelectorAll('[data-keep-combo-app]').forEach(input=>input.addEventListener('change',updateSummary));
+  $('#retireComboAppsForm').onsubmit=async event=>{
+    event.preventDefault(); const kept=rows.filter(row=>selectedIds().includes(row.id)); const removed=rows.filter(row=>!selectedIds().includes(row.id));
+    if(!kept.length) return toast('Deja al menos una app activa o usa “No renovó” para todo el combo.','bad');
+    if(!removed.length) return toast('Desmarca las apps que deseas retirar.','bad');
+    if(!confirm(`Se retirarán ${removed.length} app(s) y se liberarán sus perfiles. ¿Continuar?`)) return;
+    const now=new Date().toISOString(); const updated=[...kept.map(row=>({...row,comboSize:kept.length,updatedAt:now})),...removed.map(row=>({...row,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
+    const button=event.currentTarget.querySelector('button[type="submit"]'); button.disabled=true;
+    try{ await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))]; cacheMobileState(); closeSheet(); render(); toast(`${removed.length} app(s) retirada(s) y perfiles liberados.`); }catch(err){ button.disabled=false; showMobileSupportError(err,'retirar-apps-combo'); }
   };
 }
 function openChangeComboSheet(client){
