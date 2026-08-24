@@ -5317,6 +5317,11 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
     </div>
 
     <div id="renewClientSummary" class="empty renew-summary"></div>
+    <div class="renew-custom-box" id="renewComboScopeBox" style="display:none">
+      <label>Apps que renuevan</label>
+      <div id="renewComboScope"></div>
+      <span id="renewComboScopeHelp">Elige si deseas renovar todo el combo o una sola app.</span>
+    </div>
 
     <div class="renew-options">
       <button class="renew-option" type="button" onclick="applyRenewClientDuration(1,'months')">
@@ -5936,6 +5941,17 @@ async function recordRenewalIncome(client, amountOverride){
     clientId:client.id,
     accountId:client.accountId,
     occurredAt:new Date().toISOString()
+  });
+}
+async function recordPartialComboRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return;
+  await persistFinanceMovement({
+    id:financeMovementId('combo_partial_renewal', `${client.id}_${Date.now()}`), type:'income', source:'combo_partial_renewal', amount,
+    currency:financeCurrency(), symbol:financeSymbol(),
+    description:`Renovacion parcial - ${friendlyPlatform(client.platform)} - ${client.name || 'Cliente'}`,
+    platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:client.comboId, occurredAt:new Date().toISOString()
   });
 }
 async function recordComboRenewalIncome(clients, amountOverride){
@@ -7277,6 +7293,7 @@ function financeSourceLabel(source){
     combo_sale:'Venta combo',
     renewal:'Renovacion',
     combo_renewal:'Renovacion combo',
+    combo_partial_renewal:'Renovacion parcial de combo',
     account_purchase:'Compra cuenta madre',
     manual:'Gasto manual',
     manual_expense:'Gasto manual'
@@ -7405,7 +7422,7 @@ function renderFinance(){
   const list=allMovements.filter(movementInRange).sort((a,b)=>financeMovementTime(b)-financeMovementTime(a));
   const income=list.filter(m=>m.type==='income').reduce((n,m)=>n+moneyNumber(m.amount),0);
   const expense=list.filter(m=>m.type==='expense').reduce((n,m)=>n+moneyNumber(m.amount),0);
-  const renewals=list.filter(m=>m.source==='renewal'||m.source==='combo_renewal');
+  const renewals=list.filter(m=>m.source==='renewal'||m.source==='combo_renewal'||m.source==='combo_partial_renewal');
   putText('#financeIncome',formatMoney(income));
   putText('#financeExpense',formatMoney(expense));
   putText('#financeProfit',formatMoney(income-expense));
@@ -7917,7 +7934,22 @@ async function applyRenewalDate(clientId, newDate){
     alert('Elige una fecha valida para renovar.');
     return;
   }
+  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
+  const selectedIds=comboList.length>1 ? $$('#renewComboScope input:checked').map(input=>input.value) : [c.id];
+  const partial=comboList.length>1 && selectedIds.length<comboList.length;
+  const selected=comboList.filter(item=>selectedIds.includes(item.id));
+  const target=selected[0] || c;
+  if(!selected.length){ alert('Selecciona al menos una app para renovar.'); return; }
   const targetWindow=openWhatsappPendingWindow('Renovaci\u00f3n lista', 'Estamos armando el mensaje de agradecimiento para tu cliente.');
+  if(partial){
+    const renewalAmount=moneyNumber($('#renewPrice')?.value || target.renewalPrice || target.salePrice); const now=new Date().toISOString(); const removed=comboList.filter(item=>!selectedIds.includes(item.id));
+    selected.forEach(item=>{item.dueDate=newDate;item.state='Activo';item.comboSize=selected.length;if(selected.length===1){item.comboId='';item.comboName='';item.comboCreatedAt='';item.comboTotalPrice=0;item.comboRenewalPrice=0;}item.renewalPrice=renewalAmount;item.updatedAt=now;}); removed.forEach(item=>{item.accountId='';item.state='Retirado del combo';item.comboRemovedAt=now;item.updatedAt=now;});
+    renewingClientId=null; closeModal('renewModalWrap');
+    const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients',[...selected,...removed]) : false; if(!ok) for(const item of [...selected,...removed]) await persistDoc('clients',item);
+    await recordPartialComboRenewalIncome(target,renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion parcial:',err));
+    refreshUI(); touchLocalStateCache(); selected.length>1?navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(selected,'renewed')):sendWhatsapp(target.id,'renewed',targetWindow,true);
+    return;
+  }
   c.dueDate=newDate;
   c.state='Activo';
   c.updatedAt=new Date().toISOString();
@@ -7926,7 +7958,6 @@ async function applyRenewalDate(clientId, newDate){
   renewingClientId=null;
   closeModal('renewModalWrap');
   await persistDoc('clients', c);
-  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
   if(comboList.length>1){
     comboList.forEach(item=>{ item.dueDate=newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; item.updatedAt=new Date().toISOString(); });
     const rest=comboList.filter(item=>item.id!==c.id);
@@ -7980,7 +8011,8 @@ function renewUnitLabel(unit, amount){
   return qty===1?'mes':'meses';
 }
 function updateRenewPreview(){
-  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const baseClient=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const c=baseClient;
   const preview=$('#renewPreviewText');
   if(!c || !preview) return;
   const amount=Number($('#renewCustomAmount')?.value||1);
@@ -8010,6 +8042,15 @@ function openRenewModal(id){
   if(unitEl) unitEl.value='months';
   if(exactEl) exactEl.value=renewalDateFor(c,1,'months');
   const priceEl=$('#renewPrice');
+  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
+  const scopeBox=$('#renewComboScopeBox');
+  const scopeEl=$('#renewComboScope');
+  if(scopeBox && scopeEl){
+    scopeBox.style.display=comboList.length>1?'':'none';
+    scopeEl.innerHTML=comboList.map(item=>`<label class="checkline"><input type="checkbox" value="${escapeAttr(item.id)}" checked><span class="switch-ui" aria-hidden="true"></span><span><strong>${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.profile||'-')}</small></span></label>`).join('');
+    const syncScope=()=>{ const selected=$$('#renewComboScope input:checked').map(input=>comboList.find(item=>item.id===input.value)).filter(Boolean); const removed=comboList.filter(item=>!selected.includes(item)); $('#renewComboScopeHelp').textContent=removed.length?`Se renovarán ${selected.map(item=>friendlyPlatform(item.platform)).join(', ')}. Se retirarán ${removed.map(item=>friendlyPlatform(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
+    $$('input',scopeEl).forEach(input=>input.onchange=syncScope); syncScope();
+  }
   $('#renewPriceBox').style.display='';
   $('#renewPriceLabel').firstChild.textContent='Precio de renovacion';
   if(priceEl) priceEl.value=moneyNumber(c.comboRenewalPrice || c.renewalPrice || c.salePrice) || '';
@@ -8023,6 +8064,7 @@ function openRenewAccountModal(id){
   if(typeof closeAllActionMenus==='function') closeAllActionMenus();
   renewingClientId=null;
   renewingAccountId=id;
+  $('#renewComboScopeBox').style.display='none';
   const base=renewalBaseDate(account);
   $('#renewModalTitle').textContent='Renovar cuenta madre';
   $('#renewClientSummary').innerHTML=`
@@ -8043,13 +8085,17 @@ function openRenewAccountModal(id){
 window.renewClient=(id)=>openRenewModal(id);
 window.renewAccount=(id)=>openRenewAccountModal(id);
 window.applyRenewClientDuration=(amount,unit)=>{
-  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const baseClient=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const scope=$('#renewComboScope')?.value;
+  const c=scope && scope!=='all' && baseClient?.comboId ? activeComboClients(baseClient.comboId).find(x=>x.id===scope) || baseClient : baseClient;
   if(!c) return;
   const next=renewalDateFor(c,amount,unit);
   renewingAccountId ? applyAccountRenewalDate(c.id,next,moneyNumber($('#renewPrice')?.value)) : applyRenewalDate(c.id,next);
 };
 window.applyCustomRenewClient=()=>{
-  const c=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const baseClient=renewingClientId ? state.clients.find(x=>x.id===renewingClientId) : state.accounts.find(x=>x.id===renewingAccountId);
+  const scope=$('#renewComboScope')?.value;
+  const c=scope && scope!=='all' && baseClient?.comboId ? activeComboClients(baseClient.comboId).find(x=>x.id===scope) || baseClient : baseClient;
   if(!c) return;
   const amount=Number($('#renewCustomAmount')?.value||0);
   const unit=$('#renewCustomUnit')?.value||'months';
@@ -8255,10 +8301,10 @@ function whatsappUrlForCombo(clients,context='delivery'){
   if(!list.length || !phone) return '';
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fixSurrogates(comboText(list,context)))}`;
 }
-window.sendWhatsapp=(id,context='',targetWindow=null)=>{
+window.sendWhatsapp=(id,context='',targetWindow=null,forceSingle=false)=>{
   const client=state.clients.find(x=>x.id===id); if(!client) return;
   const comboList=client.comboId ? activeComboClients(client.comboId) : [];
-  const url=comboList.length>1 ? whatsappUrlForCombo(comboList,context) : whatsappUrlForClient(client,context);
+  const url=!forceSingle && comboList.length>1 ? whatsappUrlForCombo(comboList,context) : whatsappUrlForClient(client,context);
   if(!url){
     if(targetWindow && !targetWindow.closed) targetWindow.close();
     alert('Este cliente no tiene WhatsApp registrado.');
