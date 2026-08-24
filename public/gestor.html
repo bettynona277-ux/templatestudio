@@ -8334,14 +8334,23 @@ window.restoreClient=async(id)=>{ const c=state.clients.find(x=>x.id===id); if(!
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); const acc=state.accounts.find(a=>a.id===id); renderClientPlatformOptions(acc?.platform||'',id); renderAccountOptions(id,acc?.platform||''); $('#cAccount').value=id; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); window.syncEnhancedSelects?.(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
-  const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
-  const p=String(platform||'').toLowerCase().replace(/[+\s]/g,'');
-  return !!a && !!p && (a===p || a.includes(p) || p.includes(a));
+  const key=value=>{
+    const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
+    if(text==='disney' || text==='disneyplus') return 'disney';
+    if(text==='prime' || text==='primevideo') return 'prime';
+    if(text==='hbo' || text==='max' || text==='hbomax') return 'max';
+    return text;
+  };
+  const accountKey=key(account?.platform), platformKey=key(platform);
+  return !!accountKey && accountKey===platformKey;
 }
 function comboAccountOptions(platform, selected=''){
-  const matches=state.accounts.filter(a=>accountMatchesComboPlatform(a,platform)).sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
-  const list=matches.length ? matches : state.accounts;
-  return `<option value="">Elige cuenta para ${escapeHtml(platform)}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres</option>`).join('')}`;
+  const list=state.accounts
+    .filter(a=>accountMatchesComboPlatform(a,platform))
+    .filter(a=>a.id===selected || accountAvailability(a).free>0)
+    .sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
+  const prompt=list.length ? `Elige cuenta para ${escapeHtml(platform)}` : `Sin cuentas libres para ${escapeHtml(platform)}`;
+  return `<option value="">${prompt}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres</option>`).join('')}`;
 }
 function selectedComboTemplate(){
   const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
