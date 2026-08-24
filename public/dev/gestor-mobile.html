@@ -1429,7 +1429,7 @@ function searchBlock(title,count){
 }
 function renderClientGroups(clients){
   const groups=[]; const seen=new Set();
-  clients.forEach(client=>{ if(client.comboId){ if(seen.has(client.comboId)) return; seen.add(client.comboId); const rows=clients.filter(row=>row.comboId===client.comboId); const first=rows[0]; groups.push(`<section class="combo-client-group"><div class="combo-client-group-head"><span>${icon('stack')} ${esc(first.comboName || 'Combo')} · ${rows.length} apps</span><span class="combo-platform-logos">${rows.map(row=>platformLogoMobile(row.platform)).join('')}</span><small>Se gestionan juntas</small></div>${rows.map(clientCard).join('')}</section>`); }else groups.push(clientCard(client)); });
+  clients.forEach(client=>{ if(client.comboId){ if(seen.has(client.comboId)) return; seen.add(client.comboId); const rows=activeComboClients(client.comboId); const first=rows[0]; groups.push(`<section class="combo-client-group"><div class="combo-client-group-head"><span>${icon('stack')} ${esc(first.comboName || 'Combo')} · ${rows.length} apps</span><span class="combo-platform-logos">${rows.map(row=>platformLogoMobile(row.platform)).join('')}</span><small>Se gestionan juntas</small></div>${rows.map(clientCard).join('')}</section>`); }else groups.push(clientCard(client)); });
   return groups.join('');
 }
 function renderClients(listOnly=false){
@@ -2797,7 +2797,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       const combo=activeComboClients(c.comboId); const selected=combo.filter(item=>options.selectedIds.includes(item.id)); const removed=combo.filter(item=>!options.selectedIds.includes(item.id));
       if(!selected.length) return toast('Selecciona al menos una app para renovar.','bad');
       const now=new Date().toISOString(); const nextSize=selected.length;
-      const updated=[...selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,renewalPrice:renewalAmount || moneyNumber(item.renewalPrice),updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
+      const updated=[...selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
       await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
       if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount); else await recordComboRenewalIncome(updated,renewalAmount);
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
