@@ -2542,6 +2542,12 @@ select option:checked{
 .renewal-status-chip{
   justify-self:start;
 }
+.renewal-row.combo-renewal-row{display:block;padding:14px 18px;background:rgba(91,64,214,.045);border-left:3px solid rgba(124,109,255,.7)}
+.renewal-combo-top{display:grid;grid-template-columns:minmax(240px,1.2fr) minmax(180px,.9fr) minmax(250px,1fr);gap:18px;align-items:center}
+.renewal-combo-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:900}.renewal-combo-title i{width:17px;height:17px;color:#a99dff}.renewal-combo-main .sub{margin-top:4px}.renewal-combo-due .due-state{display:block;font-weight:950;color:#fbbf24}.renewal-combo-due.tomorrow .due-state{color:#34d399}.renewal-combo-due.expired .due-state{color:#fb7185}
+.renewal-combo-apps{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.renewal-combo-app{display:flex;align-items:center;gap:7px;min-width:160px;padding:7px 10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.035)}.renewal-combo-app strong{font-size:12px}.renewal-combo-app small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.renewal-combo-app.alert{border-color:rgba(52,211,153,.34)}.renewal-combo-app.expired{border-color:rgba(251,113,133,.4)}
+@media(max-width:900px){.renewal-combo-top{grid-template-columns:1fr}.renewal-combo-app{min-width:0;flex:1 1 170px}}
 .renewals-summary{
   margin:0 28px 28px;
   display:grid;
@@ -6423,7 +6429,7 @@ function isActivationByCode(value){
 }
 function isNoRenewState(value){
   const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  return text==='no renovo';
+  return text==='no renovo' || text==='retirado del combo';
 }
 function effectiveClientState(c){
   if(isNoRenewState(c.state)) return 'No renovó';
@@ -7189,6 +7195,27 @@ function renderFree(){
     </div>`;
   }).join(''):`<div class="empty">Sin Perfiles Libres</div>`;
 }
+function renewalDueInfo(dd, dueDate){
+  if(dd<0){ const days=Math.abs(dd); return {label:'Vencido',sub:`Hace ${days} dia${days===1?'':'s'}`,cls:'expired'}; }
+  if(dd===0) return {label:'Por vencer',sub:'Vence hoy',cls:'today'};
+  if(dd===1) return {label:'Por vencer',sub:'Vence manana',cls:'tomorrow'};
+  return {label:'Proximo',sub:fmtDate(dueDate)||'Sin fecha',cls:'soon'};
+}
+function renderRenewalSingle({client,account,platform,dd,st}){
+  const due=renewalDueInfo(dd,client.dueDate);
+  const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
+  const initial=String(client.name||client.profile||platform||'?').trim().slice(0,1).toUpperCase() || '?';
+  return `<div class="renewal-row${due.cls==='expired'?' expired':''}"><div class="renewal-client"><div class="renewal-avatar${due.cls==='expired'?' expired-avatar':''}">${escapeHtml(initial)}</div><div class="renewal-main"><strong>${escapeHtml(client.name||'Cliente')}</strong><div class="sub renewal-account-email">${escapeHtml(accountEmailLabel(account) || 'Sin correo de cuenta madre')}</div>${client.whatsapp?`<div class="renewal-phone"><span>${escapeHtml(client.whatsapp)}</span><button class="renewal-copy-btn" type="button" title="Copiar numero" aria-label="Copiar numero" onclick="copyRenewalPhone(this,'${escapeJs(client.whatsapp)}')"><i data-lucide="copy"></i></button></div>`:''}</div></div><div><span class="renewal-platform-pill">${platformLogo(platform,'chip')} ${escapeHtml(friendlyPlatform(platform)||'-')}</span></div><div class="renewal-due ${due.cls}"><span class="due-state">${due.label}</span><span class="sub">${due.sub}</span></div><div class="renewal-actions"><button class="${alreadyNotified?'mini notified':'mini wa'}" onclick="sendWhatsapp('${client.id}','renewal')">${alreadyNotified?'Avisado':'WhatsApp'}</button><button class="mini" onclick="renewClient('${client.id}')">Renovar</button><details class="action-more"><summary class="renewal-more" title="Mas acciones">...</summary><div class="action-more-menu"><button class="mini" onclick="setNoRenew('${client.id}')">No renovo</button></div></details></div><div class="renewal-status-chip">${chipForState(st)}</div></div>`;
+}
+function renderRenewalCombo(comboRows){
+  const members=comboRows.slice().sort((a,b)=>(a.dd-b.dd)||friendlyPlatform(a.platform).localeCompare(friendlyPlatform(b.platform)));
+  const anchor=members[0], dueMembers=members.filter(item=>renewalAlertDays(item.dd)), earliest=dueMembers[0]||anchor;
+  const due=renewalDueInfo(earliest.dd,earliest.client.dueDate);
+  const expired=dueMembers.filter(item=>item.dd<0).length;
+  const dueLabel=expired?`${expired} app${expired===1?'':'s'} vencida${expired===1?'':'s'}`:`${dueMembers.length} app${dueMembers.length===1?'':'s'} por vencer`;
+  const alreadyNotified=members.every(item=>item.client.lastRenewalWhatsAppNoticeDate===todayStr());
+  return `<div class="renewal-row combo-renewal-row"><div class="renewal-combo-top"><div class="renewal-client"><div class="renewal-avatar">${escapeHtml(String(anchor.client.name||'C').slice(0,1).toUpperCase())}</div><div class="renewal-combo-main"><div class="renewal-combo-title"><i data-lucide="package"></i>${escapeHtml(anchor.client.name||'Cliente')}</div><div class="sub renewal-account-email">${escapeHtml(anchor.client.comboName||'Combo')} · ${members.length} apps se gestionan juntas</div>${anchor.client.whatsapp?`<div class="renewal-phone"><span>${escapeHtml(anchor.client.whatsapp)}</span><button class="renewal-copy-btn" type="button" title="Copiar numero" aria-label="Copiar numero" onclick="copyRenewalPhone(this,'${escapeJs(anchor.client.whatsapp)}')"><i data-lucide="copy"></i></button></div>`:''}</div></div><div class="renewal-combo-due ${due.cls}"><span class="due-state">${dueLabel}</span><span class="sub">${due.sub}</span></div><div class="renewal-actions"><button class="${alreadyNotified?'mini notified':'mini wa'}" onclick="sendWhatsapp('${anchor.client.id}','renewal')">${alreadyNotified?'Avisado':'WhatsApp'}</button><button class="mini" onclick="renewClient('${anchor.client.id}')">Renovar combo</button><details class="action-more"><summary class="renewal-more" title="Mas acciones">...</summary><div class="action-more-menu"><button class="mini" onclick="setNoRenewCombo('${anchor.client.id}')">No renovar combo</button></div></details><span class="chip">Combo</span></div></div><div class="renewal-combo-apps">${members.map(item=>{const itemDue=renewalDueInfo(item.dd,item.client.dueDate);return `<div class="renewal-combo-app ${itemDue.cls==='expired'?'expired':renewalAlertDays(item.dd)?'alert':''}">${platformLogo(item.platform,'chip')}<span><strong>${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.client.profile||'-')} · ${escapeHtml(itemDue.sub)}</small></span></div>`;}).join('')}</div></div>`;
+}
 function renderRenewals(){
   const currentFilter=$('#renewalAccountFilter')?.value||'';
   const q=($('#renewalSearch')?.value||'').trim().toLowerCase();
@@ -7221,60 +7248,28 @@ function renderRenewals(){
   putText('#copyExpiredCount', expiredCount);
   putText('#copyTodayCount', todayCount);
   putText('#copyTomorrowCount', tomorrowCount);
-  $('#renewalsList').innerHTML=rows.length?rows.map(({client,account,platform,dd,st})=>{
-    let dueLabel='Proximo', dueSub=fmtDate(client.dueDate)||'Sin fecha', dueClass='soon', rowClass='', daysBadge='';
-    if(dd<0){
-      const absDd=Math.abs(dd);
-      dueLabel='Vencido'; dueSub=`Hace ${absDd} dia${absDd===1?'':'s'}`;
-      if(absDd>=8){ dueClass='expired-critical'; rowClass='expired-critical'; daysBadge=`<span class="expired-days-badge critical">${absDd}d vencido</span>`; }
-      else if(absDd>=4){ dueClass='expired-high'; rowClass='expired-high'; daysBadge=`<span class="expired-days-badge high">${absDd}d vencido</span>`; }
-      else{ dueClass='expired'; daysBadge=`<span class="expired-days-badge">${absDd}d vencido</span>`; }
+  const renderedCombos=new Set();
+  let managementCount=0;
+  const renewalCards=rows.map(row=>{
+    const comboId=row.client.comboId;
+    const members=comboId ? activeComboClients(comboId).map(client=>{const account=state.accounts.find(a=>a.id===client.accountId);return {client,account,platform:client.platform||account?.platform||'',dd:daysUntil(client.dueDate),st:effectiveClientState(client)};}) : [];
+    if(members.length>1){
+      if(renderedCombos.has(comboId)) return '';
+      renderedCombos.add(comboId);
+      managementCount++;
+      return renderRenewalCombo(members);
     }
-    else if(dd===0){ dueLabel='Por vencer'; dueSub='Vence hoy'; dueClass='today'; }
-    else if(dd===1){ dueLabel='Por vencer'; dueSub='Vence manana'; dueClass='tomorrow'; }
-    const alreadyNotified=client.lastRenewalWhatsAppNoticeDate===todayStr();
-    const whatsappClass=alreadyNotified?'mini notified':'mini wa';
-    const whatsappText=alreadyNotified?'Avisado':'WhatsApp';
-    const initial=String(client.name||client.profile||platform||'?').trim().slice(0,1).toUpperCase() || '?';
-    const accountEmail=accountEmailLabel(account);
-    const isExpiredRow=dd!==null&&dd<0;
-    return `<div class="renewal-row${rowClass?' '+rowClass:''}">
-      <div class="renewal-client">
-        <div class="renewal-avatar${isExpiredRow?' expired-avatar':''}">${escapeHtml(initial)}</div>
-        <div class="renewal-main">
-          <strong>${escapeHtml(client.name||'Cliente')}</strong>
-          <div class="sub renewal-account-email">${escapeHtml(accountEmail || 'Sin correo de cuenta madre')}</div>
-          ${client.whatsapp?`<div class="renewal-phone"><span>${escapeHtml(client.whatsapp)}</span><button class="renewal-copy-btn" type="button" title="Copiar numero" aria-label="Copiar numero" onclick="copyRenewalPhone(this,'${escapeJs(client.whatsapp)}')"><i data-lucide="copy"></i></button></div>`:''}
-        </div>
-      </div>
-      <div><span class="renewal-platform-pill">${platformLogo(platform,'chip')} ${escapeHtml(friendlyPlatform(platform)||'-')}</span></div>
-      <div class="renewal-due ${dueClass}">
-        <span class="due-state">${dueLabel}</span>
-        <span class="sub">${dueSub}</span>
-        ${daysBadge}
-      </div>
-      <div class="renewal-actions">
-        <button class="${whatsappClass}" onclick="sendWhatsapp('${client.id}','renewal')">${whatsappText}</button>
-        <button class="mini" onclick="renewClient('${client.id}')">Renovar</button>
-        <details class="action-more">
-          <summary class="renewal-more" title="Mas acciones">...</summary>
-          <div class="action-more-menu">
-            <button class="mini" onclick="setNoRenew('${client.id}')">No renovo</button>
-          </div>
-        </details>
-      </div>
-      <div class="renewal-status-chip">
-        ${chipForState(st)}
-      </div>
-    </div>`;
-  }).join(''):`<div class="empty">Sin renovaciones cercanas para esta plataforma</div>`;
+    managementCount++;
+    return renderRenewalSingle(row);
+  }).join('');
+  $('#renewalsList').innerHTML=renewalCards||`<div class="empty">Sin renovaciones cercanas para esta plataforma</div>`;
   const summary=$('#renewalsSummary');
   if(summary){
     summary.innerHTML=`
       <div class="renewal-metric danger"><div class="renewal-metric-icon"><i data-lucide="calendar-x"></i></div><div><strong>${expiredCount}</strong><span>Vencidas</span><small>Requieren atencion</small></div></div>
       <div class="renewal-metric warn"><div class="renewal-metric-icon"><i data-lucide="calendar-days"></i></div><div><strong>${todayCount}</strong><span>Por vencer hoy</span><small>Atencion inmediata</small></div></div>
       <div class="renewal-metric ok"><div class="renewal-metric-icon"><i data-lucide="calendar-check"></i></div><div><strong>${tomorrowCount}</strong><span>Vence manana</span><small>Avisar hoy</small></div></div>
-      <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Total cuentas</span><small>En esta vista</small></div></div>`;
+      <div class="renewal-metric"><div class="renewal-metric-icon"><i data-lucide="calendar-clock"></i></div><div><strong>${totalCount}</strong><span>Apps en aviso</span><small>${managementCount} gestiones en esta vista</small></div></div>`;
     if(window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons();
   }
 }
@@ -8201,6 +8196,25 @@ window.setNoRenew=async(id)=>{
   Object.assign(c, updated);
   touchLocalStateCache();
   refreshUI();
+};
+window.setNoRenewCombo=async(id)=>{
+  const client=state.clients.find(item=>item.id===id);
+  const combo=client?.comboId ? activeComboClients(client.comboId) : [];
+  if(combo.length<2){ return window.setNoRenew(id); }
+  if(!confirm(`No se renovarán las ${combo.length} apps del combo. Se liberarán todos sus perfiles. ¿Continuar?`)) return;
+  const now=new Date().toISOString();
+  const updates=combo.map(item=>({...item,accountId:'',state:'No renovó',updatedAt:now}));
+  try{
+    const saved=window.__persistManyDocs ? await window.__persistManyDocs('clients',updates) : false;
+    if(!saved) for(const item of updates) await persistDoc('clients',item);
+    state.clients=state.clients.map(item=>updates.find(row=>row.id===item.id) || item);
+    touchLocalStateCache();
+    refreshUI();
+    notifySaveStatus('saved','Combo marcado como no renovado y perfiles liberados');
+  }catch(err){
+    console.error(err);
+    notifySaveStatus('error',friendlySaveError(err,'no-renovar-combo'));
+  }
 };
 window.restoreClient=async(id)=>{ const c=state.clients.find(x=>x.id===id); if(!c) return; const updated={...c,state:'Activo',dueDate:c.dueDate||todayPlus(30),updatedAt:new Date().toISOString()}; const ok=await persistDoc('clients', updated); if(!ok) return; Object.assign(c, updated); touchLocalStateCache(); refreshUI(); };
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); const acc=state.accounts.find(a=>a.id===id); renderClientPlatformOptions(acc?.platform||'',id); renderAccountOptions(id,acc?.platform||''); $('#cAccount').value=id; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
