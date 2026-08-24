@@ -1840,9 +1840,15 @@ function installGestorApp(){
   if(isStandaloneMode()) return toast('El gestor ya esta instalado.');
   return deferredInstallPrompt ? runInstallPrompt() : showInstallHelp();
 }
-function installUrl(){
-  return new URL('/gestor-mobile.html', location.origin).href;
+function gestorCurrentPath(){ return `${location.pathname}${location.search}${location.hash}`; }
+function gestorLoginUrl(reason=''){
+  const basePath=location.pathname.replace(/\/[^/]*$/, '/');
+  const url=new URL(`${basePath}gestor-login.html`,location.origin);
+  if(reason) url.searchParams.set('reason',reason);
+  url.searchParams.set('next',gestorCurrentPath());
+  return url.href;
 }
+function installUrl(){ return new URL(gestorCurrentPath(), location.origin).href; }
 function openInChrome(){
   const url = installUrl();
   if(/Android/i.test(navigator.userAgent || '')){
@@ -3617,7 +3623,7 @@ showInstallBanner(3000);
 
 onAuthStateChanged(auth, async user => {
   if(!user){
-    window.location.href = `gestor-login.html?next=${encodeURIComponent('/gestor-mobile.html')}`;
+    window.location.href = gestorLoginUrl();
     return;
   }
   state.uid = user.uid;
@@ -3648,7 +3654,7 @@ onAuthStateChanged(auth, async user => {
       if(deviceResult && !deviceResult.ok){
         await signOut(auth);
         const reason = deviceResult.revoked ? 'device-revoked' : 'device-limit';
-        window.location.replace(`gestor-login.html?reason=${reason}&next=${encodeURIComponent('/gestor-mobile.html')}`);
+        window.location.replace(gestorLoginUrl(reason));
       }
     });
     startSecurityDeviceListener(user.uid);
