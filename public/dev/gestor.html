@@ -3497,6 +3497,8 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 }
 .renew-custom-box{grid-template-columns:1fr 1fr auto}
 .renew-exact-box{grid-template-columns:1fr auto}
+.combo-client-table-row td{padding:8px!important}.combo-client-table-card{padding:14px;border:1px solid rgba(124,109,255,.42);border-radius:14px;background:rgba(124,109,255,.06)}.combo-client-table-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.combo-client-table-head strong{display:flex;align-items:center}.combo-client-table-head span{color:var(--muted);font-size:12px;font-weight:700}.combo-client-table-apps{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.combo-client-table-app{display:flex;align-items:center;gap:7px;min-width:175px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.045)}.combo-client-table-app b{display:block;font-size:12px}.combo-client-table-app small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.renew-custom-box:has(#renewComboScope){display:block}.renew-combo-apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.renew-combo-app{min-height:58px!important;padding:9px 11px!important;border-radius:12px!important;background:rgba(255,255,255,.045)!important;align-items:center!important}.renew-combo-app input{order:2;margin-left:auto;flex:0 0 auto}.renew-combo-app strong{display:flex;align-items:center;gap:6px;font-size:13px}.renew-combo-app small{display:block;margin-top:3px;color:var(--muted);font-size:11px}.renew-combo-app .platform-logo{margin:0!important}.renew-combo-help{display:block;margin-top:10px;color:var(--muted);font-size:12px;font-weight:700}
 .renew-preview{color:var(--muted);font-size:12px;margin-top:8px}
 
 /* Payment / Category rows */
@@ -6805,7 +6807,16 @@ function renderClients(){
       </div></td>
     </tr>`;
   };
-  $('#clientsTable').innerHTML=tableRows.length?tableRows.map(renderRow).join(''):`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
+  const rendered=new Set();
+  const renderGroupedRows=tableRows.map(c=>{
+    if(!c.comboId) return renderRow(c);
+    if(rendered.has(c.comboId)) return '';
+    rendered.add(c.comboId);
+    const rows=tableRows.filter(item=>item.comboId===c.comboId);
+    const first=rows[0];
+    return `<tr class="combo-client-table-row"><td colspan="9"><div class="combo-client-table-card"><div class="combo-client-table-head"><strong>${platformLogo('','chip')} ${escapeHtml(first.comboName||'Combo')} · ${rows.length} apps</strong><span>Se gestionan juntas</span></div><div class="combo-client-table-apps">${rows.map(item=>{const account=state.accounts.find(a=>a.id===item.accountId);const platform=item.platform||account?.platform||'';return `<div class="combo-client-table-app">${platformLogo(platform,'chip')}<span><b>${escapeHtml(platform)}</b><small>Perfil ${escapeHtml(item.profile||'-')} · vence ${fmtDate(item.dueDate)}</small></span></div>`;}).join('')}</div><div class="row-actions"><button class="mini wa" onclick="sendWhatsapp('${first.id}')">WhatsApp</button><button class="mini" onclick="renewClient('${first.id}')">Renovar combo</button><button class="mini" onclick="editClient('${first.id}')">Editar datos</button></div></div></td></tr>`;
+  }).join('');
+  $('#clientsTable').innerHTML=tableRows.length?renderGroupedRows:`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
   if(window.lucide?.createIcons) window.lucide.createIcons();
   const archivedPanel=$('#archivedClientsPanel');
   if(archivedPanel){
@@ -8047,8 +8058,8 @@ function openRenewModal(id){
   const scopeEl=$('#renewComboScope');
   if(scopeBox && scopeEl){
     scopeBox.style.display=comboList.length>1?'':'none';
-    scopeEl.innerHTML=comboList.map(item=>`<label class="checkline"><input type="checkbox" value="${escapeAttr(item.id)}" checked><span class="switch-ui" aria-hidden="true"></span><span><strong>${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.profile||'-')}</small></span></label>`).join('');
-    const syncScope=()=>{ const selected=$$('#renewComboScope input:checked').map(input=>comboList.find(item=>item.id===input.value)).filter(Boolean); const removed=comboList.filter(item=>!selected.includes(item)); $('#renewComboScopeHelp').textContent=removed.length?`Se renovarán ${selected.map(item=>friendlyPlatform(item.platform)).join(', ')}. Se retirarán ${removed.map(item=>friendlyPlatform(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
+    scopeEl.innerHTML=`<div class="renew-combo-apps">${comboList.map(item=>`<label class="checkline renew-combo-app"><input type="checkbox" value="${escapeAttr(item.id)}" checked><span><strong>${platformLogo(item.platform,'chip')} ${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.profile||'-')}</small></span></label>`).join('')}</div>`;
+    const syncScope=()=>{ const selected=$$('#renewComboScope input:checked').map(input=>comboList.find(item=>item.id===input.value)).filter(Boolean); const removed=comboList.filter(item=>!selected.includes(item)); $('#renewComboScopeHelp').className='renew-combo-help'; $('#renewComboScopeHelp').textContent=removed.length?`Se renovarán ${selected.map(item=>friendlyPlatform(item.platform)).join(', ')}. Se retirarán ${removed.map(item=>friendlyPlatform(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
     $$('input',scopeEl).forEach(input=>input.onchange=syncScope); syncScope();
   }
   $('#renewPriceBox').style.display='';
