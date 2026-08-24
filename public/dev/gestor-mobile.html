@@ -2731,8 +2731,8 @@ function renewClient(c){
   const updateScope=()=>{ const selected=combo.filter(item=>selectedIds().includes(item.id)); const removed=combo.filter(item=>!selectedIds().includes(item.id)); const help=$('#renewScopeHelp'); if(help) help.textContent=removed.length?`Se renovarán: ${selected.map(item=>platformShort(item.platform)).join(', ')}. Se retirarán: ${removed.map(item=>platformShort(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
   document.querySelectorAll('[data-renew-app]').forEach(input=>input.addEventListener('change',updateScope));
   const apply=(date,message)=>{ const ids=selectedIds(); if(!ids.length) return toast('Selecciona al menos una app para renovar.','bad'); return applyClientRenewal(c,date,message,moneyNumber($('#renewPriceMobile')?.value),{selectedIds:ids}); };
-  $('#renewOneMonth')?.addEventListener('click', () => apply(oneMonth, 'Renovación guardada'));
-  $('#renewThreeMonths')?.addEventListener('click', () => apply(threeMonths, 'Renovación guardada'));
+  $('#renewOneMonth')?.addEventListener('click', () => applyClientRenewal(c, oneMonth, 'Renovación guardada', moneyNumber($('#renewPriceMobile')?.value),{selectedIds:selectedIds(),durationMonths:1}));
+  $('#renewThreeMonths')?.addEventListener('click', () => applyClientRenewal(c, threeMonths, 'Renovación guardada', moneyNumber($('#renewPriceMobile')?.value),{selectedIds:selectedIds(),durationMonths:3}));
   $('#renewCustomForm')?.addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -2797,7 +2797,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       const combo=activeComboClients(c.comboId); const selected=combo.filter(item=>options.selectedIds.includes(item.id)); const removed=combo.filter(item=>!options.selectedIds.includes(item.id));
       if(!selected.length) return toast('Selecciona al menos una app para renovar.','bad');
       const now=new Date().toISOString(); const nextSize=selected.length;
-      const updated=[...selected.map(item=>({...item,dueDate:nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,renewalPrice:renewalAmount || moneyNumber(item.renewalPrice),updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
+      const updated=[...selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,renewalPrice:renewalAmount || moneyNumber(item.renewalPrice),updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
       await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
       if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount); else await recordComboRenewalIncome(updated,renewalAmount);
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
@@ -2992,7 +2992,7 @@ function openChangeComboSheet(client){
     const removed=current.filter(c=>!used.has(c.id));
     const totalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboTotalPrice')?.value):current[0].comboTotalPrice;
     const renewalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboRenewalPrice')?.value):current[0].comboRenewalPrice;
-    rows.forEach(row=>{row.comboId=originalComboId;row.customerId=originalCustomerId;row.comboTotalPrice=totalPrice;row.comboRenewalPrice=renewalPrice;});
+    rows.forEach(row=>{const standalone=rows.length===1;row.comboId=standalone?'':originalComboId;row.customerId=originalCustomerId;row.comboName=standalone?'':row.comboName;row.comboSize=standalone?0:rows.length;row.comboCreatedAt=standalone?'':row.comboCreatedAt;row.comboTotalPrice=standalone?0:totalPrice;row.comboRenewalPrice=standalone?0:renewalPrice;});
     if(!confirm(`Cambiar a ${tpl.name}?\n\nSe mantienen: ${rows.filter(row=>current.some(old=>old.id===row.id)).length}\nSe agregan: ${rows.filter(row=>!current.some(old=>old.id===row.id)).length}\nSe archivan: ${removed.length}\n\nNo se registrará un cobro automáticamente.`)) return;
     const batch=writeBatch(db);
     rows.forEach(row=>batch.set(clientRef(row.id),row,{merge:true}));
