@@ -1300,13 +1300,14 @@ async function recordPartialComboRenewalIncome(client, amountOverride, originalC
 async function recordComboSaleIncome(clients){
   if(!isFinanceModeEnabled()) return;
   const list = (clients || []).filter(Boolean);
-  const first = list[0];
-  const amount = moneyNumber(first?.comboTotalPrice);
-  if(!first || !amount) return;
+  const meta=comboMetadataMobile(list);
+  const first=meta.source;
+  const amount=moneyNumber(meta.totalPrice);
+  if(!list.length || !amount) return;
   await persistFinanceMovement({
     id:financeMovementId('combo_sale', first.comboId),
     type:'income', source:'combo_sale', amount,
-    description:`Venta combo - ${clientName(first)}`,
+    description:`Venta combo ${meta.name} - ${clientName(first)}`,
     platform:list.map(c=>platformShort(c.platform)).filter(Boolean).join(', '),
     clientId:first.id,
     comboId:first.comboId,
@@ -1316,13 +1317,14 @@ async function recordComboSaleIncome(clients){
 async function recordComboRenewalIncome(clients, amountOverride){
   if(!isFinanceModeEnabled()) return;
   const list = (clients || []).filter(Boolean);
-  const first = list[0];
-  const amount = moneyNumber(amountOverride ?? first?.comboRenewalPrice ?? first?.comboTotalPrice);
-  if(!first || !amount) return;
+  const meta=comboMetadataMobile(list);
+  const first=meta.source;
+  const amount=moneyNumber(amountOverride ?? meta.renewalPrice ?? meta.totalPrice);
+  if(!list.length || !amount) return;
   await persistFinanceMovement({
     id:financeMovementId('combo_renewal', `${first.comboId}_${Date.now()}`),
     type:'income', source:'combo_renewal', amount,
-    description:`Renovacion combo - ${clientName(first)}`,
+    description:`Renovacion combo ${meta.name} - ${clientName(first)}`,
     platform:list.map(c=>platformShort(c.platform)).filter(Boolean).join(', '),
     clientId:first.id,
     comboId:first.comboId,
@@ -1429,7 +1431,7 @@ function searchBlock(title,count){
 }
 function renderClientGroups(clients){
   const groups=[]; const seen=new Set();
-  clients.forEach(client=>{ if(client.comboId){ if(seen.has(client.comboId)) return; seen.add(client.comboId); const rows=activeComboClients(client.comboId); const first=rows[0]; groups.push(`<section class="combo-client-group"><div class="combo-client-group-head"><span>${icon('stack')} ${esc(first.comboName || 'Combo')} · ${rows.length} apps</span><span class="combo-platform-logos">${rows.map(row=>platformLogoMobile(row.platform)).join('')}</span><small>Se gestionan juntas</small></div>${rows.map(clientCard).join('')}</section>`); }else groups.push(clientCard(client)); });
+  clients.forEach(client=>{ if(client.comboId){ if(seen.has(client.comboId)) return; seen.add(client.comboId); const rows=activeComboClients(client.comboId); const meta=comboMetadataMobile(rows); groups.push(`<section class="combo-client-group"><div class="combo-client-group-head"><span>${icon('stack')} ${esc(meta.name)} · ${meta.size} apps</span><span class="combo-platform-logos">${rows.map(row=>platformLogoMobile(row.platform)).join('')}</span><small>Se gestionan juntas</small></div>${rows.map(row=>clientCard(row,meta)).join('')}</section>`); }else groups.push(clientCard(client)); });
   return groups.join('');
 }
 function renderClients(listOnly=false){
@@ -1641,9 +1643,10 @@ function renderExpired(){
   $('#expiredLogout').onclick = () => signOut(auth);
 }
 function empty(text){ return `<div class="empty">${esc(text)}</div>`; }
-function clientCard(c){
+function clientCard(c, comboMeta=null){
   const ds = dueState(c.dueDate);
   const acc = state.accounts.find(a => a.id === c.accountId);
+  const displayCombo=c.comboId ? (comboMeta || comboMetadataMobile(activeComboClients(c.comboId))) : null;
   const dueActions = state.view === 'due' && ds.days <= 7;
   const dueAccountEmail = state.view === 'due' ? accountEmailLabel(acc) : '';
   const isComboPrimary = !c.comboId || comboPrimaryClient(c.comboId)?.id === c.id;
@@ -1655,7 +1658,7 @@ function clientCard(c){
   return `<article class="card" data-client="${esc(c.id)}">
     <div class="card-row"><div class="avatar ${ds.cls}">${esc(clientName(c).slice(0,1).toUpperCase())}</div>
       <div class="info"><b>${esc(clientName(c))}</b><div class="meta">
-        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span>${dueAccountEmail ? `<span class="pill account-email">${esc(dueAccountEmail)}</span>` : ''}<span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${c.comboId ? `<span class="pill brand">${esc(c.comboName || 'Combo')} · ${esc(c.comboSize || '')} apps</span>` : ''}
+        <span class="pill ${ds.cls}">${esc(ds.label)}</span><span class="pill">${esc(platformShort(c.platform || acc?.platform))}</span>${dueAccountEmail ? `<span class="pill account-email">${esc(dueAccountEmail)}</span>` : ''}<span class="pill brand">Perfil ${esc(c.profile || '-')}</span>${displayCombo ? `<span class="pill brand">${esc(displayCombo.name)} · ${esc(displayCombo.size)} apps</span>` : ''}
       </div></div></div>
     ${actions ? `<div class="card-actions">${actions}</div>` : ''}
     ${isComboPrimary && c.comboId ? `<div class="card-actions"><button class="mini combo-manage" data-change-combo="${esc(c.id)}">${icon('stack')}<span>Gestionar combo</span></button><button class="mini" data-retire-combo="${esc(c.id)}">${icon('scissors')}<span>Retirar apps</span></button></div>` : ''}
@@ -2806,13 +2809,19 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       const originalComboId=c.comboId; const combo=activeComboClients(c.comboId); const selected=combo.filter(item=>options.selectedIds.includes(item.id)); const removed=combo.filter(item=>!options.selectedIds.includes(item.id));
       if(!selected.length) return toast('Selecciona al menos una app para renovar.','bad');
       const now=new Date().toISOString(); const nextSize=selected.length;
-      const updated=[...selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',comboSize:nextSize,comboId:nextSize===1?'':item.comboId,comboName:nextSize===1?'':item.comboName,comboCreatedAt:nextSize===1?'':item.comboCreatedAt,comboTotalPrice:nextSize===1?0:item.comboTotalPrice,comboRenewalPrice:nextSize===1?0:item.comboRenewalPrice,updatedAt:now})),...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
+      const meta=comboMetadataMobile(combo);
+      const renewed=selected.map(item=>({...item,dueDate:options.durationMonths?addMonthsISO(clean(item.dueDate)||todayISO(),options.durationMonths):nextDate,state:'Activo',updatedAt:now}));
+      if(nextSize===1){ Object.assign(renewed[0],{comboId:'',comboName:'',comboSize:0,comboCreatedAt:'',comboTotalPrice:0,comboRenewalPrice:0}); }
+      else{ applyComboMetadataMobile(renewed,{...meta,size:nextSize}); renewed.forEach(item=>{item.comboRenewalPrice=renewalAmount;}); }
+      const updated=[...renewed,...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
       await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
       if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId); else await recordComboRenewalIncome(updated,renewalAmount);
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
     }else if(c.comboId){
       const combo = activeComboClients(c.comboId);
       const updatedCombo = combo.map(item => ({...item, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString()}));
+      applyComboMetadataMobile(updatedCombo,comboMetadataMobile(combo));
+      updatedCombo.forEach(item=>{item.comboRenewalPrice=renewalAmount || moneyNumber(item.comboRenewalPrice);});
       await setClientsBatch(updatedCombo);
       state.clients = [...updatedCombo, ...state.clients.filter(item => item.comboId !== c.comboId)];
       await recordComboRenewalIncome(updatedCombo, renewalAmount);
@@ -2899,15 +2908,44 @@ function openProviderRenewWhatsApp(account){
 function activeComboClients(comboId){
   return state.clients.filter(c => c.comboId === comboId && !isNoRenewState(c.state)).sort((a,b)=>platformShort(a.platform).localeCompare(platformShort(b.platform)));
 }
+function comboMetadataMobile(clients){
+  const members=(clients||[]).filter(item=>item?.comboId);
+  const size=members.length;
+  const ordered=members.slice().sort((a,b)=>clean(a.comboCreatedAt||a.createdAt).localeCompare(clean(b.comboCreatedAt||b.createdAt)) || clean(a.id).localeCompare(clean(b.id)));
+  const matchingSize=ordered.filter(item=>Number(item.comboSize||0)===size && clean(item.comboName));
+  const named=ordered.filter(item=>clean(item.comboName));
+  const source=matchingSize[0] || named[0] || ordered[0] || {};
+  const priced=ordered.find(item=>moneyNumber(item.comboTotalPrice||item.comboRenewalPrice)>0) || source;
+  return {
+    id:clean(source.comboId),
+    name:clean(source.comboName) || 'Combo',
+    size,
+    createdAt:clean(source.comboCreatedAt) || clean(ordered.find(item=>item.comboCreatedAt)?.comboCreatedAt),
+    totalPrice:moneyNumber(priced.comboTotalPrice),
+    renewalPrice:moneyNumber(priced.comboRenewalPrice || priced.comboTotalPrice),
+    source
+  };
+}
+function applyComboMetadataMobile(clients, metadata=comboMetadataMobile(clients)){
+  (clients||[]).forEach(item=>{
+    item.comboName=metadata.name;
+    item.comboSize=metadata.size;
+    if(metadata.createdAt) item.comboCreatedAt=metadata.createdAt;
+    item.comboTotalPrice=metadata.totalPrice;
+    item.comboRenewalPrice=metadata.renewalPrice;
+  });
+  return metadata;
+}
 function comboPrimaryClient(comboId){
   return activeComboClients(comboId).slice().sort((a,b)=>dueState(a.dueDate).days-dueState(b.dueDate).days || platformShort(a.platform).localeCompare(platformShort(b.platform)))[0];
 }
 function openEditComboSheet(client){
   const rows=activeComboClients(client?.comboId);
   if(!rows.length) return;
-  const first=rows[0];
+  const meta=comboMetadataMobile(rows);
+  const first=meta.source;
   const hasSplitDates = new Set(rows.map(row=>clean(row.dueDate)).filter(Boolean)).size > 1;
-  openSheet(`<div class="sheet-head"><h3>Editar datos del combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="editComboDataForm" class="grid"><div class="settings-card"><strong>${esc(first.comboName || 'Combo')}</strong><span class="beta-note">Estos datos se actualizarán en las ${rows.length} apps del combo.</span></div><div class="field"><label>Nombre</label><input name="name" value="${esc(first.name)}" required></div><div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(first.whatsapp)}" inputmode="tel"></div><label class="combo-mobile-toggle"><span>${hasSplitDates ? 'Actualizar todos los vencimientos' : 'Actualizar vencimiento del combo'}</span><input type="checkbox" name="updateDueDate" ${hasSplitDates ? '' : 'checked'}></label><div class="field"><label>Vencimiento${hasSplitDates ? ' (las apps conservan su fecha hasta que actives la opción)' : ''}</label><input name="dueDate" type="date" value="${esc(first.dueDate)}" required ${hasSplitDates ? 'disabled' : ''}></div><div class="field"><label>Notas</label><textarea name="notes">${esc(first.notes)}</textarea></div>${isFinanceModeEnabled()?`<div class="grid two"><div class="field"><label>Precio actual del combo</label><input name="comboTotalPrice" value="${esc(first.comboTotalPrice || '')}" inputmode="decimal"></div><div class="field"><label>Próxima renovación</label><input name="comboRenewalPrice" value="${esc(first.comboRenewalPrice || '')}" inputmode="decimal"></div></div>`:''}<button class="btn primary" type="submit">${icon('save')}<span>Guardar datos</span></button></form>`);
+  openSheet(`<div class="sheet-head"><h3>Editar datos del combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="editComboDataForm" class="grid"><div class="settings-card"><strong>${esc(meta.name)}</strong><span class="beta-note">Estos datos se actualizarán en las ${meta.size} apps del combo.</span></div><div class="field"><label>Nombre</label><input name="name" value="${esc(first.name)}" required></div><div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(first.whatsapp)}" inputmode="tel"></div><label class="combo-mobile-toggle"><span>${hasSplitDates ? 'Actualizar todos los vencimientos' : 'Actualizar vencimiento del combo'}</span><input type="checkbox" name="updateDueDate" ${hasSplitDates ? '' : 'checked'}></label><div class="field"><label>Vencimiento${hasSplitDates ? ' (las apps conservan su fecha hasta que actives la opción)' : ''}</label><input name="dueDate" type="date" value="${esc(first.dueDate)}" required ${hasSplitDates ? 'disabled' : ''}></div><div class="field"><label>Notas</label><textarea name="notes">${esc(first.notes)}</textarea></div>${isFinanceModeEnabled()?`<div class="grid two"><div class="field"><label>Precio actual del combo</label><input name="comboTotalPrice" value="${esc(meta.totalPrice || '')}" inputmode="decimal"></div><div class="field"><label>Próxima renovación</label><input name="comboRenewalPrice" value="${esc(meta.renewalPrice || '')}" inputmode="decimal"></div></div>`:''}<button class="btn primary" type="submit">${icon('save')}<span>Guardar datos</span></button></form>`);
   const updateDueToggle=$('#editComboDataForm [name="updateDueDate"]');
   const dueInput=$('#editComboDataForm [name="dueDate"]');
   updateDueToggle.onchange=()=>{ dueInput.disabled=!updateDueToggle.checked; };
@@ -2915,7 +2953,8 @@ function openEditComboSheet(client){
     event.preventDefault();
     const form=event.currentTarget, data=Object.fromEntries(new FormData(form).entries());
     const updateDueDate=updateDueToggle.checked;
-    const updated=rows.map(row=>({...row,name:clean(data.name),whatsapp:clean(data.whatsapp),dueDate:updateDueDate?clean(data.dueDate):row.dueDate,notes:clean(data.notes),comboTotalPrice:isFinanceModeEnabled()?moneyNumber(data.comboTotalPrice):row.comboTotalPrice,comboRenewalPrice:isFinanceModeEnabled()?moneyNumber(data.comboRenewalPrice):row.comboRenewalPrice,updatedAt:new Date().toISOString()}));
+    const updated=rows.map(row=>({...row,name:clean(data.name),whatsapp:clean(data.whatsapp),dueDate:updateDueDate?clean(data.dueDate):row.dueDate,notes:clean(data.notes),comboTotalPrice:isFinanceModeEnabled()?moneyNumber(data.comboTotalPrice):meta.totalPrice,comboRenewalPrice:isFinanceModeEnabled()?moneyNumber(data.comboRenewalPrice):meta.renewalPrice,updatedAt:new Date().toISOString()}));
+    applyComboMetadataMobile(updated,{...meta,totalPrice:isFinanceModeEnabled()?moneyNumber(data.comboTotalPrice):meta.totalPrice,renewalPrice:isFinanceModeEnabled()?moneyNumber(data.comboRenewalPrice):meta.renewalPrice});
     const button=form.querySelector('button[type="submit"]');button.disabled=true;
     try{await setClientsBatch(updated);state.clients=[...updated,...state.clients.filter(item=>!rows.some(row=>row.id===item.id))];cacheMobileState();toast('Datos del combo actualizados.');closeSheet();render();}catch(err){button.disabled=false;showMobileSupportError(err,'editar-combo');}
   };
@@ -2923,7 +2962,8 @@ function openEditComboSheet(client){
 function openRetireComboAppsSheet(client){
   const rows=activeComboClients(client?.comboId);
   if(rows.length<2) return toast('Este combo ya solo tiene una app activa.','bad');
-  openSheet(`<div class="sheet-head"><h3>Retirar apps del combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="retireComboAppsForm" class="grid"><div class="settings-card"><strong>${esc(rows[0].comboName || 'Combo')}</strong><span class="beta-note">Deja marcadas las apps que continuarán. Las que desmarques se retirarán y liberarán su perfil.</span></div><div class="list">${rows.map(row=>`<label class="combo-mobile-toggle"><span>${esc(platformShort(row.platform))}<small class="activation-code-help">Perfil ${esc(row.profile || '-')}</small></span><input type="checkbox" data-keep-combo-app="${esc(row.id)}" checked></label>`).join('')}</div><div class="settings-card"><span class="beta-note" id="retireComboSummary">Continuarán las ${rows.length} apps. No se liberará ningún perfil.</span></div><button class="btn bad" type="submit">${icon('scissors')}<span>Confirmar retiro</span></button></form>`);
+  const meta=comboMetadataMobile(rows);
+  openSheet(`<div class="sheet-head"><h3>Retirar apps del combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="retireComboAppsForm" class="grid"><div class="settings-card"><strong>${esc(meta.name)}</strong><span class="beta-note">Deja marcadas las apps que continuarán. Las que desmarques se retirarán y liberarán su perfil.</span></div><div class="list">${rows.map(row=>`<label class="combo-mobile-toggle"><span>${esc(platformShort(row.platform))}<small class="activation-code-help">Perfil ${esc(row.profile || '-')}</small></span><input type="checkbox" data-keep-combo-app="${esc(row.id)}" checked></label>`).join('')}</div><div class="settings-card"><span class="beta-note" id="retireComboSummary">Continuarán las ${rows.length} apps. No se liberará ningún perfil.</span></div><button class="btn bad" type="submit">${icon('scissors')}<span>Confirmar retiro</span></button></form>`);
   const selectedIds=()=>Array.from(document.querySelectorAll('[data-keep-combo-app]:checked')).map(input=>input.dataset.keepComboApp);
   const updateSummary=()=>{ const kept=rows.filter(row=>selectedIds().includes(row.id)); const removed=rows.filter(row=>!selectedIds().includes(row.id)); const summary=$('#retireComboSummary'); if(summary) summary.textContent=removed.length?`Continuarán: ${kept.map(row=>platformShort(row.platform)).join(', ')}. Se retirarán: ${removed.map(row=>platformShort(row.platform)).join(', ')} y se liberarán sus perfiles.`:`Continuarán las ${kept.length} apps. No se liberará ningún perfil.`; };
   document.querySelectorAll('[data-keep-combo-app]').forEach(input=>input.addEventListener('change',updateSummary));
@@ -2932,7 +2972,11 @@ function openRetireComboAppsSheet(client){
     if(!kept.length) return toast('Deja al menos una app activa o usa “No renovó” para todo el combo.','bad');
     if(!removed.length) return toast('Desmarca las apps que deseas retirar.','bad');
     if(!confirm(`Se retirarán ${removed.length} app(s) y se liberarán sus perfiles. ¿Continuar?`)) return;
-    const now=new Date().toISOString(); const nextSize=kept.length; const updated=[...kept.map(row=>({...row,comboSize:nextSize,comboId:nextSize===1?'':row.comboId,comboName:nextSize===1?'':row.comboName,comboCreatedAt:nextSize===1?'':row.comboCreatedAt,comboTotalPrice:nextSize===1?0:row.comboTotalPrice,comboRenewalPrice:nextSize===1?0:row.comboRenewalPrice,updatedAt:now})),...removed.map(row=>({...row,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
+    const now=new Date().toISOString(); const nextSize=kept.length;
+    const remaining=kept.map(row=>({...row,updatedAt:now}));
+    if(nextSize===1) Object.assign(remaining[0],{comboId:'',comboName:'',comboSize:0,comboCreatedAt:'',comboTotalPrice:0,comboRenewalPrice:0});
+    else applyComboMetadataMobile(remaining,{...meta,size:nextSize});
+    const updated=[...remaining,...removed.map(row=>({...row,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
     const button=event.currentTarget.querySelector('button[type="submit"]'); button.disabled=true;
     try{ await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))]; cacheMobileState(); closeSheet(); render(); toast(`${removed.length} app(s) retirada(s) y perfiles liberados.`); }catch(err){ button.disabled=false; showMobileSupportError(err,'retirar-apps-combo'); }
   };
@@ -2941,15 +2985,16 @@ function openChangeComboSheet(client){
   const current=activeComboClients(client?.comboId);
   const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
   if(!current.length || !templates.length) return toast('No hay combos configurados.','bad');
+  const currentMeta=comboMetadataMobile(current);
   const currentPlatforms=current.map(c=>clean(c.platform));
-  const originalComboId=clean(current[0].comboId);
-  const originalCustomerId=clean(current[0].customerId) || current[0].id;
-  const defaultDueDate=clean(current[0].dueDate) || addMonthsISO(todayISO(),1);
+  const originalComboId=clean(currentMeta.id);
+  const originalCustomerId=clean(currentMeta.source.customerId) || currentMeta.source.id;
+  const defaultDueDate=clean(currentMeta.source.dueDate) || addMonthsISO(todayISO(),1);
   const newAppFields=platform=>{
     const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountCanSellProfile(a.id));
     return `<div class="combo-app-card" data-change-combo-platform="${esc(platform)}"><div class="combo-title"><span>${esc(platform)}</span><span class="combo-badge">Nueva app</span></div><div class="field"><label>Cuenta madre</label><select data-change-combo-account="${esc(platform)}">${comboAccountOptions(platform,first?.id || '')}</select></div><div class="grid two"><div class="field"><label>Perfil</label><input data-change-combo-profile="${esc(platform)}" value="${esc(first ? nextProfileSuggestionMobile(first.id) : '')}" placeholder="1"></div><div class="field"><label>PIN</label><input data-change-combo-pin="${esc(platform)}" placeholder="1234"></div></div><label class="combo-mobile-toggle"><span>Activar por código<small class="activation-code-help">Envía correo, perfil y PIN; nunca contraseña.</small></span><input type="checkbox" data-change-combo-activation="${esc(platform)}"></label><div class="field"><label>Vence esta app</label><input type="date" data-change-combo-due="${esc(platform)}" value="${esc(defaultDueDate)}" required></div></div>`;
   };
-  openSheet(`<div class="sheet-head"><h3>Gestionar combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><div class="grid"><div class="settings-card"><strong>Combo actual: ${esc(current[0].comboName || 'Combo')}</strong><span class="beta-note">${esc(currentPlatforms.join(', '))}</span><span class="beta-note">Se conserva el historial. Las apps retiradas se archivan y liberan su perfil.</span></div><div class="field"><label>Nuevo combo</label><select id="changeComboTemplate"><option value="">Elige el combo que deseas aplicar</option>${templates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} - ${t.platforms.length} apps</option>`).join('')}</select></div>${isFinanceModeEnabled()?`<div class="grid two"><div class="field"><label>Precio actual del combo</label><input id="changeComboTotalPrice" value="${esc(current[0].comboTotalPrice || '')}" inputmode="decimal"></div><div class="field"><label>Próxima renovación</label><input id="changeComboRenewalPrice" value="${esc(current[0].comboRenewalPrice || '')}" inputmode="decimal"></div></div>`:''}<div class="settings-card" id="changeComboPreview"><span class="beta-note">Elige un nuevo combo para revisar los cambios.</span></div><button class="btn primary" id="confirmChangeCombo" disabled>${icon('save')}<span>Confirmar cambio</span></button></div>`);
+  openSheet(`<div class="sheet-head"><h3>Gestionar combo</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><div class="grid"><div class="settings-card"><strong>Combo actual: ${esc(currentMeta.name)}</strong><span class="beta-note">${esc(currentPlatforms.join(', '))}</span><span class="beta-note">Se conserva el historial. Las apps retiradas se archivan y liberan su perfil.</span></div><div class="field"><label>Nuevo combo</label><select id="changeComboTemplate"><option value="">Elige el combo que deseas aplicar</option>${templates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} - ${t.platforms.length} apps</option>`).join('')}</select></div>${isFinanceModeEnabled()?`<div class="grid two"><div class="field"><label>Precio actual del combo</label><input id="changeComboTotalPrice" value="${esc(currentMeta.totalPrice || '')}" inputmode="decimal"></div><div class="field"><label>Próxima renovación</label><input id="changeComboRenewalPrice" value="${esc(currentMeta.renewalPrice || '')}" inputmode="decimal"></div></div>`:''}<div class="settings-card" id="changeComboPreview"><span class="beta-note">Elige un nuevo combo para revisar los cambios.</span></div><button class="btn primary" id="confirmChangeCombo" disabled>${icon('save')}<span>Confirmar cambio</span></button></div>`);
   const preview=()=>{
     const selectedId=$('#changeComboTemplate').value;
     const tpl=templates.find(t=>t.id===selectedId);
@@ -2996,11 +3041,11 @@ function openChangeComboSheet(client){
       const profile=clean(document.querySelector(`[data-change-combo-profile="${CSS.escape(platform)}"]`)?.value);
       const pin=clean(document.querySelector(`[data-change-combo-pin="${CSS.escape(platform)}"]`)?.value);
       const dueDate=clean(document.querySelector(`[data-change-combo-due="${CSS.escape(platform)}"]`)?.value) || defaultDueDate;
-      rows.push({...current[0],id:id(),accountId:account.id,platform:account.platform||platform,profile,pin,activationByCode,dueDate,state:'Activo',comboName:tpl.name,comboSize:tpl.platforms.length,updatedAt:new Date().toISOString()});
+      rows.push({...currentMeta.source,id:id(),accountId:account.id,platform:account.platform||platform,profile,pin,activationByCode,dueDate,state:'Activo',comboName:tpl.name,comboSize:tpl.platforms.length,updatedAt:new Date().toISOString()});
     }
     const removed=current.filter(c=>!used.has(c.id));
-    const totalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboTotalPrice')?.value):current[0].comboTotalPrice;
-    const renewalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboRenewalPrice')?.value):current[0].comboRenewalPrice;
+    const totalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboTotalPrice')?.value):currentMeta.totalPrice;
+    const renewalPrice=isFinanceModeEnabled()?moneyNumber($('#changeComboRenewalPrice')?.value):currentMeta.renewalPrice;
     rows.forEach(row=>{const standalone=rows.length===1;row.comboId=standalone?'':originalComboId;row.customerId=originalCustomerId;row.comboName=standalone?'':row.comboName;row.comboSize=standalone?0:rows.length;row.comboCreatedAt=standalone?'':row.comboCreatedAt;row.comboTotalPrice=standalone?0:totalPrice;row.comboRenewalPrice=standalone?0:renewalPrice;});
     if(!confirm(`Cambiar a ${tpl.name}?\n\nSe mantienen: ${rows.filter(row=>current.some(old=>old.id===row.id)).length}\nSe agregan: ${rows.filter(row=>!current.some(old=>old.id===row.id)).length}\nSe archivan: ${removed.length}\n\nNo se registrará un cobro automáticamente.`)) return;
     const batch=writeBatch(db);
@@ -3014,7 +3059,8 @@ function openChangeComboSheet(client){
 function openComboChangeCompleteSheet(comboId, message=''){
   const rows=activeComboClients(comboId);
   if(!rows.length) return toast('Combo actualizado.');
-  openSheet(`<div class="sheet-head"><h3>Combo actualizado</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><div class="grid"><div class="settings-card"><strong>${esc(rows[0].comboName || 'Combo')}</strong><span class="beta-note">${esc(message || `Se actualizaron ${rows.length} apps. Las que retiraste quedaron archivadas y sus perfiles fueron liberados.`)}</span></div><button class="btn ok" id="sendChangedComboWhatsApp">${icon('message')}<span>Enviar datos por WhatsApp</span></button><button class="btn" id="closeChangedCombo">Listo</button></div>`);
+  const meta=comboMetadataMobile(rows);
+  openSheet(`<div class="sheet-head"><h3>Combo actualizado</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><div class="grid"><div class="settings-card"><strong>${esc(meta.name)}</strong><span class="beta-note">${esc(message || `Se actualizaron ${meta.size} apps. Las que retiraste quedaron archivadas y sus perfiles fueron liberados.`)}</span></div><button class="btn ok" id="sendChangedComboWhatsApp">${icon('message')}<span>Enviar datos por WhatsApp</span></button><button class="btn" id="closeChangedCombo">Listo</button></div>`);
   $('#sendChangedComboWhatsApp').onclick=()=>openWhatsAppCombo(activeComboClients(comboId),'delivery');
   $('#closeChangedCombo').onclick=closeSheet;
 }
@@ -3022,10 +3068,11 @@ function openRejoinComboSheet(archived){
   if(!archived) return;
   const current=activeComboClients(archived.comboId);
   if(!current.length) return toast('Ese combo ya no tiene apps activas. Crea una venta nueva para reincorporarla.','bad');
+  const meta=comboMetadataMobile(current);
   const platform=clean(archived.platform);
   const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountCanSellProfile(a.id));
-  const dueDate=clean(current[0].dueDate) || addMonthsISO(todayISO(),1);
-  openSheet(`<div class="sheet-head"><h3>Reincorporar app</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="rejoinComboForm" class="grid"><div class="settings-card"><strong>${esc(platform)}</strong><span class="beta-note">Volverá al ${esc(current[0].comboName || 'combo actual')} de ${esc(clientName(archived))}.</span></div><div class="field"><label>Cuenta madre</label><select name="accountId">${comboAccountOptions(platform,first?.id || '')}</select></div><div class="grid two"><div class="field"><label>Perfil</label><input name="profile" value="${esc(first ? nextProfileSuggestionMobile(first.id) : '')}" placeholder="1"></div><div class="field"><label>PIN</label><input name="pin" placeholder="1234"></div></div><label class="combo-mobile-toggle"><span>Activar por código<small class="activation-code-help">Envía correo, perfil y PIN; nunca contraseña.</small></span><input type="checkbox" name="activationByCode"></label><div class="field"><label>Vencimiento</label><input type="date" name="dueDate" value="${esc(dueDate)}" required></div><button class="btn primary" type="submit">${icon('refresh')}<span>Reincorporar al combo</span></button></form>`);
+  const dueDate=clean(meta.source.dueDate) || addMonthsISO(todayISO(),1);
+  openSheet(`<div class="sheet-head"><h3>Reincorporar app</h3><button class="iconbtn" id="closeSheet" aria-label="Cerrar">${icon('x')}</button></div><form id="rejoinComboForm" class="grid"><div class="settings-card"><strong>${esc(platform)}</strong><span class="beta-note">Volverá al ${esc(meta.name)} de ${esc(clientName(archived))}.</span></div><div class="field"><label>Cuenta madre</label><select name="accountId">${comboAccountOptions(platform,first?.id || '')}</select></div><div class="grid two"><div class="field"><label>Perfil</label><input name="profile" value="${esc(first ? nextProfileSuggestionMobile(first.id) : '')}" placeholder="1"></div><div class="field"><label>PIN</label><input name="pin" placeholder="1234"></div></div><label class="combo-mobile-toggle"><span>Activar por código<small class="activation-code-help">Envía correo, perfil y PIN; nunca contraseña.</small></span><input type="checkbox" name="activationByCode"></label><div class="field"><label>Vencimiento</label><input type="date" name="dueDate" value="${esc(dueDate)}" required></div><button class="btn primary" type="submit">${icon('refresh')}<span>Reincorporar al combo</span></button></form>`);
   const form=$('#rejoinComboForm');
   const accountInput=form.querySelector('[name="accountId"]');
   const profileInput=form.querySelector('[name="profile"]');
@@ -3040,7 +3087,8 @@ function openRejoinComboSheet(archived){
     if(!account || !accountMatchesComboPlatform(account,platform) || !accountCanSellProfile(account.id)) return toast(`Elige una cuenta disponible para ${platform}.`,'bad');
     const activationByCode=activationInput.checked;
     const nextSize=current.length+1;
-    const updatedRows=[...current.map(row=>({...row,comboSize:nextSize,updatedAt:new Date().toISOString()})),{...archived,accountId:account.id,profile:clean(data.profile),pin:clean(data.pin),activationByCode,dueDate:clean(data.dueDate),state:'Activo',comboName:current[0].comboName,comboSize:nextSize,updatedAt:new Date().toISOString()}];
+    const updatedRows=[...current.map(row=>({...row,updatedAt:new Date().toISOString()})),{...archived,accountId:account.id,profile:clean(data.profile),pin:clean(data.pin),activationByCode,dueDate:clean(data.dueDate),state:'Activo',updatedAt:new Date().toISOString()}];
+    applyComboMetadataMobile(updatedRows,{...meta,size:nextSize});
     const button=form.querySelector('button[type="submit"]');button.disabled=true;
     try{await setClientsBatch(updatedRows);state.clients=[...updatedRows,...state.clients.filter(row=>!updatedRows.some(next=>next.id===row.id))];cacheMobileState();closeSheet();render();openComboChangeCompleteSheet(archived.comboId,`${platform} volvió a formar parte del combo.`);}catch(err){button.disabled=false;showMobileSupportError(err,'reincorporar-combo');}
   };
