@@ -400,7 +400,7 @@ const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
   settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
-  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null
+  security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null, settingsBaseline:null
 };
 const MOBILE_STATE_CACHE_BASE_KEY = 'gestion_streaming_mobile_v1';
 const mobileStateCacheKey = () => `${MOBILE_STATE_CACHE_BASE_KEY}_${state.uid || 'anon'}`;
@@ -438,6 +438,7 @@ function restoreMobileStateFromCache(maxAgeMs=MOBILE_STATE_CACHE_TTL){
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.clients = Array.isArray(data.clients) ? data.clients : [];
     state.settings = normalizeSettings(data.settings || {});
+    state.settingsBaseline = cloneSettings(state.settings);
     state.syncRevision = data.syncRevision ?? localStorage.getItem(mobileStateCacheRevisionKey()) ?? null;
     state.financeMovements = Array.isArray(data.financeMovements) ? data.financeMovements.map(normalizeFinanceMovement) : [];
     state.financeMovementsFullLoaded = data.financeMovementsFullLoaded === true;
@@ -867,6 +868,15 @@ function normalizeSettings(data={}){
     comboTemplates: normalizeComboTemplates(data.comboTemplates, categories),
     security: data.security && typeof data.security === 'object' ? {passwordChangedAt:clean(data.security.passwordChangedAt)} : {}
   };
+}
+function cloneSettings(settings){ return JSON.parse(JSON.stringify(settings || {})); }
+function sameSettingsValue(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
+function keepRemoteSettingsThatWereNotEdited(next, baseline, remote){
+  const merged=cloneSettings(next);
+  ['paymentMethods','finalMessage','codeActivationMessage','categories','defaultCountryCode','financeMode','financeCurrency','financeSymbol','platformPrices','comboTemplates','security'].forEach(field=>{
+    if(sameSettingsValue(next?.[field],baseline?.[field]) && !sameSettingsValue(remote?.[field],baseline?.[field])) merged[field]=remote[field];
+  });
+  return normalizeSettings(merged);
 }
 function normalizePlatformPrices(value={}, categories=[]){
   const out = {};
@@ -2395,12 +2405,20 @@ async function removeItem(kind,itemId){
 }
 async function saveSettings(next){
   const wasFinanceOn = isFinanceModeEnabled();
-  const nextSettings = normalizeSettings(next);
+  const baseline = normalizeSettings(state.settingsBaseline || state.settings);
+  let nextSettings = normalizeSettings(next);
   try{
+    try{
+      const remoteSnap = await getDocFromServer(settingsRef(state.uid));
+      if(remoteSnap.exists()) nextSettings = keepRemoteSettingsThatWereNotEdited(nextSettings, baseline, normalizeSettings(remoteSnap.data() || {}));
+    }catch(_){
+      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+    }
     await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
     state.syncRevision = null;
     try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
     state.settings = nextSettings;
+    state.settingsBaseline = cloneSettings(nextSettings);
     if(state.settings.financeMode === false && state.view === 'finance') state.view = 'home';
     if(!wasFinanceOn && isFinanceModeEnabled()){
       state.financeMovements = (await getFinanceMovements(state.uid, 'all')).filter(Boolean);
@@ -3412,6 +3430,7 @@ async function loadOnce(showToast=true, forceNetwork=false){
     state.financeMovements = fin.filter(Boolean);
     state.financeMovementsFullLoaded = false;
     state.settings = normalizeSettings(cfg.data() || {});
+    state.settingsBaseline = cloneSettings(state.settings);
     state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
     try{ localStorage.setItem(mobileStateCacheRevisionKey(), String(state.syncRevision)); }catch(_){}
     cacheMobileState();

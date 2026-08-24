@@ -843,6 +843,19 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
       : {}
   };
 }
+function cloneGestorSettings(settings = {}) {
+  return JSON.parse(JSON.stringify(settings || {}));
+}
+function sameGestorSettingValue(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function keepRemoteGestorSettingsThatWereNotEdited(next, baseline, remote) {
+  const merged = cloneGestorSettings(next);
+  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','platformPrices','finalMessage','codeActivationMessage','security'].forEach(field => {
+    if (sameGestorSettingValue(next?.[field], baseline?.[field]) && !sameGestorSettingValue(remote?.[field], baseline?.[field])) merged[field] = remote[field];
+  });
+  return sanitizeGestorSettingsForFirestore(merged);
+}
 function sanitizeFinanceMovementForFirestore(data = {}) {
   const amount = Number(data.amount || 0);
   const source = fsString(data.source, 40, 'manual');
@@ -997,10 +1010,19 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return false;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
+    const baseline = window.__gestorSettingsBaseline || sanitizeGestorSettingsForFirestore(settingsData || {});
+    let nextSettings = sanitizeGestorSettingsForFirestore(settingsData || {});
+    try {
+      const remoteSnap = await getDocFromServer(settingsRef(user.uid));
+      if (remoteSnap.exists()) nextSettings = keepRemoteGestorSettingsThatWereNotEdited(nextSettings, baseline, sanitizeGestorSettingsForFirestore(remoteSnap.data() || {}));
+    } catch (_) {
+      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+    }
     await setDoc(settingsRef(user.uid), {
-      ...sanitizeGestorSettingsForFirestore(settingsData || {}),
+      ...nextSettings,
       gestorDataRevision: increment(1)
     }, { merge: true });
+    window.__gestorSettingsBaseline = cloneGestorSettings(nextSettings);
     try { localStorage.removeItem(gestorStateCacheKey(user.uid) + '_revision'); } catch (_) {}
     try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
@@ -5729,6 +5751,7 @@ function normalizeLoaded(data){
 window.__loadFromFirestore = function(data){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
+  window.__gestorSettingsBaseline = cloneGestorSettings(sanitizeGestorSettingsForFirestore(state.settings || {}));
   // Actualizar localStorage como respaldo
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   updateExpiredSummary();
