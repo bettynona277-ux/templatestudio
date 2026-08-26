@@ -871,11 +871,24 @@ function normalizeSettings(data={}){
 }
 function cloneSettings(settings){ return JSON.parse(JSON.stringify(settings || {})); }
 function sameSettingsValue(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
+function mergeRemotePlatformPrices(nextPrices={}, baselinePrices={}, remotePrices={}){
+  const merged=cloneSettings(nextPrices || {});
+  const keys=new Set([...Object.keys(nextPrices || {}),...Object.keys(baselinePrices || {}),...Object.keys(remotePrices || {})]);
+  keys.forEach(key=>{
+    // Si esta pantalla no cambio una plataforma, se conserva la version mas
+    // reciente de Firestore para que otra pestana no pierda ese precio.
+    if(!sameSettingsValue(nextPrices?.[key],baselinePrices?.[key]) || sameSettingsValue(remotePrices?.[key],baselinePrices?.[key])) return;
+    if(remotePrices?.[key] === undefined) delete merged[key];
+    else merged[key]=cloneSettings(remotePrices[key]);
+  });
+  return merged;
+}
 function keepRemoteSettingsThatWereNotEdited(next, baseline, remote){
   const merged=cloneSettings(next);
-  ['paymentMethods','finalMessage','codeActivationMessage','categories','defaultCountryCode','financeMode','financeCurrency','financeSymbol','platformPrices','comboTemplates','security'].forEach(field=>{
+  ['paymentMethods','finalMessage','codeActivationMessage','categories','defaultCountryCode','financeMode','financeCurrency','financeSymbol','comboTemplates','security'].forEach(field=>{
     if(sameSettingsValue(next?.[field],baseline?.[field]) && !sameSettingsValue(remote?.[field],baseline?.[field])) merged[field]=remote[field];
   });
+  merged.platformPrices=mergeRemotePlatformPrices(next?.platformPrices,baseline?.platformPrices,remote?.platformPrices);
   return normalizeSettings(merged);
 }
 function normalizePlatformPrices(value={}, categories=[]){

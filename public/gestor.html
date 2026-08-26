@@ -126,11 +126,9 @@ function financeFullCacheKey(uid) {
 }
 
 function currentGestorRevision() {
-  try {
-    const uid = auth?.currentUser?.uid || '';
-    return (uid ? localStorage.getItem(gestorStateCacheKey(uid) + '_revision') : '') || localStorage.getItem('gestion_streaming_v5_revision') || '';
-  }
-  catch (_) { return ''; }
+  // localStorage se comparte entre pestanas. Usarlo aqui hacia que una pestana
+  // vieja creyera estar actualizada solo porque otra ya habia guardado cambios.
+  return String(window.__gestorCurrentRevision ?? '');
 }
 
 function readFinanceFullCache(uid) {
@@ -455,6 +453,7 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
         const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
         if (remoteRevision === cachedRevision) {
           window.__loadFromFirestore(JSON.parse(cached));
+          window.__gestorCurrentRevision = remoteRevision;
           return;
         }
       } catch (_) {
@@ -484,6 +483,7 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
     localStorage.setItem(cacheRevisionKey, String(settings.gestorDataRevision ?? 0));
   } catch (e) {}
   window.__loadFromFirestore(payload);
+  window.__gestorCurrentRevision = String(settings.gestorDataRevision ?? 0);
 }
 
 async function touchGestorDataRevision(uid) {
@@ -498,28 +498,34 @@ async function touchGestorDataRevision(uid) {
   }
 }
 
-// Un único listener de revisión mantiene la PC al día sin escuchar colecciones.
-let gestorAutoSyncUnsub = null;
-let gestorAutoSyncInFlight = false;
-
-async function syncGestorIfChanged(uid, remoteRevision) {
-  if (!uid || gestorAutoSyncInFlight) return;
-  if (String(remoteRevision ?? 0) === String(currentGestorRevision() || '')) return;
-  gestorAutoSyncInFlight = true;
-  try {
-    await loadFromSubcollections(uid, true);
-  } catch (err) {
-    console.warn('No se pudo comprobar la sincronización automática:', err);
-  } finally {
-    gestorAutoSyncInFlight = false;
-  }
+// Oyentes por coleccion: cada pestana actualiza su pantalla cuando otra guarda.
+// Evita volver a leer todas las colecciones completas ante un solo cambio.
+let gestorAutoSyncUnsubs = [];
+function stopGestorAutoSync() {
+  gestorAutoSyncUnsubs.forEach(unsub => { try { unsub(); } catch (_) {} });
+  gestorAutoSyncUnsubs = [];
 }
-
 function startGestorAutoSync(uid) {
-  if (gestorAutoSyncUnsub) gestorAutoSyncUnsub();
-  gestorAutoSyncUnsub = onSnapshot(settingsRef(uid), snap => {
-    syncGestorIfChanged(uid, snap.data()?.gestorDataRevision ?? 0);
-  }, err => console.warn('No se pudo escuchar la sincronización del gestor:', err));
+  stopGestorAutoSync();
+  const listen = (target, receive, label) => {
+    gestorAutoSyncUnsubs.push(onSnapshot(target, receive, err => console.warn(`No se pudo sincronizar ${label}:`, err)));
+  };
+  listen(settingsRef(uid), snap => {
+    if (!snap.exists()) return;
+    const revision = String(snap.data()?.gestorDataRevision ?? 0);
+    if (revision === currentGestorRevision()) return;
+    window.__gestorCurrentRevision = revision;
+    window.__applyGestorLiveSettingsFromFirestore?.(snap.data() || {});
+  }, 'ajustes');
+  listen(accountsCol(uid), snap => {
+    window.__replaceGestorLiveCollection?.('accounts', snap.docs.map(row => ({ id:row.id, ...row.data() })));
+  }, 'cuentas');
+  listen(clientsCol(uid), snap => {
+    window.__replaceGestorLiveCollection?.('clients', snap.docs.map(row => ({ id:row.id, ...row.data() })));
+  }, 'clientes');
+  listen(query(financeCol(uid), orderBy('occurredAt', 'desc'), limit(FINANCE_RECENT_LIMIT)), snap => {
+    window.__replaceFinanceMovementsFromFirestore?.(snap.docs.map(row => ({ id:row.id, ...row.data() })), false);
+  }, 'finanzas');
 }
 
 // Carga inicial, sincronización manual y revisión remota mínima.
@@ -849,11 +855,28 @@ function cloneGestorSettings(settings = {}) {
 function sameGestorSettingValue(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
+function mergeRemoteGestorPlatformPrices(nextPrices = {}, baselinePrices = {}, remotePrices = {}) {
+  const merged = cloneGestorSettings(nextPrices || {});
+  const keys = new Set([
+    ...Object.keys(nextPrices || {}),
+    ...Object.keys(baselinePrices || {}),
+    ...Object.keys(remotePrices || {})
+  ]);
+  keys.forEach(key => {
+    // Una pestaña que no modifico esta plataforma conserva el valor mas nuevo
+    // que ya exista en Firestore. Asi no borra precios de otras plataformas.
+    if (!sameGestorSettingValue(nextPrices?.[key], baselinePrices?.[key]) || sameGestorSettingValue(remotePrices?.[key], baselinePrices?.[key])) return;
+    if (remotePrices?.[key] === undefined) delete merged[key];
+    else merged[key] = cloneGestorSettings(remotePrices[key]);
+  });
+  return merged;
+}
 function keepRemoteGestorSettingsThatWereNotEdited(next, baseline, remote) {
   const merged = cloneGestorSettings(next);
-  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','platformPrices','finalMessage','codeActivationMessage','security'].forEach(field => {
+  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','finalMessage','codeActivationMessage','security'].forEach(field => {
     if (sameGestorSettingValue(next?.[field], baseline?.[field]) && !sameGestorSettingValue(remote?.[field], baseline?.[field])) merged[field] = remote[field];
   });
+  merged.platformPrices = mergeRemoteGestorPlatformPrices(next?.platformPrices, baseline?.platformPrices, remote?.platformPrices);
   return sanitizeGestorSettingsForFirestore(merged);
 }
 function sanitizeFinanceMovementForFirestore(data = {}) {
@@ -5757,6 +5780,35 @@ window.__loadFromFirestore = function(data){
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
+};
+window.__applyGestorLiveSettingsFromFirestore = function(settings){
+  const normalized=normalizeLoaded({
+    accounts:state.accounts,
+    clients:state.clients,
+    financeMovements:state.financeMovements,
+    financeMovementsFullLoaded:state.financeMovementsFullLoaded,
+    settings
+  });
+  state.settings=normalized.settings;
+  window.__gestorSettingsBaseline=JSON.parse(JSON.stringify(state.settings || {}));
+  touchLocalStateCache();
+  refreshUI();
+};
+window.__replaceGestorLiveCollection = function(kind, rows){
+  if(kind !== 'accounts' && kind !== 'clients') return;
+  const normalized=normalizeLoaded({
+    accounts:kind === 'accounts' ? rows : state.accounts,
+    clients:kind === 'clients' ? rows : state.clients,
+    financeMovements:state.financeMovements,
+    financeMovementsFullLoaded:state.financeMovementsFullLoaded,
+    settings:state.settings
+  });
+  state.accounts=normalized.accounts;
+  state.clients=normalized.clients;
+  // Las categorias tambien consideran plataformas nuevas de cuentas madre.
+  state.settings=normalized.settings;
+  touchLocalStateCache();
+  refreshUI();
 };
 window.__replaceFinanceMovementsFromFirestore = function(financeMovements, fullLoaded=false){
   state.financeMovements=(financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
