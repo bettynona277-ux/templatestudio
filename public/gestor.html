@@ -8087,13 +8087,18 @@ async function applyRenewalDate(clientId, newDate){
   }
   const comboList=c.comboId ? activeComboClients(c.comboId) : [];
   const scopeInputs=comboList.length>1 ? $$('#renewComboScope input') : [];
+  const checkedIds=comboList.length>1 && scopeInputs.length
+    ? scopeInputs.filter(input=>input.checked).map(input=>input.value)
+    : [];
+  // Renovar cero apps no es una accion valida. Si el navegador perdio el estado
+  // de los checks, se conserva el combo completo antes que bloquear o retirar algo.
   const selectedIds=comboList.length>1
-    ? (scopeInputs.length ? scopeInputs.filter(input=>input.checked).map(input=>input.value) : comboList.map(item=>item.id))
+    ? (checkedIds.length ? checkedIds : comboList.map(item=>item.id))
     : [c.id];
   const partial=comboList.length>1 && selectedIds.length<comboList.length;
   const selected=comboList.length>1 ? comboList.filter(item=>selectedIds.includes(item.id)) : [c];
   const target=selected[0] || c;
-  if(!selected.length){ alert('Selecciona al menos una app para renovar.'); return; }
+  if(!selected.length){ alert('No se encontro una app activa para renovar. Actualiza la lista e intenta nuevamente.'); return; }
   const renewalDates=selected.map(item=>`${friendlyPlatform(item.platform)}: ${fmtDateLong(window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate)}`);
   const exactWarning=window.__comboRenewMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
   if(!confirm(`Se renovarán estas apps:\n${renewalDates.join('\n')}${exactWarning}`)) return;

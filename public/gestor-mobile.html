@@ -2755,7 +2755,13 @@ function renewClient(c){
         <button class="btn">${icon('save')}<span>Guardar fecha personalizada</span></button>
       </form>
     </div>`);
-  const selectedIds=()=>combo.length>1?Array.from(document.querySelectorAll('[data-renew-app]:checked')).map(input=>input.dataset.renewApp):[c.id];
+  const selectedIds=()=>{
+    if(combo.length<2) return [c.id];
+    const checked=Array.from(document.querySelectorAll('[data-renew-app]:checked')).map(input=>input.dataset.renewApp).filter(Boolean);
+    // Si Android restauro los checks sin marcar, renovar el combo entero es la
+    // opcion segura: nunca se retiran perfiles ni se bloquea una renovacion.
+    return checked.length ? checked : combo.map(item=>item.id);
+  };
   const updateScope=()=>{ const selected=combo.filter(item=>selectedIds().includes(item.id)); const removed=combo.filter(item=>!selectedIds().includes(item.id)); const help=$('#renewScopeHelp'); if(help) help.textContent=removed.length?`Se renovarán: ${selected.map(item=>platformShort(item.platform)).join(', ')}. Se retirarán: ${removed.map(item=>platformShort(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
   document.querySelectorAll('[data-renew-app]').forEach(input=>input.addEventListener('change',updateScope));
   const confirmRenewal=(ids, date, durationMonths=0)=>{
