@@ -5745,20 +5745,29 @@ function load(){
   }catch(e){}
   return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE,financeMode:false,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
+function dedupeGestorRows(rows){
+  const seen=new Set();
+  return (rows||[]).filter(row=>{
+    const id=String(row?.id || '');
+    if(!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
 function normalizeLoaded(data){
-  data.accounts=(data.accounts||[]).map(a=>({
+  data.accounts=dedupeGestorRows((data.accounts||[]).map(a=>({
     id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'',
     capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'',
     notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true
-  }));
-  data.clients=(data.clients||[]).map(c=>({
+  })));
+  data.clients=dedupeGestorRows((data.clients||[]).map(c=>({
     id:c.id||uid(), customerId:c.customerId||c.id||'', name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, activationByCode:isActivationByCode(c.activationByCode), dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
     lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
-  }));
+  })));
   data.financeMovements=(data.financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
   data.financeMovementsFullLoaded=data.financeMovementsFullLoaded===true;
   let paymentMethods=[];
@@ -5839,6 +5848,8 @@ window.retryFinanceHistoryLoad=function(){
   renderFinance();
 };
 function touchLocalStateCache(){
+  state.accounts=dedupeGestorRows(state.accounts);
+  state.clients=dedupeGestorRows(state.clients);
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   if(state.financeMovementsFullLoaded && typeof window.__cacheFinanceMovementsLocally === 'function'){
     window.__cacheFinanceMovementsLocally(state.financeMovements || []);
@@ -9049,12 +9060,16 @@ $('#saveAccountBtn').onclick=async ()=>{
     }
   }
 };
+let clientSaveInFlight=false;
 $('#saveClientBtn').onclick=async ()=>{
+  if(clientSaveInFlight) return;
+  clientSaveInFlight=true;
   const wasNewSale=!editingClientId;
   const saveBtn=$('#saveClientBtn');
-  if(saveBtn.disabled) return;
+  if(saveBtn.disabled){ clientSaveInFlight=false; return; }
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
+  try{
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
   if(!name || !accountId){
     alert('Completa nombre y cuenta madre');
@@ -9107,6 +9122,9 @@ $('#saveClientBtn').onclick=async ()=>{
   if(wasNewSale){
     showDeliveryPrompt(data);
     focusClientAfterSale(data);
+  }
+  }finally{
+    clientSaveInFlight=false;
   }
 };
 function setSettingsSectionVisibility(section=''){
