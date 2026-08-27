@@ -2063,6 +2063,7 @@ function openClientSheet(item={}, options={}){
     e.preventDefault();
     const submitBtn = $('#clientSubmitBtn');
     const isNewSale = !c.id;
+    if(submitBtn.disabled) return;
     submitBtn.disabled = true;
     submitBtn.textContent = isNewSale ? 'Guardando...' : 'Guardando...';
     const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
@@ -2225,6 +2226,7 @@ async function saveComboFromForm(e){
   e.preventDefault();
   const form = e.currentTarget;
   const btn = $('#saveComboBtn');
+  if(btn?.disabled) return;
   btn.disabled = true;
   const fd = Object.fromEntries(new FormData(form).entries());
   const templates = normalizeComboTemplates(state.settings.comboTemplates, state.settings.categories);
@@ -2300,10 +2302,19 @@ function openAccountSheet(item={}){
   form.elements.category?.addEventListener('change', () => fillDefaultAccountPurchaseCostInForm(form, form.elements.category.value));
   $('#accountForm').onsubmit = async e => {
     e.preventDefault();
-    const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
-    const financePatch = isFinanceModeEnabled() ? {} : { purchaseCost:a.purchaseCost || 0, purchaseCostRegistered:false };
-    const data = sanitizeAccountForSave({...a, ...fd, ...financePatch, platform: fd.category || fd.platform || clean(a.platform), capacity:Number(fd.capacity || 0), id:a.id || id()});
-    await saveItem('account', data);
+    if(form.dataset.saving === '1') return;
+    form.dataset.saving='1';
+    const submitButton=form.querySelector('button[type="submit"]');
+    if(submitButton){ submitButton.disabled=true; submitButton.textContent='Guardando...'; }
+    try{
+      const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
+      const financePatch = isFinanceModeEnabled() ? {} : { purchaseCost:a.purchaseCost || 0, purchaseCostRegistered:false };
+      const data = sanitizeAccountForSave({...a, ...fd, ...financePatch, platform: fd.category || fd.platform || clean(a.platform), capacity:Number(fd.capacity || 0), id:a.id || id()});
+      await saveItem('account', data);
+    }finally{
+      form.dataset.saving='';
+      if(submitButton?.isConnected){ submitButton.disabled=false; submitButton.textContent='Guardar'; }
+    }
   };
   $('#deleteAccount').onclick = async () => a.id ? removeItem('account', a.id) : closeSheet();
 }
@@ -2579,13 +2590,26 @@ async function addCategoryFromForm(e){
   if(!category) return;
   await saveSettings({ ...state.settings, categories:[...state.settings.categories, category] });
 }
+const pendingComboTemplateKeys=new Set();
+function comboTemplateKeyMobile(nameValue, platformsValue){
+  const name=clean(nameValue).toLocaleLowerCase();
+  const platforms=(Array.isArray(platformsValue) ? platformsValue : clean(platformsValue).split(',')).map(clean).filter(Boolean).map(value=>value.toLocaleLowerCase()).sort();
+  return `${name}|${platforms.join('|')}`;
+}
 async function addComboTemplateFromForm(e){
   e.preventDefault();
   const fd = new FormData(e.currentTarget);
   const name = clean(fd.get('name'));
   const platforms = clean(fd.get('platforms')).split(',').map(clean).filter(Boolean);
   if(!name || !platforms.length) return;
-  await saveSettings({ ...state.settings, comboTemplates:[...state.settings.comboTemplates, { id:id(), name, platforms }] });
+  const key=comboTemplateKeyMobile(name,platforms);
+  if(pendingComboTemplateKeys.has(key) || state.settings.comboTemplates.some(template=>comboTemplateKeyMobile(template.name,template.platforms)===key)) return;
+  pendingComboTemplateKeys.add(key);
+  try{
+    await saveSettings({ ...state.settings, comboTemplates:[...state.settings.comboTemplates, { id:id(), name, platforms }] });
+  }finally{
+    pendingComboTemplateKeys.delete(key);
+  }
 }
 async function removeComboTemplate(templateId){
   if(!confirm('Eliminar este combo?')) return;
@@ -2612,7 +2636,12 @@ function openFinanceExpenseSheet(){
   $('#cancelFinanceExpense').onclick = closeSheet;
   $('#financeExpenseForm').onsubmit = async e => {
     e.preventDefault();
-    const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
+    const form=e.currentTarget;
+    if(form.dataset.saving === '1') return;
+    form.dataset.saving='1';
+    const submitButton=form.querySelector('button[type="submit"]');
+    if(submitButton){ submitButton.disabled=true; submitButton.textContent='Guardando...'; }
+    const fd = Object.fromEntries(new FormData(form).entries());
     try{
       await persistFinanceMovement({
         type:'expense',
@@ -2627,6 +2656,9 @@ function openFinanceExpenseSheet(){
       renderFinance();
     }catch(err){
       showMobileSupportError(err, 'guardar-gasto');
+    }finally{
+      form.dataset.saving='';
+      if(submitButton?.isConnected){ submitButton.disabled=false; submitButton.textContent='Guardar gasto'; }
     }
   };
 }
@@ -2845,8 +2877,12 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
   }catch(err){ showMobileSupportError(err, 'renovar-cuenta'); }
   finally{ accountRenewalsInFlight.delete(renewalKey); }
 }
+const clientRenewalsInFlight=new Set();
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0, options={}){
   if(!c || !nextDate) return;
+  const renewalKey=`${c.comboId || c.id}:${nextDate}`;
+  if(clientRenewalsInFlight.has(renewalKey)) return;
+  clientRenewalsInFlight.add(renewalKey);
   try{
     let sendRenewedMessage = null;
     const pricePatch = c.comboId ? { comboRenewalPrice:renewalAmount || moneyNumber(c.comboRenewalPrice) } : { renewalPrice:renewalAmount || moneyNumber(c.renewalPrice) };
@@ -2886,6 +2922,8 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     setTimeout(()=>sendRenewedMessage?.(), 80);
   }catch(err){
     showMobileSupportError(err, 'renovar-cliente');
+  }finally{
+    clientRenewalsInFlight.delete(renewalKey);
   }
 }
 async function markNoRenew(c){

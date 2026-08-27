@@ -7902,10 +7902,16 @@ function renderComboTemplateRows(){
       <button class="mini" type="button" onclick="removeComboTemplate('${escapeJs(t.id)}')">Borrar</button>
     </div>`).join('') : `<div class="empty">Sin combos personalizados</div>`;
 }
+function comboTemplateKey(nameValue, platformsValue){
+  const name=String(nameValue||'').trim().toLocaleLowerCase();
+  const platforms=uniqueClean(Array.isArray(platformsValue) ? platformsValue : String(platformsValue||'').split(/[,+|]/)).map(value=>String(value).trim().toLocaleLowerCase()).sort();
+  return `${name}|${platforms.join('|')}`;
+}
 function addComboTemplate(nameValue, platformsValue){
   const name=String(nameValue||'').trim();
   const platforms=uniqueClean(String(platformsValue||'').split(/[,+|]/).map(v=>v.trim()).filter(Boolean)).slice(0,8);
   if(!name || !platforms.length) return false;
+  if((state.settings.comboTemplates||[]).some(template=>comboTemplateKey(template.name,template.platforms)===comboTemplateKey(name,platforms))) return false;
   state.settings.comboTemplates=normalizeComboTemplates([...(state.settings.comboTemplates||[]),{id:uid(),name,platforms}],state.settings.categories);
   persistSettings();
   renderComboTemplateRows();
@@ -8130,6 +8136,7 @@ function renewalDateFor(client, amount, unit){
   else next=addMonthsClamped(next, qty);
   return dateToLocalString(next);
 }
+const clientRenewalsInFlight=new Set();
 async function applyRenewalDate(clientId, newDate){
   const c=state.clients.find(x=>x.id===clientId);
   if(!c) return;
@@ -8137,6 +8144,10 @@ async function applyRenewalDate(clientId, newDate){
     alert('Elige una fecha valida para renovar.');
     return;
   }
+  const renewalKey=`${c.comboId || c.id}:${newDate}`;
+  if(clientRenewalsInFlight.has(renewalKey)) return;
+  clientRenewalsInFlight.add(renewalKey);
+  try{
   const comboList=c.comboId ? activeComboClients(c.comboId) : [];
   const scopeInputs=comboList.length>1 ? $$('#renewComboScope input') : [];
   const checkedIds=comboList.length>1 && scopeInputs.length
@@ -8198,6 +8209,9 @@ async function applyRenewalDate(clientId, newDate){
   refreshUI();
   touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
+  }finally{
+    clientRenewalsInFlight.delete(renewalKey);
+  }
 }
 const accountRenewalsInFlight=new Set();
 async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
@@ -8627,6 +8641,7 @@ window.removePayment=(idx)=>{ state.settings.paymentMethods.splice(idx,1); rende
 async function saveComboSale(e){
   e.preventDefault();
   const btn=$('#saveComboBtn');
+  if(btn?.disabled) return;
   if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
   const name=$('#comboClientName').value.trim();
   const whatsapp=$('#comboWhatsapp').value.trim();
@@ -8955,27 +8970,45 @@ function openFinanceExpenseModal(){
   openModal('financeExpenseModalWrap');
   initDatepickers();
 }
+let manualFinanceExpenseInFlight=false;
 async function saveManualFinanceExpense(){
   if(!isFinanceModeEnabled()) return;
+  if(manualFinanceExpenseInFlight) return;
   const amount=moneyNumber($('#financeExpenseAmount').value);
   const description=String($('#financeExpenseDescription').value||'').trim();
   if(!amount || !description){ alert('Completa descripcion y monto.'); return; }
-  await persistFinanceMovement({
-    id:financeMovementId('manual_expense', Date.now()),
-    type:'expense',
-    source:'manual',
-    amount,
-    currency:financeCurrency(),
-    symbol:financeSymbol(),
-    description,
-    platform:$('#financeExpensePlatform').value.trim(),
-    occurredAt:($('#financeExpenseDate').value||todayStr())+'T12:00:00'
-  });
-  closeModal('financeExpenseModalWrap');
+  manualFinanceExpenseInFlight=true;
+  const button=$('#saveFinanceExpenseBtn');
+  if(button) button.disabled=true;
+  try{
+    await persistFinanceMovement({
+      id:financeMovementId('manual_expense', Date.now()),
+      type:'expense',
+      source:'manual',
+      amount,
+      currency:financeCurrency(),
+      symbol:financeSymbol(),
+      description,
+      platform:$('#financeExpensePlatform').value.trim(),
+      occurredAt:($('#financeExpenseDate').value||todayStr())+'T12:00:00'
+    });
+    closeModal('financeExpenseModalWrap');
+  }finally{
+    manualFinanceExpenseInFlight=false;
+    if(button?.isConnected) button.disabled=false;
+  }
 }
 
 
+let accountSaveInFlight=false;
 $('#saveAccountBtn').onclick=async ()=>{
+  if(accountSaveInFlight) return;
+  accountSaveInFlight=true;
+  const saveButton=$('#saveAccountBtn');
+  const originalLabel=saveButton.textContent;
+  saveButton.disabled=true;
+  saveButton.textContent='Guardando...';
+  try{
   const platform=$('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
@@ -9008,10 +9041,18 @@ $('#saveAccountBtn').onclick=async ()=>{
     },120);
   }
   pendingNotifyAfterSave=false;
+  }finally{
+    accountSaveInFlight=false;
+    if(saveButton?.isConnected){
+      saveButton.disabled=false;
+      saveButton.textContent=originalLabel;
+    }
+  }
 };
 $('#saveClientBtn').onclick=async ()=>{
   const wasNewSale=!editingClientId;
   const saveBtn=$('#saveClientBtn');
+  if(saveBtn.disabled) return;
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
