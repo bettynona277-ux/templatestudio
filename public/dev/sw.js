@@ -1,11 +1,14 @@
-const CACHE_NAME = `disenos-streaming-${self.registration.scope.includes('/dev/') ? 'dev-' : ''}v267`;
+const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
+const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
+const CACHE_NAME = `${CACHE_PREFIX}v268`;
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
+const SCOPE_URL = new URL(self.registration.scope);
 const ASSETS = [
-  '/manifest.json',
-  '/manifest-gestor.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png'
-];
+  'manifest.json',
+  'manifest-gestor.json',
+  'icons/icon-192.png',
+  'icons/icon-512.png'
+].map(path => new URL(path, SCOPE_URL).pathname);
 
 // Install ? cache assets
 self.addEventListener('install', e => {
@@ -20,7 +23,9 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME && k !== CLOUDINARY_CACHE).map(k => caches.delete(k)))
+      // Produccion y /dev comparten origen: cada worker solo limpia sus propias
+      // versiones para no invalidar ni responder con cache del otro entorno.
+      Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -29,6 +34,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  // El worker de produccion tiene scope raiz y tambien ve /dev. No debe
+  // interceptarlo: una respuesta cacheada de produccion hacia que el gestor
+  // movil de desarrollo terminara navegando a /gestor.html.
+  if(!IS_DEV_SCOPE && url.pathname.startsWith('/dev/')) return;
   const isNavigation = e.request.mode === 'navigate';
   const isHtml = e.request.destination === 'document' ||
     url.pathname === '/' ||
@@ -38,7 +47,6 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(e.request, { cache:'no-store' })
         .catch(() => caches.match(e.request))
-        .then(res => res || caches.match('/'))
         .then(res => res || new Response('Sin conexión', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
     );
     return;
