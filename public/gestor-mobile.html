@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#18d5a2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Gestor" />
-<link rel="manifest" href="/manifest-gestor.json?v=30" />
+<link rel="manifest" href="manifest-gestor.json?v=31" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <title>Gestor movil - Disenos Streaming</title>
 <script src="/app-check-config.js"></script>
@@ -621,6 +621,21 @@ async function setClientsBatch(clients){
     await batch.commit();
   }
   await touchMobileDataRevision();
+}
+
+async function persistClientRenewalWithIncome(clients, income){
+  const rows=(clients||[]).filter(Boolean);
+  if(!rows.length) throw new Error('No hay clientes para renovar.');
+  const batch=writeBatch(db);
+  rows.forEach(client=>batch.set(clientRef(client.id),client,{merge:true}));
+  const movement=income ? normalizeFinanceMovement(income) : null;
+  if(movement) batch.set(financeRef(movement.id),movement,{merge:true});
+  batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+  await batch.commit();
+  state.syncRevision=null;
+  try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){ }
+  if(movement) state.financeMovements=[movement,...state.financeMovements.filter(item=>item.id!==movement.id)];
+  return movement;
 }
 
 async function touchMobileDataRevision(){
@@ -1300,7 +1315,7 @@ async function recordRenewalIncome(client, amountOverride){
   const amount = moneyNumber(amountOverride ?? client?.renewalPrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('renewal', `${client.id}_${Date.now()}`),
+    id:renewalIncomeId('renewal', client.id, client.dueDate),
     type:'income', source:'renewal', amount,
     description:clientFinanceLabel(client, 'Renovacion'),
     platform:client.platform,
@@ -1309,12 +1324,32 @@ async function recordRenewalIncome(client, amountOverride){
     occurredAt:new Date().toISOString()
   });
 }
+function renewalIncomeId(source, entityId, dueDate){ return financeMovementId(source, `${entityId}_${dueDate || 'sin_fecha'}`); }
+function buildRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride ?? client?.renewalPrice);
+  if(!amount) return null;
+  return {id:renewalIncomeId('renewal',client.id,client.dueDate),type:'income',source:'renewal',amount,description:clientFinanceLabel(client,'Renovacion'),platform:client.platform,clientId:client.id,accountId:client.accountId,occurredAt:new Date().toISOString()};
+}
+function buildPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride ?? client?.renewalPrice);
+  if(!amount) return null;
+  return {id:renewalIncomeId('combo_partial_renewal',client.id,client.dueDate),type:'income',source:'combo_partial_renewal',amount,description:`Renovacion parcial - ${platformShort(client.platform)} - ${clientName(client)}`,platform:client.platform,clientId:client.id,accountId:client.accountId,comboId:clean(originalComboId) || client.comboId,occurredAt:new Date().toISOString()};
+}
+function buildComboRenewalIncome(clients, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const list=(clients||[]).filter(Boolean); const meta=comboMetadataMobile(list); const first=meta.source;
+  const amount=moneyNumber(amountOverride ?? meta.renewalPrice ?? meta.totalPrice);
+  if(!list.length || !amount) return null;
+  return {id:renewalIncomeId('combo_renewal',first.comboId,first.dueDate),type:'income',source:'combo_renewal',amount,description:`Renovacion combo ${meta.name} - ${clientName(first)}`,platform:list.map(c=>platformShort(c.platform)).filter(Boolean).join(', '),clientId:first.id,comboId:first.comboId,occurredAt:new Date().toISOString()};
+}
 async function recordPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
   if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(amountOverride ?? client?.renewalPrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_partial_renewal', `${client.id}_${Date.now()}`),
+    id:renewalIncomeId('combo_partial_renewal', client.id, client.dueDate),
     type:'income', source:'combo_partial_renewal', amount,
     description:`Renovacion parcial - ${platformShort(client.platform)} - ${clientName(client)}`,
     platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:clean(originalComboId) || client.comboId,
@@ -1346,7 +1381,7 @@ async function recordComboRenewalIncome(clients, amountOverride){
   const amount=moneyNumber(amountOverride ?? meta.renewalPrice ?? meta.totalPrice);
   if(!list.length || !amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_renewal', `${first.comboId}_${Date.now()}`),
+    id:renewalIncomeId('combo_renewal', first.comboId, first.dueDate),
     type:'income', source:'combo_renewal', amount,
     description:`Renovacion combo ${meta.name} - ${clientName(first)}`,
     platform:list.map(c=>platformShort(c.platform)).filter(Boolean).join(', '),
@@ -2107,7 +2142,7 @@ function openClientSheet(item={}, options={}){
       submitBtn.textContent = 'Entregar cuenta';
       return;
     }
-    await saveItem('client', data, { newSale:isNewSale, skipDeliverySheet:isNewSale });
+    await saveItem('client', data, { newSale:isNewSale, skipDeliverySheet:isNewSale, expectedUpdatedAt:clean(c.updatedAt) });
     if(isNewSale) openWhatsApp(data, 'delivery');
     submitBtn.disabled = false;
     submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
@@ -2310,7 +2345,7 @@ function openAccountSheet(item={}){
       const fd = Object.fromEntries(new FormData(e.currentTarget).entries());
       const financePatch = isFinanceModeEnabled() ? {} : { purchaseCost:a.purchaseCost || 0, purchaseCostRegistered:false };
       const data = sanitizeAccountForSave({...a, ...fd, ...financePatch, platform: fd.category || fd.platform || clean(a.platform), capacity:Number(fd.capacity || 0), id:a.id || id()});
-      await saveItem('account', data);
+      await saveItem('account', data, { expectedUpdatedAt:clean(a.updatedAt) });
     }finally{
       form.dataset.saving='';
       if(submitButton?.isConnected){ submitButton.disabled=false; submitButton.textContent='Guardar'; }
@@ -2321,6 +2356,14 @@ function openAccountSheet(item={}){
 async function saveItem(kind,data,opts={}){
   const cleanData = kind === 'account' ? sanitizeAccountForSave(data) : sanitizeClientForSave(data);
   try{
+    if(Object.prototype.hasOwnProperty.call(opts,'expectedUpdatedAt') && cleanData.id){
+      const remote=await getDocFromServer(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id));
+      if(remote.exists() && clean(remote.data()?.updatedAt) !== clean(opts.expectedUpdatedAt)){
+        const conflict=new Error('Este registro cambió en otro dispositivo. Actualiza la lista antes de guardar para no perder cambios.');
+        conflict.code='GESTOR_STALE_FORM';
+        throw conflict;
+      }
+    }
     await setDoc(kind === 'account' ? accountRef(cleanData.id) : clientRef(cleanData.id), cleanData, { merge:true });
     await touchMobileDataRevision();
     if(kind === 'account'){
@@ -2347,7 +2390,7 @@ async function saveItem(kind,data,opts={}){
   }catch(err){
     console.error(err);
     if(opts.deliveryWindow && !opts.deliveryWindow.closed) opts.deliveryWindow.close();
-    toast(mobileSupportError(err, 'guardar-venta'), 'bad');
+    toast(err?.code==='GESTOR_STALE_FORM' ? err.message : mobileSupportError(err, 'guardar-venta'), 'bad');
   }
 }
 function sanitizeAccountForSave(data={}){
@@ -2413,12 +2456,31 @@ function openSaleDeliverySheet(client){
   $('#viewMobileSale').onclick = closeSheet;
 }
 async function removeItem(kind,itemId){
-  if(!confirm('Eliminar este registro?')) return;
+  const linked=kind === 'account' ? state.clients.filter(client=>client.accountId===itemId) : [];
+  const activeLinked=linked.filter(client=>!['No renovó','Retirado del combo'].includes(clean(client.state)));
+  if(activeLinked.length){
+    toast('Primero libera o mueve los clientes activos de esta cuenta.','bad');
+    return;
+  }
+  const detail=linked.length ? ` Se conservarán ${linked.length} cliente(s) archivado(s), sin cuenta madre.` : '';
+  if(!confirm(`¿Eliminar este registro?${detail}`)) return;
   try{
-    await deleteDoc(kind === 'account' ? accountRef(itemId) : clientRef(itemId));
-    await touchMobileDataRevision();
-    if(kind === 'account') state.accounts = state.accounts.filter(a => a.id !== itemId);
-    else state.clients = state.clients.filter(c => c.id !== itemId);
+    if(kind === 'account'){
+      const batch=writeBatch(db);
+      batch.delete(accountRef(itemId));
+      const now=new Date().toISOString();
+      linked.forEach(client=>batch.set(clientRef(client.id),{...client,accountId:'',updatedAt:now},{merge:true}));
+      batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+      await batch.commit();
+      state.syncRevision=null;
+      try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){ }
+      state.accounts = state.accounts.filter(a => a.id !== itemId);
+      state.clients = state.clients.map(client=>client.accountId===itemId?{...client,accountId:'',updatedAt:now}:client);
+    }else{
+      await deleteDoc(clientRef(itemId));
+      await touchMobileDataRevision();
+      state.clients = state.clients.filter(c => c.id !== itemId);
+    }
     cacheMobileState();
     toast('Eliminado');
     closeSheet();
@@ -2427,7 +2489,10 @@ async function removeItem(kind,itemId){
     showMobileSupportError(err, 'eliminar');
   }
 }
+let settingsSaveInFlight=false;
 async function saveSettings(next){
+  if(settingsSaveInFlight) return false;
+  settingsSaveInFlight=true;
   const wasFinanceOn = isFinanceModeEnabled();
   const baseline = normalizeSettings(state.settingsBaseline || state.settings);
   let nextSettings = normalizeSettings(next);
@@ -2453,6 +2518,9 @@ async function saveSettings(next){
     renderSettings();
   }catch(err){
     showMobileSupportError(err, 'guardar-ajustes');
+    return false;
+  }finally{
+    settingsSaveInFlight=false;
   }
 }
 function formatSecurityDate(value){
@@ -2895,24 +2963,22 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       if(nextSize===1){ Object.assign(renewed[0],{comboId:'',comboName:'',comboSize:0,comboCreatedAt:'',comboTotalPrice:0,comboRenewalPrice:0}); }
       else{ applyComboMetadataMobile(renewed,{...meta,size:nextSize}); renewed.forEach(item=>{item.comboRenewalPrice=renewalAmount;}); }
       const updated=[...renewed,...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
-      await setClientsBatch(updated); state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
-      if(removed.length) await recordPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId); else await recordComboRenewalIncome(updated,renewalAmount);
+      const income=removed.length?buildPartialComboRenewalIncome(renewed[0],renewalAmount,originalComboId):buildComboRenewalIncome(renewed,renewalAmount);
+      await persistClientRenewalWithIncome(updated,income);
+      state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
     }else if(c.comboId){
       const combo = activeComboClients(c.comboId);
       const updatedCombo = combo.map(item => ({...item, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString()}));
       applyComboMetadataMobile(updatedCombo,comboMetadataMobile(combo));
       updatedCombo.forEach(item=>{item.comboRenewalPrice=renewalAmount || moneyNumber(item.comboRenewalPrice);});
-      await setClientsBatch(updatedCombo);
+      await persistClientRenewalWithIncome(updatedCombo,buildComboRenewalIncome(updatedCombo,renewalAmount));
       state.clients = [...updatedCombo, ...state.clients.filter(item => item.comboId !== c.comboId)];
-      await recordComboRenewalIncome(updatedCombo, renewalAmount);
       sendRenewedMessage = () => openWhatsAppCombo(updatedCombo, 'renewed');
     }else{
       const updated = { ...c, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() };
-      await setDoc(clientRef(c.id), updated, { merge:true });
-      await touchMobileDataRevision();
+      await persistClientRenewalWithIncome([updated],buildRenewalIncome(updated,renewalAmount));
       state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
-      await recordRenewalIncome(updated, renewalAmount);
       sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
     }
     cacheMobileState();

@@ -507,25 +507,20 @@ function stopGestorAutoSync() {
 }
 function startGestorAutoSync(uid) {
   stopGestorAutoSync();
-  const listen = (target, receive, label) => {
-    gestorAutoSyncUnsubs.push(onSnapshot(target, receive, err => console.warn(`No se pudo sincronizar ${label}:`, err)));
-  };
-  listen(settingsRef(uid), snap => {
+  // Un único marcador es suficiente para coordinar pestañas. Escuchar cada
+  // colección duplicaba la carga inicial y multiplicaba lecturas por usuario.
+  gestorAutoSyncUnsubs.push(onSnapshot(settingsRef(uid), snap => {
     if (!snap.exists()) return;
     const revision = String(snap.data()?.gestorDataRevision ?? 0);
+    if (snap.metadata.hasPendingWrites) {
+      window.__gestorCurrentRevision = revision;
+      return;
+    }
     if (revision === currentGestorRevision()) return;
     window.__gestorCurrentRevision = revision;
     window.__applyGestorLiveSettingsFromFirestore?.(snap.data() || {});
-  }, 'ajustes');
-  listen(accountsCol(uid), snap => {
-    window.__replaceGestorLiveCollection?.('accounts', snap.docs.map(row => ({ id:row.id, ...row.data() })));
-  }, 'cuentas');
-  listen(clientsCol(uid), snap => {
-    window.__replaceGestorLiveCollection?.('clients', snap.docs.map(row => ({ id:row.id, ...row.data() })));
-  }, 'clientes');
-  listen(query(financeCol(uid), orderBy('occurredAt', 'desc'), limit(FINANCE_RECENT_LIMIT)), snap => {
-    window.__replaceFinanceMovementsFromFirestore?.(snap.docs.map(row => ({ id:row.id, ...row.data() })), false);
-  }, 'finanzas');
+    loadFromSubcollections(uid, true).catch(err => console.warn('No se pudo aplicar la actualización externa:', err));
+  }, err => console.warn('No se pudo sincronizar ajustes:', err)));
 }
 
 // Carga inicial, sincronización manual y revisión remota mínima.
@@ -672,8 +667,10 @@ async function permissionDebugMessage(uid, colName) {
 // â”€â”€ Auth listener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 onAuthStateChanged(auth, async user => {
   if (!user) {
-    const next = '/gestor.html';
-    window.location.href = `/gestor-login.html?next=${encodeURIComponent(next)}`;
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    const loginUrl = new URL('gestor-login.html', location.href);
+    loginUrl.searchParams.set('next', next);
+    window.location.href = loginUrl.toString();
     return;
   }
 
@@ -988,13 +985,20 @@ window.firebaseSignOut = async function() {
 };
 
 // â”€â”€ Escritura de documento individual (1 op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-window.__persistSingleDoc = async function(colName, docData) {
+window.__persistSingleDoc = async function(colName, docData, expectedUpdatedAt = null) {
   const user = auth.currentUser;
   if (!user) return false;
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
+    if (expectedUpdatedAt !== null && expectedUpdatedAt !== undefined && safeData.id) {
+      const remote = await getDocFromServer(doc(colRef, safeData.id));
+      if (remote.exists() && String(remote.data()?.updatedAt || '') !== String(expectedUpdatedAt)) {
+        notifySaveStatus('error', 'Este registro cambió en otra pestaña. Recarga los datos antes de guardar para no perder cambios.');
+        return false;
+      }
+    }
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
     await touchGestorDataRevision(uid);
@@ -1078,6 +1082,57 @@ window.__persistManyDocs = async function(colName, docsData) {
   } catch (err) {
     console.error('Error guardando datos en lote:', err);
     notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
+// Una renovación debe confirmar perfiles, ingreso y marcador de sincronización
+// juntos. El movimiento usa un ID estable para que un reintento no lo duplique.
+window.__persistClientRenewalWithIncome = async function(clientsData, incomeData) {
+  const user = auth.currentUser;
+  if (!user || !Array.isArray(clientsData) || !clientsData.length) return false;
+  try {
+    const batch = writeBatch(db);
+    clientsData.forEach(item => {
+      const safeClient = sanitizeGestorClientForFirestore(item);
+      batch.set(doc(clientsCol(user.uid), safeClient.id), safeClient, { merge:true });
+    });
+    const safeIncome = incomeData ? sanitizeFinanceMovementForFirestore(incomeData) : null;
+    if (safeIncome) batch.set(doc(financeCol(user.uid), safeIncome.id), safeIncome, { merge:true });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Guardando renovación...');
+    await batch.commit();
+    notifySaveStatus('success', 'Renovación guardada correctamente.');
+    return { clients:clientsData, income:safeIncome };
+  } catch (err) {
+    console.error('Error guardando renovación:', err);
+    notifySaveStatus('error', friendlySaveError(err, 'renovar-cliente'));
+    return false;
+  }
+};
+
+window.__deleteAccountKeepingArchivedClients = async function(accountId, archivedClients) {
+  const user = auth.currentUser;
+  if (!user || !accountId) return false;
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(accountsCol(user.uid), accountId));
+    (archivedClients || []).forEach(client => {
+      const detached = sanitizeGestorClientForFirestore({
+        ...client,
+        accountId:'',
+        updatedAt:new Date().toISOString()
+      });
+      batch.set(doc(clientsCol(user.uid), detached.id), detached, { merge:true });
+    });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Eliminando cuenta madre...');
+    await batch.commit();
+    notifySaveStatus('success', 'Cuenta madre eliminada.');
+    return true;
+  } catch (err) {
+    console.error('Error eliminando cuenta madre:', err);
+    notifySaveStatus('error', friendlySaveError(err, 'eliminar-cuenta'));
     return false;
   }
 };
@@ -5724,8 +5779,10 @@ const MAX_CLIENTS_PER_IMPORT=3000;
 let state=load();
 let selectedFreePlatform=null;
 let editingClientId=null;
+let editingClientUpdatedAt='';
 let selectedExistingClientCustomerId='';
 let editingAccountId=null;
+let editingAccountUpdatedAt='';
 let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
@@ -5758,7 +5815,8 @@ function normalizeLoaded(data){
   data.accounts=dedupeGestorRows((data.accounts||[]).map(a=>({
     id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'',
     capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'',
-    notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true
+    notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true,
+    createdAt:a.createdAt||'', updatedAt:a.updatedAt||''
   })));
   data.clients=dedupeGestorRows((data.clients||[]).map(c=>({
     id:c.id||uid(), customerId:c.customerId||c.id||'', name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
@@ -5766,7 +5824,8 @@ function normalizeLoaded(data){
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
-    lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
+    lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||'',
+    createdAt:c.createdAt||'', updatedAt:c.updatedAt||''
   })));
   data.financeMovements=(data.financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
   data.financeMovementsFullLoaded=data.financeMovementsFullLoaded===true;
@@ -5856,8 +5915,8 @@ function touchLocalStateCache(){
   }
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
-function persistDoc(colName, docData){
-  if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
+function persistDoc(colName, docData, expectedUpdatedAt=null){
+  if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData, expectedUpdatedAt);
   return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
@@ -5890,14 +5949,19 @@ function sanitizeSettingsForSave(settings={}){
     security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
-async function persistSettings(){
-  state.settings = sanitizeSettingsForSave(state.settings);
-  if(window.__persistSettingsDoc){
-    const ok=await window.__persistSettingsDoc(state.settings);
-    if(ok) touchLocalStateCache();
-    return ok;
-  }
-  return false;
+let persistSettingsInFlight=null;
+function persistSettings(){
+  if(persistSettingsInFlight) return persistSettingsInFlight;
+  persistSettingsInFlight=(async()=>{
+    state.settings = sanitizeSettingsForSave(state.settings);
+    if(window.__persistSettingsDoc){
+      const ok=await window.__persistSettingsDoc(state.settings);
+      if(ok) touchLocalStateCache();
+      return ok;
+    }
+    return false;
+  })().finally(()=>{ persistSettingsInFlight=null; });
+  return persistSettingsInFlight;
 }
 function moneyNumber(value){
   const n=Number(String(value ?? '').replace(',', '.'));
@@ -6083,7 +6147,7 @@ async function recordRenewalIncome(client, amountOverride){
   const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('renewal', `${client.id}_${Date.now()}`),
+    id:renewalIncomeId('renewal', client.id, client.dueDate),
     type:'income',
     source:'renewal',
     amount,
@@ -6096,12 +6160,35 @@ async function recordRenewalIncome(client, amountOverride){
     occurredAt:new Date().toISOString()
   });
 }
+function renewalIncomeId(source, entityId, dueDate){
+  return financeMovementId(source, `${entityId}_${dueDate || 'sin_fecha'}`);
+}
+function buildRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return null;
+  return {id:renewalIncomeId('renewal',client.id,client.dueDate),type:'income',source:'renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:clientFinanceLabel(client,'Renovacion'),platform:client.platform,clientId:client.id,accountId:client.accountId,occurredAt:new Date().toISOString()};
+}
+function buildPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return null;
+  const comboId=String(originalComboId || '').trim() || client.comboId;
+  return {id:renewalIncomeId('combo_partial_renewal',client.id,client.dueDate),type:'income',source:'combo_partial_renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:`Renovacion parcial - ${friendlyPlatform(client.platform)} - ${client.name || 'Cliente'}`,platform:client.platform,clientId:client.id,accountId:client.accountId,comboId,occurredAt:new Date().toISOString()};
+}
+function buildComboRenewalIncome(clients, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const list=(clients||[]).filter(Boolean); const meta=comboMetadata(list); const first=meta.source;
+  const amount=moneyNumber(amountOverride || meta.renewalPrice || meta.totalPrice || comboFinanceTotal(list));
+  if(!first || !amount) return null;
+  return {id:renewalIncomeId('combo_renewal',first.comboId,first.dueDate),type:'income',source:'combo_renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:`Renovacion combo ${meta.name} - ${first.name || 'Cliente'}`.trim(),platform:'Combo',clientId:first.id,comboId:first.comboId,occurredAt:new Date().toISOString()};
+}
 async function recordPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
   if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_partial_renewal', `${client.id}_${Date.now()}`), type:'income', source:'combo_partial_renewal', amount,
+    id:renewalIncomeId('combo_partial_renewal', client.id, client.dueDate), type:'income', source:'combo_partial_renewal', amount,
     currency:financeCurrency(), symbol:financeSymbol(),
     description:`Renovacion parcial - ${friendlyPlatform(client.platform)} - ${client.name || 'Cliente'}`,
     platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:String(originalComboId || '').trim() || client.comboId, occurredAt:new Date().toISOString()
@@ -6115,7 +6202,7 @@ async function recordComboRenewalIncome(clients, amountOverride){
   const amount=moneyNumber(amountOverride || meta.renewalPrice || meta.totalPrice || comboFinanceTotal(list));
   if(!first || !amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_renewal', `${first.comboId}_${Date.now()}`),
+    id:renewalIncomeId('combo_renewal', first.comboId, first.dueDate),
     type:'income',
     source:'combo_renewal',
     amount,
@@ -8024,7 +8111,7 @@ function renderExistingClientSuggestions(){
     box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
   });
 }
-function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; editingClientUpdatedAt=''; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -8033,7 +8120,7 @@ function syncAccountPlatformOptions(selected=''){
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; editingAccountUpdatedAt=''; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -8064,7 +8151,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; editingClientUpdatedAt=String(c.updatedAt||''); selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
@@ -8085,7 +8172,7 @@ window.newSaleForClient=(id)=>{
 };
 window.editAccount=(id, forceNotify=false)=>{
   const a=state.accounts.find(x=>x.id===id); if(!a) return;
-  editingAccountId=id; pendingNotifyAfterSave=!!forceNotify;
+  editingAccountId=id; editingAccountUpdatedAt=String(a.updatedAt||''); pendingNotifyAfterSave=!!forceNotify;
   $('#accountModalTitle').textContent=forceNotify ? 'Reemplazar acceso' : 'Editar cuenta madre';
   syncAccountPlatformOptions();
   $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aPurchaseCost').value=a.purchaseCost||''; $('#aPurchaseCostRegistered').checked=a.purchaseCostRegistered===true; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
@@ -8104,16 +8191,14 @@ window.deleteClient=async(id)=>{
   switchView('clientesView');
 };
 window.deleteAccount=async(id)=>{
-  if(state.clients.some(c=>c.accountId===id && effectiveClientState(c)!=='No renovó')){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
-  if(!confirm('?Borrar cuenta madre?')) return;
-  const orphanClients=state.clients.filter(c=>c.accountId===id);
-  const results=await Promise.all([
-    persistDeleteDoc('accounts', id),
-    ...orphanClients.map(c=>persistDeleteDoc('clients', c.id))
-  ]);
-  if(results.some(ok=>!ok)) return;
+  if(state.clients.some(c=>c.accountId===id && !['No renovó','Retirado del combo'].includes(effectiveClientState(c)))){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
+  const archivedClients=state.clients.filter(c=>c.accountId===id);
+  const detail=archivedClients.length ? ` Se conservarán ${archivedClients.length} cliente(s) archivado(s), sin cuenta madre.` : '';
+  if(!confirm(`¿Borrar cuenta madre?${detail}`)) return;
+  const ok=await window.__deleteAccountKeepingArchivedClients?.(id,archivedClients);
+  if(!ok) return;
   state.accounts=state.accounts.filter(a=>a.id!==id);
-  state.clients=state.clients.filter(c=>c.accountId!==id);
+  state.clients=state.clients.map(c=>c.accountId===id?{...c,accountId:'',updatedAt:new Date().toISOString()}:c);
   touchLocalStateCache();
   refreshUI();
 };
@@ -8159,7 +8244,7 @@ async function applyRenewalDate(clientId, newDate){
   if(clientRenewalsInFlight.has(renewalKey)) return;
   clientRenewalsInFlight.add(renewalKey);
   try{
-  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
+  const comboList=c.comboId ? activeComboClients(c.comboId).map(item=>({...item})) : [];
   const scopeInputs=comboList.length>1 ? $$('#renewComboScope input') : [];
   const checkedIds=comboList.length>1 && scopeInputs.length
     ? scopeInputs.filter(input=>input.checked).map(input=>input.value)
@@ -8170,7 +8255,7 @@ async function applyRenewalDate(clientId, newDate){
     ? (checkedIds.length ? checkedIds : comboList.map(item=>item.id))
     : [c.id];
   const partial=comboList.length>1 && selectedIds.length<comboList.length;
-  const selected=comboList.length>1 ? comboList.filter(item=>selectedIds.includes(item.id)) : [c];
+  const selected=comboList.length>1 ? comboList.filter(item=>selectedIds.includes(item.id)) : [{...c}];
   const target=selected[0] || c;
   if(!selected.length){ alert('No se encontro una app activa para renovar. Actualiza la lista e intenta nuevamente.'); return; }
   const renewalDates=selected.map(item=>`${friendlyPlatform(item.platform)}: ${fmtDateLong(window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate)}`);
@@ -8189,34 +8274,30 @@ async function applyRenewalDate(clientId, newDate){
     }
     removed.forEach(item=>{item.accountId='';item.state='Retirado del combo';item.comboRemovedAt=now;item.updatedAt=now;});
     renewingClientId=null; closeModal('renewModalWrap');
-    const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients',[...selected,...removed]) : false; if(!ok) for(const item of [...selected,...removed]) await persistDoc('clients',item);
-    await recordPartialComboRenewalIncome(target,renewalAmount,originalComboId).catch(err=>console.warn('No se pudo registrar renovacion parcial:',err));
+    const saved=await window.__persistClientRenewalWithIncome?.([...selected,...removed],buildPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId));
+    if(!saved) return;
+    state.clients=[...selected,...removed,...state.clients.filter(item=>![...selected,...removed].some(next=>next.id===item.id))];
+    if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
     refreshUI(); touchLocalStateCache(); selected.length>1?navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(selected,'renewed')):sendWhatsapp(target.id,'renewed',targetWindow,true);
     return;
   }
   const comboMeta=comboList.length>1 ? comboMetadata(comboList) : null;
   if(comboMeta) applyComboMetadata(comboList,comboMeta);
-  c.dueDate=window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(c),window.__comboRenewMonths)) : newDate;
-  c.state='Activo';
-  c.updatedAt=new Date().toISOString();
   const renewalAmount=moneyNumber($('#renewPrice')?.value || c.renewalPrice || c.salePrice);
-  c.renewalPrice=renewalAmount;
   renewingClientId=null;
   closeModal('renewModalWrap');
-  await persistDoc('clients', c);
+  let rowsToSave=[];
   if(comboList.length>1){
     comboList.forEach(item=>{ item.dueDate=window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; item.updatedAt=new Date().toISOString(); });
-    const rest=comboList.filter(item=>item.id!==c.id);
-    if(rest.length){
-      const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients', rest) : false;
-      if(!ok){
-        for(const item of rest) await persistDoc('clients', item);
-      }
-    }
-    await recordComboRenewalIncome(comboList, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion de combo en finanzas:', err));
+    rowsToSave=comboList;
   }else{
-    await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
+    rowsToSave=[{...c,dueDate:window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(c),window.__comboRenewMonths)) : newDate,state:'Activo',renewalPrice:renewalAmount,updatedAt:new Date().toISOString()}];
   }
+  const income=comboList.length>1?buildComboRenewalIncome(rowsToSave,renewalAmount):buildRenewalIncome(rowsToSave[0],renewalAmount);
+  const saved=await window.__persistClientRenewalWithIncome?.(rowsToSave,income);
+  if(!saved) return;
+  state.clients=[...rowsToSave,...state.clients.filter(item=>!rowsToSave.some(next=>next.id===item.id))];
+  if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
   refreshUI();
   touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
@@ -9033,7 +9114,7 @@ $('#saveAccountBtn').onclick=async ()=>{
   });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
-  const ok = await persistDoc('accounts', data);
+  const ok = await persistDoc('accounts', data, editingAccountUpdatedAt);
   if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
   if(isNewAccount){
@@ -9108,7 +9189,7 @@ $('#saveClientBtn').onclick=async ()=>{
     setClientSubmitMode(true);
     return;
   }
-  const ok = await persistDoc('clients', data);
+  const ok = await persistDoc('clients', data, editingClientUpdatedAt);
   if(!ok){
     saveBtn.disabled=false;
     setClientSubmitMode(wasNewSale);
