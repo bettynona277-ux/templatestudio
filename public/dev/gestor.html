@@ -126,11 +126,9 @@ function financeFullCacheKey(uid) {
 }
 
 function currentGestorRevision() {
-  try {
-    const uid = auth?.currentUser?.uid || '';
-    return (uid ? localStorage.getItem(gestorStateCacheKey(uid) + '_revision') : '') || localStorage.getItem('gestion_streaming_v5_revision') || '';
-  }
-  catch (_) { return ''; }
+  // localStorage se comparte entre pestanas. Usarlo aqui hacia que una pestana
+  // vieja creyera estar actualizada solo porque otra ya habia guardado cambios.
+  return String(window.__gestorCurrentRevision ?? '');
 }
 
 function readFinanceFullCache(uid) {
@@ -455,6 +453,7 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
         const remoteRevision = String(markerSnap.data()?.gestorDataRevision ?? 0);
         if (remoteRevision === cachedRevision) {
           window.__loadFromFirestore(JSON.parse(cached));
+          window.__gestorCurrentRevision = remoteRevision;
           return;
         }
       } catch (_) {
@@ -484,6 +483,7 @@ async function loadFromSubcollections(uid, forceNetwork = false) {
     localStorage.setItem(cacheRevisionKey, String(settings.gestorDataRevision ?? 0));
   } catch (e) {}
   window.__loadFromFirestore(payload);
+  window.__gestorCurrentRevision = String(settings.gestorDataRevision ?? 0);
 }
 
 async function touchGestorDataRevision(uid) {
@@ -498,28 +498,29 @@ async function touchGestorDataRevision(uid) {
   }
 }
 
-// Un único listener de revisión mantiene la PC al día sin escuchar colecciones.
-let gestorAutoSyncUnsub = null;
-let gestorAutoSyncInFlight = false;
-
-async function syncGestorIfChanged(uid, remoteRevision) {
-  if (!uid || gestorAutoSyncInFlight) return;
-  if (String(remoteRevision ?? 0) === String(currentGestorRevision() || '')) return;
-  gestorAutoSyncInFlight = true;
-  try {
-    await loadFromSubcollections(uid, true);
-  } catch (err) {
-    console.warn('No se pudo comprobar la sincronización automática:', err);
-  } finally {
-    gestorAutoSyncInFlight = false;
-  }
+// Oyentes por coleccion: cada pestana actualiza su pantalla cuando otra guarda.
+// Evita volver a leer todas las colecciones completas ante un solo cambio.
+let gestorAutoSyncUnsubs = [];
+function stopGestorAutoSync() {
+  gestorAutoSyncUnsubs.forEach(unsub => { try { unsub(); } catch (_) {} });
+  gestorAutoSyncUnsubs = [];
 }
-
 function startGestorAutoSync(uid) {
-  if (gestorAutoSyncUnsub) gestorAutoSyncUnsub();
-  gestorAutoSyncUnsub = onSnapshot(settingsRef(uid), snap => {
-    syncGestorIfChanged(uid, snap.data()?.gestorDataRevision ?? 0);
-  }, err => console.warn('No se pudo escuchar la sincronización del gestor:', err));
+  stopGestorAutoSync();
+  // Un único marcador es suficiente para coordinar pestañas. Escuchar cada
+  // colección duplicaba la carga inicial y multiplicaba lecturas por usuario.
+  gestorAutoSyncUnsubs.push(onSnapshot(settingsRef(uid), snap => {
+    if (!snap.exists()) return;
+    const revision = String(snap.data()?.gestorDataRevision ?? 0);
+    if (snap.metadata.hasPendingWrites) {
+      window.__gestorCurrentRevision = revision;
+      return;
+    }
+    if (revision === currentGestorRevision()) return;
+    window.__gestorCurrentRevision = revision;
+    window.__applyGestorLiveSettingsFromFirestore?.(snap.data() || {});
+    loadFromSubcollections(uid, true).catch(err => console.warn('No se pudo aplicar la actualización externa:', err));
+  }, err => console.warn('No se pudo sincronizar ajustes:', err)));
 }
 
 // Carga inicial, sincronización manual y revisión remota mínima.
@@ -843,6 +844,36 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
       : {}
   };
 }
+function cloneGestorSettings(settings = {}) {
+  return JSON.parse(JSON.stringify(settings || {}));
+}
+function sameGestorSettingValue(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function mergeRemoteGestorPlatformPrices(nextPrices = {}, baselinePrices = {}, remotePrices = {}) {
+  const merged = cloneGestorSettings(nextPrices || {});
+  const keys = new Set([
+    ...Object.keys(nextPrices || {}),
+    ...Object.keys(baselinePrices || {}),
+    ...Object.keys(remotePrices || {})
+  ]);
+  keys.forEach(key => {
+    // Una pestaña que no modifico esta plataforma conserva el valor mas nuevo
+    // que ya exista en Firestore. Asi no borra precios de otras plataformas.
+    if (!sameGestorSettingValue(nextPrices?.[key], baselinePrices?.[key]) || sameGestorSettingValue(remotePrices?.[key], baselinePrices?.[key])) return;
+    if (remotePrices?.[key] === undefined) delete merged[key];
+    else merged[key] = cloneGestorSettings(remotePrices[key]);
+  });
+  return merged;
+}
+function keepRemoteGestorSettingsThatWereNotEdited(next, baseline, remote) {
+  const merged = cloneGestorSettings(next);
+  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','finalMessage','codeActivationMessage','security'].forEach(field => {
+    if (sameGestorSettingValue(next?.[field], baseline?.[field]) && !sameGestorSettingValue(remote?.[field], baseline?.[field])) merged[field] = remote[field];
+  });
+  merged.platformPrices = mergeRemoteGestorPlatformPrices(next?.platformPrices, baseline?.platformPrices, remote?.platformPrices);
+  return sanitizeGestorSettingsForFirestore(merged);
+}
 function sanitizeFinanceMovementForFirestore(data = {}) {
   const amount = Number(data.amount || 0);
   const source = fsString(data.source, 40, 'manual');
@@ -952,13 +983,20 @@ window.firebaseSignOut = async function() {
 };
 
 // â”€â”€ Escritura de documento individual (1 op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-window.__persistSingleDoc = async function(colName, docData) {
+window.__persistSingleDoc = async function(colName, docData, expectedUpdatedAt = '') {
   const user = auth.currentUser;
   if (!user) return false;
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
+    if (expectedUpdatedAt && safeData.id) {
+      const remote = await getDocFromServer(doc(colRef, safeData.id));
+      if (remote.exists() && String(remote.data()?.updatedAt || '') !== String(expectedUpdatedAt)) {
+        notifySaveStatus('error', 'Este registro cambió en otra pestaña. Recarga los datos antes de guardar para no perder cambios.');
+        return false;
+      }
+    }
     notifySaveStatus('saving', 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
     await touchGestorDataRevision(uid);
@@ -997,10 +1035,19 @@ window.__persistSettingsDoc = async function(settingsData) {
   if (!user) return false;
   try {
     notifySaveStatus('saving', 'Guardando ajustes...');
+    const baseline = window.__gestorSettingsBaseline || sanitizeGestorSettingsForFirestore(settingsData || {});
+    let nextSettings = sanitizeGestorSettingsForFirestore(settingsData || {});
+    try {
+      const remoteSnap = await getDocFromServer(settingsRef(user.uid));
+      if (remoteSnap.exists()) nextSettings = keepRemoteGestorSettingsThatWereNotEdited(nextSettings, baseline, sanitizeGestorSettingsForFirestore(remoteSnap.data() || {}));
+    } catch (_) {
+      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+    }
     await setDoc(settingsRef(user.uid), {
-      ...sanitizeGestorSettingsForFirestore(settingsData || {}),
+      ...nextSettings,
       gestorDataRevision: increment(1)
     }, { merge: true });
+    window.__gestorSettingsBaseline = cloneGestorSettings(nextSettings);
     try { localStorage.removeItem(gestorStateCacheKey(user.uid) + '_revision'); } catch (_) {}
     try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
@@ -1033,6 +1080,57 @@ window.__persistManyDocs = async function(colName, docsData) {
   } catch (err) {
     console.error('Error guardando datos en lote:', err);
     notifySaveStatus('error', friendlySaveError(err));
+    return false;
+  }
+};
+
+// Una renovación debe confirmar perfiles, ingreso y marcador de sincronización
+// juntos. El movimiento usa un ID estable para que un reintento no lo duplique.
+window.__persistClientRenewalWithIncome = async function(clientsData, incomeData) {
+  const user = auth.currentUser;
+  if (!user || !Array.isArray(clientsData) || !clientsData.length) return false;
+  try {
+    const batch = writeBatch(db);
+    clientsData.forEach(item => {
+      const safeClient = sanitizeGestorClientForFirestore(item);
+      batch.set(doc(clientsCol(user.uid), safeClient.id), safeClient, { merge:true });
+    });
+    const safeIncome = incomeData ? sanitizeFinanceMovementForFirestore(incomeData) : null;
+    if (safeIncome) batch.set(doc(financeCol(user.uid), safeIncome.id), safeIncome, { merge:true });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Guardando renovación...');
+    await batch.commit();
+    notifySaveStatus('success', 'Renovación guardada correctamente.');
+    return { clients:clientsData, income:safeIncome };
+  } catch (err) {
+    console.error('Error guardando renovación:', err);
+    notifySaveStatus('error', friendlySaveError(err, 'renovar-cliente'));
+    return false;
+  }
+};
+
+window.__deleteAccountKeepingArchivedClients = async function(accountId, archivedClients) {
+  const user = auth.currentUser;
+  if (!user || !accountId) return false;
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(accountsCol(user.uid), accountId));
+    (archivedClients || []).forEach(client => {
+      const detached = sanitizeGestorClientForFirestore({
+        ...client,
+        accountId:'',
+        updatedAt:new Date().toISOString()
+      });
+      batch.set(doc(clientsCol(user.uid), detached.id), detached, { merge:true });
+    });
+    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    notifySaveStatus('saving', 'Eliminando cuenta madre...');
+    await batch.commit();
+    notifySaveStatus('success', 'Cuenta madre eliminada.');
+    return true;
+  } catch (err) {
+    console.error('Error eliminando cuenta madre:', err);
+    notifySaveStatus('error', friendlySaveError(err, 'eliminar-cuenta'));
     return false;
   }
 };
@@ -5679,8 +5777,10 @@ const MAX_CLIENTS_PER_IMPORT=3000;
 let state=load();
 let selectedFreePlatform=null;
 let editingClientId=null;
+let editingClientUpdatedAt='';
 let selectedExistingClientCustomerId='';
 let editingAccountId=null;
+let editingAccountUpdatedAt='';
 let accountPlatformFilter='__first__';
 let pendingNotifyAfterSave=false;
 let flatpickrInstances=[];
@@ -5700,20 +5800,29 @@ function load(){
   }catch(e){}
   return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE,financeMode:false,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
+function dedupeGestorRows(rows){
+  const seen=new Set();
+  return (rows||[]).filter(row=>{
+    const id=String(row?.id || '');
+    if(!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
 function normalizeLoaded(data){
-  data.accounts=(data.accounts||[]).map(a=>({
+  data.accounts=dedupeGestorRows((data.accounts||[]).map(a=>({
     id:a.id||uid(), platform:a.platform||'', provider:a.provider||'', providerWhatsapp:a.providerWhatsapp||'',
     capacity:Number(a.capacity||0), email:a.email||'', password:a.password||'', dueDate:a.dueDate||'',
     notes:a.notes||'', purchaseCost:Number(a.purchaseCost||0), purchaseCostRegistered:a.purchaseCostRegistered===true
-  }));
-  data.clients=(data.clients||[]).map(c=>({
+  })));
+  data.clients=dedupeGestorRows((data.clients||[]).map(c=>({
     id:c.id||uid(), customerId:c.customerId||c.id||'', name:c.name||'', whatsapp:c.whatsapp||'', accountId:c.accountId||'', platform:c.platform||'',
     profile:c.profile||'', pin:c.pin||'', fullAccountSale:c.fullAccountSale===true, activationByCode:isActivationByCode(c.activationByCode), dueDate:c.dueDate||'', state:c.state||'Activo', notes:c.notes||'',
     comboId:c.comboId||'', comboName:c.comboName||'', comboSize:Number(c.comboSize||0), comboCreatedAt:c.comboCreatedAt||'',
     comboTotalPrice:Number(c.comboTotalPrice||0), comboRenewalPrice:Number(c.comboRenewalPrice||c.comboTotalPrice||0),
     salePrice:Number(c.salePrice||0), renewalPrice:Number(c.renewalPrice||c.salePrice||0),
     lastRenewalWhatsAppNoticeDate:c.lastRenewalWhatsAppNoticeDate||''
-  }));
+  })));
   data.financeMovements=(data.financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
   data.financeMovementsFullLoaded=data.financeMovementsFullLoaded===true;
   let paymentMethods=[];
@@ -5729,11 +5838,41 @@ function normalizeLoaded(data){
 window.__loadFromFirestore = function(data){
   window.__loadingFromFirestore = true;
   state = normalizeLoaded(JSON.parse(JSON.stringify(data)));
+  window.__gestorSettingsBaseline = JSON.parse(JSON.stringify(state.settings || {}));
   // Actualizar localStorage como respaldo
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   updateExpiredSummary();
   refresh();
   window.__loadingFromFirestore = false;
+};
+window.__applyGestorLiveSettingsFromFirestore = function(settings){
+  const normalized=normalizeLoaded({
+    accounts:state.accounts,
+    clients:state.clients,
+    financeMovements:state.financeMovements,
+    financeMovementsFullLoaded:state.financeMovementsFullLoaded,
+    settings
+  });
+  state.settings=normalized.settings;
+  window.__gestorSettingsBaseline=JSON.parse(JSON.stringify(state.settings || {}));
+  touchLocalStateCache();
+  refreshUI();
+};
+window.__replaceGestorLiveCollection = function(kind, rows){
+  if(kind !== 'accounts' && kind !== 'clients') return;
+  const normalized=normalizeLoaded({
+    accounts:kind === 'accounts' ? rows : state.accounts,
+    clients:kind === 'clients' ? rows : state.clients,
+    financeMovements:state.financeMovements,
+    financeMovementsFullLoaded:state.financeMovementsFullLoaded,
+    settings:state.settings
+  });
+  state.accounts=normalized.accounts;
+  state.clients=normalized.clients;
+  // Las categorias tambien consideran plataformas nuevas de cuentas madre.
+  state.settings=normalized.settings;
+  touchLocalStateCache();
+  refreshUI();
 };
 window.__replaceFinanceMovementsFromFirestore = function(financeMovements, fullLoaded=false){
   state.financeMovements=(financeMovements||[]).map(m=>normalizeFinanceMovement(m)).filter(Boolean);
@@ -5764,14 +5903,16 @@ window.retryFinanceHistoryLoad=function(){
   renderFinance();
 };
 function touchLocalStateCache(){
+  state.accounts=dedupeGestorRows(state.accounts);
+  state.clients=dedupeGestorRows(state.clients);
   try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(KEY + '_synced_at', String(Date.now())); } catch(e){}
   if(state.financeMovementsFullLoaded && typeof window.__cacheFinanceMovementsLocally === 'function'){
     window.__cacheFinanceMovementsLocally(state.financeMovements || []);
   }
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
-function persistDoc(colName, docData){
-  if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData);
+function persistDoc(colName, docData, expectedUpdatedAt=''){
+  if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData, expectedUpdatedAt);
   return Promise.resolve(false);
 }
 function persistDeleteDoc(colName, docId){
@@ -5804,14 +5945,19 @@ function sanitizeSettingsForSave(settings={}){
     security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
 }
-async function persistSettings(){
-  state.settings = sanitizeSettingsForSave(state.settings);
-  if(window.__persistSettingsDoc){
-    const ok=await window.__persistSettingsDoc(state.settings);
-    if(ok) touchLocalStateCache();
-    return ok;
-  }
-  return false;
+let persistSettingsInFlight=null;
+function persistSettings(){
+  if(persistSettingsInFlight) return persistSettingsInFlight;
+  persistSettingsInFlight=(async()=>{
+    state.settings = sanitizeSettingsForSave(state.settings);
+    if(window.__persistSettingsDoc){
+      const ok=await window.__persistSettingsDoc(state.settings);
+      if(ok) touchLocalStateCache();
+      return ok;
+    }
+    return false;
+  })().finally(()=>{ persistSettingsInFlight=null; });
+  return persistSettingsInFlight;
 }
 function moneyNumber(value){
   const n=Number(String(value ?? '').replace(',', '.'));
@@ -5997,7 +6143,7 @@ async function recordRenewalIncome(client, amountOverride){
   const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('renewal', `${client.id}_${Date.now()}`),
+    id:renewalIncomeId('renewal', client.id, client.dueDate),
     type:'income',
     source:'renewal',
     amount,
@@ -6010,12 +6156,35 @@ async function recordRenewalIncome(client, amountOverride){
     occurredAt:new Date().toISOString()
   });
 }
+function renewalIncomeId(source, entityId, dueDate){
+  return financeMovementId(source, `${entityId}_${dueDate || 'sin_fecha'}`);
+}
+function buildRenewalIncome(client, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return null;
+  return {id:renewalIncomeId('renewal',client.id,client.dueDate),type:'income',source:'renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:clientFinanceLabel(client,'Renovacion'),platform:client.platform,clientId:client.id,accountId:client.accountId,occurredAt:new Date().toISOString()};
+}
+function buildPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
+  if(!isFinanceModeEnabled()) return null;
+  const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
+  if(!amount) return null;
+  const comboId=String(originalComboId || '').trim() || client.comboId;
+  return {id:renewalIncomeId('combo_partial_renewal',client.id,client.dueDate),type:'income',source:'combo_partial_renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:`Renovacion parcial - ${friendlyPlatform(client.platform)} - ${client.name || 'Cliente'}`,platform:client.platform,clientId:client.id,accountId:client.accountId,comboId,occurredAt:new Date().toISOString()};
+}
+function buildComboRenewalIncome(clients, amountOverride){
+  if(!isFinanceModeEnabled()) return null;
+  const list=(clients||[]).filter(Boolean); const meta=comboMetadata(list); const first=meta.source;
+  const amount=moneyNumber(amountOverride || meta.renewalPrice || meta.totalPrice || comboFinanceTotal(list));
+  if(!first || !amount) return null;
+  return {id:renewalIncomeId('combo_renewal',first.comboId,first.dueDate),type:'income',source:'combo_renewal',amount,currency:financeCurrency(),symbol:financeSymbol(),description:`Renovacion combo ${meta.name} - ${first.name || 'Cliente'}`.trim(),platform:'Combo',clientId:first.id,comboId:first.comboId,occurredAt:new Date().toISOString()};
+}
 async function recordPartialComboRenewalIncome(client, amountOverride, originalComboId=''){
   if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(amountOverride || client.renewalPrice || client.salePrice);
   if(!amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_partial_renewal', `${client.id}_${Date.now()}`), type:'income', source:'combo_partial_renewal', amount,
+    id:renewalIncomeId('combo_partial_renewal', client.id, client.dueDate), type:'income', source:'combo_partial_renewal', amount,
     currency:financeCurrency(), symbol:financeSymbol(),
     description:`Renovacion parcial - ${friendlyPlatform(client.platform)} - ${client.name || 'Cliente'}`,
     platform:client.platform, clientId:client.id, accountId:client.accountId, comboId:String(originalComboId || '').trim() || client.comboId, occurredAt:new Date().toISOString()
@@ -6029,7 +6198,7 @@ async function recordComboRenewalIncome(clients, amountOverride){
   const amount=moneyNumber(amountOverride || meta.renewalPrice || meta.totalPrice || comboFinanceTotal(list));
   if(!first || !amount) return;
   await persistFinanceMovement({
-    id:financeMovementId('combo_renewal', `${first.comboId}_${Date.now()}`),
+    id:renewalIncomeId('combo_renewal', first.comboId, first.dueDate),
     type:'income',
     source:'combo_renewal',
     amount,
@@ -7827,10 +7996,16 @@ function renderComboTemplateRows(){
       <button class="mini" type="button" onclick="removeComboTemplate('${escapeJs(t.id)}')">Borrar</button>
     </div>`).join('') : `<div class="empty">Sin combos personalizados</div>`;
 }
+function comboTemplateKey(nameValue, platformsValue){
+  const name=String(nameValue||'').trim().toLocaleLowerCase();
+  const platforms=uniqueClean(Array.isArray(platformsValue) ? platformsValue : String(platformsValue||'').split(/[,+|]/)).map(value=>String(value).trim().toLocaleLowerCase()).sort();
+  return `${name}|${platforms.join('|')}`;
+}
 function addComboTemplate(nameValue, platformsValue){
   const name=String(nameValue||'').trim();
   const platforms=uniqueClean(String(platformsValue||'').split(/[,+|]/).map(v=>v.trim()).filter(Boolean)).slice(0,8);
   if(!name || !platforms.length) return false;
+  if((state.settings.comboTemplates||[]).some(template=>comboTemplateKey(template.name,template.platforms)===comboTemplateKey(name,platforms))) return false;
   state.settings.comboTemplates=normalizeComboTemplates([...(state.settings.comboTemplates||[]),{id:uid(),name,platforms}],state.settings.categories);
   persistSettings();
   renderComboTemplateRows();
@@ -7932,7 +8107,7 @@ function renderExistingClientSuggestions(){
     box.innerHTML=`<span class="existing-client-selected">Venta adicional para ${escapeHtml(client.name||'este cliente')}</span>`;
   });
 }
-function clearClientForm(){ editingClientId=null; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
+function clearClientForm(){ editingClientId=null; editingClientUpdatedAt=''; selectedExistingClientCustomerId=''; $('#clientModalTitle').textContent='Nuevo cliente'; setClientSubmitMode(true); $('#cName').value=''; $('#cWhatsapp').value=''; $('#existingClientSuggestions').hidden=true; $('#existingClientSuggestions').replaceChildren(); renderClientPlatformOptions(); $('#cProfile').value=''; $('#cPin').value=''; $('#cSalePrice').value=''; $('#cRenewalPrice').value=''; $('#cState').value='Activo'; $('#cNotes').value=''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=false; const activation=$('#cActivationByCode'); if(activation) activation.checked=false; syncClientAccessMode(); renderAccountOptions(); $('#cDueDisplay').value=todayPlus(30); }
 function syncAccountPlatformOptions(selected=''){
   const sel=$('#aPlatformSelect');
   if(!sel) return;
@@ -7941,7 +8116,7 @@ function syncAccountPlatformOptions(selected=''){
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; editingAccountUpdatedAt=''; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -7972,7 +8147,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; editingClientUpdatedAt=String(c.updatedAt||''); selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
@@ -7993,7 +8168,7 @@ window.newSaleForClient=(id)=>{
 };
 window.editAccount=(id, forceNotify=false)=>{
   const a=state.accounts.find(x=>x.id===id); if(!a) return;
-  editingAccountId=id; pendingNotifyAfterSave=!!forceNotify;
+  editingAccountId=id; editingAccountUpdatedAt=String(a.updatedAt||''); pendingNotifyAfterSave=!!forceNotify;
   $('#accountModalTitle').textContent=forceNotify ? 'Reemplazar acceso' : 'Editar cuenta madre';
   syncAccountPlatformOptions();
   $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aPurchaseCost').value=a.purchaseCost||''; $('#aPurchaseCostRegistered').checked=a.purchaseCostRegistered===true; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
@@ -8012,16 +8187,14 @@ window.deleteClient=async(id)=>{
   switchView('clientesView');
 };
 window.deleteAccount=async(id)=>{
-  if(state.clients.some(c=>c.accountId===id && effectiveClientState(c)!=='No renovó')){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
-  if(!confirm('?Borrar cuenta madre?')) return;
-  const orphanClients=state.clients.filter(c=>c.accountId===id);
-  const results=await Promise.all([
-    persistDeleteDoc('accounts', id),
-    ...orphanClients.map(c=>persistDeleteDoc('clients', c.id))
-  ]);
-  if(results.some(ok=>!ok)) return;
+  if(state.clients.some(c=>c.accountId===id && !['No renovó','Retirado del combo'].includes(effectiveClientState(c)))){ alert('Primero libera o mueve los clientes activos de esta cuenta.'); return; }
+  const archivedClients=state.clients.filter(c=>c.accountId===id);
+  const detail=archivedClients.length ? ` Se conservarán ${archivedClients.length} cliente(s) archivado(s), sin cuenta madre.` : '';
+  if(!confirm(`¿Borrar cuenta madre?${detail}`)) return;
+  const ok=await window.__deleteAccountKeepingArchivedClients?.(id,archivedClients);
+  if(!ok) return;
   state.accounts=state.accounts.filter(a=>a.id!==id);
-  state.clients=state.clients.filter(c=>c.accountId!==id);
+  state.clients=state.clients.map(c=>c.accountId===id?{...c,accountId:'',updatedAt:new Date().toISOString()}:c);
   touchLocalStateCache();
   refreshUI();
 };
@@ -8055,6 +8228,7 @@ function renewalDateFor(client, amount, unit){
   else next=addMonthsClamped(next, qty);
   return dateToLocalString(next);
 }
+const clientRenewalsInFlight=new Set();
 async function applyRenewalDate(clientId, newDate){
   const c=state.clients.find(x=>x.id===clientId);
   if(!c) return;
@@ -8062,12 +8236,24 @@ async function applyRenewalDate(clientId, newDate){
     alert('Elige una fecha valida para renovar.');
     return;
   }
-  const comboList=c.comboId ? activeComboClients(c.comboId) : [];
-  const selectedIds=comboList.length>1 ? $$('#renewComboScope input:checked').map(input=>input.value) : [c.id];
+  const renewalKey=`${c.comboId || c.id}:${newDate}`;
+  if(clientRenewalsInFlight.has(renewalKey)) return;
+  clientRenewalsInFlight.add(renewalKey);
+  try{
+  const comboList=c.comboId ? activeComboClients(c.comboId).map(item=>({...item})) : [];
+  const scopeInputs=comboList.length>1 ? $$('#renewComboScope input') : [];
+  const checkedIds=comboList.length>1 && scopeInputs.length
+    ? scopeInputs.filter(input=>input.checked).map(input=>input.value)
+    : [];
+  // Renovar cero apps no es una accion valida. Si el navegador perdio el estado
+  // de los checks, se conserva el combo completo antes que bloquear o retirar algo.
+  const selectedIds=comboList.length>1
+    ? (checkedIds.length ? checkedIds : comboList.map(item=>item.id))
+    : [c.id];
   const partial=comboList.length>1 && selectedIds.length<comboList.length;
-  const selected=comboList.length>1 ? comboList.filter(item=>selectedIds.includes(item.id)) : [c];
+  const selected=comboList.length>1 ? comboList.filter(item=>selectedIds.includes(item.id)) : [{...c}];
   const target=selected[0] || c;
-  if(!selected.length){ alert('Selecciona al menos una app para renovar.'); return; }
+  if(!selected.length){ alert('No se encontro una app activa para renovar. Actualiza la lista e intenta nuevamente.'); return; }
   const renewalDates=selected.map(item=>`${friendlyPlatform(item.platform)}: ${fmtDateLong(window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate)}`);
   const exactWarning=window.__comboRenewMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
   if(!confirm(`Se renovarán estas apps:\n${renewalDates.join('\n')}${exactWarning}`)) return;
@@ -8084,37 +8270,36 @@ async function applyRenewalDate(clientId, newDate){
     }
     removed.forEach(item=>{item.accountId='';item.state='Retirado del combo';item.comboRemovedAt=now;item.updatedAt=now;});
     renewingClientId=null; closeModal('renewModalWrap');
-    const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients',[...selected,...removed]) : false; if(!ok) for(const item of [...selected,...removed]) await persistDoc('clients',item);
-    await recordPartialComboRenewalIncome(target,renewalAmount,originalComboId).catch(err=>console.warn('No se pudo registrar renovacion parcial:',err));
+    const saved=await window.__persistClientRenewalWithIncome?.([...selected,...removed],buildPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId));
+    if(!saved) return;
+    state.clients=[...selected,...removed,...state.clients.filter(item=>![...selected,...removed].some(next=>next.id===item.id))];
+    if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
     refreshUI(); touchLocalStateCache(); selected.length>1?navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(selected,'renewed')):sendWhatsapp(target.id,'renewed',targetWindow,true);
     return;
   }
   const comboMeta=comboList.length>1 ? comboMetadata(comboList) : null;
   if(comboMeta) applyComboMetadata(comboList,comboMeta);
-  c.dueDate=window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(c),window.__comboRenewMonths)) : newDate;
-  c.state='Activo';
-  c.updatedAt=new Date().toISOString();
   const renewalAmount=moneyNumber($('#renewPrice')?.value || c.renewalPrice || c.salePrice);
-  c.renewalPrice=renewalAmount;
   renewingClientId=null;
   closeModal('renewModalWrap');
-  await persistDoc('clients', c);
+  let rowsToSave=[];
   if(comboList.length>1){
     comboList.forEach(item=>{ item.dueDate=window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate; item.state='Activo'; item.comboRenewalPrice=renewalAmount; item.updatedAt=new Date().toISOString(); });
-    const rest=comboList.filter(item=>item.id!==c.id);
-    if(rest.length){
-      const ok=window.__persistManyDocs ? await window.__persistManyDocs('clients', rest) : false;
-      if(!ok){
-        for(const item of rest) await persistDoc('clients', item);
-      }
-    }
-    await recordComboRenewalIncome(comboList, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion de combo en finanzas:', err));
+    rowsToSave=comboList;
   }else{
-    await recordRenewalIncome(c, renewalAmount).catch(err=>console.warn('No se pudo registrar renovacion en finanzas:', err));
+    rowsToSave=[{...c,dueDate:window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(c),window.__comboRenewMonths)) : newDate,state:'Activo',renewalPrice:renewalAmount,updatedAt:new Date().toISOString()}];
   }
+  const income=comboList.length>1?buildComboRenewalIncome(rowsToSave,renewalAmount):buildRenewalIncome(rowsToSave[0],renewalAmount);
+  const saved=await window.__persistClientRenewalWithIncome?.(rowsToSave,income);
+  if(!saved) return;
+  state.clients=[...rowsToSave,...state.clients.filter(item=>!rowsToSave.some(next=>next.id===item.id))];
+  if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
   refreshUI();
   touchLocalStateCache();
   sendWhatsapp(c.id,'renewed',targetWindow);
+  }finally{
+    clientRenewalsInFlight.delete(renewalKey);
+  }
 }
 const accountRenewalsInFlight=new Set();
 async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
@@ -8334,14 +8519,23 @@ window.restoreClient=async(id)=>{ const c=state.clients.find(x=>x.id===id); if(!
 window.prefillClientFromAccount=(id,forcedProfile='')=>{ clearClientForm(); const acc=state.accounts.find(a=>a.id===id); renderClientPlatformOptions(acc?.platform||'',id); renderAccountOptions(id,acc?.platform||''); $('#cAccount').value=id; $('#cProfile').value=forcedProfile||nextProfileSuggestion(id)||''; applyDefaultClientPrices(acc?.platform||''); switchView('clientesView'); openModal('clientModalWrap'); initDatepickers(); };
 window.viewAccountClients=(id)=>{ switchView('clientesView'); const f=$('#clientAccountFilter'); if(f){ f.value=id; renderClients(); window.syncEnhancedSelects?.(); } window.scrollTo({top:0,behavior:'smooth'}); };
 function accountMatchesComboPlatform(account, platform){
-  const a=String(account?.platform||'').toLowerCase().replace(/[+\s]/g,'');
-  const p=String(platform||'').toLowerCase().replace(/[+\s]/g,'');
-  return !!a && !!p && (a===p || a.includes(p) || p.includes(a));
+  const key=value=>{
+    const text=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
+    if(text==='disney' || text==='disneyplus') return 'disney';
+    if(text==='prime' || text==='primevideo') return 'prime';
+    if(text==='hbo' || text==='max' || text==='hbomax') return 'max';
+    return text;
+  };
+  const accountKey=key(account?.platform), platformKey=key(platform);
+  return !!accountKey && accountKey===platformKey;
 }
 function comboAccountOptions(platform, selected=''){
-  const matches=state.accounts.filter(a=>accountMatchesComboPlatform(a,platform)).sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
-  const list=matches.length ? matches : state.accounts;
-  return `<option value="">Elige cuenta para ${escapeHtml(platform)}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres</option>`).join('')}`;
+  const list=state.accounts
+    .filter(a=>accountMatchesComboPlatform(a,platform))
+    .filter(a=>a.id===selected || accountAvailability(a).free>0)
+    .sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
+  const prompt=list.length ? `Elige cuenta para ${escapeHtml(platform)}` : `Sin cuentas libres para ${escapeHtml(platform)}`;
+  return `<option value="">${prompt}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres</option>`).join('')}`;
 }
 function selectedComboTemplate(){
   const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
@@ -8535,6 +8729,7 @@ window.removePayment=(idx)=>{ state.settings.paymentMethods.splice(idx,1); rende
 async function saveComboSale(e){
   e.preventDefault();
   const btn=$('#saveComboBtn');
+  if(btn?.disabled) return;
   if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
   const name=$('#comboClientName').value.trim();
   const whatsapp=$('#comboWhatsapp').value.trim();
@@ -8863,27 +9058,45 @@ function openFinanceExpenseModal(){
   openModal('financeExpenseModalWrap');
   initDatepickers();
 }
+let manualFinanceExpenseInFlight=false;
 async function saveManualFinanceExpense(){
   if(!isFinanceModeEnabled()) return;
+  if(manualFinanceExpenseInFlight) return;
   const amount=moneyNumber($('#financeExpenseAmount').value);
   const description=String($('#financeExpenseDescription').value||'').trim();
   if(!amount || !description){ alert('Completa descripcion y monto.'); return; }
-  await persistFinanceMovement({
-    id:financeMovementId('manual_expense', Date.now()),
-    type:'expense',
-    source:'manual',
-    amount,
-    currency:financeCurrency(),
-    symbol:financeSymbol(),
-    description,
-    platform:$('#financeExpensePlatform').value.trim(),
-    occurredAt:($('#financeExpenseDate').value||todayStr())+'T12:00:00'
-  });
-  closeModal('financeExpenseModalWrap');
+  manualFinanceExpenseInFlight=true;
+  const button=$('#saveFinanceExpenseBtn');
+  if(button) button.disabled=true;
+  try{
+    await persistFinanceMovement({
+      id:financeMovementId('manual_expense', Date.now()),
+      type:'expense',
+      source:'manual',
+      amount,
+      currency:financeCurrency(),
+      symbol:financeSymbol(),
+      description,
+      platform:$('#financeExpensePlatform').value.trim(),
+      occurredAt:($('#financeExpenseDate').value||todayStr())+'T12:00:00'
+    });
+    closeModal('financeExpenseModalWrap');
+  }finally{
+    manualFinanceExpenseInFlight=false;
+    if(button?.isConnected) button.disabled=false;
+  }
 }
 
 
+let accountSaveInFlight=false;
 $('#saveAccountBtn').onclick=async ()=>{
+  if(accountSaveInFlight) return;
+  accountSaveInFlight=true;
+  const saveButton=$('#saveAccountBtn');
+  const originalLabel=saveButton.textContent;
+  saveButton.disabled=true;
+  saveButton.textContent='Guardando...';
+  try{
   const platform=$('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
@@ -8897,7 +9110,7 @@ $('#saveAccountBtn').onclick=async ()=>{
   });
   const credentialsChanged=!!oldAccount && (oldAccount.email!==data.email || oldAccount.password!==data.password || oldAccount.platform!==data.platform);
   const shouldNotify=!!$('#aNotifyClients')?.checked;
-  const ok = await persistDoc('accounts', data);
+  const ok = await persistDoc('accounts', data, editingAccountUpdatedAt);
   if(!ok) return;
   if(editingAccountId) state.accounts=state.accounts.map(a=>a.id===editingAccountId?data:a); else state.accounts.unshift(data);
   if(isNewAccount){
@@ -8916,12 +9129,24 @@ $('#saveAccountBtn').onclick=async ()=>{
     },120);
   }
   pendingNotifyAfterSave=false;
+  }finally{
+    accountSaveInFlight=false;
+    if(saveButton?.isConnected){
+      saveButton.disabled=false;
+      saveButton.textContent=originalLabel;
+    }
+  }
 };
+let clientSaveInFlight=false;
 $('#saveClientBtn').onclick=async ()=>{
+  if(clientSaveInFlight) return;
+  clientSaveInFlight=true;
   const wasNewSale=!editingClientId;
   const saveBtn=$('#saveClientBtn');
+  if(saveBtn.disabled){ clientSaveInFlight=false; return; }
   saveBtn.disabled=true;
   saveBtn.textContent='Guardando...';
+  try{
   const name=$('#cName').value.trim(); const accountId=$('#cAccount').value;
   if(!name || !accountId){
     alert('Completa nombre y cuenta madre');
@@ -8960,7 +9185,7 @@ $('#saveClientBtn').onclick=async ()=>{
     setClientSubmitMode(true);
     return;
   }
-  const ok = await persistDoc('clients', data);
+  const ok = await persistDoc('clients', data, editingClientUpdatedAt);
   if(!ok){
     saveBtn.disabled=false;
     setClientSubmitMode(wasNewSale);
@@ -8974,6 +9199,9 @@ $('#saveClientBtn').onclick=async ()=>{
   if(wasNewSale){
     showDeliveryPrompt(data);
     focusClientAfterSale(data);
+  }
+  }finally{
+    clientSaveInFlight=false;
   }
 };
 function setSettingsSectionVisibility(section=''){
