@@ -983,14 +983,14 @@ window.firebaseSignOut = async function() {
 };
 
 // â”€â”€ Escritura de documento individual (1 op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-window.__persistSingleDoc = async function(colName, docData, expectedUpdatedAt = '') {
+window.__persistSingleDoc = async function(colName, docData, expectedUpdatedAt = null) {
   const user = auth.currentUser;
   if (!user) return false;
   try {
     const uid = user.uid;
     const colRef = colName === 'accounts' ? accountsCol(uid) : clientsCol(uid);
     const safeData = sanitizeGestorDocForFirestore(colName, docData);
-    if (expectedUpdatedAt && safeData.id) {
+    if (expectedUpdatedAt !== null && expectedUpdatedAt !== undefined && safeData.id) {
       const remote = await getDocFromServer(doc(colRef, safeData.id));
       if (remote.exists() && String(remote.data()?.updatedAt || '') !== String(expectedUpdatedAt)) {
         notifySaveStatus('error', 'Este registro cambió en otra pestaña. Recarga los datos antes de guardar para no perder cambios.');
@@ -5911,7 +5911,7 @@ function touchLocalStateCache(){
   }
 }
 // â”€â”€ Guardar UN solo documento (1-2 ops en vez de 468) â”€â”€
-function persistDoc(colName, docData, expectedUpdatedAt=''){
+function persistDoc(colName, docData, expectedUpdatedAt=null){
   if(window.__persistSingleDoc) return window.__persistSingleDoc(colName, docData, expectedUpdatedAt);
   return Promise.resolve(false);
 }
