@@ -1050,6 +1050,13 @@ window.__persistSettingsDoc = async function(settingsData) {
       gestorDataRevision: increment(1)
     }, { merge: true });
     window.__gestorSettingsBaseline = cloneGestorSettings(nextSettings);
+    // nextSettings puede incluir precios que llegaron de Firestore mientras esta
+    // pestaña tenia una copia antigua. Mantener el estado local con esa version
+    // final evita que un siguiente guardado reenvie ceros viejos y borre precios.
+    if (settingsData && typeof settingsData === 'object') {
+      Object.keys(settingsData).forEach(key => delete settingsData[key]);
+      Object.assign(settingsData, cloneGestorSettings(nextSettings));
+    }
     try { localStorage.removeItem(gestorStateCacheKey(user.uid) + '_revision'); } catch (_) {}
     try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
