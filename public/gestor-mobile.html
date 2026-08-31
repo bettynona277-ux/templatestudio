@@ -372,8 +372,14 @@ if (siteKey) {
 }
 const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(() => {});
+// Brave y algunas redes moviles pueden cortar el canal continuo de Firestore.
+// En ese caso usamos long polling solo para ese navegador (o si se solicita
+// explicitamente con ?firestoreCompat=1), sin degradar a los demas usuarios.
+const FIRESTORE_COMPAT_MODE = new URLSearchParams(location.search).has('firestoreCompat') || !!navigator.brave;
 const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  ...(FIRESTORE_COMPAT_MODE
+    ? { experimentalForceLongPolling:true, experimentalLongPollingOptions:{timeoutSeconds:25} }
+    : { experimentalAutoDetectLongPolling:true }),
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
 
@@ -408,6 +414,7 @@ const mobileStateCacheTimeKey = () => mobileStateCacheKey() + '_synced_at';
 const mobileStateCacheRevisionKey = () => mobileStateCacheKey() + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
+let mobileLoadRetryTimer = null;
 function cacheMobileState(){
   try{
     localStorage.setItem(mobileStateCacheKey(), JSON.stringify({
@@ -1180,6 +1187,9 @@ function mobileSupportError(err, scope='operacion'){
     : /network|offline|unavailable|failed to fetch/.test(normalized) ? 'NETWORK'
     : 'UNEXPECTED';
   return `Ocurrio un error. Envia este mensaje exacto a Rafael: [GESTOR-MOVIL/${scope}/${code}] Error: ${raw}`;
+}
+function isMobileNetworkError(err){
+  return /network|offline|unavailable|failed to fetch|webchannel/i.test(String(err?.message || err || ''));
 }
 function showMobileSupportError(err, scope){
   console.error(err);
@@ -3524,7 +3534,7 @@ async function exportExcel(){
 async function loadOnceForExpired(){
   await loadOnce(false);
 }
-async function loadOnce(showToast=true, forceNetwork=false){
+async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
   if(!state.uid) return;
   try{
     const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
@@ -3563,6 +3573,22 @@ async function loadOnce(showToast=true, forceNetwork=false){
     render();
     if(showToast) toast('Datos actualizados.');
   }catch(err){
+    // Una conexion movil puede tardar unos segundos en reabrir Firestore. No
+    // mostramos un error tecnico en el primer corte: reintentamos solos antes.
+    if(isMobileNetworkError(err) && retryAttempt < 2){
+      const seconds = retryAttempt === 0 ? 2 : 5;
+      clearTimeout(mobileLoadRetryTimer);
+      mobileLoadRetryTimer = setTimeout(() => {
+        mobileLoadRetryTimer = null;
+        loadOnce(false, true, retryAttempt + 1);
+      }, seconds * 1000);
+      if(showToast || retryAttempt === 0) toast(`No se pudo conectar. Reintentando en ${seconds} segundos...`, 'bad');
+      return;
+    }
+    if(isMobileNetworkError(err)){
+      toast('No se pudo conectar a tus datos. No se borró nada. Revisa tu red y vuelve a abrir el gestor.', 'bad');
+      return;
+    }
     showMobileSupportError(err, 'actualizar-datos');
   }
 }
@@ -3571,6 +3597,12 @@ function startLive(){
   // Esto baja las lecturas de Firestore. Para traer cambios externos, recarga la página.
   return loadOnce(false);
 }
+
+window.addEventListener('online', () => {
+  clearTimeout(mobileLoadRetryTimer);
+  mobileLoadRetryTimer = null;
+  loadOnce(false, true);
+});
 
 /* Select visual: conserva el select real para formularios, eventos y accesibilidad. */
 const MOBILE_SELECT_SELECTOR = 'select:not([multiple]):not([data-mobile-select="false"])';
