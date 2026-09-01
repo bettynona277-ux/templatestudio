@@ -5977,16 +5977,25 @@ function sanitizeSettingsForSave(settings={}){
   };
 }
 let persistSettingsInFlight=null;
+let persistSettingsRequestedVersion=0;
 function persistSettings(){
+  persistSettingsRequestedVersion++;
   if(persistSettingsInFlight) return persistSettingsInFlight;
   persistSettingsInFlight=(async()=>{
-    state.settings = sanitizeSettingsForSave(state.settings);
-    if(window.__persistSettingsDoc){
-      const ok=await window.__persistSettingsDoc(state.settings);
-      if(ok) touchLocalStateCache();
-      return ok;
+    let savedVersion=0;
+    let ok=false;
+    // Una categoria nueva se guarda al crearla. Si el usuario le asigna un
+    // precio antes de que termine ese guardado, se ejecuta una segunda vuelta
+    // con el precio final en vez de perderla por una promesa ya en curso.
+    while(savedVersion < persistSettingsRequestedVersion){
+      const targetVersion=persistSettingsRequestedVersion;
+      state.settings = sanitizeSettingsForSave(state.settings);
+      ok=window.__persistSettingsDoc ? await window.__persistSettingsDoc(state.settings) : false;
+      if(!ok) return false;
+      touchLocalStateCache();
+      savedVersion=targetVersion;
     }
-    return false;
+    return ok;
   })().finally(()=>{ persistSettingsInFlight=null; });
   return persistSettingsInFlight;
 }
@@ -9487,7 +9496,40 @@ $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 const financeModeToggle=$('#financeModeToggle');
 if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggle(e.target.checked);
-$('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); window.syncEnhancedSelects?.(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
+$('#saveSettingsBtn').onclick=async()=>{
+  const btn=$('#saveSettingsBtn');
+  if(!btn || btn.disabled) return;
+  const originalLabel=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='Guardando...';
+  const wasFinanceOn=isFinanceModeEnabled();
+  try{
+    readPlatformPricesFromUI();
+    state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder);
+    state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES);
+    state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories);
+    state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+    state.settings.financeMode=$('#financeModeToggle')?.checked===true;
+    state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,'');
+    state.settings.freeSort=$('#settingsFreeSort').value||'platform';
+    state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase();
+    state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency;
+    state.settings.finalMessage=$('#finalMessage').value.trim();
+    state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim();
+    $('#freeSort').value=state.settings.freeSort;
+    const ok=await persistSettings();
+    if(!ok) return;
+    closeModal('settingsModalWrap');
+    refreshUI();
+    window.syncEnhancedSelects?.();
+    if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) {
+      window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err));
+    }
+  }finally{
+    btn.disabled=false;
+    btn.textContent=originalLabel;
+  }
+};
 $('#syncBtn').onclick=async()=>{
   const btn=document.getElementById('syncBtn');
   if(!btn||btn.disabled) return;
