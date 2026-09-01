@@ -353,7 +353,7 @@ html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="li
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, runTransaction, increment } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -385,7 +385,7 @@ const db = initializeFirestore(app, {
 
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
-const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
+const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','ViX','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
 const DEFAULT_CODE_ACTIVATION_MESSAGE = [
@@ -894,14 +894,17 @@ function normalizeSettings(data={}){
 function cloneSettings(settings){ return JSON.parse(JSON.stringify(settings || {})); }
 function sameSettingsValue(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
 function mergeRemotePlatformPrices(nextPrices={}, baselinePrices={}, remotePrices={}){
-  const merged=cloneSettings(nextPrices || {});
-  const keys=new Set([...Object.keys(nextPrices || {}),...Object.keys(baselinePrices || {}),...Object.keys(remotePrices || {})]);
+  const next=normalizePlatformPrices(nextPrices || {});
+  const baseline=normalizePlatformPrices(baselinePrices || {});
+  const remote=normalizePlatformPrices(remotePrices || {});
+  const merged=cloneSettings(next);
+  const keys=new Set([...Object.keys(next),...Object.keys(baseline),...Object.keys(remote)]);
   keys.forEach(key=>{
     // Si esta pantalla no cambio una plataforma, se conserva la version mas
     // reciente de Firestore para que otra pestana no pierda ese precio.
-    if(!sameSettingsValue(nextPrices?.[key],baselinePrices?.[key]) || sameSettingsValue(remotePrices?.[key],baselinePrices?.[key])) return;
-    if(remotePrices?.[key] === undefined) delete merged[key];
-    else merged[key]=cloneSettings(remotePrices[key]);
+    if(!sameSettingsValue(next[key],baseline[key]) || sameSettingsValue(remote[key],baseline[key])) return;
+    if(remote[key] === undefined) delete merged[key];
+    else merged[key]=cloneSettings(remote[key]);
   });
   return merged;
 }
@@ -913,28 +916,45 @@ function keepRemoteSettingsThatWereNotEdited(next, baseline, remote){
   merged.platformPrices=mergeRemotePlatformPrices(next?.platformPrices,baseline?.platformPrices,remote?.platformPrices);
   return normalizeSettings(merged);
 }
+function platformPriceKey(platform){ return clean(platform).toLowerCase(); }
+function canonicalPlatformPriceLabel(platform){
+  const label=clean(platform);
+  return platformPriceKey(label)==='vix' ? 'ViX' : label;
+}
+function mergeDuplicatePlatformPrice(previous,incoming){
+  const next={...previous};
+  ['salePrice','renewalPrice','purchaseCost'].forEach(field=>{
+    const value=moneyNumber(incoming?.[field]);
+    if(value>0 || moneyNumber(next[field])===0) next[field]=value;
+  });
+  return next;
+}
 function normalizePlatformPrices(value={}, categories=[]){
   const out = {};
+  const labels=new Map();
+  (categories || []).map(canonicalPlatformPriceLabel).filter(Boolean).forEach(label=>{
+    if(!labels.has(platformPriceKey(label))) labels.set(platformPriceKey(label),label);
+  });
   if(value && typeof value === 'object'){
     Object.entries(value).forEach(([name,row]) => {
-      const label = clean(name);
-      if(!label) return;
-      out[label] = {
-        salePrice: moneyNumber(row?.salePrice),
-        renewalPrice: moneyNumber(row?.renewalPrice),
-        purchaseCost: moneyNumber(row?.purchaseCost)
-      };
+      const rawLabel=canonicalPlatformPriceLabel(name);
+      if(!rawLabel) return;
+      const key=platformPriceKey(rawLabel);
+      const label=labels.get(key) || rawLabel;
+      if(!labels.has(key)) labels.set(key,label);
+      const incoming={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      out[label]=out[label] ? mergeDuplicatePlatformPrice(out[label],incoming) : incoming;
     });
   }
-  (categories || []).map(clean).filter(Boolean).forEach(label => {
-    if(!out[label]) out[label] = {salePrice:0, renewalPrice:0, purchaseCost:0};
+  labels.forEach(label=>{
+    if(!out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
   });
   return out;
 }
 function platformPriceFor(platform){
-  const key = clean(platform).toLowerCase();
+  const key = platformPriceKey(platform);
   const prices = state.settings?.platformPrices || {};
-  const found = Object.entries(prices).find(([name]) => clean(name).toLowerCase() === key);
+  const found = Object.entries(prices).find(([name]) => platformPriceKey(name) === key);
   return found ? found[1] : {salePrice:0, renewalPrice:0, purchaseCost:0};
 }
 function shouldUseDefaultPrice(value){
@@ -2507,13 +2527,18 @@ async function saveSettings(next){
   const baseline = normalizeSettings(state.settingsBaseline || state.settings);
   let nextSettings = normalizeSettings(next);
   try{
+    const ref=settingsRef(state.uid);
     try{
-      const remoteSnap = await getDocFromServer(settingsRef(state.uid));
-      if(remoteSnap.exists()) nextSettings = keepRemoteSettingsThatWereNotEdited(nextSettings, baseline, normalizeSettings(remoteSnap.data() || {}));
-    }catch(_){
-      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+      await runTransaction(db, async transaction=>{
+        const remoteSnap=await transaction.get(ref);
+        if(remoteSnap.exists()) nextSettings=keepRemoteSettingsThatWereNotEdited(nextSettings, baseline, normalizeSettings(remoteSnap.data() || {}));
+        transaction.set(ref,{...nextSettings,gestorDataRevision:increment(1)},{merge:true});
+      });
+    }catch(transactionError){
+      if(!/network|offline|unavailable|webchannel/i.test(String(transactionError?.message || transactionError))) throw transactionError;
+      // Sin conexion se mantiene la escritura pendiente para sincronizarla luego.
+      await setDoc(ref,{...nextSettings,gestorDataRevision:increment(1)},{merge:true});
     }
-    await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
     state.syncRevision = null;
     try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
     state.settings = nextSettings;

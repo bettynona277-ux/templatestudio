@@ -35,7 +35,7 @@ import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersis
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, getDocFromServer, setDoc, deleteDoc,
-  collection, getDocs, getDocsFromServer, writeBatch, onSnapshot, query, where, orderBy, limit, increment
+  collection, getDocs, getDocsFromServer, writeBatch, runTransaction, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -853,18 +853,21 @@ function sameGestorSettingValue(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 function mergeRemoteGestorPlatformPrices(nextPrices = {}, baselinePrices = {}, remotePrices = {}) {
-  const merged = cloneGestorSettings(nextPrices || {});
+  const next = normalizePlatformPrices(nextPrices || {});
+  const baseline = normalizePlatformPrices(baselinePrices || {});
+  const remote = normalizePlatformPrices(remotePrices || {});
+  const merged = cloneGestorSettings(next);
   const keys = new Set([
-    ...Object.keys(nextPrices || {}),
-    ...Object.keys(baselinePrices || {}),
-    ...Object.keys(remotePrices || {})
+    ...Object.keys(next),
+    ...Object.keys(baseline),
+    ...Object.keys(remote)
   ]);
   keys.forEach(key => {
     // Una pestaña que no modifico esta plataforma conserva el valor mas nuevo
     // que ya exista en Firestore. Asi no borra precios de otras plataformas.
-    if (!sameGestorSettingValue(nextPrices?.[key], baselinePrices?.[key]) || sameGestorSettingValue(remotePrices?.[key], baselinePrices?.[key])) return;
-    if (remotePrices?.[key] === undefined) delete merged[key];
-    else merged[key] = cloneGestorSettings(remotePrices[key]);
+    if (!sameGestorSettingValue(next[key], baseline[key]) || sameGestorSettingValue(remote[key], baseline[key])) return;
+    if (remote[key] === undefined) delete merged[key];
+    else merged[key] = cloneGestorSettings(remote[key]);
   });
   return merged;
 }
@@ -1039,16 +1042,33 @@ window.__persistSettingsDoc = async function(settingsData) {
     notifySaveStatus('saving', 'Guardando ajustes...');
     const baseline = window.__gestorSettingsBaseline || sanitizeGestorSettingsForFirestore(settingsData || {});
     let nextSettings = sanitizeGestorSettingsForFirestore(settingsData || {});
+    const ref = settingsRef(user.uid);
     try {
-      const remoteSnap = await getDocFromServer(settingsRef(user.uid));
-      if (remoteSnap.exists()) nextSettings = keepRemoteGestorSettingsThatWereNotEdited(nextSettings, baseline, sanitizeGestorSettingsForFirestore(remoteSnap.data() || {}));
-    } catch (_) {
-      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+      // La lectura y escritura dentro de la transaccion evita que dos pestanas
+      // guarden sobre la misma copia antigua y una borre el precio de la otra.
+      await runTransaction(db, async transaction => {
+        const remoteSnap = await transaction.get(ref);
+        if (remoteSnap.exists()) {
+          nextSettings = keepRemoteGestorSettingsThatWereNotEdited(
+            nextSettings,
+            baseline,
+            sanitizeGestorSettingsForFirestore(remoteSnap.data() || {})
+          );
+        }
+        transaction.set(ref, {
+          ...nextSettings,
+          gestorDataRevision: increment(1)
+        }, { merge: true });
+      });
+    } catch (transactionError) {
+      // Sin conexion una transaccion no puede ejecutarse. Se conserva la
+      // escritura local pendiente para sincronizarla cuando vuelva la red.
+      if (!/network|offline|unavailable|webchannel/i.test(String(transactionError?.message || transactionError))) throw transactionError;
+      await setDoc(ref, {
+        ...nextSettings,
+        gestorDataRevision: increment(1)
+      }, { merge: true });
     }
-    await setDoc(settingsRef(user.uid), {
-      ...nextSettings,
-      gestorDataRevision: increment(1)
-    }, { merge: true });
     window.__gestorSettingsBaseline = cloneGestorSettings(nextSettings);
     // nextSettings puede incluir precios que llegaron de Firestore mientras esta
     // pestaña tenia una copia antigua. Mantener el estado local con esa version
@@ -6320,22 +6340,45 @@ function normalizeComboTemplates(value, categories=[]){
     return {id:String(t?.id||uid()).trim().slice(0,80),name:String(t?.name||'Combo').trim().slice(0,120),platforms};
   }).filter(t=>t.name && t.platforms.length).slice(0,30);
 }
+function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
+function canonicalPlatformPriceLabel(platform){
+  const label=String(platform||'').trim();
+  // PC escribia ViX y movil Vix. Es la misma plataforma, no dos precios.
+  return platformPriceKey(label)==='vix' ? 'ViX' : label;
+}
+function mergeDuplicatePlatformPrice(previous, incoming){
+  const next={...previous};
+  ['salePrice','renewalPrice','purchaseCost'].forEach(field=>{
+    const value=moneyNumber(incoming?.[field]);
+    // Al corregir duplicados de mayusculas se conserva el importe existente
+    // si la copia duplicada solo trae cero antiguo.
+    if(value>0 || moneyNumber(next[field])===0) next[field]=value;
+  });
+  return next;
+}
 function normalizePlatformPrices(value={}, categories=[]){
   const out={};
+  const labels=new Map();
+  (categories||[]).forEach(category=>{
+    const label=canonicalPlatformPriceLabel(category);
+    if(label && !labels.has(platformPriceKey(label))) labels.set(platformPriceKey(label),label);
+  });
   if(value && typeof value==='object'){
     Object.entries(value).slice(0,80).forEach(([key,row])=>{
-      const label=String(key||'').trim();
-      if(!label) return;
-      out[label]={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      const rawLabel=canonicalPlatformPriceLabel(key);
+      if(!rawLabel) return;
+      const priceKey=platformPriceKey(rawLabel);
+      const label=labels.get(priceKey) || rawLabel;
+      if(!labels.has(priceKey)) labels.set(priceKey,label);
+      const incoming={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      out[label]=out[label] ? mergeDuplicatePlatformPrice(out[label],incoming) : incoming;
     });
   }
-  (categories||[]).forEach(cat=>{
-    const label=String(cat||'').trim();
-    if(label && !out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
+  labels.forEach(label=>{
+    if(!out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
   });
   return out;
 }
-function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
 function platformPriceFor(platform){
   const target=platformPriceKey(platform);
   const prices=state.settings?.platformPrices || {};
