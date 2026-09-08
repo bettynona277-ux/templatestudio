@@ -35,7 +35,7 @@ import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersis
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, getDocFromServer, setDoc, deleteDoc,
-  collection, getDocs, getDocsFromServer, writeBatch, onSnapshot, query, where, orderBy, limit, increment
+  collection, getDocs, getDocsFromServer, writeBatch, runTransaction, onSnapshot, query, where, orderBy, limit, increment
 } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -853,18 +853,21 @@ function sameGestorSettingValue(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 function mergeRemoteGestorPlatformPrices(nextPrices = {}, baselinePrices = {}, remotePrices = {}) {
-  const merged = cloneGestorSettings(nextPrices || {});
+  const next = normalizePlatformPrices(nextPrices || {});
+  const baseline = normalizePlatformPrices(baselinePrices || {});
+  const remote = normalizePlatformPrices(remotePrices || {});
+  const merged = cloneGestorSettings(next);
   const keys = new Set([
-    ...Object.keys(nextPrices || {}),
-    ...Object.keys(baselinePrices || {}),
-    ...Object.keys(remotePrices || {})
+    ...Object.keys(next),
+    ...Object.keys(baseline),
+    ...Object.keys(remote)
   ]);
   keys.forEach(key => {
     // Una pestaña que no modifico esta plataforma conserva el valor mas nuevo
     // que ya exista en Firestore. Asi no borra precios de otras plataformas.
-    if (!sameGestorSettingValue(nextPrices?.[key], baselinePrices?.[key]) || sameGestorSettingValue(remotePrices?.[key], baselinePrices?.[key])) return;
-    if (remotePrices?.[key] === undefined) delete merged[key];
-    else merged[key] = cloneGestorSettings(remotePrices[key]);
+    if (!sameGestorSettingValue(next[key], baseline[key]) || sameGestorSettingValue(remote[key], baseline[key])) return;
+    if (remote[key] === undefined) delete merged[key];
+    else merged[key] = cloneGestorSettings(remote[key]);
   });
   return merged;
 }
@@ -1039,17 +1042,41 @@ window.__persistSettingsDoc = async function(settingsData) {
     notifySaveStatus('saving', 'Guardando ajustes...');
     const baseline = window.__gestorSettingsBaseline || sanitizeGestorSettingsForFirestore(settingsData || {});
     let nextSettings = sanitizeGestorSettingsForFirestore(settingsData || {});
+    const ref = settingsRef(user.uid);
     try {
-      const remoteSnap = await getDocFromServer(settingsRef(user.uid));
-      if (remoteSnap.exists()) nextSettings = keepRemoteGestorSettingsThatWereNotEdited(nextSettings, baseline, sanitizeGestorSettingsForFirestore(remoteSnap.data() || {}));
-    } catch (_) {
-      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+      // La lectura y escritura dentro de la transaccion evita que dos pestanas
+      // guarden sobre la misma copia antigua y una borre el precio de la otra.
+      await runTransaction(db, async transaction => {
+        const remoteSnap = await transaction.get(ref);
+        if (remoteSnap.exists()) {
+          nextSettings = keepRemoteGestorSettingsThatWereNotEdited(
+            nextSettings,
+            baseline,
+            sanitizeGestorSettingsForFirestore(remoteSnap.data() || {})
+          );
+        }
+        transaction.set(ref, {
+          ...nextSettings,
+          gestorDataRevision: increment(1)
+        }, { merge: true });
+      });
+    } catch (transactionError) {
+      // Sin conexion una transaccion no puede ejecutarse. Se conserva la
+      // escritura local pendiente para sincronizarla cuando vuelva la red.
+      if (!/network|offline|unavailable|webchannel/i.test(String(transactionError?.message || transactionError))) throw transactionError;
+      await setDoc(ref, {
+        ...nextSettings,
+        gestorDataRevision: increment(1)
+      }, { merge: true });
     }
-    await setDoc(settingsRef(user.uid), {
-      ...nextSettings,
-      gestorDataRevision: increment(1)
-    }, { merge: true });
     window.__gestorSettingsBaseline = cloneGestorSettings(nextSettings);
+    // nextSettings puede incluir precios que llegaron de Firestore mientras esta
+    // pestaña tenia una copia antigua. Mantener el estado local con esa version
+    // final evita que un siguiente guardado reenvie ceros viejos y borre precios.
+    if (settingsData && typeof settingsData === 'object') {
+      Object.keys(settingsData).forEach(key => delete settingsData[key]);
+      Object.assign(settingsData, cloneGestorSettings(nextSettings));
+    }
     try { localStorage.removeItem(gestorStateCacheKey(user.uid) + '_revision'); } catch (_) {}
     try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Ajustes guardados.');
@@ -5041,6 +5068,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <button class="nav-btn" data-view="finanzasView" data-finance-only><i data-lucide="wallet-cards"></i><span>Finanzas</span></button>
       <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
     </nav>
+    <a class="ghost-btn" href="mi-landing.html" style="text-decoration:none"><i data-lucide="panels-top-left"></i><span>Mi landing</span></a>
     <details class="config-menu">
       <summary><i data-lucide="settings-2"></i><span>Configuracion</span></summary>
       <div class="config-menu-options">
@@ -5950,16 +5978,25 @@ function sanitizeSettingsForSave(settings={}){
   };
 }
 let persistSettingsInFlight=null;
+let persistSettingsRequestedVersion=0;
 function persistSettings(){
+  persistSettingsRequestedVersion++;
   if(persistSettingsInFlight) return persistSettingsInFlight;
   persistSettingsInFlight=(async()=>{
-    state.settings = sanitizeSettingsForSave(state.settings);
-    if(window.__persistSettingsDoc){
-      const ok=await window.__persistSettingsDoc(state.settings);
-      if(ok) touchLocalStateCache();
-      return ok;
+    let savedVersion=0;
+    let ok=false;
+    // Una categoria nueva se guarda al crearla. Si el usuario le asigna un
+    // precio antes de que termine ese guardado, se ejecuta una segunda vuelta
+    // con el precio final en vez de perderla por una promesa ya en curso.
+    while(savedVersion < persistSettingsRequestedVersion){
+      const targetVersion=persistSettingsRequestedVersion;
+      state.settings = sanitizeSettingsForSave(state.settings);
+      ok=window.__persistSettingsDoc ? await window.__persistSettingsDoc(state.settings) : false;
+      if(!ok) return false;
+      touchLocalStateCache();
+      savedVersion=targetVersion;
     }
-    return false;
+    return ok;
   })().finally(()=>{ persistSettingsInFlight=null; });
   return persistSettingsInFlight;
 }
@@ -6313,22 +6350,45 @@ function normalizeComboTemplates(value, categories=[]){
     return {id:String(t?.id||uid()).trim().slice(0,80),name:String(t?.name||'Combo').trim().slice(0,120),platforms};
   }).filter(t=>t.name && t.platforms.length).slice(0,30);
 }
+function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
+function canonicalPlatformPriceLabel(platform){
+  const label=String(platform||'').trim();
+  // PC escribia ViX y movil Vix. Es la misma plataforma, no dos precios.
+  return platformPriceKey(label)==='vix' ? 'ViX' : label;
+}
+function mergeDuplicatePlatformPrice(previous, incoming){
+  const next={...previous};
+  ['salePrice','renewalPrice','purchaseCost'].forEach(field=>{
+    const value=moneyNumber(incoming?.[field]);
+    // Al corregir duplicados de mayusculas se conserva el importe existente
+    // si la copia duplicada solo trae cero antiguo.
+    if(value>0 || moneyNumber(next[field])===0) next[field]=value;
+  });
+  return next;
+}
 function normalizePlatformPrices(value={}, categories=[]){
   const out={};
+  const labels=new Map();
+  (categories||[]).forEach(category=>{
+    const label=canonicalPlatformPriceLabel(category);
+    if(label && !labels.has(platformPriceKey(label))) labels.set(platformPriceKey(label),label);
+  });
   if(value && typeof value==='object'){
     Object.entries(value).slice(0,80).forEach(([key,row])=>{
-      const label=String(key||'').trim();
-      if(!label) return;
-      out[label]={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      const rawLabel=canonicalPlatformPriceLabel(key);
+      if(!rawLabel) return;
+      const priceKey=platformPriceKey(rawLabel);
+      const label=labels.get(priceKey) || rawLabel;
+      if(!labels.has(priceKey)) labels.set(priceKey,label);
+      const incoming={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      out[label]=out[label] ? mergeDuplicatePlatformPrice(out[label],incoming) : incoming;
     });
   }
-  (categories||[]).forEach(cat=>{
-    const label=String(cat||'').trim();
-    if(label && !out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
+  labels.forEach(label=>{
+    if(!out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
   });
   return out;
 }
-function platformPriceKey(platform){ return String(platform||'').trim().toLowerCase(); }
 function platformPriceFor(platform){
   const target=platformPriceKey(platform);
   const prices=state.settings?.platformPrices || {};
@@ -9437,7 +9497,40 @@ $('#saveFinanceExpenseBtn').onclick=saveManualFinanceExpense;
 $('#sendPasswordResetBtn').onclick=sendPasswordResetFromSecurity;
 const financeModeToggle=$('#financeModeToggle');
 if(financeModeToggle) financeModeToggle.onchange=e=>setFinanceModeFromQuickToggle(e.target.checked);
-$('#saveSettingsBtn').onclick=()=>{ const wasFinanceOn=isFinanceModeEnabled(); readPlatformPricesFromUI(); state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder); state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES); state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories); state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories); state.settings.financeMode=$('#financeModeToggle')?.checked===true; state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,''); state.settings.freeSort=$('#settingsFreeSort').value||'platform'; state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase(); state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency; state.settings.finalMessage=$('#finalMessage').value.trim(); state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim(); $('#freeSort').value=state.settings.freeSort; closeModal('settingsModalWrap'); persistSettings(); refreshUI(); window.syncEnhancedSelects?.(); if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err)); };
+$('#saveSettingsBtn').onclick=async()=>{
+  const btn=$('#saveSettingsBtn');
+  if(!btn || btn.disabled) return;
+  const originalLabel=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='Guardando...';
+  const wasFinanceOn=isFinanceModeEnabled();
+  try{
+    readPlatformPricesFromUI();
+    state.settings.paymentMethods=(state.settings.paymentMethods||[]).filter(p=>p.method||p.number||p.holder);
+    state.settings.categories=uniqueClean(state.settings.categories||DEFAULT_CATEGORIES);
+    state.settings.platformPrices=normalizePlatformPrices(state.settings.platformPrices||{},state.settings.categories);
+    state.settings.comboTemplates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
+    state.settings.financeMode=$('#financeModeToggle')?.checked===true;
+    state.settings.whatsappPrefix=String($('#waPrefix').value||'').replace(/\D+/g,'');
+    state.settings.freeSort=$('#settingsFreeSort').value||'platform';
+    state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase();
+    state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency;
+    state.settings.finalMessage=$('#finalMessage').value.trim();
+    state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim();
+    $('#freeSort').value=state.settings.freeSort;
+    const ok=await persistSettings();
+    if(!ok) return;
+    closeModal('settingsModalWrap');
+    refreshUI();
+    window.syncEnhancedSelects?.();
+    if(!wasFinanceOn && isFinanceModeEnabled() && window.__reloadFinanceMovementsFromFirestore) {
+      window.__reloadFinanceMovementsFromFirestore().catch(err=>console.warn('No se pudieron recargar movimientos de finanzas:', err));
+    }
+  }finally{
+    btn.disabled=false;
+    btn.textContent=originalLabel;
+  }
+};
 $('#syncBtn').onclick=async()=>{
   const btn=document.getElementById('syncBtn');
   if(!btn||btn.disabled) return;

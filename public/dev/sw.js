@@ -1,6 +1,6 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v268`;
+const CACHE_NAME = `${CACHE_PREFIX}v269`;
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const SCOPE_URL = new URL(self.registration.scope);
 const ASSETS = [
@@ -34,6 +34,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  // Never cache private editor responses or resurrect an outdated public catalogue.
+  if(url.pathname.startsWith('/api/landing/') || url.pathname.includes('/landingApi/')) return;
   // El worker de produccion tiene scope raiz y tambien ve /dev. No debe
   // interceptarlo: una respuesta cacheada de produccion hacia que el gestor
   // movil de desarrollo terminara navegando a /gestor.html.

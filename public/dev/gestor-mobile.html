@@ -353,7 +353,7 @@ html[data-theme="light"] .mobile-select-option{color:#344158}html[data-theme="li
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js';
 import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, increment } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, getDocFromServer, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit, writeBatch, runTransaction, increment } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",
@@ -372,14 +372,20 @@ if (siteKey) {
 }
 const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(() => {});
+// Brave y algunas redes moviles pueden cortar el canal continuo de Firestore.
+// En ese caso usamos long polling solo para ese navegador (o si se solicita
+// explicitamente con ?firestoreCompat=1), sin degradar a los demas usuarios.
+const FIRESTORE_COMPAT_MODE = new URLSearchParams(location.search).has('firestoreCompat') || !!navigator.brave;
 const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  ...(FIRESTORE_COMPAT_MODE
+    ? { experimentalForceLongPolling:true, experimentalLongPollingOptions:{timeoutSeconds:25} }
+    : { experimentalAutoDetectLongPolling:true }),
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
 
 const $ = s => document.querySelector(s);
 const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
-const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','Vix','Spotify','Viki Rakuten'];
+const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','ViX','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
 const DEFAULT_CODE_ACTIVATION_MESSAGE = [
@@ -408,6 +414,7 @@ const mobileStateCacheTimeKey = () => mobileStateCacheKey() + '_synced_at';
 const mobileStateCacheRevisionKey = () => mobileStateCacheKey() + '_revision';
 const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
+let mobileLoadRetryTimer = null;
 function cacheMobileState(){
   try{
     localStorage.setItem(mobileStateCacheKey(), JSON.stringify({
@@ -887,14 +894,17 @@ function normalizeSettings(data={}){
 function cloneSettings(settings){ return JSON.parse(JSON.stringify(settings || {})); }
 function sameSettingsValue(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
 function mergeRemotePlatformPrices(nextPrices={}, baselinePrices={}, remotePrices={}){
-  const merged=cloneSettings(nextPrices || {});
-  const keys=new Set([...Object.keys(nextPrices || {}),...Object.keys(baselinePrices || {}),...Object.keys(remotePrices || {})]);
+  const next=normalizePlatformPrices(nextPrices || {});
+  const baseline=normalizePlatformPrices(baselinePrices || {});
+  const remote=normalizePlatformPrices(remotePrices || {});
+  const merged=cloneSettings(next);
+  const keys=new Set([...Object.keys(next),...Object.keys(baseline),...Object.keys(remote)]);
   keys.forEach(key=>{
     // Si esta pantalla no cambio una plataforma, se conserva la version mas
     // reciente de Firestore para que otra pestana no pierda ese precio.
-    if(!sameSettingsValue(nextPrices?.[key],baselinePrices?.[key]) || sameSettingsValue(remotePrices?.[key],baselinePrices?.[key])) return;
-    if(remotePrices?.[key] === undefined) delete merged[key];
-    else merged[key]=cloneSettings(remotePrices[key]);
+    if(!sameSettingsValue(next[key],baseline[key]) || sameSettingsValue(remote[key],baseline[key])) return;
+    if(remote[key] === undefined) delete merged[key];
+    else merged[key]=cloneSettings(remote[key]);
   });
   return merged;
 }
@@ -906,28 +916,45 @@ function keepRemoteSettingsThatWereNotEdited(next, baseline, remote){
   merged.platformPrices=mergeRemotePlatformPrices(next?.platformPrices,baseline?.platformPrices,remote?.platformPrices);
   return normalizeSettings(merged);
 }
+function platformPriceKey(platform){ return clean(platform).toLowerCase(); }
+function canonicalPlatformPriceLabel(platform){
+  const label=clean(platform);
+  return platformPriceKey(label)==='vix' ? 'ViX' : label;
+}
+function mergeDuplicatePlatformPrice(previous,incoming){
+  const next={...previous};
+  ['salePrice','renewalPrice','purchaseCost'].forEach(field=>{
+    const value=moneyNumber(incoming?.[field]);
+    if(value>0 || moneyNumber(next[field])===0) next[field]=value;
+  });
+  return next;
+}
 function normalizePlatformPrices(value={}, categories=[]){
   const out = {};
+  const labels=new Map();
+  (categories || []).map(canonicalPlatformPriceLabel).filter(Boolean).forEach(label=>{
+    if(!labels.has(platformPriceKey(label))) labels.set(platformPriceKey(label),label);
+  });
   if(value && typeof value === 'object'){
     Object.entries(value).forEach(([name,row]) => {
-      const label = clean(name);
-      if(!label) return;
-      out[label] = {
-        salePrice: moneyNumber(row?.salePrice),
-        renewalPrice: moneyNumber(row?.renewalPrice),
-        purchaseCost: moneyNumber(row?.purchaseCost)
-      };
+      const rawLabel=canonicalPlatformPriceLabel(name);
+      if(!rawLabel) return;
+      const key=platformPriceKey(rawLabel);
+      const label=labels.get(key) || rawLabel;
+      if(!labels.has(key)) labels.set(key,label);
+      const incoming={salePrice:moneyNumber(row?.salePrice),renewalPrice:moneyNumber(row?.renewalPrice),purchaseCost:moneyNumber(row?.purchaseCost)};
+      out[label]=out[label] ? mergeDuplicatePlatformPrice(out[label],incoming) : incoming;
     });
   }
-  (categories || []).map(clean).filter(Boolean).forEach(label => {
-    if(!out[label]) out[label] = {salePrice:0, renewalPrice:0, purchaseCost:0};
+  labels.forEach(label=>{
+    if(!out[label]) out[label]={salePrice:0,renewalPrice:0,purchaseCost:0};
   });
   return out;
 }
 function platformPriceFor(platform){
-  const key = clean(platform).toLowerCase();
+  const key = platformPriceKey(platform);
   const prices = state.settings?.platformPrices || {};
-  const found = Object.entries(prices).find(([name]) => clean(name).toLowerCase() === key);
+  const found = Object.entries(prices).find(([name]) => platformPriceKey(name) === key);
   return found ? found[1] : {salePrice:0, renewalPrice:0, purchaseCost:0};
 }
 function shouldUseDefaultPrice(value){
@@ -1180,6 +1207,9 @@ function mobileSupportError(err, scope='operacion'){
     : /network|offline|unavailable|failed to fetch/.test(normalized) ? 'NETWORK'
     : 'UNEXPECTED';
   return `Ocurrio un error. Envia este mensaje exacto a Rafael: [GESTOR-MOVIL/${scope}/${code}] Error: ${raw}`;
+}
+function isMobileNetworkError(err){
+  return /network|offline|unavailable|failed to fetch|webchannel/i.test(String(err?.message || err || ''));
 }
 function showMobileSupportError(err, scope){
   console.error(err);
@@ -1617,6 +1647,7 @@ function renderSettings(){
   const s = state.settings;
   $('#view').innerHTML = `<section class="section">
     <div class="section-head"><h2>Ajustes</h2><span>entrega y categorias</span></div>
+    <a class="btn primary" href="mi-landing.html" style="text-decoration:none;display:flex;margin-bottom:16px"><span>Mi landing · Personalizar mi tienda ↗</span></a>
     <div class="security-box">
       <div>
         <h3>${icon('shield')} Cuenta protegida</h3>
@@ -2497,13 +2528,18 @@ async function saveSettings(next){
   const baseline = normalizeSettings(state.settingsBaseline || state.settings);
   let nextSettings = normalizeSettings(next);
   try{
+    const ref=settingsRef(state.uid);
     try{
-      const remoteSnap = await getDocFromServer(settingsRef(state.uid));
-      if(remoteSnap.exists()) nextSettings = keepRemoteSettingsThatWereNotEdited(nextSettings, baseline, normalizeSettings(remoteSnap.data() || {}));
-    }catch(_){
-      // Sin red, Firestore conserva la escritura pendiente y la sincroniza al reconectar.
+      await runTransaction(db, async transaction=>{
+        const remoteSnap=await transaction.get(ref);
+        if(remoteSnap.exists()) nextSettings=keepRemoteSettingsThatWereNotEdited(nextSettings, baseline, normalizeSettings(remoteSnap.data() || {}));
+        transaction.set(ref,{...nextSettings,gestorDataRevision:increment(1)},{merge:true});
+      });
+    }catch(transactionError){
+      if(!/network|offline|unavailable|webchannel/i.test(String(transactionError?.message || transactionError))) throw transactionError;
+      // Sin conexion se mantiene la escritura pendiente para sincronizarla luego.
+      await setDoc(ref,{...nextSettings,gestorDataRevision:increment(1)},{merge:true});
     }
-    await setDoc(settingsRef(state.uid), {...nextSettings, gestorDataRevision:increment(1)}, {merge:true});
     state.syncRevision = null;
     try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){}
     state.settings = nextSettings;
@@ -3524,7 +3560,7 @@ async function exportExcel(){
 async function loadOnceForExpired(){
   await loadOnce(false);
 }
-async function loadOnce(showToast=true, forceNetwork=false){
+async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
   if(!state.uid) return;
   try{
     const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
@@ -3563,6 +3599,22 @@ async function loadOnce(showToast=true, forceNetwork=false){
     render();
     if(showToast) toast('Datos actualizados.');
   }catch(err){
+    // Una conexion movil puede tardar unos segundos en reabrir Firestore. No
+    // mostramos un error tecnico en el primer corte: reintentamos solos antes.
+    if(isMobileNetworkError(err) && retryAttempt < 2){
+      const seconds = retryAttempt === 0 ? 2 : 5;
+      clearTimeout(mobileLoadRetryTimer);
+      mobileLoadRetryTimer = setTimeout(() => {
+        mobileLoadRetryTimer = null;
+        loadOnce(false, true, retryAttempt + 1);
+      }, seconds * 1000);
+      if(showToast || retryAttempt === 0) toast(`No se pudo conectar. Reintentando en ${seconds} segundos...`, 'bad');
+      return;
+    }
+    if(isMobileNetworkError(err)){
+      toast('No se pudo conectar a tus datos. No se borró nada. Revisa tu red y vuelve a abrir el gestor.', 'bad');
+      return;
+    }
     showMobileSupportError(err, 'actualizar-datos');
   }
 }
@@ -3571,6 +3623,12 @@ function startLive(){
   // Esto baja las lecturas de Firestore. Para traer cambios externos, recarga la página.
   return loadOnce(false);
 }
+
+window.addEventListener('online', () => {
+  clearTimeout(mobileLoadRetryTimer);
+  mobileLoadRetryTimer = null;
+  loadOnce(false, true);
+});
 
 /* Select visual: conserva el select real para formularios, eventos y accesibilidad. */
 const MOBILE_SELECT_SELECTOR = 'select:not([multiple]):not([data-mobile-select="false"])';
