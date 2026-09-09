@@ -1,6 +1,6 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v269`;
+const CACHE_NAME = `${CACHE_PREFIX}v272`;
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
 const SCOPE_URL = new URL(self.registration.scope);
 const ASSETS = [
