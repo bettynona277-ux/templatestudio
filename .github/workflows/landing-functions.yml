@@ -66,7 +66,6 @@ jobs:
     environment: landing-${{ inputs.target }}
     permissions:
       contents: read
-      id-token: write
     env:
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
       LANDING_REGION: ${{ vars.LANDING_REGION || 'us-central1' }}
@@ -85,15 +84,15 @@ jobs:
         shell: bash
         run: |
           node -e "const fs=require('node:fs'); const keys=['LANDING_REGION','LANDING_BUCKET','LANDING_ALLOWED_ORIGINS']; fs.writeFileSync('functions/.env', keys.map(key => key + '=' + (process.env[key] || '')).join('\\n') + '\\n');"
-      - id: auth
-        name: Authenticate to Google Cloud with deployment secret
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.FIREBASE_DEPLOY_SERVICE_ACCOUNT }}
-          project_id: ${{ vars.FIREBASE_PROJECT_ID }}
-          create_credentials_file: true
-          export_environment_variables: true
-      - name: Deploy only the landing functions codebase
+      - name: Prepare deployment credential
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          FIREBASE_DEPLOY_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_DEPLOY_SERVICE_ACCOUNT_B64 }}
+        shell: bash
+        run: |
+          test -n "$FIREBASE_DEPLOY_SERVICE_ACCOUNT_B64"
+          printf '%s' "$FIREBASE_DEPLOY_SERVICE_ACCOUNT_B64" | base64 --decode > "$RUNNER_TEMP/firebase-deploy.json"
+          node -e "JSON.parse(require('node:fs').readFileSync(process.env.RUNNER_TEMP + '/firebase-deploy.json', 'utf8')); console.log('Deployment credential format verified.')"
+          chmod 600 "$RUNNER_TEMP/firebase-deploy.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-deploy.json" >> "$GITHUB_ENV"
+      - name: Deploy only the landing functions codebase
         run: npx --yes firebase-tools@15.22.1 deploy --config firebase.landing.json --project "$FIREBASE_PROJECT_ID" --only functions:landing --non-interactive
