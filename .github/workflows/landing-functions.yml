@@ -1,0 +1,89 @@
+name: Landing functions
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'scripts/sync-landing-core.cjs'
+      - 'public/js/landing/core.js'
+      - 'firebase.landing.json'
+      - '.github/workflows/landing-functions.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'scripts/sync-landing-core.cjs'
+      - 'public/js/landing/core.js'
+      - 'firebase.landing.json'
+      - '.github/workflows/landing-functions.yml'
+  workflow_dispatch:
+
+# The pull-request job only validates. Deployment can happen only after a
+# change has been merged to main, or through the protected manual action.
+permissions:
+  contents: read
+
+concurrency:
+  group: landing-functions-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify landing backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefix functions
+      - name: Sync shared catalog rules
+        run: node scripts/sync-landing-core.cjs
+      - name: Verify generated backend copy is committed
+        run: git diff --exit-code -- functions/core.js
+      - name: Run landing tests
+        run: npm test --prefix functions
+
+  deploy:
+    name: Deploy landing codebase
+    needs: verify
+    # Pull requests never receive cloud credentials or deploy. Main is the
+    # only automatic deployment branch; workflow_dispatch is a recovery path.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: landing-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      LANDING_REGION: ${{ vars.LANDING_REGION || 'us-central1' }}
+      LANDING_BUCKET: ${{ vars.LANDING_BUCKET }}
+      LANDING_ALLOWED_ORIGINS: ${{ vars.LANDING_ALLOWED_ORIGINS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefix functions
+      - name: Create runtime environment file
+        shell: bash
+        run: |
+          node -e "const fs=require('node:fs'); const keys=['LANDING_REGION','LANDING_BUCKET','LANDING_ALLOWED_ORIGINS']; fs.writeFileSync('functions/.env', keys.map(key => key + '=' + (process.env[key] || '')).join('\\n') + '\\n');"
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.FIREBASE_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Deploy only the landing functions codebase
+        run: npx --yes firebase-tools@13.35.1 deploy --config firebase.landing.json --project "$FIREBASE_PROJECT_ID" --only functions:landing --non-interactive
