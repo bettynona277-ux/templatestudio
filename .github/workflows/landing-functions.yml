@@ -85,7 +85,8 @@ jobs:
         shell: bash
         run: |
           node -e "const fs=require('node:fs'); const keys=['LANDING_REGION','LANDING_BUCKET','LANDING_ALLOWED_ORIGINS']; fs.writeFileSync('functions/.env', keys.map(key => key + '=' + (process.env[key] || '')).join('\\n') + '\\n');"
-      - name: Authenticate to Google Cloud with GitHub OIDC
+      - id: auth
+        name: Authenticate to Google Cloud with GitHub OIDC
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -94,4 +95,6 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - name: Deploy only the landing functions codebase
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
         run: npx --yes firebase-tools@13.35.1 deploy --config firebase.landing.json --project "$FIREBASE_PROJECT_ID" --only functions:landing --non-interactive
