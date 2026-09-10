@@ -265,6 +265,40 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers','Content-Type');
   if (req.method==='OPTIONS') { res.writeHead(200); res.end(); return; }
 
+  // The landing editor uses this same-origin route. Railway keeps the Firebase
+  // Function URL in LANDING_API_URL, so it is never exposed in public JS.
+  if (url.pathname.startsWith('/api/landing/')) {
+    const base = process.env.LANDING_API_URL;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    if (!base) {
+      res.writeHead(503);
+      res.end(JSON.stringify({ error: 'La publicación aún no está conectada. Configura LANDING_API_URL en Railway.' }));
+      return;
+    }
+    try {
+      const target = new URL(base.replace(/\/$/, '') + url.pathname.slice('/api/landing'.length));
+      target.search = url.search;
+      const headers = {};
+      for (const name of ['authorization', 'content-type', 'origin']) {
+        if (req.headers[name]) headers[name] = req.headers[name];
+      }
+      const body = ['GET', 'HEAD'].includes(req.method) ? undefined : req;
+      const upstream = await fetch(target, { method: req.method, headers, body, duplex: body ? 'half' : undefined });
+      const responseBody = Buffer.from(await upstream.arrayBuffer());
+      res.writeHead(upstream.status, {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'Cache-Control': upstream.headers.get('cache-control') || 'no-store'
+      });
+      res.end(responseBody);
+    } catch (err) {
+      console.error('Landing proxy error:', err.message);
+      res.writeHead(502);
+      res.end(JSON.stringify({ error: 'No se pudo conectar con el servicio de landing.' }));
+    }
+    return;
+  }
+
   if (req.method==='POST' && url.pathname==='/api/parse-psd') {
     try {
       const chunks=[]; let total=0;
