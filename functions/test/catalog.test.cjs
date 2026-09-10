@@ -9,7 +9,7 @@ const config = extra => C.sanitize({ name:'Tienda de prueba', whatsapp:'51999123
 const inv = { a:{ platform:'Netflix', profile:true, full:true, due:future } };
 
 test('frontend and backend use identical rules', () => {
-  assert.equal(fs.readFileSync(path.join(__dirname,'../../public/js/landing/core.js'),'utf8'),fs.readFileSync(path.join(__dirname,'../core.js'),'utf8'));
+  assert.equal(fs.readFileSync(path.join(__dirname,'../../public/dev/js/landing/core.js'),'utf8'),fs.readFileSync(path.join(__dirname,'../core.js'),'utf8'));
 });
 test('public payload contains no inventory counts or private credentials even when injected', () => {
   const input = { ...config(), password:'SECRET', capacity:50, stock:49, freeSlots:49, clients:[{pin:'1234'}] };
