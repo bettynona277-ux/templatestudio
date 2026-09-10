@@ -18,14 +18,22 @@ on:
       - 'firebase.landing.json'
       - '.github/workflows/landing-functions.yml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Entorno Firebase de destino'
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - production
 
-# The pull-request job only validates. Deployment can happen only after a
-# change has been merged to main, or through the protected manual action.
+# Every push only validates. Firebase deployments are deliberate manual actions.
 permissions:
   contents: read
 
 concurrency:
-  group: landing-functions-production
+  group: landing-functions-${{ github.event.inputs.target || 'verify' }}
   cancel-in-progress: false
 
 jobs:
@@ -51,11 +59,11 @@ jobs:
   deploy:
     name: Deploy landing codebase
     needs: verify
-    # Pull requests never receive cloud credentials or deploy. Main is the
-    # only automatic deployment branch; workflow_dispatch is a recovery path.
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    # A push never receives cloud credentials. Deployment is initiated manually
+    # from Actions and the selected GitHub Environment supplies its variables.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: landing-production
+    environment: landing-${{ inputs.target }}
     permissions:
       contents: read
       id-token: write
