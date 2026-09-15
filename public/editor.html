@@ -5,6 +5,7 @@
 <!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
 <meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="cloudinary-upload-cache.js"></script>
 <script>
 // Redirigir móviles al editor móvil preservando todos los parámetros
 (function(){
@@ -3110,6 +3111,15 @@ async function compressImage(dataUrl, maxW=1200, maxH=1200, quality=0.85){
 
 // Upload a base64 dataURL to Cloudinary, return secure URL
 async function uploadToStorage(dataUrl, path){
+  const purpose = path.split('/')[0];
+  if(window.dsCloudinaryUploads && dataUrl.startsWith('data:') &&
+     ['thumbnails', 'layer-images', 'frames'].includes(purpose)){
+    const scope = JSON.stringify([fbAuth?.currentUser?.uid || 'anon', purpose]);
+    return window.dsCloudinaryUploads.run(scope, dataUrl, () => uploadToStorageUncached(dataUrl, path));
+  }
+  return uploadToStorageUncached(dataUrl, path);
+}
+async function uploadToStorageUncached(dataUrl, path){
   const fd=new FormData();
   // Cloudinary necesita un Blob, no un string base64
   if(dataUrl.startsWith('data:')){
@@ -4203,7 +4213,7 @@ function renderLogoLibrary(){
       const item=document.createElement('div');
       item.className='logo-lib-item';
       item.title='Clic para agregar al canvas';
-      item.innerHTML=`<img src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name||''}">
+      item.innerHTML=`<img loading="lazy" decoding="async" src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name||''}">
         ${isAdmin?`<button class="logo-del" onclick="deleteLibraryLogo('${logo.id}',event)" title="Eliminar">✕</button>`:''}`;
       item.draggable=true;
       item.addEventListener('click',()=>addLogoToCanvas(logo.url, logo.name||''));
@@ -4278,7 +4288,7 @@ function renderOwnLogosPC(){
     item.className='logo-lib-item';
     item.style.cssText='border:1px solid rgba(100,160,255,0.35);';
     item.title='Clic para agregar al canvas';
-    item.innerHTML=`<img src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name}">
+    item.innerHTML=`<img loading="lazy" decoding="async" src="${cdnOpt(logo.url,{w:220})}" alt="${logo.name}">
       <button class="logo-del" onclick="deleteOwnLogoPC('${logo.id}',event)" title="Eliminar" style="display:none;">✕</button>`;
     item.draggable=true;
     item.addEventListener('click',()=>addLogoToCanvas(logo.url,logo.name));

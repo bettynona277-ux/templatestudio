@@ -8,6 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="/app-check-config.js"></script>
+<script src="cloudinary-upload-cache.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
@@ -2606,55 +2607,20 @@ const IOS_EXPORT_COOLDOWN_MS = 15000;
 const IOS_EXPORT_DAILY_LIMIT = 30;
 let lastIosExportUploadAt = 0;
 
-function simpleHashString(str){
-  let h = 2166136261;
-  for(let i=0;i<str.length;i++){
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
-}
-
-async function sha256Text(text){
-  try{
-    if(window.crypto?.subtle){
-      const bytes = new TextEncoder().encode(text);
-      const digest = await crypto.subtle.digest('SHA-256', bytes);
-      return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
-    }
-  }catch(_){}
-  return simpleHashString(text);
-}
-
-async function getExportDesignHash(){
-  const payload = JSON.stringify({
-    renderVersion: EXPORT_RENDER_VERSION,
-    w: parseInt(cvs.style.width)||1080,
-    h: parseInt(cvs.style.height)||1080,
-    name: localStorage.getItem('ts_design_name') || '',
-    layers: layers.map(l=>({
-      id:l.id,type:l.type,name:l.name,x:l.x,y:l.y,w:l.w,h:l.h,rot:l.rot,opacity:l.opacity,
-      visible:l.visible,src:l.src,frameImage:l.frameImage,imgFill:l.imgFill,blur:l.blur,tp:l.tp
-    }))
-  });
-  return sha256Text(payload);
-}
-
-function exportCacheKey(hash){
-  const uid = fbAuth?.currentUser?.uid || 'anon';
+function exportCacheKey(hash, uid = fbAuth?.currentUser?.uid || 'anon'){
   return `ds_ios_export_${uid}_${hash}`;
 }
 
-function readIosExportCache(hash){
+function readIosExportCache(hash, uid){
   try{
-    const cached = JSON.parse(localStorage.getItem(exportCacheKey(hash)) || 'null');
+    const cached = JSON.parse(localStorage.getItem(exportCacheKey(hash, uid)) || 'null');
     if(cached?.url && cached.ts && Date.now() - Number(cached.ts) < 24*60*60*1000) return cached;
   }catch(_){}
   return null;
 }
 
-function writeIosExportCache(hash, url){
-  try{ localStorage.setItem(exportCacheKey(hash), JSON.stringify({url, ts:Date.now()})); }catch(_){}
+function writeIosExportCache(hash, url, uid){
+  try{ localStorage.setItem(exportCacheKey(hash, uid), JSON.stringify({url, ts:Date.now()})); }catch(_){}
 }
 
 function canUseIosExportUpload(){
@@ -2727,18 +2693,32 @@ function showCloudinaryExportModal(blob, fileName, displayName, exportUrl){
 }
 
 async function getOrUploadExportUrl(blob, fileName){
-  const hash = await getExportDesignHash();
-  const cached = readIosExportCache(hash);
-  if(cached?.url) return cached.url;
-  if(!canUseIosExportUpload()){
-    throw new Error('Límite temporal de exportaciones alcanzado. Intenta nuevamente en unos segundos.');
-  }
-  const uid = (fbAuth?.currentUser?.uid || 'anon').replace(/[^\w\-]/g,'').slice(0,48) || 'anon';
-  const day = new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const publicId = `${uid}_${String(hash).slice(0,24)}_${day}`;
-  const url = await uploadExportBlobToCloudinary(blob, publicId);
-  writeIosExportCache(hash, url);
-  return url;
+  const account = fbAuth?.currentUser?.uid || 'anon';
+  const upload = async digest => {
+    const hash = digest ? `bytes-v1-${digest}` : null;
+    const cached = hash ? readIosExportCache(hash, account) : null;
+    if(cached?.url) return cached.url;
+    if(!canUseIosExportUpload()){
+      throw new Error('Límite temporal de exportaciones alcanzado. Intenta nuevamente en unos segundos.');
+    }
+    const uid = account.replace(/[^\w\-]/g,'').slice(0,48) || 'anon';
+    const day = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    // No hash support: let Cloudinary assign a unique ID, never reuse a weak hash.
+    const publicId = digest ? `${uid}_${digest}_${day}` : undefined;
+    const url = await uploadExportBlobToCloudinary(blob, publicId);
+    if(hash) writeIosExportCache(hash, url, account);
+    return url;
+  };
+  return window.dsCloudinaryUploads
+    ? window.dsCloudinaryUploads.run(JSON.stringify([account, 'export', EXPORT_RENDER_VERSION]), blob, upload)
+    : upload(null);
+}
+
+function canShareExportFile(blob, fileName){
+  try{
+    return typeof navigator.share === 'function' && typeof navigator.canShare === 'function' &&
+      navigator.canShare({files:[new File([blob], fileName, {type:blob.type || 'image/jpeg'})]});
+  }catch(_){ return false; }
 }
 
 // ── Cargar logos de plataformas (colección global, con categorías) ──
@@ -2887,7 +2867,7 @@ function renderLogos(){
       const card = document.createElement('div');
       card.className='logo-card';
       card.innerHTML=`
-        <img src="${cdnOpt(logo.url||logo.src||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
+        <img loading="lazy" decoding="async" src="${cdnOpt(logo.url||logo.src||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
         <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       `;
       grid.appendChild(card);
@@ -2952,7 +2932,17 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
           setTimeout(()=>URL.revokeObjectURL(u), 15000);
           toast('💡 Mantén presionada la imagen para guardarla');
         }
-      }catch(e){ if(e.name !== 'AbortError') console.warn('Share:', e); }
+      }catch(e){
+        if(e.name === 'AbortError') return;
+        try{
+          toast('Preparando descarga compatible...');
+          const exportUrl = await getOrUploadExportUrl(blob, fileName);
+          showCloudinaryExportModal(blob, fileName, displayName, exportUrl);
+        }catch(uploadErr){
+          console.warn('Share:', uploadErr);
+          toast('Mantén presionada la imagen para guardarla');
+        }
+      }
     };
   }
 
@@ -3035,7 +3025,7 @@ function renderOwnLogos(){
     const card = document.createElement('div');
     card.className='logo-card personal';
     card.innerHTML=`
-      <img src="${cdnOpt(logo.url||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
+      <img loading="lazy" decoding="async" src="${cdnOpt(logo.url||'', {w:220})}" crossorigin="anonymous" alt="${logo.name||'Logo'}">
       <button class="add-btn" onclick="handleLogoTap('${src}','${name}')">+</button>
       <button class="del-btn" onclick="deleteOwnLogo('${docId}',event)" style="display:flex;">✕</button>
     `;
@@ -3437,10 +3427,10 @@ async function doSave(){
     cvs.style.transform=savedT;
     const b64=tc.toDataURL('image/jpeg',0.8);
     st.textContent='Subiendo...';
-    const fd=new FormData();
-    fd.append('file',b64);fd.append('upload_preset',CLOUDINARY_PRESET);fd.append('folder','templatestudio');
-    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
-    if(res.ok){ const d=await res.json(); thumb=d.secure_url||''; }
+    const uploadThumb = () => uploadToCloudinary(b64);
+    thumb = window.dsCloudinaryUploads
+      ? await window.dsCloudinaryUploads.run(JSON.stringify([fbAuth.currentUser.uid, 'thumbnails']), b64, uploadThumb)
+      : await uploadThumb();
   }catch(e){ console.warn('Thumb error:',e.message); }
 
   // Layers data
@@ -4035,12 +4025,6 @@ async function downloadPNG(){
     const fileName = safeName + '.jpg';
     const blob = await canvasToJpegBlob(rendered);
     let exportUrl = '';
-    try{
-      toast('Preparando descarga compatible...');
-      exportUrl = await getOrUploadExportUrl(blob, fileName);
-    }catch(uploadErr){
-      console.warn('Cloudinary export fallback:', uploadErr.message);
-    }
 
     // Detectar navegadores embebidos: Telegram, WhatsApp, Instagram, Facebook, etc.
     // Estos bloquean a.download y el archivo va a carpeta temporal invisible para el usuario
@@ -4053,6 +4037,17 @@ async function downloadPNG(){
       /TikTok/.test(ua) ||                          // TikTok InApp Browser
       /Twitter/.test(ua) ||                         // Twitter InApp Browser
       (!isIOS && /Android/.test(ua) && !/Chrome\/\d/.test(ua) && !/Firefox\/\d/.test(ua));
+
+    // Native downloads + file sharing use the exact local JPEG, avoiding a round trip.
+    // Keep hosted downloads for iOS, embedded browsers and devices without file sharing.
+    if(isIOS || isWebView || !canShareExportFile(blob, fileName)){
+      try{
+        toast('Preparando descarga compatible...');
+        exportUrl = await getOrUploadExportUrl(blob, fileName);
+      }catch(uploadErr){
+        console.warn('Cloudinary export fallback:', uploadErr.message);
+      }
+    }
 
     // ── WEBVIEW (Telegram, WhatsApp, Instagram, etc.) ──
     // a.download no funciona → ir directo al modal con botón compartir
