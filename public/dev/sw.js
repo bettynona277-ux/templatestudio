@@ -1,7 +1,45 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v272`;
-const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v1';
+const CACHE_NAME = `${CACHE_PREFIX}v268`;
+// Shared by production and dev; app releases must not discard image downloads.
+const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v2';
+const CLOUDINARY_MAX_ENTRIES = 256;
+const cloudinaryPending = new Map();
+
+async function cachedCloudinaryResponse(request){
+  let cache;
+  try{
+    cache = await caches.open(CLOUDINARY_CACHE);
+    const hit = await cache.match(request);
+    if(hit) return hit;
+  }catch(_){ /* Storage unavailable: image delivery must still work. */ }
+
+  // Keep URL, request mode and headers intact (CORS and format negotiation).
+  const key = JSON.stringify([request.url, request.mode, request.credentials,
+    request.cache, request.redirect, [...request.headers.entries()]]);
+  let pending = cloudinaryPending.get(key);
+  if(!pending){
+    pending = (async () => {
+      const response = await fetch(request);
+      if(cache && response.status === 200 && response.type !== 'opaque' &&
+         !/no-store|private|no-cache/i.test(response.headers.get('Cache-Control') || '')){
+        try{
+          await cache.put(request, response.clone());
+          const keys = await cache.keys();
+          await Promise.all(keys.slice(0, Math.max(0, keys.length - CLOUDINARY_MAX_ENTRIES))
+            .map(old => cache.delete(old)));
+        }catch(_){ /* Quota errors must not break previews or exports. */ }
+      }
+      return response;
+    })();
+    cloudinaryPending.set(key, pending);
+  }
+  try{
+    return (await pending).clone();
+  }finally{
+    if(cloudinaryPending.get(key) === pending) cloudinaryPending.delete(key);
+  }
+}
 const SCOPE_URL = new URL(self.registration.scope);
 const ASSETS = [
   'manifest.json',
@@ -25,7 +63,7 @@ self.addEventListener('activate', e => {
     caches.keys().then(keys =>
       // Produccion y /dev comparten origen: cada worker solo limpia sus propias
       // versiones para no invalidar ni responder con cache del otro entorno.
-      Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => ((new RegExp('^' + CACHE_PREFIX + 'v[0-9]+$')).test(k) && k !== CACHE_NAME) || k === 'disenos-streaming-cloudinary-v1').map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -34,8 +72,6 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  // Never cache private editor responses or resurrect an outdated public catalogue.
-  if(url.pathname.startsWith('/api/landing/') || url.pathname.includes('/landingApi/')) return;
   // El worker de produccion tiene scope raiz y tambien ve /dev. No debe
   // interceptarlo: una respuesta cacheada de produccion hacia que el gestor
   // movil de desarrollo terminara navegando a /gestor.html.
@@ -54,29 +90,16 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  if(url.hostname.includes('res.cloudinary.com')) {
-    const cacheUrl = new URL(e.request.url);
-    cacheUrl.search = '';
-    cacheUrl.hash = '';
-    const cacheRequest = new Request(cacheUrl.toString(), {
-      method:'GET',
-      headers:e.request.headers,
-      mode:e.request.mode,
-      credentials:e.request.credentials,
-      redirect:e.request.redirect,
-      referrer:e.request.referrer
-    });
-    e.respondWith(
-      caches.open(CLOUDINARY_CACHE).then(cache =>
-        cache.match(cacheRequest).then(hit => {
-          if(hit) return hit;
-          return fetch(e.request).then(res => {
-            if(res.ok && res.type !== 'opaque') cache.put(cacheRequest, res.clone());
-            return res;
-          }).catch(() => hit || new Response(null, { status: 504, statusText: 'Offline' }));
-        })
-      )
-    );
+  if(url.hostname === 'res.cloudinary.com') {
+    // Only immutable versioned public images are safe for persistent cache-first.
+    // Signed/query URLs, unversioned assets and explicit reloads use HTTP caching.
+    if(!/^\/[^/]+\/image\/upload\/(?:[^/]+\/)*v[0-9]+\//.test(url.pathname) ||
+       url.search || e.request.headers.has('range') ||
+       e.request.credentials === 'include' ||
+       !['default', 'force-cache', 'only-if-cached'].includes(e.request.cache)) return;
+    const response = cachedCloudinaryResponse(e.request);
+    e.respondWith(response);
+    e.waitUntil(response.then(() => undefined, () => undefined));
     return;
   }
 
