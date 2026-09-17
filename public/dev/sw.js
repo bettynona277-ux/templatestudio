@@ -1,6 +1,6 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v268`;
+const CACHE_NAME = `${CACHE_PREFIX}v269`;
 // Shared by production and dev; app releases must not discard image downloads.
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v2';
 const CLOUDINARY_MAX_ENTRIES = 256;
