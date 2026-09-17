@@ -388,6 +388,7 @@ const IS_WEB_CONTEXT = /^https?:$/i.test(location.protocol);
 const DEFAULT_CATEGORIES = ['Netflix','Disney','HBO Max','Crunchyroll','ViX','Spotify','Viki Rakuten'];
 const DEFAULT_PAYMENT_METHODS = [{ method:'Yape / Plin', number:'+51974834197', holder:'' }];
 const DEFAULT_FINAL_MESSAGE = 'Por favor no cambiar los datos de la cuenta. Muchas gracias.';
+const DEFAULT_RENEWAL_FINAL_MESSAGE = '✅ Gracias por tu preferencia.';
 const DEFAULT_CODE_ACTIVATION_MESSAGE = [
   '\u00a1Muchas gracias por su compra! \ud83d\ude0a',
   '',
@@ -405,7 +406,7 @@ const DEFAULT_COMBO_TEMPLATES = [
 const state = {
   uid:null, email:'', active:true, view:'home', query:'', accountCategory:'Todas', financeRange:'month',
   accounts:[], clients:[], financeMovements:[], financeMovementsFullLoaded:false, unsub:[],
-  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
+  settings:{ paymentMethods:DEFAULT_PAYMENT_METHODS, finalMessage:DEFAULT_FINAL_MESSAGE, renewalFinalMessage:DEFAULT_RENEWAL_FINAL_MESSAGE, codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE, categories:[...DEFAULT_CATEGORIES], platformPrices:{}, comboTemplates:[...DEFAULT_COMBO_TEMPLATES], financeMode:false, financeCurrency:'PEN', financeSymbol:'S/' },
   security:{lastLogin:'-',deviceCount:'Privado',devices:[]}, syncRevision:null, settingsBaseline:null
 };
 const MOBILE_STATE_CACHE_BASE_KEY = 'gestion_streaming_mobile_v1';
@@ -880,6 +881,7 @@ function normalizeSettings(data={}){
   return {
     paymentMethods,
     finalMessage: clean(data.finalMessage) || DEFAULT_FINAL_MESSAGE,
+    renewalFinalMessage: clean(data.renewalFinalMessage).slice(0,1500) || DEFAULT_RENEWAL_FINAL_MESSAGE,
     codeActivationMessage: clean(data.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE,
     categories: [...new Set(categories)],
     defaultCountryCode: clean(data.defaultCountryCode) || '51',
@@ -910,7 +912,7 @@ function mergeRemotePlatformPrices(nextPrices={}, baselinePrices={}, remotePrice
 }
 function keepRemoteSettingsThatWereNotEdited(next, baseline, remote){
   const merged=cloneSettings(next);
-  ['paymentMethods','finalMessage','codeActivationMessage','categories','defaultCountryCode','financeMode','financeCurrency','financeSymbol','comboTemplates','security'].forEach(field=>{
+  ['paymentMethods','finalMessage','renewalFinalMessage','codeActivationMessage','categories','defaultCountryCode','financeMode','financeCurrency','financeSymbol','comboTemplates','security'].forEach(field=>{
     if(sameSettingsValue(next?.[field],baseline?.[field]) && !sameSettingsValue(remote?.[field],baseline?.[field])) merged[field]=remote[field];
   });
   merged.platformPrices=mergeRemotePlatformPrices(next?.platformPrices,baseline?.platformPrices,remote?.platformPrices);
@@ -1035,6 +1037,9 @@ function paymentMethodsText(value=state.settings.paymentMethods){
 }
 function codeActivationMessageText(){
   return clean(state.settings?.codeActivationMessage) || DEFAULT_CODE_ACTIVATION_MESSAGE;
+}
+function renewalFinalMessageText(){
+  return clean(state.settings?.renewalFinalMessage) || DEFAULT_RENEWAL_FINAL_MESSAGE;
 }
 function codeActivationAccessLines(client, account, includeInstruction=true){
   return [
@@ -1680,6 +1685,7 @@ function renderSettings(){
       ${isFinanceModeEnabled() ? `<div class="field"><label>Moneda de finanzas</label><select name="financeCurrency">${Object.keys(CURRENCY_SYMBOLS).map(code=>`<option value="${code}" ${(s.financeCurrency||'PEN')===code?'selected':''}>${code} - ${CURRENCY_SYMBOLS[code]}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Medios de pago</label><textarea name="paymentMethods" placeholder="Yape: 974834197&#10;Plin: 974834197&#10;BCP: ...">${esc(paymentMethodsText(s.paymentMethods))}</textarea></div>
       <div class="field"><label>Mensaje final para entregar cuentas</label><textarea name="finalMessage" maxlength="1500" placeholder="${esc(DEFAULT_FINAL_MESSAGE)}">${esc(s.finalMessage)}</textarea></div>
+      <div class="field"><label>Mensaje final de renovación</label><textarea name="renewalFinalMessage" maxlength="1500" placeholder="${esc(DEFAULT_RENEWAL_FINAL_MESSAGE)}">${esc(s.renewalFinalMessage || DEFAULT_RENEWAL_FINAL_MESSAGE)}</textarea></div>
       <div class="field"><label>Mensaje para activar por codigo</label><textarea name="codeActivationMessage" maxlength="1500" placeholder="${esc(DEFAULT_CODE_ACTIVATION_MESSAGE)}">${esc(s.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE)}</textarea></div>
       <button class="btn primary">${icon('save')}<span>Guardar ajustes</span></button>
     </form>
@@ -2680,6 +2686,7 @@ async function saveSettingsFromForm(e){
     ...fd,
     paymentMethods:parsePaymentMethodsText(fd.paymentMethods),
     finalMessage:clean(fd.finalMessage),
+    renewalFinalMessage:clean(fd.renewalFinalMessage).slice(0,1500) || DEFAULT_RENEWAL_FINAL_MESSAGE,
     codeActivationMessage:clean(fd.codeActivationMessage),
     financeMode:fd.financeMode === '1',
     financeCurrency:nextCurrency,
@@ -3400,7 +3407,7 @@ function whatsappPayloadForClient(c, mode='delivery'){
       '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
       ...(payText ? ['', payText] : []),
       '',
-      '\u2705 Gracias por tu preferencia.'
+      renewalFinalMessageText()
     ].join('\n');
     const encodedText = encodeURIComponent(text);
     const webUrl = `https://wa.me/${phone}?text=${encodedText}`;

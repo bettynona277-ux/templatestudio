@@ -838,6 +838,7 @@ function sanitizeGestorSettingsForFirestore(settings = {}) {
     financeSymbol: fsOptionalString(settings.financeSymbol || 'S/', 8),
     platformPrices,
     finalMessage: fsOptionalString(settings.finalMessage, 1500),
+    renewalFinalMessage: fsOptionalString(settings.renewalFinalMessage, 1500),
     codeActivationMessage: fsOptionalString(settings.codeActivationMessage, 1500),
     security: settings.security && typeof settings.security === 'object'
       ? {
@@ -873,7 +874,7 @@ function mergeRemoteGestorPlatformPrices(nextPrices = {}, baselinePrices = {}, r
 }
 function keepRemoteGestorSettingsThatWereNotEdited(next, baseline, remote) {
   const merged = cloneGestorSettings(next);
-  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','finalMessage','codeActivationMessage','security'].forEach(field => {
+  ['paymentMethods','whatsappPrefix','freeSort','categories','comboTemplates','financeMode','financeCurrency','financeSymbol','finalMessage','renewalFinalMessage','codeActivationMessage','security'].forEach(field => {
     if (sameGestorSettingValue(next?.[field], baseline?.[field]) && !sameGestorSettingValue(remote?.[field], baseline?.[field])) merged[field] = remote[field];
   });
   merged.platformPrices = mergeRemoteGestorPlatformPrices(next?.platformPrices, baseline?.platformPrices, remote?.platformPrices);
@@ -5607,6 +5608,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
         </select>
       </label>
       <label class="full">Mensaje final para entregar cuentas<textarea id="finalMessage" maxlength="1500" placeholder="Gracias por tu compra. Cualquier duda me escribes."></textarea></label>
+      <label class="full">Mensaje final de renovación<textarea id="renewalFinalMessage" maxlength="1500" placeholder="✅ Gracias por tu preferencia."></textarea></label>
       <label class="full">Mensaje para activar por codigo<textarea id="codeActivationMessage" maxlength="1500" placeholder="Muchas gracias por su compra. En breve realizaremos la activacion remota."></textarea></label>
       <div class="full">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
@@ -5773,6 +5775,7 @@ const KEY='gestion_streaming_v5';
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
 const DEFAULT_FINAL_MESSAGE='Gracias por tu compra. Cualquier duda me escribes.';
+const DEFAULT_RENEWAL_FINAL_MESSAGE='✅ Gracias por tu preferencia.';
 const DEFAULT_CODE_ACTIVATION_MESSAGE=[
   '\u00a1Muchas gracias por su compra! \ud83d\ude0a',
   '',
@@ -5827,7 +5830,7 @@ function load(){
       return normalizeLoaded(JSON.parse(raw));
     }
   }catch(e){}
-  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE,financeMode:false,financeCurrency:'PEN',financeSymbol:'S/'}};
+  return {accounts:[],clients:[],financeMovements:[],settings:{paymentMethods:[],whatsappPrefix:'51',freeSort:'platform',categories:[...DEFAULT_CATEGORIES],platformPrices:{},comboTemplates:[...DEFAULT_COMBO_TEMPLATES],finalMessage:DEFAULT_FINAL_MESSAGE,renewalFinalMessage:DEFAULT_RENEWAL_FINAL_MESSAGE,codeActivationMessage:DEFAULT_CODE_ACTIVATION_MESSAGE,financeMode:false,financeCurrency:'PEN',financeSymbol:'S/'}};
 }
 function dedupeGestorRows(rows){
   const seen=new Set();
@@ -5863,7 +5866,7 @@ function normalizeLoaded(data){
   const accountCategories=data.accounts.map(a=>a.platform).filter(Boolean);
   const categories=uniqueClean([...DEFAULT_CATEGORIES,...savedCategories,...accountCategories]);
   const financeCurrency=String(data.settings?.financeCurrency||'PEN').trim().toUpperCase().slice(0,8) || 'PEN';
-  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode===true, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),1500), codeActivationMessage:safeSlice(String(data.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim(),1500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
+  data.settings={paymentMethods:paymentMethods.map(p=>({method:p.method||'',number:String(p.number||'').trim()==='939401721'?'974834197':p.number||'',holder:p.holder||''})), whatsappPrefix:String(data.settings?.whatsappPrefix||'51').replace(/\D+/g,''), freeSort:data.settings?.freeSort||'platform', categories, platformPrices:normalizePlatformPrices(data.settings?.platformPrices || {}, categories), comboTemplates:normalizeComboTemplates(data.settings?.comboTemplates,categories), financeMode:data.settings?.financeMode===true, financeCurrency, financeSymbol:String(data.settings?.financeSymbol||CURRENCY_SYMBOLS[financeCurrency]||financeCurrency).trim().slice(0,8), finalMessage:safeSlice(String(data.settings?.finalMessage || DEFAULT_FINAL_MESSAGE).trim(),1500), renewalFinalMessage:safeSlice(String(data.settings?.renewalFinalMessage || DEFAULT_RENEWAL_FINAL_MESSAGE).trim(),1500), codeActivationMessage:safeSlice(String(data.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim(),1500), security:{passwordChangedAt:String(data.settings?.security?.passwordChangedAt||'')}};
   return data;
 }
 window.__loadFromFirestore = function(data){
@@ -5972,6 +5975,7 @@ function sanitizeSettingsForSave(settings={}){
     financeCurrency: financeCurrencyValue,
     financeSymbol: String(settings.financeSymbol || CURRENCY_SYMBOLS[financeCurrencyValue] || financeCurrencyValue).trim().slice(0,8),
     finalMessage: safeSlice(String(settings.finalMessage || DEFAULT_FINAL_MESSAGE).trim(), 1500),
+    renewalFinalMessage: safeSlice(String(settings.renewalFinalMessage || DEFAULT_RENEWAL_FINAL_MESSAGE).trim(), 1500),
     codeActivationMessage: safeSlice(String(settings.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim(), 1500),
     security: settings.security && typeof settings.security === 'object' ? {passwordChangedAt:String(settings.security.passwordChangedAt||'').slice(0,40)} : {}
   };
@@ -7845,6 +7849,9 @@ function credentialsText(client, account){
 function codeActivationMessageText(){
   return String(state.settings?.codeActivationMessage || DEFAULT_CODE_ACTIVATION_MESSAGE).trim() || DEFAULT_CODE_ACTIVATION_MESSAGE;
 }
+function renewalFinalMessageText(){
+  return String(state.settings?.renewalFinalMessage || DEFAULT_RENEWAL_FINAL_MESSAGE).trim() || DEFAULT_RENEWAL_FINAL_MESSAGE;
+}
 function codeActivationAccessLines(client, account, includeInstruction=true){
   return [
     includeInstruction ? codeActivationMessageText() : '',
@@ -7885,7 +7892,7 @@ function whatsappText(client){
       '\ud83d\udd04 Por favor confirmar su renovaci\u00f3n realizando el pago a nuestros medios Medio de pago:',
       ...(payment ? ['', payment] : []),
       '',
-      '\u2705 Gracias por tu preferencia.'
+      renewalFinalMessageText()
     ].join('\n');
   }
   return credentialsText(client, account);
@@ -9276,7 +9283,7 @@ function setSettingsSectionVisibility(section=''){
   const fieldWrap=id=>document.getElementById(id)?.closest('label,.full,.setting-toggle');
   const groups={
     general:[fieldWrap('waPrefix'),fieldWrap('settingsFreeSort')],
-    message:[fieldWrap('finalMessage'),fieldWrap('codeActivationMessage')],
+    message:[fieldWrap('finalMessage'),fieldWrap('renewalFinalMessage'),fieldWrap('codeActivationMessage')],
     payments:[fieldWrap('paymentList')],
     categories:[fieldWrap('categoryList')],
     prices:[fieldWrap('financeCurrencySelect'),document.getElementById('settingsSectionPrices')],
@@ -9471,6 +9478,7 @@ function openSettingsSection(section=''){
   if(financeToggle) financeToggle.checked=isFinanceModeEnabled();
   $('#settingsFreeSort').value=state.settings.freeSort||'platform';
   $('#finalMessage').value=state.settings.finalMessage||DEFAULT_FINAL_MESSAGE;
+  $('#renewalFinalMessage').value=state.settings.renewalFinalMessage||DEFAULT_RENEWAL_FINAL_MESSAGE;
   $('#codeActivationMessage').value=state.settings.codeActivationMessage||DEFAULT_CODE_ACTIVATION_MESSAGE;
   renderPaymentRows();
   renderCategoryRows();
@@ -9515,6 +9523,7 @@ $('#saveSettingsBtn').onclick=async()=>{
     state.settings.financeCurrency=String($('#financeCurrencySelect').value||'PEN').toUpperCase();
     state.settings.financeSymbol=CURRENCY_SYMBOLS[state.settings.financeCurrency]||state.settings.financeCurrency;
     state.settings.finalMessage=$('#finalMessage').value.trim();
+    state.settings.renewalFinalMessage=$('#renewalFinalMessage').value.trim()||DEFAULT_RENEWAL_FINAL_MESSAGE;
     state.settings.codeActivationMessage=$('#codeActivationMessage').value.trim();
     $('#freeSort').value=state.settings.freeSort;
     const ok=await persistSettings();
