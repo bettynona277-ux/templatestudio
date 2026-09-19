@@ -778,7 +778,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     customerId: fsOptionalString(data.customerId || id, 80),
     name: fsString(data.name, 120, 'Cliente'),
     whatsapp: fsOptionalString(data.whatsapp, 32),
-    accountId: fsValidId(data.accountId),
+    accountId: fsOptionalString(data.accountId, 80),
     platform: fsOptionalString(data.platform, 80),
     profile: fsOptionalString(data.profile, 50),
     pin: fsOptionalString(data.pin, 50),
@@ -9225,6 +9225,12 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   const account=state.accounts.find(a=>a.id===accountId);
+  if(!account){
+    alert('La cuenta madre seleccionada ya no existe o no terminó de cargar. Actualiza los datos y vuelve a elegir la cuenta.');
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
   const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
   const financeOn=isFinanceModeEnabled();
   const fullAccountSale=$('#cFullAccountSale')?.checked===true;
@@ -9267,8 +9273,13 @@ $('#saveClientBtn').onclick=async ()=>{
   saveBtn.disabled=false;
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){
-    showDeliveryPrompt(data);
-    focusClientAfterSale(data);
+    try{
+      showDeliveryPrompt(data);
+      focusClientAfterSale(data);
+    }catch(err){
+      console.warn('Venta guardada, pero fallo una accion posterior de entrega:', err);
+      notifySaveStatus('success', 'Venta guardada. Si no se abre la entrega, busca el cliente y usa WhatsApp.');
+    }
   }
   }finally{
     clientSaveInFlight=false;
