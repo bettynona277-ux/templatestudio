@@ -142,6 +142,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .tpl-badge{display:inline-block;font-size:0.6rem;font-weight:700;padding:2px 7px;border-radius:999px;margin-bottom:6px;}
 .badge-pub{background:rgba(0,200,150,0.15);color:var(--accent);}
 .badge-draft{background:rgba(245,200,66,0.15);color:var(--yellow);}
+.tpl-category-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;}
+.tpl-category-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:999px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.22);color:#9dc0ff;font-size:.64rem;font-weight:800;line-height:1;}
+.tpl-category-badge.is-auto{background:rgba(0,200,150,.10);border-color:rgba(0,200,150,.22);color:var(--accent);}
 .tpl-actions{display:flex;gap:5px;flex-wrap:wrap;}
 .tpl-actions button{flex:1;padding:5px 4px;border-radius:7px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);font-size:0.72rem;cursor:pointer;font-family:inherit;transition:all 0.15s;}
 .tpl-actions button:hover{border-color:var(--accent);color:var(--accent);}
@@ -683,6 +686,71 @@ function invalidateAdminCollectionCache(key) {
   try { localStorage.removeItem(key); } catch(_) {}
 }
 
+const TEMPLATE_CATEGORY_RULES = [
+  { category:'Netflix', terms:['netflix','nflx'] },
+  { category:'Disney+', terms:['disney+','disney plus','disney','espn','star plus','star+'] },
+  { category:'Max', terms:['hbo max','hbomax','max'] },
+  { category:'Prime Video', terms:['prime video','amazon prime','prime'] },
+  { category:'Crunchyroll', terms:['crunchyroll','crunchy'] },
+  { category:'Spotify', terms:['spotify'] },
+  { category:'Paramount+', terms:['paramount+','paramount plus','paramount'] },
+  { category:'YouTube Premium', terms:['youtube premium','youtube','yt premium'] },
+  { category:'Apple TV+', terms:['apple tv+','apple tv','appletv'] },
+  { category:'Vix', terms:['vix','vix+','vix plus'] },
+  { category:'Viki', terms:['viki','viki rakuten','rakuten'] },
+  { category:'Capcut', terms:['capcut','cap cut'] },
+  { category:'Canva', terms:['canva'] },
+  { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
+  { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] },
+  { category:'Activos', terms:['activo','activos'] }
+];
+
+function normalizeTemplateCategoryText(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\+/g, ' plus ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function canonicalTemplateCategory(value){
+  const category = String(value || '').trim().slice(0, 80);
+  return normalizeTemplateCategoryText(category) === 'netflix extra' ? 'Netflix' : category;
+}
+
+function templateCategoryInfo(t){
+  const saved = canonicalTemplateCategory(t?.category || '');
+  const inferred = inferTemplateCategoryFromName(t?.name || '');
+  const categoryAuto = t?.categoryAuto === true || (!String(t?.category || '').trim() && !!inferred);
+  return {
+    category: categoryAuto ? (inferred || saved) : (saved || inferred),
+    categoryAuto: categoryAuto && !!(inferred || saved)
+  };
+}
+
+function inferTemplateCategoryFromName(name){
+  const normalizedName = normalizeTemplateCategoryText(name);
+  if(!normalizedName) return '';
+  const nameWords = ` ${normalizedName} `;
+  if(nameWords.includes(' activo ') || nameWords.includes(' activos ')) return 'Activos';
+  let best = null;
+  TEMPLATE_CATEGORY_RULES.forEach(rule => {
+    rule.terms.forEach(term => {
+      const normalizedTerm = normalizeTemplateCategoryText(term);
+      if(!normalizedTerm || !nameWords.includes(` ${normalizedTerm} `)) return;
+      if(!best || normalizedTerm.length > best.length) best = { category:rule.category, length:normalizedTerm.length };
+    });
+  });
+  return best?.category || '';
+}
+
+function templateCategoryForCatalog(t){
+  return templateCategoryInfo(t).category;
+}
+
 function compactTemplateCatalogItems(items) {
   return (items || [])
     .filter(t => t && t.status !== 'draft')
@@ -690,7 +758,7 @@ function compactTemplateCatalogItems(items) {
       id:String(t.id || ''),
       name:String(t.name || 'Plantilla').slice(0, 140),
       thumb:String(t.thumb || '').slice(0, 800),
-      category:String(t.category || '').slice(0, 80),
+      ...templateCategoryInfo(t),
       createdAt:Number(t.createdAt || 0),
       updatedAt:Number(t.updatedAt || t.createdAt || 0)
     }))
@@ -703,7 +771,7 @@ function compactAdminTemplateItems(items) {
     id:String(t?.id || ''),
     name:String(t?.name || 'Plantilla').slice(0, 140),
     thumb:String(t?.thumb || '').slice(0, 800),
-    category:String(t?.category || '').slice(0, 80),
+    ...templateCategoryInfo(t),
     status:t?.status === 'draft' ? 'draft' : 'published',
     createdAt:Number(t?.createdAt || 0),
     updatedAt:Number(t?.updatedAt || t?.createdAt || 0)
@@ -876,21 +944,63 @@ function renderTemplates() {
     const isDraft = d.status === 'draft';
     const card = document.createElement('div');
     card.className = 'tpl-card';
-    const thumb = d.thumb
-      ? `<img class="tpl-thumb lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:240,c:'fit'})}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tpl-thumb-ph" style="display:none;">🖼</div>`
-      : `<div class="tpl-thumb-ph">🖼</div>`;
-    card.innerHTML = `
-      ${thumb}
-      <div class="tpl-info">
-        <div class="tpl-name" title="${d.name||'Sin nombre'}">${d.name||'Sin nombre'}</div>
-        <span class="tpl-badge ${isDraft?'badge-draft':'badge-pub'}">${isDraft?'Borrador':'Publicada'}</span>
-        <div class="tpl-actions">
-          <button onclick="editTemplate('${d.id}')">✏️ Editar</button>
-          <button onclick="${isDraft?`publishTemplate('${d.id}')`:`draftTemplate('${d.id}')`}">${isDraft?'🚀 Publicar':'📁 Borrador'}</button>
-          <button onclick="showTemplateLink('${d.id}','${(d.name||'Diseño').replace(/'/g,"\\'")}',${isDraft})" style="${isDraft?'opacity:0.45;':''}color:var(--blue);">🔗 Link</button>
-          <button onclick="deleteTpl('${d.id}')" style="color:var(--accent2);">🗑️</button>
-        </div>
-      </div>`;
+    const name = String(d.name || 'Sin nombre');
+    if(d.thumb){
+      const img = document.createElement('img');
+      img.className = 'tpl-thumb lazy-img';
+      img.decoding = 'async';
+      img.fetchPriority = 'low';
+      img.src = "data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E";
+      img.dataset.src = cdnOpt(d.thumb,{w:240,c:'fit'});
+      img.alt = name;
+      const placeholder = document.createElement('div');
+      placeholder.className = 'tpl-thumb-ph';
+      placeholder.textContent = '🖼';
+      placeholder.style.display = 'none';
+      img.addEventListener('error', () => { img.style.display = 'none'; placeholder.style.display = 'flex'; }, { once:true });
+      card.append(img, placeholder);
+    }else{
+      const placeholder = document.createElement('div');
+      placeholder.className = 'tpl-thumb-ph';
+      placeholder.textContent = '🖼';
+      card.appendChild(placeholder);
+    }
+    const info = document.createElement('div');
+    info.className = 'tpl-info';
+    const title = document.createElement('div');
+    title.className = 'tpl-name';
+    title.title = name;
+    title.textContent = name;
+    info.appendChild(title);
+    if(d.category){
+      const categoryRow = document.createElement('div');
+      categoryRow.className = 'tpl-category-row';
+      const categoryBadge = document.createElement('span');
+      categoryBadge.className = `tpl-category-badge${d.categoryAuto ? ' is-auto' : ''}`;
+      categoryBadge.textContent = `${d.categoryAuto ? 'Auto: ' : ''}${canonicalTemplateCategory(d.category)}`;
+      categoryRow.appendChild(categoryBadge);
+      info.appendChild(categoryRow);
+    }
+    const status = document.createElement('span');
+    status.className = `tpl-badge ${isDraft ? 'badge-draft' : 'badge-pub'}`;
+    status.textContent = isDraft ? 'Borrador' : 'Publicada';
+    info.appendChild(status);
+    const actions = document.createElement('div');
+    actions.className = 'tpl-actions';
+    const addAction = (label, handler, style='') => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      if(style) button.style.cssText = style;
+      button.addEventListener('click', handler);
+      actions.appendChild(button);
+    };
+    addAction('✏️ Editar', () => editTemplate(d.id));
+    addAction(isDraft ? '🚀 Publicar' : '📁 Borrador', () => isDraft ? publishTemplate(d.id) : draftTemplate(d.id));
+    addAction('🔗 Link', () => showTemplateLink(d.id, name, isDraft), `${isDraft ? 'opacity:0.45;' : ''}color:var(--blue);`);
+    addAction('🗑️', () => deleteTpl(d.id), 'color:var(--accent2);');
+    info.appendChild(actions);
+    card.appendChild(info);
     grid.appendChild(card);
   });
   if(visible.length < list.length){
@@ -909,7 +1019,7 @@ function showMoreTemplates(){
   renderTemplates();
 }
 
-function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
+function editTemplate(id) { window.open('editor.html?tpl=' + encodeURIComponent(id), '_blank'); }
 
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
@@ -1662,7 +1772,7 @@ async function reactivateUser(id) {
 }
 
 function showTemplateLink(id, name, isDraft) {
-  const url = `${location.origin}/editor.html?mode=client&tpl=${id}`;
+  const url = `${location.origin}/editor.html?mode=client&tpl=${encodeURIComponent(id)}`;
   _currentLinkUrl = url;
   document.getElementById('link-display-url').textContent = url;
   document.getElementById('link-modal-sub').textContent = `"${name}" — se adapta automáticamente a celular o PC:`;

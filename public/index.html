@@ -2553,9 +2553,10 @@ function populateTemplateCategoryOptions(items){
   const select = document.getElementById('tpl-cat-filter');
   if(!select) return;
   const current = select.value || '';
-  const cats = [...new Set((items||[]).map(({d}) => (d?.category||'').trim()).filter(Boolean))]
+  const cats = [...new Set((items||[]).map(({d}) => templateCategoryForClient(d)).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'es'));
-  select.innerHTML = '<option value="">Todas las categorías</option>' + cats.map(cat => `<option value="${cat.replace(/"/g,'&quot;')}">${cat}</option>`).join('');
+  select.replaceChildren(new Option('Todas las categorías', ''));
+  cats.forEach(cat => select.add(new Option(cat, cat)));
   if(cats.includes(current)) select.value = current;
   const catCountEl = document.getElementById('hero-template-cats');
   const asideSummary = document.getElementById('aside-template-summary');
@@ -2743,6 +2744,67 @@ async function deleteDesign(id, btn) {
 // ================================================================
 let allTemplatesCache = []; // store for search/filter
 
+const CLIENT_TEMPLATE_CATEGORY_RULES = [
+  { category:'Netflix', terms:['netflix','nflx'] },
+  { category:'Disney+', terms:['disney+','disney plus','disney','espn','star plus','star+'] },
+  { category:'Max', terms:['hbo max','hbomax','max'] },
+  { category:'Prime Video', terms:['prime video','amazon prime','prime'] },
+  { category:'Crunchyroll', terms:['crunchyroll','crunchy'] },
+  { category:'Spotify', terms:['spotify'] },
+  { category:'Paramount+', terms:['paramount+','paramount plus','paramount'] },
+  { category:'YouTube Premium', terms:['youtube premium','youtube','yt premium'] },
+  { category:'Apple TV+', terms:['apple tv+','apple tv','appletv'] },
+  { category:'Vix', terms:['vix','vix+','vix plus'] },
+  { category:'Viki', terms:['viki','viki rakuten','rakuten'] },
+  { category:'Capcut', terms:['capcut','cap cut'] },
+  { category:'Canva', terms:['canva'] },
+  { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
+  { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] },
+  { category:'Activos', terms:['activo','activos'] }
+];
+
+function normalizeTemplateCategoryText(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\+/g, ' plus ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function canonicalTemplateCategory(value){
+  const category = String(value || '').trim().slice(0, 80);
+  return normalizeTemplateCategoryText(category) === 'netflix extra' ? 'Netflix' : category;
+}
+
+function inferTemplateCategoryFromName(name){
+  const normalizedName = normalizeTemplateCategoryText(name);
+  if(!normalizedName) return '';
+  const nameWords = ` ${normalizedName} `;
+  if(nameWords.includes(' activo ') || nameWords.includes(' activos ')) return 'Activos';
+  let best = null;
+  CLIENT_TEMPLATE_CATEGORY_RULES.forEach(rule => {
+    rule.terms.forEach(term => {
+      const normalizedTerm = normalizeTemplateCategoryText(term);
+      if(!normalizedTerm || !nameWords.includes(` ${normalizedTerm} `)) return;
+      if(!best || normalizedTerm.length > best.length) best = { category:rule.category, length:normalizedTerm.length };
+    });
+  });
+  return best?.category || '';
+}
+
+function templateCategoryForClient(d){
+  return canonicalTemplateCategory(d?.category || '') || inferTemplateCategoryFromName(d?.name || '');
+}
+
+function templateMatchesCategory(d, category){
+  if(!category) return true;
+  const wanted = normalizeTemplateCategoryText(category);
+  return normalizeTemplateCategoryText(templateCategoryForClient(d)) === wanted;
+}
+
 function normalizePublicTemplateCatalog(data){
   if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
   const items = data.items
@@ -2751,7 +2813,8 @@ function normalizePublicTemplateCatalog(data){
       d:{
         name:String(item?.name || 'Plantilla'),
         thumb:String(item?.thumb || ''),
-        category:String(item?.category || ''),
+        category:canonicalTemplateCategory(item?.category || '') || inferTemplateCategoryFromName(item?.name || ''),
+        categoryAuto:item?.categoryAuto === true,
         createdAt:Number(item?.createdAt || 0),
         updatedAt:Number(item?.updatedAt || item?.createdAt || 0),
         status:'published'
@@ -2776,9 +2839,8 @@ function getFilteredTemplates(items){
   const cat=document.getElementById('tpl-cat-filter')?.value||'';
   return (items||[]).filter(({d})=>{
     const name=(d?.name||'').toLowerCase();
-    const category=(d?.category||'');
     const matchName=!q||name.includes(q);
-    const matchCat=!cat||category=== cat;
+    const matchCat=templateMatchesCategory(d, cat);
     return matchName&&matchCat;
   });
 }
@@ -2805,10 +2867,23 @@ function renderTemplateCards(docs){
   if (countEl) countEl.textContent=docs.length+' disponible'+(docs.length!==1?'s':'');
   docs.forEach(({id,d})=>{
     const card=document.createElement('div');card.className='tpl-card';
-    const thumbHtml=d.thumb?`<div class="tpl-preview"><img class="tpl-thumb lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:240,c:'fit'})}" alt="${d.name||'Plantilla'}"></div>`:`<div class="tpl-preview"><div class="tpl-thumb-empty">📦</div></div>`;
-    const catBadge=d.category?`<div class="tpl-chip">${d.category}</div>`:'';
+    const categoryLabel = templateCategoryForClient(d);
     const date=new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
-    card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-meta">${catBadge}<div class="tpl-date">${date}</div></div><div class="tpl-name">${d.name}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${id}')">Usar plantilla →</button></div>`;
+    const preview=document.createElement('div');preview.className='tpl-preview';
+    if(d.thumb){
+      const img=document.createElement('img');img.className='tpl-thumb lazy-img';img.decoding='async';img.fetchPriority='low';
+      img.src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E";
+      img.dataset.src=cdnOpt(d.thumb,{w:240,c:'fit'});img.alt=String(d.name||'Plantilla');preview.appendChild(img);
+    }else{
+      const empty=document.createElement('div');empty.className='tpl-thumb-empty';empty.textContent='📦';preview.appendChild(empty);
+    }
+    const info=document.createElement('div');info.className='tpl-info';
+    const meta=document.createElement('div');meta.className='tpl-meta';
+    if(categoryLabel){const badge=document.createElement('div');badge.className='tpl-chip';badge.textContent=categoryLabel;meta.appendChild(badge);}
+    const dateEl=document.createElement('div');dateEl.className='tpl-date';dateEl.textContent=date;meta.appendChild(dateEl);
+    const title=document.createElement('div');title.className='tpl-name';title.textContent=String(d.name||'Plantilla');
+    const useButton=document.createElement('button');useButton.className='tpl-use-btn';useButton.type='button';useButton.textContent='Usar plantilla →';useButton.addEventListener('click',()=>openEditorFromTemplate(id));
+    info.append(meta,title,useButton);card.append(preview,info);
     grid.appendChild(card);
   });
   observeLazyImages(grid);
@@ -2860,12 +2935,15 @@ async function loadAdminTemplates() {
       writeDashCache('templates', { total: 0, items: [] });
       return;
     }
-    allTemplatesCache = rawDocs;
-    populateTemplateCategoryOptions(rawDocs);
-    renderTemplateCards(getFilteredTemplates(rawDocs));
+    allTemplatesCache = rawDocs.map(({id,d}) => ({
+      id,
+      d:{ ...d, category:canonicalTemplateCategory(d?.category || '') || inferTemplateCategoryFromName(d?.name || '') }
+    }));
+    populateTemplateCategoryOptions(allTemplatesCache);
+    renderTemplateCards(getFilteredTemplates(allTemplatesCache));
     writeDashCache('templates', {
-      total: rawDocs.length,
-      items: rawDocs.map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      total: allTemplatesCache.length,
+      items: allTemplatesCache.map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {
@@ -2899,7 +2977,7 @@ async function openEditorDesign(id) {
 async function openEditorFromTemplate(tplId) {
   const uid = currentUser?.uid||'';
   const editorFile = isMobile() ? 'editor-mobile.html' : 'editor.html';
-  const url = `${editorFile}?mode=client&tpl=${tplId}&uid=${encodeURIComponent(uid)}`;
+  const url = `${editorFile}?mode=client&tpl=${encodeURIComponent(tplId)}&uid=${encodeURIComponent(uid)}`;
   window.location.href = url;
 }
 
