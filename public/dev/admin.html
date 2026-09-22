@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diseños Streaming — Admin</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -141,9 +142,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .tpl-badge{display:inline-block;font-size:0.6rem;font-weight:700;padding:2px 7px;border-radius:999px;margin-bottom:6px;}
 .badge-pub{background:rgba(0,200,150,0.15);color:var(--accent);}
 .badge-draft{background:rgba(245,200,66,0.15);color:var(--yellow);}
+.tpl-category-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;}
+.tpl-category-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:999px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.22);color:#9dc0ff;font-size:.64rem;font-weight:800;line-height:1;}
+.tpl-category-badge.is-auto{background:rgba(0,200,150,.10);border-color:rgba(0,200,150,.22);color:var(--accent);}
 .tpl-actions{display:flex;gap:5px;flex-wrap:wrap;}
 .tpl-actions button{flex:1;padding:5px 4px;border-radius:7px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);font-size:0.72rem;cursor:pointer;font-family:inherit;transition:all 0.15s;}
 .tpl-actions button:hover{border-color:var(--accent);color:var(--accent);}
+.tpl-load-more{grid-column:1/-1;justify-self:center;margin:8px 0 4px;padding:10px 18px;border:1px solid rgba(0,200,150,.35);border-radius:10px;background:rgba(0,200,150,.10);color:var(--accent);font:700 .8rem inherit;cursor:pointer;}
+.tpl-load-more:hover{background:rgba(0,200,150,.18);}
 
 /* USERS TABLE */
 .users-card-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;flex-wrap:wrap;}
@@ -231,9 +237,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="nav-item active" onclick="showSection('templates',this)">
         <span>📦</span> Mis Plantillas
       </div>
-      <div class="nav-item" onclick="showSection('catalogs',this)">
-        <span>WEB</span> Catalogos web
-      </div>
       <div class="nav-item" onclick="showSection('users',this)">
         <span>👥</span> Gestión Clientes
       </div>
@@ -270,36 +273,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <button class="tpl-tab" data-filter="draft" onclick="filterTemplates('draft',this)">📁 Borradores <span class="tpl-tab-count" id="count-draft">0</span></button>
         </div>
         <div id="templates-grid" class="tpl-grid"></div>
-      </div>
-
-      <!-- CATALOGOS WEB -->
-      <div class="section" id="section-catalogs">
-        <div class="page-title">Catalogos web</div>
-        <div class="page-sub">Administra las plantillas de landing que veran los usuarios en su editor de catalogo.</div>
-
-        <div class="cards-grid">
-          <div class="card">
-            <div class="card-title">Registrar plantilla web</div>
-            <div class="f-row"><label class="f-label">ID de plantilla</label><input id="cat-template-id" class="f-input" placeholder="streamx" maxlength="40"></div>
-            <div class="f-row"><label class="f-label">Nombre visible</label><input id="cat-template-name" class="f-input" placeholder="StreamX - Premium" maxlength="80"></div>
-            <div class="f-row"><label class="f-label">Descripcion</label><input id="cat-template-desc" class="f-input" placeholder="Landing moderna para venta de streaming" maxlength="160"></div>
-            <div class="f-row"><label class="f-label">URL de thumbnail (opcional)</label><input id="cat-template-thumb" class="f-input" placeholder="https://..." maxlength="600"></div>
-            <div class="f-row"><label class="f-label">Estado</label><select id="cat-template-status" class="f-input"><option value="published">Publicada</option><option value="draft">Borrador</option></select></div>
-            <button class="btn btn-green btn-full" onclick="saveCatalogTemplate()">Guardar plantilla web</button>
-            <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="seedStreamxTemplate()">Crear/actualizar StreamX base</button>
-          </div>
-          <div class="card">
-            <div class="card-title">Como funciona</div>
-            <p style="font-size:0.82rem;color:var(--muted);line-height:1.7;">Estas plantillas son para landings publicas de catalogo. No afectan las plantillas graficas del editor. El ID debe coincidir con el CSS publico: <strong style="color:var(--blue);">catalogo-ID.css</strong>.</p>
-          </div>
-        </div>
-
-        <div class="tpl-tabs">
-          <button class="tpl-tab active" data-cat-filter="all" onclick="filterCatalogTemplates('all',this)">Todas <span class="tpl-tab-count" id="cat-count-all">0</span></button>
-          <button class="tpl-tab" data-cat-filter="published" onclick="filterCatalogTemplates('published',this)">Publicadas <span class="tpl-tab-count" id="cat-count-published">0</span></button>
-          <button class="tpl-tab" data-cat-filter="draft" onclick="filterCatalogTemplates('draft',this)">Borradores <span class="tpl-tab-count" id="cat-count-draft">0</span></button>
-        </div>
-        <div id="catalog-templates-grid" class="tpl-grid"></div>
       </div>
 
       <!-- USUARIOS -->
@@ -659,11 +632,14 @@ function observeLazyImages(root) {
 }
 
 let _allTemplates = [];
-let _catalogTemplates = [];
-let _catalogTemplateFilter = 'all';
 let _currentFilter = 'all';
-const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
-const ADMIN_CATALOG_TEMPLATES_CACHE_KEY = 'ds_admin_catalog_templates_cache_v1';
+const ADMIN_TEMPLATE_PAGE_SIZE = 20;
+let adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
+let adminTemplateCatalogVersion = 0;
+let adminTemplateListReady = false;
+let adminTemplateCatalogUnsub = null;
+let adminTemplateRefreshQueued = false;
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v3';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
 const ADMIN_LOGOS_CACHE_KEY = 'ds_admin_logos_cache_v1';
 const ADMIN_COLLECTION_CACHE_TTL = 6 * 60 * 60 * 1000;
@@ -685,8 +661,92 @@ function writeAdminCollectionCache(key, rows) {
   } catch(_) {}
 }
 
+function readAdminTemplateCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(ADMIN_TEMPLATES_CACHE_KEY) || 'null');
+    if(!cached || Date.now() - Number(cached.at || 0) >= ADMIN_COLLECTION_CACHE_TTL) return null;
+    if(!Array.isArray(cached.rows)) return null;
+    return { rows:cached.rows, catalogUpdatedAt:Number(cached.catalogUpdatedAt || 0) };
+  } catch(_) {
+    return null;
+  }
+}
+
+function writeAdminTemplateCache(rows, catalogUpdatedAt=0) {
+  try {
+    localStorage.setItem(ADMIN_TEMPLATES_CACHE_KEY, JSON.stringify({
+      at:Date.now(),
+      catalogUpdatedAt:Number(catalogUpdatedAt || 0),
+      rows:compactAdminTemplateItems(rows)
+    }));
+  } catch(_) {}
+}
+
 function invalidateAdminCollectionCache(key) {
   try { localStorage.removeItem(key); } catch(_) {}
+}
+
+const TEMPLATE_CATEGORY_RULES = [
+  { category:'Netflix', terms:['netflix','nflx'] },
+  { category:'Disney+', terms:['disney+','disney plus','disney','espn','star plus','star+'] },
+  { category:'Max', terms:['hbo max','hbomax','max'] },
+  { category:'Prime Video', terms:['prime video','amazon prime','prime'] },
+  { category:'Crunchyroll', terms:['crunchyroll','crunchy'] },
+  { category:'Spotify', terms:['spotify'] },
+  { category:'Paramount+', terms:['paramount+','paramount plus','paramount'] },
+  { category:'YouTube Premium', terms:['youtube premium','youtube','yt premium'] },
+  { category:'Apple TV+', terms:['apple tv+','apple tv','appletv'] },
+  { category:'Vix', terms:['vix','vix+','vix plus'] },
+  { category:'Viki', terms:['viki','viki rakuten','rakuten'] },
+  { category:'Capcut', terms:['capcut','cap cut'] },
+  { category:'Canva', terms:['canva'] },
+  { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
+  { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] }
+];
+
+function normalizeTemplateCategoryText(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\+/g, ' plus ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function canonicalTemplateCategory(value){
+  const category = String(value || '').trim().slice(0, 80);
+  return normalizeTemplateCategoryText(category) === 'netflix extra' ? 'Netflix' : category;
+}
+
+function templateCategoryInfo(t){
+  const saved = canonicalTemplateCategory(t?.category || '');
+  const inferred = inferTemplateCategoryFromName(t?.name || '');
+  const categoryAuto = t?.categoryAuto === true || (!String(t?.category || '').trim() && !!inferred);
+  return {
+    category: categoryAuto ? (inferred || saved) : (saved || inferred),
+    categoryAuto: categoryAuto && !!(inferred || saved)
+  };
+}
+
+function inferTemplateCategoryFromName(name){
+  const normalizedName = normalizeTemplateCategoryText(name);
+  if(!normalizedName) return '';
+  const nameWords = ` ${normalizedName} `;
+  let best = null;
+  TEMPLATE_CATEGORY_RULES.forEach(rule => {
+    rule.terms.forEach(term => {
+      const normalizedTerm = normalizeTemplateCategoryText(term);
+      if(!normalizedTerm || !nameWords.includes(` ${normalizedTerm} `)) return;
+      if(!best || normalizedTerm.length > best.length) best = { category:rule.category, length:normalizedTerm.length };
+    });
+  });
+  return best?.category || '';
+}
+
+function templateCategoryForCatalog(t){
+  return templateCategoryInfo(t).category;
 }
 
 function compactTemplateCatalogItems(items) {
@@ -696,12 +756,59 @@ function compactTemplateCatalogItems(items) {
       id:String(t.id || ''),
       name:String(t.name || 'Plantilla').slice(0, 140),
       thumb:String(t.thumb || '').slice(0, 800),
-      category:String(t.category || '').slice(0, 80),
+      ...templateCategoryInfo(t),
       createdAt:Number(t.createdAt || 0),
       updatedAt:Number(t.updatedAt || t.createdAt || 0)
     }))
     .filter(t => t.id)
     .sort((a,b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+}
+
+function compactAdminTemplateItems(items) {
+  return (items || []).map(t => ({
+    id:String(t?.id || ''),
+    name:String(t?.name || 'Plantilla').slice(0, 140),
+    thumb:String(t?.thumb || '').slice(0, 800),
+    ...templateCategoryInfo(t),
+    status:t?.status === 'draft' ? 'draft' : 'published',
+    createdAt:Number(t?.createdAt || 0),
+    updatedAt:Number(t?.updatedAt || t?.createdAt || 0)
+  })).filter(t => t.id).sort((a,b) => b.updatedAt - a.updatedAt);
+}
+
+function normalizeAdminPublishedTemplateCatalog(data) {
+  if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+  return {
+    items:compactAdminTemplateItems(data.items.map(item => ({ ...item, status:'published' }))),
+    updatedAt:Number(data.updatedAt || 0)
+  };
+}
+
+async function loadAdminPublishedTemplateCatalog() {
+  try {
+    const snap = await fbDb.collection('public_catalog').doc('templates').get();
+    return snap.exists ? normalizeAdminPublishedTemplateCatalog(snap.data() || {}) : null;
+  } catch(e) {
+    console.warn('Catalogo de plantillas no disponible:', e.message || e);
+    return null;
+  }
+}
+
+function watchAdminTemplateCatalog() {
+  if(adminTemplateCatalogUnsub || !fbDb) return;
+  adminTemplateCatalogUnsub = fbDb.collection('public_catalog').doc('templates').onSnapshot(snap => {
+    const nextVersion = Number(snap.data()?.updatedAt || 0);
+    const changed = adminTemplateCatalogVersion > 0 && nextVersion > 0 && nextVersion !== adminTemplateCatalogVersion;
+    adminTemplateCatalogVersion = nextVersion;
+    const templatesVisible = document.getElementById('section-templates')?.classList.contains('active');
+    if(!changed || !adminTemplateListReady || !templatesVisible || adminTemplateRefreshQueued) return;
+    adminTemplateRefreshQueued = true;
+    adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
+    setTimeout(() => {
+      adminTemplateRefreshQueued = false;
+      loadTemplates(true);
+    }, 0);
+  }, e => console.warn('Actualizacion de plantillas no disponible:', e.message || e));
 }
 
 async function publishTemplateCatalog() {
@@ -719,23 +826,73 @@ async function publishTemplateCatalog() {
   }
 }
 
+function compactLogoCatalogItems(logos) {
+  return (logos || [])
+    .map(logo => ({
+      id:String(logo?.id || ''),
+      url:String(logo?.url || '').slice(0, 900),
+      name:String(logo?.name || '').slice(0, 160),
+      categoria:String(logo?.categoria || 'Logos oficiales').slice(0, 80),
+      createdAt:Number(logo?.createdAt || 0)
+    }))
+    .filter(logo => logo.id && logo.url)
+    .sort((a,b) => b.createdAt - a.createdAt);
+}
+
+async function publishPublicLogoCatalog(logos) {
+  if(!fbDb) return;
+  const items = compactLogoCatalogItems(logos);
+  const updatedAt = Date.now();
+  await Promise.all([
+    fbDb.collection('public_catalog').doc('logos').set({ complete:true, total:items.length, updatedAt, items }, { merge:false }),
+    fbDb.collection('_config').doc('logo_version').set({ updatedAt }, { merge:true })
+  ]);
+}
+
+async function rebuildPublicLogoCatalog() {
+  const snap = await fbDb.collection('logos').orderBy('createdAt', 'desc').get();
+  const logos = snap.docs.map(doc => ({ id:doc.id, ...doc.data() }));
+  await publishPublicLogoCatalog(logos);
+  return logos;
+}
+
+async function ensurePublicLogoCatalog(logos) {
+  try {
+    const catalog = await fbDb.collection('public_catalog').doc('logos').get();
+    if(!catalog.exists || catalog.data()?.complete !== true) await publishPublicLogoCatalog(logos);
+  } catch(e) {
+    console.warn('No se pudo verificar el catalogo compacto de logos:', e);
+  }
+}
+
 async function loadTemplates(force=false) {
   if(!fbConnected) return;
+  watchAdminTemplateCatalog();
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
-    const cached = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
-    if(cached) {
-      _allTemplates = cached;
+    const cached = force ? null : readAdminTemplateCache();
+    const published = await loadAdminPublishedTemplateCatalog();
+    if(published) adminTemplateCatalogVersion = published.updatedAt;
+    const cacheIsCurrent = cached && published && cached.catalogUpdatedAt === published.updatedAt;
+    if(cacheIsCurrent || (cached && published === null)) {
+      _allTemplates = compactAdminTemplateItems(cached.rows);
     } else {
-      const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      _allTemplates = [];
-      snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
-      writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
-      publishTemplateCatalog();
+      if(published !== null) {
+        const draftsSnap = await fbDb.collection('templates').where('status', '==', 'draft').get();
+        const drafts = draftsSnap.docs.map(doc => ({ id:doc.id, ...doc.data() }));
+        _allTemplates = compactAdminTemplateItems([...published.items, ...drafts]);
+      } else {
+        // Compatibilidad durante la primera migracion o si el catalogo no esta disponible.
+        const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
+        _allTemplates = compactAdminTemplateItems(snap.docs.map(doc => ({ id:doc.id, ...doc.data() })));
+        publishTemplateCatalog();
+      }
+      writeAdminTemplateCache(_allTemplates, published?.updatedAt || 0);
     }
     updateTemplateCounts();
     renderTemplates();
+    adminTemplateListReady = true;
   } catch(e) {
     grid.innerHTML = '<p style="color:var(--accent2);">Error al cargar plantillas.</p>';
     console.error(e);
@@ -756,6 +913,7 @@ function updateTemplateCounts() {
 
 function filterTemplates(filter, btn) {
   _currentFilter = filter;
+  adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
   document.querySelectorAll('.tpl-tab').forEach(b => b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   renderTemplates();
@@ -779,35 +937,92 @@ function renderTemplates() {
     return;
   }
 
-  list.forEach(d => {
+  const visible = list.slice(0, adminTemplateVisibleCount);
+  visible.forEach(d => {
     const isDraft = d.status === 'draft';
     const card = document.createElement('div');
     card.className = 'tpl-card';
-    const thumb = d.thumb
-      ? `<img class="tpl-thumb lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:240,c:'fit'})}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tpl-thumb-ph" style="display:none;">🖼</div>`
-      : `<div class="tpl-thumb-ph">🖼</div>`;
-    card.innerHTML = `
-      ${thumb}
-      <div class="tpl-info">
-        <div class="tpl-name" title="${d.name||'Sin nombre'}">${d.name||'Sin nombre'}</div>
-        <span class="tpl-badge ${isDraft?'badge-draft':'badge-pub'}">${isDraft?'Borrador':'Publicada'}</span>
-        <div class="tpl-actions">
-          <button onclick="editTemplate('${d.id}')">✏️ Editar</button>
-          <button onclick="${isDraft?`publishTemplate('${d.id}')`:`draftTemplate('${d.id}')`}">${isDraft?'🚀 Publicar':'📁 Borrador'}</button>
-          <button onclick="showTemplateLink('${d.id}','${(d.name||'Diseño').replace(/'/g,"\\'")}',${isDraft})" style="${isDraft?'opacity:0.45;':''}color:var(--blue);">🔗 Link</button>
-          <button onclick="deleteTpl('${d.id}')" style="color:var(--accent2);">🗑️</button>
-        </div>
-      </div>`;
+    const name = String(d.name || 'Sin nombre');
+    if(d.thumb){
+      const img = document.createElement('img');
+      img.className = 'tpl-thumb lazy-img';
+      img.decoding = 'async';
+      img.fetchPriority = 'low';
+      img.src = "data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E";
+      img.dataset.src = cdnOpt(d.thumb,{w:240,c:'fit'});
+      img.alt = name;
+      const placeholder = document.createElement('div');
+      placeholder.className = 'tpl-thumb-ph';
+      placeholder.textContent = '🖼';
+      placeholder.style.display = 'none';
+      img.addEventListener('error', () => { img.style.display = 'none'; placeholder.style.display = 'flex'; }, { once:true });
+      card.append(img, placeholder);
+    }else{
+      const placeholder = document.createElement('div');
+      placeholder.className = 'tpl-thumb-ph';
+      placeholder.textContent = '🖼';
+      card.appendChild(placeholder);
+    }
+    const info = document.createElement('div');
+    info.className = 'tpl-info';
+    const title = document.createElement('div');
+    title.className = 'tpl-name';
+    title.title = name;
+    title.textContent = name;
+    info.appendChild(title);
+    if(d.category){
+      const categoryRow = document.createElement('div');
+      categoryRow.className = 'tpl-category-row';
+      const categoryBadge = document.createElement('span');
+      categoryBadge.className = `tpl-category-badge${d.categoryAuto ? ' is-auto' : ''}`;
+      categoryBadge.textContent = `${d.categoryAuto ? 'Auto: ' : ''}${canonicalTemplateCategory(d.category)}`;
+      categoryRow.appendChild(categoryBadge);
+      info.appendChild(categoryRow);
+    }
+    const status = document.createElement('span');
+    status.className = `tpl-badge ${isDraft ? 'badge-draft' : 'badge-pub'}`;
+    status.textContent = isDraft ? 'Borrador' : 'Publicada';
+    info.appendChild(status);
+    const actions = document.createElement('div');
+    actions.className = 'tpl-actions';
+    const addAction = (label, handler, style='') => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      if(style) button.style.cssText = style;
+      button.addEventListener('click', handler);
+      actions.appendChild(button);
+    };
+    addAction('✏️ Editar', () => editTemplate(d.id));
+    addAction(isDraft ? '🚀 Publicar' : '📁 Borrador', () => isDraft ? publishTemplate(d.id) : draftTemplate(d.id));
+    addAction('🔗 Link', () => showTemplateLink(d.id, name, isDraft), `${isDraft ? 'opacity:0.45;' : ''}color:var(--blue);`);
+    addAction('🗑️', () => deleteTpl(d.id), 'color:var(--accent2);');
+    info.appendChild(actions);
+    card.appendChild(info);
     grid.appendChild(card);
   });
+  if(visible.length < list.length){
+    const more = document.createElement('button');
+    more.className = 'tpl-load-more';
+    more.type = 'button';
+    more.textContent = `Ver más (${visible.length} de ${list.length})`;
+    more.onclick = showMoreTemplates;
+    grid.appendChild(more);
+  }
   observeLazyImages(grid);
 }
 
-function editTemplate(id) { window.open('editor.html?tpl=' + id, '_blank'); }
+function showMoreTemplates(){
+  adminTemplateVisibleCount += ADMIN_TEMPLATE_PAGE_SIZE;
+  renderTemplates();
+}
+
+function editTemplate(id) { window.open('editor.html?tpl=' + encodeURIComponent(id), '_blank'); }
 
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
-  writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  _allTemplates = compactAdminTemplateItems(_allTemplates);
+  writeAdminTemplateCache(_allTemplates);
   publishTemplateCatalog();
   renderTemplates();
 }
@@ -836,130 +1051,6 @@ async function draftTemplate(id) {
 // ══════════════════════════════════════════
 // USUARIOS
 // ══════════════════════════════════════════
-
-// CATALOGOS WEB
-function normalizeCatalogTemplateId(value){
-  return String(value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/--+/g,'-').slice(0,40);
-}
-function catalogTemplatePayload(overrides={}){
-  const id = normalizeCatalogTemplateId(overrides.id ?? document.getElementById('cat-template-id')?.value);
-  const now = Date.now();
-  return {
-    id,
-    templateId:id,
-    name:String(overrides.name ?? document.getElementById('cat-template-name')?.value ?? 'Plantilla web').trim().slice(0,80),
-    description:String(overrides.description ?? document.getElementById('cat-template-desc')?.value ?? '').trim().slice(0,160),
-    thumb:String(overrides.thumb ?? document.getElementById('cat-template-thumb')?.value ?? '').trim().slice(0,600),
-    status:String(overrides.status ?? document.getElementById('cat-template-status')?.value ?? 'published'),
-    base:String(overrides.base ?? id),
-    updatedAt:now,
-    createdAt:Number(overrides.createdAt || now)
-  };
-}
-async function loadCatalogTemplates(force=false){
-  if(!fbConnected || !fbDb) return;
-  const grid=document.getElementById('catalog-templates-grid');
-  if(!grid) return;
-  grid.innerHTML='<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas web...</p>';
-  try{
-    const cached = force ? null : readAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY);
-    if(cached){
-      _catalogTemplates = cached;
-    }else{
-      const snap = await fbDb.collection('catalog_templates').orderBy('updatedAt','desc').get();
-      _catalogTemplates=[];
-      snap.forEach(doc=>_catalogTemplates.push({id:doc.id,...doc.data()}));
-      writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
-    }
-    renderCatalogTemplates();
-  }catch(e){
-    grid.innerHTML='<p style="color:var(--accent2);">Error al cargar plantillas web.</p>';
-    console.error(e);
-  }
-}
-function updateCatalogTemplateCounts(){
-  const all=_catalogTemplates.length;
-  const pub=_catalogTemplates.filter(t=>t.status!=='draft').length;
-  const draft=_catalogTemplates.filter(t=>t.status==='draft').length;
-  const a=document.getElementById('cat-count-all'); if(a) a.textContent=all;
-  const p=document.getElementById('cat-count-published'); if(p) p.textContent=pub;
-  const d=document.getElementById('cat-count-draft'); if(d) d.textContent=draft;
-}
-function filterCatalogTemplates(filter,btn){
-  _catalogTemplateFilter=filter;
-  document.querySelectorAll('[data-cat-filter]').forEach(b=>b.classList.remove('active'));
-  if(btn) btn.classList.add('active');
-  renderCatalogTemplates();
-}
-function renderCatalogTemplates(){
-  const grid=document.getElementById('catalog-templates-grid');
-  if(!grid) return;
-  updateCatalogTemplateCounts();
-  let list=_catalogTemplates;
-  if(_catalogTemplateFilter==='published') list=list.filter(t=>t.status!=='draft');
-  if(_catalogTemplateFilter==='draft') list=list.filter(t=>t.status==='draft');
-  if(!list.length){ grid.innerHTML='<p style="color:var(--muted);font-size:0.82rem;">No hay plantillas web aun.</p>'; return; }
-  grid.innerHTML='';
-  list.forEach(t=>{
-    const isDraft=t.status==='draft';
-    const card=document.createElement('div');
-    card.className='tpl-card';
-    const name=String(t.name||t.id||'Plantilla web').replace(/[<>&]/g,'');
-    const desc=String(t.description||'').replace(/[<>&]/g,'');
-    const thumb=t.thumb ? '<img class="tpl-thumb lazy-img" decoding="async" src="'+cdnOpt(t.thumb,{w:240,c:'fit'})+'" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="tpl-thumb-ph" style="display:none;">WEB</div>' : '<div class="tpl-thumb-ph">WEB</div>';
-    card.innerHTML=thumb+'<div class="tpl-info"><div class="tpl-name" title="'+name+'">'+name+'</div><span class="tpl-badge '+(isDraft?'badge-draft':'badge-pub')+'">'+(isDraft?'Borrador':'Publicada')+'</span><div style="font-size:.72rem;color:var(--muted);line-height:1.45;margin-top:6px;">ID: '+(t.templateId||t.id)+'<br>'+desc+'</div><div class="tpl-actions"><button onclick="editCatalogTemplate(\''+t.id+'\')">Editar</button><button onclick="toggleCatalogTemplateStatus(\''+t.id+'\',\''+(isDraft?'published':'draft')+'\')">'+(isDraft?'Publicar':'Borrador')+'</button><button onclick="deleteCatalogTemplate(\''+t.id+'\')" style="color:var(--accent2);">Borrar</button></div></div>';
-    grid.appendChild(card);
-  });
-}
-function clearCatalogTemplateForm(){
-  ['cat-template-id','cat-template-name','cat-template-desc','cat-template-thumb'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
-  const st=document.getElementById('cat-template-status'); if(st) st.value='published';
-}
-async function saveCatalogTemplate(){
-  if(!fbConnected || !fbDb) return;
-  const payload=catalogTemplatePayload();
-  if(!payload.id){ alert('Ingresa un ID de plantilla.'); return; }
-  await fbDb.collection('catalog_templates').doc(payload.id).set(payload,{merge:true});
-  const idx=_catalogTemplates.findIndex(t=>t.id===payload.id);
-  if(idx>=0) _catalogTemplates[idx]={..._catalogTemplates[idx],...payload}; else _catalogTemplates.unshift(payload);
-  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
-  clearCatalogTemplateForm();
-  renderCatalogTemplates();
-  showToast('Plantilla web guardada');
-}
-async function seedStreamxTemplate(){
-  if(!fbConnected || !fbDb) return;
-  const payload=catalogTemplatePayload({id:'streamx',name:'StreamX - Premium',description:'Landing moderna para catalogos de streaming',status:'published',base:'streamx'});
-  await fbDb.collection('catalog_templates').doc('streamx').set(payload,{merge:true});
-  const idx=_catalogTemplates.findIndex(t=>t.id==='streamx');
-  if(idx>=0) _catalogTemplates[idx]={..._catalogTemplates[idx],...payload}; else _catalogTemplates.unshift(payload);
-  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
-  renderCatalogTemplates();
-  showToast('StreamX listo en catalogos web');
-}
-function editCatalogTemplate(id){
-  const t=_catalogTemplates.find(x=>x.id===id); if(!t) return;
-  document.getElementById('cat-template-id').value=t.templateId||t.id||'';
-  document.getElementById('cat-template-name').value=t.name||'';
-  document.getElementById('cat-template-desc').value=t.description||'';
-  document.getElementById('cat-template-thumb').value=t.thumb||'';
-  document.getElementById('cat-template-status').value=t.status||'published';
-}
-async function toggleCatalogTemplateStatus(id,status){
-  const updatedAt=Date.now();
-  await fbDb.collection('catalog_templates').doc(id).set({status,updatedAt},{merge:true});
-  _catalogTemplates=_catalogTemplates.map(t=>t.id===id?{...t,status,updatedAt}:t);
-  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
-  renderCatalogTemplates();
-}
-async function deleteCatalogTemplate(id){
-  if(!confirm('Borrar esta plantilla web?')) return;
-  await fbDb.collection('catalog_templates').doc(id).delete();
-  _catalogTemplates=_catalogTemplates.filter(t=>t.id!==id);
-  writeAdminCollectionCache(ADMIN_CATALOG_TEMPLATES_CACHE_KEY,_catalogTemplates);
-  renderCatalogTemplates();
-}
-
 let lastCreatedCredentialsText = '';
 let adminUsersCache = [];
 let adminUsageCache = { at:0, rows:null };
@@ -1679,7 +1770,7 @@ async function reactivateUser(id) {
 }
 
 function showTemplateLink(id, name, isDraft) {
-  const url = `${location.origin}/editor.html?mode=client&tpl=${id}`;
+  const url = `${location.origin}/editor.html?mode=client&tpl=${encodeURIComponent(id)}`;
   _currentLinkUrl = url;
   document.getElementById('link-display-url').textContent = url;
   document.getElementById('link-modal-sub').textContent = `"${name}" — se adapta automáticamente a celular o PC:`;
@@ -1754,7 +1845,6 @@ function getAdminNavForSection(id) {
 
 function loadAdminSectionData(id, force=false) {
   if(id === 'templates') loadTemplates(force);
-  if(id === 'catalogs') loadCatalogTemplates(force);
   if(id === 'users') loadUsers(force);
   if(id === 'logos') loadAdminLogos(force);
 }
@@ -1861,6 +1951,7 @@ async function uploadAdminLogos(){
   document.getElementById('admin-logo-files').value = '';
   if(ok > 0) {
     invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    try { await rebuildPublicLogoCatalog(); } catch(e) { console.warn('Catalogo de logos pendiente:', e); }
     loadAdminLogos(true);
   }
 }
@@ -1871,11 +1962,13 @@ async function loadAdminLogos(force=false){
   container.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;">Cargando...</div>';
   try{
     let all = force ? null : readAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
+    if(all) ensurePublicLogoCatalog(all);
     if(!all) {
       const snap = await fbDb.collection('logos').orderBy('createdAt','desc').get();
       all = [];
       snap.forEach(doc=>all.push({id:doc.id,...doc.data()}));
       writeAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY, all);
+      ensurePublicLogoCatalog(all);
     }
 
     if(!all.length){ container.innerHTML='<div style="color:var(--muted);font-size:0.8rem;">No hay logos aún.</div>'; return; }
@@ -1932,7 +2025,8 @@ async function deleteAdminLogo(id, btn){
   try{
     await fbDb.collection('logos').doc(id).delete();
     invalidateAdminCollectionCache(ADMIN_LOGOS_CACHE_KEY);
-    btn.closest('div[style*="aspect-ratio"]').remove();
+    try { await rebuildPublicLogoCatalog(); } catch(e) { console.warn('Catalogo de logos pendiente:', e); }
+    loadAdminLogos(true);
     showStatus && showStatus('','','');
   }catch(e){ alert('Error: '+e.message); }
 }

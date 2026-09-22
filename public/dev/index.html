@@ -2,6 +2,8 @@
 <html lang="es" data-theme="light">
 <head>
 <meta charset="UTF-8">
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#15d6a4">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,6 +43,7 @@ if('serviceWorker' in navigator && (location.protocol === 'http:' || location.pr
 })();
 </script>
 <title>Diseños Streaming</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check-compat.js"></script>
@@ -149,6 +152,11 @@ body{
   outline:none;margin-bottom:16px;transition:all 0.2s;
 }
 .login-field:focus{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(124,92,252,0.12);}
+.password-field-wrap{position:relative;margin-bottom:16px;}
+.password-field-wrap .login-field{margin-bottom:0;padding-right:52px;}
+.login-password-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;background:transparent;color:var(--text2);cursor:pointer;border-radius:10px;}
+.login-password-toggle:hover,.login-password-toggle:focus-visible{background:rgba(124,92,252,0.12);color:var(--text);outline:none;}
+.login-password-toggle svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .phone-row{display:flex;gap:8px;margin-bottom:16px;}
 .phone-prefix{
   background:var(--surface2);border:1.5px solid var(--border);
@@ -1198,7 +1206,10 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
       <label class="login-label">Correo Gmail</label>
       <input type="email" class="login-field" id="login-phone" placeholder="tucorreo@gmail.com" style="margin-bottom:16px;" onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()">
       <label class="login-label">Contraseña</label>
-      <input type="password" class="login-field" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="password-field-wrap">
+        <input type="password" class="login-field" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="login-password-toggle" id="login-pass-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false" onclick="toggleLoginPassword()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></button>
+      </div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
       <div class="login-err" id="login-err"></div>
       <div class="login-divider-text"><span>Nuevo cliente</span></div>
@@ -1833,6 +1844,12 @@ function observeLazyImages(root) {
 
 let fbApp = null, fbDb = null, fbAuth = null;
 let currentUser = null;
+let _userDocRead = { uid:'', at:0, promise:null };
+function readCurrentUserDoc(uid){
+  if(_userDocRead.uid === uid && _userDocRead.promise && Date.now() - _userDocRead.at < 5000) return _userDocRead.promise;
+  _userDocRead = { uid, at:Date.now(), promise:fbDb.collection('users').doc(uid).get() };
+  return _userDocRead.promise;
+}
 let currentDesignId = null;
 let editingDesignName = '';
 
@@ -1935,7 +1952,7 @@ window.addEventListener('load', async () => {
       try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(_){}
       fbAuth.onAuthStateChanged(async user => {
         if(user){
-          const doc = await fbDb.collection('users').doc(user.uid).get().catch(()=>null);
+          const doc = await readCurrentUserDoc(user.uid).catch(()=>null);
           if(doc && doc.exists && doc.data().active !== false){
             const devResult = await registerDevice(user.uid);
             if(!devResult.ok){ fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login'); return; }
@@ -1944,7 +1961,7 @@ window.addEventListener('load', async () => {
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
             // Cargar datos frescos de Firestore en segundo plano
-            if(!readDashCache('designs')) loadMyDesigns();
+            if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
             if(!readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
@@ -1973,7 +1990,7 @@ window.addEventListener('load', async () => {
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       // User is signed in — get their profile from Firestore
-      const doc = await fbDb.collection('users').doc(user.uid).get();
+      const doc = await readCurrentUserDoc(user.uid);
       if (doc.exists && doc.data().active !== false) {
         // Verificar límite de dispositivos
         const devResult = await registerDevice(user.uid);
@@ -2185,6 +2202,22 @@ async function registerDevice(uid) {
   await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
   const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
+  const sameFingerprint = activeDevices.find(d => d.fingerprintHash && d.fingerprintHash === fingerprint.hash);
+  if (sameFingerprint) {
+    await fbDb.collection('users').doc(uid).collection('devices').doc(sameFingerprint.id).set({
+      name: fingerprint.label || getDeviceName(),
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: Date.now(),
+      lastLoginAt: Date.now(),
+      loginCount: firebase.firestore.FieldValue.increment(1),
+      revoked: false
+    }, { merge:true });
+    try { localStorage.setItem('ts_device_id', sameFingerprint.id); } catch (_) {}
+    return { ok: true, reused: true };
+  }
   if (activeDevices.length >= MAX_DEVICES) {
     return { ok: false, count: activeDevices.length };
   }
@@ -2236,7 +2269,7 @@ async function completePostLogin(user, errEl) {
   if(_postLoginCompleting) return true;
   _postLoginCompleting = true;
   try {
-    const doc = await fbDb.collection('users').doc(user.uid).get();
+    const doc = await readCurrentUserDoc(user.uid);
     if(!doc.exists || doc.data().active === false) {
       await fbAuth.signOut();
       localStorage.removeItem('ts_session');
@@ -2287,6 +2320,19 @@ async function completePostLogin(user, errEl) {
   }
 }
 
+function toggleLoginPassword(){
+  const input=document.getElementById('login-pass');
+  const button=document.getElementById('login-pass-toggle');
+  if(!input || !button) return;
+  const visible=input.type === 'text';
+  input.type=visible ? 'password' : 'text';
+  button.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
+  button.setAttribute('aria-pressed', String(!visible));
+  button.innerHTML=visible
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.1A11.8 11.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.1 3.8"></path><path d="M6.6 6.6C3.6 8.5 2 12 2 12s3.5 7 10 7a10 10 0 0 0 2.1-.2"></path></svg>';
+}
+
 async function doLogin() {
   const phone = document.getElementById('login-phone').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -2321,6 +2367,8 @@ function doLogout() {
     // Limpiar cache del dashboard para este usuario
     ['designs','templates'].forEach(scope => {
       try{ localStorage.removeItem(`ts_dash_cache_v5_${currentUser.uid}_${scope}`); }catch(e){}
+      try{ localStorage.removeItem(`ts_dash_cache_v6_${currentUser.uid}_${scope}`); }catch(e){}
+      try{ localStorage.removeItem(`ts_dash_cache_v7_${currentUser.uid}_${scope}`); }catch(e){}
     });
   }
   fbAuth.signOut();
@@ -2341,6 +2389,45 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = document.getElementById('screen-' + id);
   if(target) target.classList.add('active');
+}
+
+function invalidateDesktopDesignsCache(uid){
+  if(!uid) return;
+  try{ localStorage.removeItem(`ts_dash_cache_v5_${uid}_designs`); }catch(e){}
+  try{ localStorage.removeItem(`ts_dash_cache_v6_${uid}_designs`); }catch(e){}
+  try{ localStorage.removeItem(`ts_dash_cache_v7_${uid}_designs`); }catch(e){}
+}
+
+// Actualiza solo la entrada guardada dentro de la caché existente (en vez de borrar
+// toda la caché) para que el diseño aparezca de inmediato sin forzar una relectura
+// completa de Firestore en la próxima visita al dashboard.
+function upsertDesktopDesignsCache(uid, id, patch){
+  if(!uid || !id) return;
+  const key = dashCacheKey('designs');
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return; // sin caché previa: se llenará sola en la próxima carga normal
+    const parsed = JSON.parse(raw);
+    const items = parsed?.data?.items;
+    if(!Array.isArray(items)) return;
+    const idx = items.findIndex(it=>it.id===id);
+    const prev = idx>=0 ? items[idx].d : {};
+    const merged = {
+      name: patch.name ?? prev.name ?? 'Sin nombre',
+      thumb: patch.thumb ?? prev.thumb ?? '',
+      updatedAt: patch.updatedAt ?? Date.now(),
+      createdAt: prev.createdAt || patch.createdAt || patch.updatedAt || Date.now()
+    };
+    if(idx>=0) items.splice(idx,1);
+    items.unshift({id, d:merged});
+    parsed.at = Date.now();
+    localStorage.setItem(key, JSON.stringify(parsed));
+    if(typeof allDashboardDesigns !== 'undefined' && Array.isArray(allDashboardDesigns)){
+      const midx = allDashboardDesigns.findIndex(it=>it.id===id);
+      if(midx>=0) allDashboardDesigns.splice(midx,1);
+      allDashboardDesigns.unshift({id, d:merged});
+    }
+  }catch(e){}
 }
 
 
@@ -2410,10 +2497,15 @@ function hideAllHandles(){document.querySelectorAll('.layer-handle').forEach(h=>
 function showHandles(el){el.querySelectorAll('.layer-handle').forEach(h=>h.style.display='block');}
 
 const DASH_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 horas para evitar releer plantillas/diseños en recargas frecuentes
-const DASH_DESIGN_FETCH_LIMIT = 24;
+const DASH_BACKGROUND_REFRESH_TTL = 1000 * 60 * 10; // 10 minutos para refresco en segundo plano
+const DASH_DESIGN_PAGE_SIZE = 24;
 const DASH_TEMPLATE_PAGE_SIZE = 160;
 const DASH_TEMPLATE_MAX_PAGES = 12;
-function dashCacheKey(scope){ return `ts_dash_cache_v5_${currentUser?.uid||'guest'}_${scope}`; }
+let allDashboardDesigns = [];
+let lastDashboardDesignDoc = null;
+let noMoreDashboardDesigns = false;
+let dashboardDesignsLoading = false;
+function dashCacheKey(scope){ return `ts_dash_cache_v7_${currentUser?.uid||'guest'}_${scope}`; }
 function readDashCache(scope){
   try{
     const raw = localStorage.getItem(dashCacheKey(scope));
@@ -2425,6 +2517,25 @@ function readDashCache(scope){
 }
 function writeDashCache(scope, data){
   try{ localStorage.setItem(dashCacheKey(scope), JSON.stringify({at:Date.now(), data})); }catch(e){}
+}
+function hasFreshDashCache(scope, maxAgeMs = DASH_CACHE_TTL){
+  try{
+    const raw = localStorage.getItem(dashCacheKey(scope));
+    if(!raw) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed?.at && (Date.now() - Number(parsed.at)) < maxAgeMs);
+  }catch(e){ return false; }
+}
+function minifyDesignsForDashCache(items){
+  return (items||[]).map(({id,d}) => ({
+    id,
+    d: {
+      name: d?.name || 'Sin nombre',
+      thumb: d?.thumb || '',
+      updatedAt: d?.updatedAt || 0,
+      createdAt: d?.createdAt || 0
+    }
+  }));
 }
 function setDashboardSyncLabel(text){
   const sync = document.getElementById('hero-last-sync');
@@ -2442,9 +2553,10 @@ function populateTemplateCategoryOptions(items){
   const select = document.getElementById('tpl-cat-filter');
   if(!select) return;
   const current = select.value || '';
-  const cats = [...new Set((items||[]).map(({d}) => (d?.category||'').trim()).filter(Boolean))]
+  const cats = [...new Set((items||[]).map(({d}) => templateCategoryForClient(d)).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'es'));
-  select.innerHTML = '<option value="">Todas las categorías</option>' + cats.map(cat => `<option value="${cat.replace(/"/g,'&quot;')}">${cat}</option>`).join('');
+  select.replaceChildren(new Option('Todas las categorías', ''));
+  cats.forEach(cat => select.add(new Option(cat, cat)));
   if(cats.includes(current)) select.value = current;
   const catCountEl = document.getElementById('hero-template-cats');
   const asideSummary = document.getElementById('aside-template-summary');
@@ -2456,11 +2568,12 @@ function renderMyDesignCards(payload, isCached=false){
   const countEl = document.getElementById('my-designs-count');
   const heroCountEl = document.getElementById('hero-design-count');
   const items = Array.isArray(payload?.items) ? payload.items : [];
-  const total = Number.isFinite(payload?.total) ? payload.total : items.length;
+  const complete = payload?.complete === true;
+  const totalLabel = `${items.length}${complete ? '' : '+'}`;
   grid.innerHTML = '';
-  const totalText = total + ' diseño' + (total!==1?'s':'');
+  const totalText = totalLabel + ' disenos' + ((items.length!==1 || !complete)?'':'');
   if (countEl) countEl.textContent = totalText;
-  if (heroCountEl) heroCountEl.textContent = String(total);
+  if (heroCountEl) heroCountEl.textContent = totalLabel;
   const newCard = document.createElement('div');
   newCard.className = 'new-design-card';
   newCard.innerHTML = '<div class="icon">+</div><div class="label">Nuevo diseño en blanco</div><div class="sub">Empieza desde cero con el mismo editor que ya usas.</div>';
@@ -2477,11 +2590,22 @@ function renderMyDesignCards(payload, isCached=false){
   }
   setRecentDesignName(items[0]?.d?.name || 'Diseño reciente');
   items.forEach(({id,d}) => grid.appendChild(createDesignCard(id, d)));
+  if(!complete){
+    const moreWrap = document.createElement('div');
+    moreWrap.id = 'desk-designs-load-more';
+    moreWrap.style.cssText = 'grid-column:1/-1;display:flex;justify-content:center;padding:8px 0 0;';
+    moreWrap.innerHTML = '<button class="hero-btn hero-btn-secondary" onclick="loadMoreDashboardDesigns()">Ver mas disenos</button>';
+    grid.appendChild(moreWrap);
+  }
   observeLazyImages(grid);
 }
 function warmDashboardFromCache(){
   const cachedDesigns = readDashCache('designs');
-  if(cachedDesigns) renderMyDesignCards(cachedDesigns, true);
+  if(cachedDesigns){
+    allDashboardDesigns = Array.isArray(cachedDesigns.items) ? cachedDesigns.items : [];
+    noMoreDashboardDesigns = cachedDesigns.complete === true;
+    renderMyDesignCards(cachedDesigns, true);
+  }
   const cachedTemplates = readDashCache('templates');
   if(cachedTemplates && Array.isArray(cachedTemplates.items)){
     allTemplatesCache = cachedTemplates.items;
@@ -2499,7 +2623,7 @@ async function showDashboard() {
   setDashboardSyncLabel('Sincronizando contenido…');
   warmDashboardFromCache();
   requestAnimationFrame(() => {
-    if(!readDashCache('designs')) loadMyDesigns();
+    if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
     if(!readDashCache('templates')) loadAdminTemplates();
     if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
@@ -2508,41 +2632,76 @@ async function showDashboard() {
 // ================================================================
 // MY DESIGNS
 // ================================================================
-async function loadMyDesigns() {
+async function loadMyDesigns(forceRefresh = false) {
   const grid = document.getElementById('my-designs-grid');
   const countEl = document.getElementById('my-designs-count');
   const heroCountEl = document.getElementById('hero-design-count');
+  allDashboardDesigns = [];
+  lastDashboardDesignDoc = null;
+  noMoreDashboardDesigns = false;
+  dashboardDesignsLoading = false;
   if (!readDashCache('designs')) {
     if (countEl) countEl.textContent = 'Cargando...';
     if (heroCountEl) heroCountEl.textContent = '...';
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>';
   }
+  const cachedDesigns = readDashCache('designs');
+  let hadCache = false;
+  if(cachedDesigns && !forceRefresh){
+    allDashboardDesigns = Array.isArray(cachedDesigns.items) ? cachedDesigns.items : [];
+    noMoreDashboardDesigns = cachedDesigns.complete === true;
+    renderMyDesignCards(cachedDesigns, true);
+    hadCache = true;
+    if(hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) return;
+  }
+  await loadMyDesignsPage(true, hadCache);
+}
+
+async function loadMoreDashboardDesigns(){
+  if(dashboardDesignsLoading || noMoreDashboardDesigns) return;
+  if(!lastDashboardDesignDoc && allDashboardDesigns.length){
+    await loadMyDesigns(true);
+    if(noMoreDashboardDesigns || !lastDashboardDesignDoc) return;
+  }
+  await loadMyDesignsPage(false, true);
+}
+
+async function loadMyDesignsPage(isFirst, hadCache){
+  if(dashboardDesignsLoading || (!isFirst && noMoreDashboardDesigns)) return;
+  dashboardDesignsLoading = true;
+  const grid = document.getElementById('my-designs-grid');
+  const countEl = document.getElementById('my-designs-count');
+  const heroCountEl = document.getElementById('hero-design-count');
   try {
-    const snap = await fbDb.collection('user_designs')
+    let query = fbDb.collection('user_designs')
       .where('uid', '==', currentUser.uid)
       .orderBy('updatedAt', 'desc')
-      .limit(DASH_DESIGN_FETCH_LIMIT)
-      .get();
+      .limit(DASH_DESIGN_PAGE_SIZE);
+    if(lastDashboardDesignDoc) query = query.startAfter(lastDashboardDesignDoc);
+    const snap = await query.get();
     const docs = snap.docs.map(doc => ({ id: doc.id, d: doc.data() || {} }));
-    renderMyDesignCards({ items: docs, total: snap.size });
+    if(isFirst){
+      allDashboardDesigns = docs;
+    }else{
+      allDashboardDesigns = allDashboardDesigns.concat(docs);
+    }
+    if(snap.docs.length) lastDashboardDesignDoc = snap.docs[snap.docs.length - 1];
+    noMoreDashboardDesigns = snap.docs.length < DASH_DESIGN_PAGE_SIZE;
+    renderMyDesignCards({ items: allDashboardDesigns, complete: noMoreDashboardDesigns });
     writeDashCache('designs', {
-      total: snap.size,
-      items: docs.slice(0, 8).map(({id,d}) => ({
-        id,
-        d: {
-          name: d.name || 'Sin nombre',
-          thumb: d.thumb || '',
-          updatedAt: d.updatedAt || 0,
-          createdAt: d.createdAt || 0
-        }
-      }))
+      complete: noMoreDashboardDesigns,
+      items: minifyDesignsForDashCache(allDashboardDesigns)
     });
     setDashboardSyncLabel('Panel actualizado hace un momento.');
   } catch(e) {
-    if (countEl) countEl.textContent = '—';
-    if (heroCountEl) heroCountEl.textContent = '—';
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar diseños: ${e.message}</div>`;
-    setDashboardSyncLabel('No pudimos actualizar los diseños.');
+    if (!hadCache) {
+      if (countEl) countEl.textContent = '-';
+      if (heroCountEl) heroCountEl.textContent = '-';
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Error al cargar disenos: ${e.message}</div>`;
+    }
+    setDashboardSyncLabel('No pudimos actualizar los disenos.');
+  } finally {
+    dashboardDesignsLoading = false;
   }
 }
 
@@ -2585,6 +2744,65 @@ async function deleteDesign(id, btn) {
 // ================================================================
 let allTemplatesCache = []; // store for search/filter
 
+const CLIENT_TEMPLATE_CATEGORY_RULES = [
+  { category:'Netflix', terms:['netflix','nflx'] },
+  { category:'Disney+', terms:['disney+','disney plus','disney','espn','star plus','star+'] },
+  { category:'Max', terms:['hbo max','hbomax','max'] },
+  { category:'Prime Video', terms:['prime video','amazon prime','prime'] },
+  { category:'Crunchyroll', terms:['crunchyroll','crunchy'] },
+  { category:'Spotify', terms:['spotify'] },
+  { category:'Paramount+', terms:['paramount+','paramount plus','paramount'] },
+  { category:'YouTube Premium', terms:['youtube premium','youtube','yt premium'] },
+  { category:'Apple TV+', terms:['apple tv+','apple tv','appletv'] },
+  { category:'Vix', terms:['vix','vix+','vix plus'] },
+  { category:'Viki', terms:['viki','viki rakuten','rakuten'] },
+  { category:'Capcut', terms:['capcut','cap cut'] },
+  { category:'Canva', terms:['canva'] },
+  { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
+  { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] }
+];
+
+function normalizeTemplateCategoryText(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\+/g, ' plus ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function canonicalTemplateCategory(value){
+  const category = String(value || '').trim().slice(0, 80);
+  return normalizeTemplateCategoryText(category) === 'netflix extra' ? 'Netflix' : category;
+}
+
+function inferTemplateCategoryFromName(name){
+  const normalizedName = normalizeTemplateCategoryText(name);
+  if(!normalizedName) return '';
+  const nameWords = ` ${normalizedName} `;
+  let best = null;
+  CLIENT_TEMPLATE_CATEGORY_RULES.forEach(rule => {
+    rule.terms.forEach(term => {
+      const normalizedTerm = normalizeTemplateCategoryText(term);
+      if(!normalizedTerm || !nameWords.includes(` ${normalizedTerm} `)) return;
+      if(!best || normalizedTerm.length > best.length) best = { category:rule.category, length:normalizedTerm.length };
+    });
+  });
+  return best?.category || '';
+}
+
+function templateCategoryForClient(d){
+  return canonicalTemplateCategory(d?.category || '') || inferTemplateCategoryFromName(d?.name || '');
+}
+
+function templateMatchesCategory(d, category){
+  if(!category) return true;
+  const wanted = normalizeTemplateCategoryText(category);
+  return normalizeTemplateCategoryText(templateCategoryForClient(d)) === wanted;
+}
+
 function normalizePublicTemplateCatalog(data){
   if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
   const items = data.items
@@ -2593,7 +2811,8 @@ function normalizePublicTemplateCatalog(data){
       d:{
         name:String(item?.name || 'Plantilla'),
         thumb:String(item?.thumb || ''),
-        category:String(item?.category || ''),
+        category:canonicalTemplateCategory(item?.category || '') || inferTemplateCategoryFromName(item?.name || ''),
+        categoryAuto:item?.categoryAuto === true,
         createdAt:Number(item?.createdAt || 0),
         updatedAt:Number(item?.updatedAt || item?.createdAt || 0),
         status:'published'
@@ -2618,9 +2837,8 @@ function getFilteredTemplates(items){
   const cat=document.getElementById('tpl-cat-filter')?.value||'';
   return (items||[]).filter(({d})=>{
     const name=(d?.name||'').toLowerCase();
-    const category=(d?.category||'');
     const matchName=!q||name.includes(q);
-    const matchCat=!cat||category=== cat;
+    const matchCat=templateMatchesCategory(d, cat);
     return matchName&&matchCat;
   });
 }
@@ -2647,10 +2865,23 @@ function renderTemplateCards(docs){
   if (countEl) countEl.textContent=docs.length+' disponible'+(docs.length!==1?'s':'');
   docs.forEach(({id,d})=>{
     const card=document.createElement('div');card.className='tpl-card';
-    const thumbHtml=d.thumb?`<div class="tpl-preview"><img class="tpl-thumb lazy-img" decoding="async" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(d.thumb,{w:240,c:'fit'})}" alt="${d.name||'Plantilla'}"></div>`:`<div class="tpl-preview"><div class="tpl-thumb-empty">📦</div></div>`;
-    const catBadge=d.category?`<div class="tpl-chip">${d.category}</div>`:'';
+    const categoryLabel = templateCategoryForClient(d);
     const date=new Date(d.updatedAt||d.createdAt||0).toLocaleDateString('es-PE');
-    card.innerHTML=`${thumbHtml}<div class="tpl-info"><div class="tpl-meta">${catBadge}<div class="tpl-date">${date}</div></div><div class="tpl-name">${d.name}</div><button class="tpl-use-btn" onclick="openEditorFromTemplate('${id}')">Usar plantilla →</button></div>`;
+    const preview=document.createElement('div');preview.className='tpl-preview';
+    if(d.thumb){
+      const img=document.createElement('img');img.className='tpl-thumb lazy-img';img.decoding='async';img.fetchPriority='low';
+      img.src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E";
+      img.dataset.src=cdnOpt(d.thumb,{w:240,c:'fit'});img.alt=String(d.name||'Plantilla');preview.appendChild(img);
+    }else{
+      const empty=document.createElement('div');empty.className='tpl-thumb-empty';empty.textContent='📦';preview.appendChild(empty);
+    }
+    const info=document.createElement('div');info.className='tpl-info';
+    const meta=document.createElement('div');meta.className='tpl-meta';
+    if(categoryLabel){const badge=document.createElement('div');badge.className='tpl-chip';badge.textContent=categoryLabel;meta.appendChild(badge);}
+    const dateEl=document.createElement('div');dateEl.className='tpl-date';dateEl.textContent=date;meta.appendChild(dateEl);
+    const title=document.createElement('div');title.className='tpl-name';title.textContent=String(d.name||'Plantilla');
+    const useButton=document.createElement('button');useButton.className='tpl-use-btn';useButton.type='button';useButton.textContent='Usar plantilla →';useButton.addEventListener('click',()=>openEditorFromTemplate(id));
+    info.append(meta,title,useButton);card.append(preview,info);
     grid.appendChild(card);
   });
   observeLazyImages(grid);
@@ -2702,12 +2933,15 @@ async function loadAdminTemplates() {
       writeDashCache('templates', { total: 0, items: [] });
       return;
     }
-    allTemplatesCache = rawDocs;
-    populateTemplateCategoryOptions(rawDocs);
-    renderTemplateCards(getFilteredTemplates(rawDocs));
+    allTemplatesCache = rawDocs.map(({id,d}) => ({
+      id,
+      d:{ ...d, category:canonicalTemplateCategory(d?.category || '') || inferTemplateCategoryFromName(d?.name || '') }
+    }));
+    populateTemplateCategoryOptions(allTemplatesCache);
+    renderTemplateCards(getFilteredTemplates(allTemplatesCache));
     writeDashCache('templates', {
-      total: rawDocs.length,
-      items: rawDocs.map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
+      total: allTemplatesCache.length,
+      items: allTemplatesCache.map(({id,d}) => ({ id, d: { name:d.name||'Plantilla', thumb:d.thumb||'', updatedAt:d.updatedAt||0, createdAt:d.createdAt||0, category:d.category||'' } }))
     });
     setDashboardSyncLabel('Diseños y plantillas sincronizados.');
   } catch (e) {
@@ -2741,7 +2975,7 @@ async function openEditorDesign(id) {
 async function openEditorFromTemplate(tplId) {
   const uid = currentUser?.uid||'';
   const editorFile = isMobile() ? 'editor-mobile.html' : 'editor.html';
-  const url = `${editorFile}?mode=client&tpl=${tplId}&uid=${encodeURIComponent(uid)}`;
+  const url = `${editorFile}?mode=client&tpl=${encodeURIComponent(tplId)}&uid=${encodeURIComponent(uid)}`;
   window.location.href = url;
 }
 
@@ -3016,6 +3250,23 @@ function addBuiltinLogos(){
 
 // ── SHARED LOGO LIBRARY (from Firestore, uploaded by admin) ──────
 let sharedLogoLibraryLoaded = false;
+async function loadCompactSharedLogoCatalog(){
+  try{
+    const snap=await fbDb.collection('public_catalog').doc('logos').get();
+    const data=snap.exists ? snap.data() : null;
+    if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
+    return data.items.map(logo => ({
+      id:String(logo?.id || ''),
+      url:String(logo?.url || ''),
+      name:String(logo?.name || ''),
+      categoria:String(logo?.categoria || 'Logos oficiales'),
+      createdAt:Number(logo?.createdAt || 0)
+    })).filter(logo => logo.id && logo.url);
+  }catch(e){
+    console.warn('Catalogo compacto de logos no disponible:', e.message || e);
+    return null;
+  }
+}
 async function ensureSharedLogoLibrary(){
   if(sharedLogoLibraryLoaded) return;
   await loadSharedLogoLibrary();
@@ -3024,15 +3275,19 @@ async function loadSharedLogoLibrary(){
   const grid=document.getElementById('shared-logo-grid');
   if(!grid||!fbDb) return;
   try{
-    const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+    const catalogLogos=await loadCompactSharedLogoCatalog();
+    let sharedLogos=catalogLogos;
+    if(sharedLogos === null){
+      const snap=await fbDb.collection('logos').orderBy('createdAt','desc').get();
+      sharedLogos=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    }
     grid.innerHTML='';
-    if(snap.empty){
+    if(!sharedLogos.length){
       sharedLogoLibraryLoaded = true;
       grid.innerHTML='<div style="grid-column:1/-1;font-size:0.72rem;color:var(--muted);text-align:center;padding:12px;">Sin logos disponibles.</div>';
       return;
     }
-    snap.forEach(doc=>{
-      const d=doc.data();
+    sharedLogos.forEach(d=>{
       const item=document.createElement('div');
       item.className='logo-item';
       item.title=d.name||'Logo';
@@ -3441,6 +3696,7 @@ async function doSaveDesign(){
       const ref=await fbDb.collection('user_designs').add(data);
       currentDesignId=ref.id;
     }
+    invalidateDesktopDesignsCache(currentUser?.uid);
     document.getElementById('save-design-status').textContent='✓ ¡Guardado correctamente!';
     document.getElementById('save-design-status').style.color='var(--accent)';
     setTimeout(()=>closeSaveModal(),1200);
@@ -3503,8 +3759,7 @@ async function downloadPNG(){
 
 async function quickDownload(id){
   try{
-    const doc=await fbDb.collection('user_designs').doc(id).get();
-    if(!doc.exists)return;
+    // openEditorDesign() ya valida existencia al leer el doc; evitamos un .get() duplicado aquí.
     openEditorDesign(id);
     setTimeout(()=>downloadPNG(),1200);
   }catch(e){alert('Error: '+e.message);}
@@ -3604,6 +3859,9 @@ async function autoSave(){
       const ref = await fbDb.collection('user_designs').add(saveData);
       currentDesignId = ref.id;
     }
+    upsertDesktopDesignsCache(currentUser?.uid, currentDesignId, {
+      name: saveData.name, thumb: saveData.thumb, updatedAt: saveData.updatedAt, createdAt: saveData.createdAt
+    });
     showAutosaveMsg('✓ Guardado automáticamente', 'ok');
   } catch(e){
     // If offline, save to localStorage as backup
@@ -4015,4 +4273,3 @@ function switchMobTab(tab){
 </script>
 </body>
 </html>
-
