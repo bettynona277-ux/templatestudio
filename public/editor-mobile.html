@@ -2602,7 +2602,7 @@ async function uploadToCloudinary(dataUrl, publicId){
   return data.secure_url;
 }
 
-const EXPORT_RENDER_VERSION = 'visible-v2';
+const EXPORT_RENDER_VERSION = 'canvas-effects-v3';
 const IOS_EXPORT_COOLDOWN_MS = 15000;
 const IOS_EXPORT_DAILY_LIMIT = 30;
 let lastIosExportUploadAt = 0;
@@ -3972,7 +3972,6 @@ async function downloadPNG(){
   toast('⏳ Generando imagen...');
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
-  let blurPatches = [];
 
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -3980,8 +3979,7 @@ async function downloadPNG(){
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
 
-    // La exportacion principal captura el editor visible para conservar posiciones reales.
-    // El renderer manual queda solo como fallback si html2canvas falla.
+    // Renderizar desde el modelo conserva filtros y efectos sin modificar temporalmente el DOM.
     const fontSpecs = [...new Set(
       layers.filter(l => l.tp?.fontFamily).map(l => {
         const fw = l.tp.fontWeight || '400';
@@ -4002,23 +4000,11 @@ async function downloadPNG(){
     // iOS tiene límite de memoria para canvas grandes — usar scale 2 en vez de 3
     const exportScale = mobileExportScale(canvasW, canvasH);
 
-    let rendered;
     const ua = navigator.userAgent || '';
     const isIOS = (/iPad|iPhone|iPod/.test(ua) && !window.MSStream)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    try{
-      const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
-      rendered = visibleCapture.rendered;
-      blurPatches = visibleCapture.patches;
-      if(!rendered || !rendered.width || !rendered.height){
-        throw new Error('Canvas vacío');
-      }
-    }catch(renderErr){
-      console.warn('Render principal fallo, usando fallback:', renderErr.message);
-      restoreBlurAfterExport(blurPatches);
-      blurPatches = [];
-      rendered = await renderDesignToCanvas(exportScale);
-    }
+    const rendered = await renderDesignToCanvas(exportScale);
+    if(!rendered || !rendered.width || !rendered.height) throw new Error('Canvas vacío');
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
@@ -4081,7 +4067,6 @@ async function downloadPNG(){
     console.error('JPG error:', e);
     toast('✗ Error al generar. Intenta de nuevo.');
   }finally{
-    restoreBlurAfterExport(blurPatches);
     cvs.style.transform = savedTransform;
     if(btn){ btn.disabled=false; }
   }
