@@ -126,7 +126,7 @@ button{border:0;cursor:pointer}
 .device-list{display:grid;gap:8px}.device-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.device-row b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.device-row span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.3}.device-row .iconbtn{width:36px;height:36px;border-radius:12px;color:#ffb8c6;border-color:rgba(255,93,125,.24);background:rgba(255,93,125,.09)}
 .device-section{display:grid;gap:8px}.device-section+.device-section{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}.device-section-title{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8aa1ff}
 .category-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
-.category-row b{font-size:13px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
+.category-row b{font-size:13px}.category-price-trigger{flex:1;min-width:0;min-height:40px;padding:0 6px;display:flex;align-items:center;justify-content:space-between;gap:10px;border:0;background:transparent;color:var(--text);text-align:left;font:inherit}.category-price-trigger span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-price-trigger .i{width:17px;height:17px;flex:0 0 auto;color:var(--muted)}.category-price-trigger:focus-visible{outline:2px solid var(--brand2);outline-offset:2px;border-radius:8px}.danger-icon{width:38px;height:38px;border-radius:13px;background:rgba(255,93,125,.12);border:1px solid rgba(255,93,125,.28);color:#ffb8c6;display:grid;place-items:center}
 .combo-client-group{display:grid;gap:8px;padding:10px;border:1px solid rgba(118,92,255,.45);border-radius:20px;background:rgba(118,92,255,.06)}.combo-client-group-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 3px;color:#e8e4ff;font-size:12px;font-weight:950}.combo-client-group-head small{color:var(--muted);font-weight:800}.combo-client-group .card{margin:0;border-color:rgba(148,163,184,.16)}.combo-platform-logos{display:flex;align-items:center}.combo-platform-logo{width:20px;height:20px;object-fit:contain;border-radius:6px;background:#081222;border:1px solid rgba(255,255,255,.13);padding:2px;margin-left:-3px}.combo-platform-logo:first-child{margin-left:0}.chip .combo-platform-logo{width:18px;height:18px;margin:0 2px 0 0;padding:2px}
 .combo-sale-card{padding:13px;border-radius:20px;border:1px solid rgba(56,189,248,.24);background:#0d1726;display:grid;gap:10px;contain:layout paint}
 .combo-sale-card strong{font-size:14px}.combo-app-card{padding:12px;border-radius:18px;border:1px solid color-mix(in srgb,var(--pcolor,#765cff) 36%, rgba(255,255,255,.08));background:#0d1726;display:grid;gap:9px;contain:layout paint}
@@ -808,12 +808,16 @@ function detectGestorDeviceSuspicion(existing, fingerprint, activeDevices, isNew
 async function registerGestorDevice(uid){
   const deviceId=getGestorDeviceId();
   const devRef=doc(db,'users',uid,'devices',deviceId);
+  // No vuelvas a leer el dispositivo en cada apertura. La telemetría y la
+  // validación de revocación no necesitan ejecutarse más de una vez por la
+  // ventana de enfriamiento; esto evita una lectura de Firestore por cada
+  // cambio de pestaña o reapertura de la PWA.
+  if(wasGestorDeviceTouchedRecently(uid, deviceId)) return {ok:true, cached:true};
   const currentSnap=await getDoc(devRef);
   const existing=currentSnap.exists() ? {id:currentSnap.id,...currentSnap.data()} : null;
   const now=Date.now();
   if(existing){
     if(existing.revoked === true) return {ok:false,revoked:true};
-    if(wasGestorDeviceTouchedRecently(uid, deviceId)) return {ok:true};
     const fingerprint=await buildGestorDeviceFingerprint();
     const suspicious=existing.suspicious === true || detectGestorDeviceSuspicion(existing, fingerprint, [], false);
     // Telemetria (lastSeen/loginCount) sin await: no afecta la decision de acceso
@@ -902,11 +906,21 @@ function mergeRemotePlatformPrices(nextPrices={}, baselinePrices={}, remotePrice
   const merged=cloneSettings(next);
   const keys=new Set([...Object.keys(next),...Object.keys(baseline),...Object.keys(remote)]);
   keys.forEach(key=>{
-    // Si esta pantalla no cambio una plataforma, se conserva la version mas
-    // reciente de Firestore para que otra pestana no pierda ese precio.
-    if(!sameSettingsValue(next[key],baseline[key]) || sameSettingsValue(remote[key],baseline[key])) return;
-    if(remote[key] === undefined) delete merged[key];
-    else merged[key]=cloneSettings(remote[key]);
+    const nextRow=next[key], baselineRow=baseline[key], remoteRow=remote[key];
+    if(nextRow === undefined){
+      if(baselineRow === undefined && remoteRow !== undefined) merged[key]=cloneSettings(remoteRow);
+      else if(baselineRow !== undefined && sameSettingsValue(remoteRow,baselineRow)) delete merged[key];
+      continue;
+    }
+    if(remoteRow === undefined){
+      if(baselineRow !== undefined && sameSettingsValue(nextRow,baselineRow)) delete merged[key];
+      continue;
+    }
+    const mergedRow={...nextRow};
+    ['salePrice','renewalPrice','purchaseCost'].forEach(field=>{
+      if(sameSettingsValue(nextRow[field],baselineRow?.[field]) && !sameSettingsValue(remoteRow[field],baselineRow?.[field])) mergedRow[field]=remoteRow[field];
+    });
+    merged[key]=mergedRow;
   });
   return merged;
 }
@@ -1695,7 +1709,7 @@ function renderSettings(){
         <input class="chip-input" name="category" placeholder="Nueva categoria" />
         <button class="btn">${icon('tag')}<span>Agregar</span></button>
       </form>
-      <div class="list">${s.categories.map(cat => `<div class="category-row"><b>${esc(cat)}</b><button class="danger-icon" data-del-cat="${esc(cat)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
+      <div class="list">${s.categories.map(cat => `<div class="category-row"><button class="category-price-trigger" type="button" data-edit-cat="${esc(cat)}" aria-label="Editar precios predeterminados de ${esc(cat)}"><span>${esc(cat)}</span>${icon('edit')}</button><button class="danger-icon" type="button" data-del-cat="${esc(cat)}" aria-label="Eliminar categoria ${esc(cat)}" title="Eliminar">${icon('trash')}</button></div>`).join('')}</div>
     </div>
     <div class="section">
       <div class="section-head"><h2>Combos</h2><span>${s.comboTemplates.length}</span></div>
@@ -1720,6 +1734,7 @@ function renderSettings(){
   $('#settingsForm').onsubmit = saveSettingsFromForm;
   $('#categoryForm').onsubmit = addCategoryFromForm;
   $('#comboTemplateForm').onsubmit = addComboTemplateFromForm;
+  document.querySelectorAll('[data-edit-cat]').forEach(b => b.onclick = () => openCategoryPriceSheet(b.dataset.editCat, b));
   document.querySelectorAll('[data-del-cat]').forEach(b => b.onclick = () => removeCategory(b.dataset.delCat));
   document.querySelectorAll('[data-del-combo]').forEach(b => b.onclick = () => removeComboTemplate(b.dataset.delCombo));
 }
@@ -1878,6 +1893,77 @@ function openSheet(html){
 function closeSheet(){
   $('#sheetBack').classList.remove('show');
   $('#sheet').classList.remove('show');
+}
+let categoryPriceSheetOpener=null;
+let categoryPriceSheetKeyHandler=null;
+function closeCategoryPriceSheet(){
+  const opener=categoryPriceSheetOpener;
+  categoryPriceSheetOpener=null;
+  closeSheet();
+  const sheet=$('#sheet');
+  if(categoryPriceSheetKeyHandler){document.removeEventListener('keydown',categoryPriceSheetKeyHandler,true);categoryPriceSheetKeyHandler=null;}
+  sheet.removeAttribute('role');
+  sheet.removeAttribute('aria-modal');
+  sheet.removeAttribute('aria-labelledby');
+  const restoreTarget=opener?.isConnected ? opener : [...document.querySelectorAll('[data-edit-cat]')].find(button=>button.dataset.editCat===sheet.dataset.categoryPrice);
+  restoreTarget?.focus();
+}
+function openCategoryPriceSheet(category, opener){
+  const price=platformPriceFor(category);
+  categoryPriceSheetOpener=opener || document.activeElement;
+  openSheet(`<div class="sheet-head"><h3 id="categoryPriceTitle">Precios de ${esc(category)}</h3><button class="iconbtn" id="closeSheet" type="button" aria-label="Cerrar precios de ${esc(category)}">${icon('x')}</button></div>
+    <form id="categoryPriceForm" class="grid" aria-labelledby="categoryPriceTitle">
+      <p class="beta-note">Estos son valores predeterminados para futuras ventas, renovaciones y compras. No cambian precios de cuentas ni clientes ya guardados.</p>
+      <div class="field"><label for="categorySalePrice">Venta</label><input id="categorySalePrice" name="salePrice" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(price.salePrice)}" required></div>
+      <div class="field"><label for="categoryRenewalPrice">Renovación</label><input id="categoryRenewalPrice" name="renewalPrice" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(price.renewalPrice)}" required></div>
+      <div class="field"><label for="categoryPurchaseCost">Costo de compra</label><input id="categoryPurchaseCost" name="purchaseCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(price.purchaseCost)}" required></div>
+      <div class="form-actions"><button class="btn" id="cancelCategoryPrices" type="button">Cancelar</button><button class="btn primary" id="saveCategoryPrices" type="submit">${icon('save')}<span>Guardar precios</span></button></div>
+    </form>`);
+  const sheet=$('#sheet');
+  sheet.dataset.categoryPrice=category;
+  sheet.setAttribute('role','dialog');
+  sheet.setAttribute('aria-modal','true');
+  sheet.setAttribute('aria-labelledby','categoryPriceTitle');
+  const focusFirst=()=>$('#categorySalePrice')?.focus();
+  requestAnimationFrame(focusFirst);
+  $('#sheetBack').onclick=closeCategoryPriceSheet;
+  $('#closeSheet').onclick=closeCategoryPriceSheet;
+  $('#cancelCategoryPrices').onclick=closeCategoryPriceSheet;
+  categoryPriceSheetKeyHandler=event=>{
+    if(!sheet.classList.contains('show')) return;
+    if(event.key==='Escape'){
+      event.preventDefault();
+      event.stopPropagation();
+      closeCategoryPriceSheet();
+    }else if(event.key==='Tab'){
+      const focusable=[...sheet.querySelectorAll('button:not(:disabled),input:not(:disabled)')];
+      if(!focusable.length) return;
+      const index=focusable.indexOf(document.activeElement);
+      if(index===-1){event.preventDefault();focusable[event.shiftKey?focusable.length-1:0].focus();}
+      else if(event.shiftKey && index===0){event.preventDefault();focusable[focusable.length-1].focus();}
+      else if(!event.shiftKey && index===focusable.length-1){event.preventDefault();focusable[0].focus();}
+    }
+  };
+  document.addEventListener('keydown',categoryPriceSheetKeyHandler,true);
+  $('#categoryPriceForm').onsubmit=async event=>{
+    event.preventDefault();
+    const form=event.currentTarget;
+    const button=$('#saveCategoryPrices');
+    const values=Object.fromEntries(new FormData(form).entries());
+    const numbers=['salePrice','renewalPrice','purchaseCost'].map(key=>Number(String(values[key]).trim().replace(',','.')));
+    if(numbers.some(value=>!Number.isFinite(value)||value<0)){
+      toast('Ingresa precios válidos, iguales o mayores a cero.','bad');
+      return;
+    }
+    const prices=normalizePlatformPrices(state.settings.platformPrices,state.settings.categories);
+    const priceKey=Object.keys(prices).find(name=>platformPriceKey(name)===platformPriceKey(category)) || canonicalPlatformPriceLabel(category);
+    prices[priceKey]={salePrice:moneyNumber(values.salePrice),renewalPrice:moneyNumber(values.renewalPrice),purchaseCost:moneyNumber(values.purchaseCost)};
+    button.disabled=true;
+    const saved=await saveSettings({...state.settings,platformPrices:prices});
+    button.disabled=false;
+    if(saved) closeCategoryPriceSheet();
+    else toast('No se guardaron los precios. Espera a que termine el otro guardado e inténtalo de nuevo.','bad');
+  };
 }
 let deferredInstallPrompt = null;
 async function registerGestorServiceWorker(){
@@ -2113,7 +2199,7 @@ function openClientSheet(item={}, options={}){
       form.elements.platform.value = account.platform;
       window.syncMobileSelects?.();
     }
-    if(account?.id && !form.elements.fullAccountSale?.checked && form.elements.profile && (accountChanged || !form.elements.profile.value)) form.elements.profile.value = nextProfileSuggestionMobile(account.id);
+    if(account?.id && !form.elements.fullAccountSale?.checked && form.elements.profile && ((!c.id && accountChanged) || !form.elements.profile.value)) form.elements.profile.value = nextProfileSuggestionMobile(account.id);
     selectedAccountId = clean(account?.id);
     fillDefaultClientPricesInForm(form, account?.platform || form.elements.platform.value || '');
   };
@@ -2155,12 +2241,6 @@ function openClientSheet(item={}, options={}){
     const data = sanitizeClientForSave({...c, ...fd, ...pricePatch, id:saleId, customerId:c.id ? (c.customerId || saleId) : (selectedExistingCustomerId || saleId), platform:fd.platform || account?.platform || '', fullAccountSale, activationByCode, profile:hidesAccessFields ? '' : fd.profile, pin:hidesAccessFields ? '' : fd.pin});
     if(!data.accountId){
       toast('Selecciona una cuenta madre para guardar la venta.','bad');
-      submitBtn.disabled = false;
-      submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
-      return;
-    }
-    if(!account){
-      toast('La cuenta madre seleccionada ya no existe o no terminó de cargar. Actualiza y vuelve a elegirla.','bad');
       submitBtn.disabled = false;
       submitBtn.textContent = isNewSale ? 'Entregar cuenta' : 'Guardar';
       return;
@@ -2563,6 +2643,7 @@ async function saveSettings(next){
     cacheMobileState();
     toast('Ajustes guardados');
     renderSettings();
+    return true;
   }catch(err){
     showMobileSupportError(err, 'guardar-ajustes');
     return false;
@@ -2579,15 +2660,10 @@ function formatSecurityDate(value){
 function currentDeviceId(){ return localStorage.getItem('ts_device_id') || ''; }
 let securityDeviceUnsub = null;
 function startSecurityDeviceListener(uid){
-  if(securityDeviceUnsub) securityDeviceUnsub();
-  const id = currentDeviceId();
-  if(!uid || !id) return;
-  securityDeviceUnsub = onSnapshot(doc(db,'users',uid,'devices',id), snap => {
-    if(snap.exists() && snap.data()?.revoked === true){
-      if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub = null; }
-      signOut(auth);
-    }
-  }, () => {});
+  // El móvil no mantiene una escucha permanente. La revocación se comprueba
+  // al iniciar sesión o al sincronizar manualmente, evitando lecturas y
+  // reconexiones continuas en segundo plano.
+  if(securityDeviceUnsub){ securityDeviceUnsub(); securityDeviceUnsub = null; }
 }
 function deviceSeenValue(d){ return Number(d?.lastSeen || d?.lastLoginAt || d?.registeredAt || 0); }
 function deviceLabel(d){ return d?.deviceLabel || d?.name || d?.fingerprintSummary || 'Dispositivo'; }
@@ -3576,23 +3652,15 @@ async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
   if(!state.uid) return;
   try{
     const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
-    if(showToast && !forceFresh && mobileStateCacheAge() < MOBILE_MANUAL_REFRESH_COOLDOWN && restoreMobileStateFromCache(MOBILE_MANUAL_REFRESH_COOLDOWN)){
-      if(await mobileCacheMatchesRemote()){
-        render();
-        toast('Ya está actualizado.');
-        return;
-      }
+    // La PWA debe abrir incluso cuando Firestore está limitado o sin cuota.
+    // La caché local es la fuente de arranque; la red solo se consulta al
+    // pulsar Sincronizar (forceNetwork) o cuando todavía no hay caché.
+    if(!forceFresh && restoreMobileStateFromCache()){
+      render();
+      if(showToast) toast('Datos guardados en este celular.');
+      return;
     }
     if(showToast) toast('Actualizando datos...');
-    if(!forceFresh && !showToast && restoreMobileStateFromCache()){
-      if(await mobileCacheMatchesRemote()){
-        render();
-        return;
-      }
-    }
-    if(!showToast && !forceFresh && restoreMobileStateFromCache(Infinity)){
-      render();
-    }
     const [cfg, acc, cli, fin] = await Promise.all([
       getDoc(settingsRef(state.uid)),
       getDocs(accountsCol(state.uid)),
@@ -3639,7 +3707,9 @@ function startLive(){
 window.addEventListener('online', () => {
   clearTimeout(mobileLoadRetryTimer);
   mobileLoadRetryTimer = null;
-  loadOnce(false, true);
+  // Volver a tener red no debe disparar otra lectura automáticamente.
+  // La actualización queda bajo control del botón Sincronizar.
+  loadOnce(false);
 });
 
 /* Select visual: conserva el select real para formularios, eventos y accesibilidad. */
