@@ -320,7 +320,13 @@ window.handleLogin = async function() {
   } catch (err) {
     btn.disabled = false;
     btn.innerHTML = 'Ingresar';
-    showError(friendlyError(err.code));
+    const code = typeof err?.code === 'string' ? err.code : 'auth/unknown';
+    console.warn('[Gestor login] Fallo de autenticacion', {
+      code,
+      at: new Date().toISOString(),
+      online: navigator.onLine
+    });
+    showError(friendlyError(code, true));
   }
 };
 
@@ -353,7 +359,7 @@ function showSuccess(msg) {
   el.classList.add('show');
 }
 
-function friendlyError(code) {
+function friendlyError(code, includeDiagnostic = false) {
   const map = {
     'auth/invalid-email':          'El correo no es válido.',
     'auth/user-not-found':         'No existe una cuenta con ese correo.',
@@ -362,8 +368,15 @@ function friendlyError(code) {
     'auth/user-disabled':          'Esta cuenta fue deshabilitada en Firebase Auth. Para exportar Excel, reactiva el inicio de sesion y deja active:false en Firestore.',
     'auth/too-many-requests':      'Demasiados intentos. Intenta más tarde.',
     'auth/network-request-failed': 'Sin conexión. Verifica tu internet.',
+    'auth/operation-not-allowed':  'El inicio de sesión por correo está deshabilitado. Contacta a soporte.',
+    'auth/invalid-api-key':        'No se pudo conectar con el servicio de acceso. Contacta a soporte.',
+    'auth/app-not-authorized':     'Este sitio no está autorizado para iniciar sesión. Contacta a soporte.',
+    'auth/internal-error':         'El servicio de acceso tuvo un error temporal. Intenta más tarde.',
   };
-  return map[code] || 'Error al ingresar. Intenta nuevamente.';
+  const message = map[code] || 'Error al ingresar. Intenta nuevamente.';
+  return includeDiagnostic && !map[code]
+    ? `${message} Código de diagnóstico: ${code}. Envíalo a soporte.`
+    : message;
 }
 
 // Enter para login
