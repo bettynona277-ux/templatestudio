@@ -8,6 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Diseños Streaming — Editor</title>
 <script src="/app-check-config.js"></script>
+<script src="cloudinary-upload-cache.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <script>
 if('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)){
@@ -1623,6 +1624,65 @@ function textInnerShadowSettingsMobile(tp){
   };
 }
 
+function drawTextInnerShadowMobile(ctx, text, x, y, options){
+  const sh = textInnerShadowSettingsMobile(options.tp);
+  if(sh.size <= 0 || sh.opacity <= 0 || !text) return;
+
+  const color = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(sh.color)?.[1] || '000000';
+  const fullColor = color.length === 3 ? color.split('').map(ch=>ch+ch).join('') : color;
+  const r = parseInt(fullColor.slice(0,2),16), g = parseInt(fullColor.slice(2,4),16), b = parseInt(fullColor.slice(4,6),16);
+  const visualW = Math.max(1, options.measureLineVisualWidth(text));
+  const margin = Math.ceil(options.fontSize + sh.blur * 4 + Math.abs(sh.dx) + Math.abs(sh.dy) + sh.edge * 2 + 8);
+  const boxW = Math.ceil(visualW + margin * 2);
+  const boxH = Math.ceil(options.lineHeight + margin * 2);
+  const mask = document.createElement('canvas');
+  const eroded = document.createElement('canvas');
+  const edge = document.createElement('canvas');
+  const shade = document.createElement('canvas');
+  mask.width = eroded.width = edge.width = shade.width = boxW;
+  mask.height = eroded.height = edge.height = shade.height = boxH;
+  const mctx = mask.getContext('2d');
+  const ectx = eroded.getContext('2d');
+  const edgectx = edge.getContext('2d');
+  const sctx = shade.getContext('2d');
+  if(!mctx || !ectx || !edgectx || !sctx) return;
+
+  mctx.font = ctx.font;
+  mctx.textBaseline = ctx.textBaseline;
+  mctx.textAlign = 'left';
+  mctx.fillStyle = '#000';
+  if(options.nativeLetterSpacing && 'letterSpacing' in mctx) mctx.letterSpacing = ctx.letterSpacing;
+  const maskTextY = ctx.textBaseline === 'alphabetic' ? margin + options.exportTextAscent : margin;
+  mctx.fillText(text, margin, maskTextY);
+
+  ectx.drawImage(mask, 0, 0);
+  ectx.globalCompositeOperation = 'destination-in';
+  const erodeRadius = Math.max(1, Math.round(sh.edge));
+  [[erodeRadius,0],[-erodeRadius,0],[0,erodeRadius],[0,-erodeRadius],
+    [erodeRadius,erodeRadius],[-erodeRadius,erodeRadius],[erodeRadius,-erodeRadius],[-erodeRadius,-erodeRadius]
+  ].forEach(([ox,oy])=>ectx.drawImage(mask, ox, oy));
+
+  edgectx.drawImage(mask, 0, 0);
+  edgectx.globalCompositeOperation = 'destination-out';
+  edgectx.drawImage(eroded, 0, 0);
+  sctx.filter = `blur(${Math.max(0.1, sh.blur * 0.55)}px)`;
+  sctx.drawImage(edge, 0, 0);
+  sctx.filter = `blur(${sh.blur}px)`;
+  sctx.drawImage(edge, sh.dx, sh.dy);
+  sctx.filter = 'none';
+  sctx.globalCompositeOperation = 'source-in';
+  sctx.fillStyle = `rgba(${r},${g},${b},${sh.opacity})`;
+  sctx.fillRect(0, 0, boxW, boxH);
+  sctx.globalCompositeOperation = 'destination-in';
+  sctx.drawImage(mask, 0, 0);
+
+  let startX = x;
+  if(ctx.textAlign === 'center') startX = x - visualW / 2;
+  else if(ctx.textAlign === 'right') startX = x - visualW;
+  const shadeTopY = ctx.textBaseline === 'alphabetic' ? y - options.exportTextAscent : y;
+  ctx.drawImage(shade, startX - margin, shadeTopY - margin);
+}
+
 function ensureTextEffectDefsMobile(){
   let defsSvg = document.getElementById('text-effect-defs-mobile');
   if(!defsSvg){
@@ -2601,60 +2661,25 @@ async function uploadToCloudinary(dataUrl, publicId){
   return data.secure_url;
 }
 
-const EXPORT_RENDER_VERSION = 'visible-v2';
+const EXPORT_RENDER_VERSION = 'canvas-effects-v3';
 const IOS_EXPORT_COOLDOWN_MS = 15000;
 const IOS_EXPORT_DAILY_LIMIT = 30;
 let lastIosExportUploadAt = 0;
 
-function simpleHashString(str){
-  let h = 2166136261;
-  for(let i=0;i<str.length;i++){
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
-}
-
-async function sha256Text(text){
-  try{
-    if(window.crypto?.subtle){
-      const bytes = new TextEncoder().encode(text);
-      const digest = await crypto.subtle.digest('SHA-256', bytes);
-      return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
-    }
-  }catch(_){}
-  return simpleHashString(text);
-}
-
-async function getExportDesignHash(){
-  const payload = JSON.stringify({
-    renderVersion: EXPORT_RENDER_VERSION,
-    w: parseInt(cvs.style.width)||1080,
-    h: parseInt(cvs.style.height)||1080,
-    name: localStorage.getItem('ts_design_name') || '',
-    layers: layers.map(l=>({
-      id:l.id,type:l.type,name:l.name,x:l.x,y:l.y,w:l.w,h:l.h,rot:l.rot,opacity:l.opacity,
-      visible:l.visible,src:l.src,frameImage:l.frameImage,imgFill:l.imgFill,blur:l.blur,tp:l.tp
-    }))
-  });
-  return sha256Text(payload);
-}
-
-function exportCacheKey(hash){
-  const uid = fbAuth?.currentUser?.uid || 'anon';
+function exportCacheKey(hash, uid = fbAuth?.currentUser?.uid || 'anon'){
   return `ds_ios_export_${uid}_${hash}`;
 }
 
-function readIosExportCache(hash){
+function readIosExportCache(hash, uid){
   try{
-    const cached = JSON.parse(localStorage.getItem(exportCacheKey(hash)) || 'null');
+    const cached = JSON.parse(localStorage.getItem(exportCacheKey(hash, uid)) || 'null');
     if(cached?.url && cached.ts && Date.now() - Number(cached.ts) < 24*60*60*1000) return cached;
   }catch(_){}
   return null;
 }
 
-function writeIosExportCache(hash, url){
-  try{ localStorage.setItem(exportCacheKey(hash), JSON.stringify({url, ts:Date.now()})); }catch(_){}
+function writeIosExportCache(hash, url, uid){
+  try{ localStorage.setItem(exportCacheKey(hash, uid), JSON.stringify({url, ts:Date.now()})); }catch(_){}
 }
 
 function canUseIosExportUpload(){
@@ -2727,18 +2752,32 @@ function showCloudinaryExportModal(blob, fileName, displayName, exportUrl){
 }
 
 async function getOrUploadExportUrl(blob, fileName){
-  const hash = await getExportDesignHash();
-  const cached = readIosExportCache(hash);
-  if(cached?.url) return cached.url;
-  if(!canUseIosExportUpload()){
-    throw new Error('Límite temporal de exportaciones alcanzado. Intenta nuevamente en unos segundos.');
-  }
-  const uid = (fbAuth?.currentUser?.uid || 'anon').replace(/[^\w\-]/g,'').slice(0,48) || 'anon';
-  const day = new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const publicId = `${uid}_${String(hash).slice(0,24)}_${day}`;
-  const url = await uploadExportBlobToCloudinary(blob, publicId);
-  writeIosExportCache(hash, url);
-  return url;
+  const account = fbAuth?.currentUser?.uid || 'anon';
+  const upload = async digest => {
+    const hash = digest ? `bytes-v1-${digest}` : null;
+    const cached = hash ? readIosExportCache(hash, account) : null;
+    if(cached?.url) return cached.url;
+    if(!canUseIosExportUpload()){
+      throw new Error('Límite temporal de exportaciones alcanzado. Intenta nuevamente en unos segundos.');
+    }
+    const uid = account.replace(/[^\w\-]/g,'').slice(0,48) || 'anon';
+    const day = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    // No hash support: let Cloudinary assign a unique ID, never reuse a weak hash.
+    const publicId = digest ? `${uid}_${digest}_${day}` : undefined;
+    const url = await uploadExportBlobToCloudinary(blob, publicId);
+    if(hash) writeIosExportCache(hash, url, account);
+    return url;
+  };
+  return window.dsCloudinaryUploads
+    ? window.dsCloudinaryUploads.run(JSON.stringify([account, 'export', EXPORT_RENDER_VERSION]), blob, upload)
+    : upload(null);
+}
+
+function canShareExportFile(blob, fileName){
+  try{
+    return typeof navigator.share === 'function' && typeof navigator.canShare === 'function' &&
+      navigator.canShare({files:[new File([blob], fileName, {type:blob.type || 'image/jpeg'})]});
+  }catch(_){ return false; }
 }
 
 // ── Cargar logos de plataformas (colección global, con categorías) ──
@@ -2952,7 +2991,17 @@ function showDownloadModal(blob, fileName, displayName, isWebView){
           setTimeout(()=>URL.revokeObjectURL(u), 15000);
           toast('💡 Mantén presionada la imagen para guardarla');
         }
-      }catch(e){ if(e.name !== 'AbortError') console.warn('Share:', e); }
+      }catch(e){
+        if(e.name === 'AbortError') return;
+        try{
+          toast('Preparando descarga compatible...');
+          const exportUrl = await getOrUploadExportUrl(blob, fileName);
+          showCloudinaryExportModal(blob, fileName, displayName, exportUrl);
+        }catch(uploadErr){
+          console.warn('Share:', uploadErr);
+          toast('Mantén presionada la imagen para guardarla');
+        }
+      }
     };
   }
 
@@ -3437,10 +3486,10 @@ async function doSave(){
     cvs.style.transform=savedT;
     const b64=tc.toDataURL('image/jpeg',0.8);
     st.textContent='Subiendo...';
-    const fd=new FormData();
-    fd.append('file',b64);fd.append('upload_preset',CLOUDINARY_PRESET);fd.append('folder','templatestudio');
-    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd});
-    if(res.ok){ const d=await res.json(); thumb=d.secure_url||''; }
+    const uploadThumb = () => uploadToCloudinary(b64);
+    thumb = window.dsCloudinaryUploads
+      ? await window.dsCloudinaryUploads.run(JSON.stringify([fbAuth.currentUser.uid, 'thumbnails']), b64, uploadThumb)
+      : await uploadThumb();
   }catch(e){ console.warn('Thumb error:',e.message); }
 
   // Layers data
@@ -3468,7 +3517,11 @@ async function doSave(){
     frameBorderColor: l.frameBorderColor || l.borderColor || '#00ffc3',
     frameBorderStyle: 'inner',
     frameShadow: l.frameShadow || l.shadowBlur || 0,
+    frameShadowColor: l.frameShadowColor || '#000000',
+    frameShadowOp: l.frameShadowOp ?? 39,
     frameInnerShadow: l.frameInnerShadow || l.innerShadow || 0,
+    frameInnerShadowColor: l.frameInnerShadowColor || '#000000',
+    frameInnerShadowOp: l.frameInnerShadowOp ?? 100,
     // Legacy (por si acaso el PC los lee)
     borderWidth: l.frameBorderWidth || l.borderWidth || 0,
     borderColor: l.frameBorderColor || l.borderColor || '#00ffc3',
@@ -3806,13 +3859,13 @@ async function renderDesignToCanvas(scale=3){
 
     // Frame
     if(l.type==='frame'){
-      const bw=Number(l.frameBorderWidth||0),bc2=l.frameBorderColor||'#00ffc3';
-      const drop=Number(l.frameShadow||0),inner=Number(l.frameInnerShadow||0),radius=l.frameRadius||0;
+      const bw=Number(l.frameBorderWidth || l.borderWidth || 0),bc2=l.frameBorderColor||l.borderColor||'#00ffc3';
+      const drop=Number(l.frameShadow || l.shadowBlur || 0),inner=Number(l.frameInnerShadow || l.innerShadow || 0),radius=l.frameRadius||0;
       if(hasRot){ctx.translate(lCx,lCy);ctx.rotate(rotRad);}
       const fx=hasRot?-l.w/2:l.x, fy=hasRot?-l.h/2:l.y;
-      if(drop>0){ctx.save();const dc=l.frameShadowColor||'#000000';const dop=(l.frameShadowOp??39)/100;const r2=parseInt(dc.slice(1,3),16)||0,g2=parseInt(dc.slice(3,5),16)||0,b2=parseInt(dc.slice(5,7),16)||0;ctx.shadowColor=`rgba(${r2},${g2},${b2},${dop})`;ctx.shadowBlur=drop*2.5;ctx.shadowOffsetX=0;ctx.shadowOffsetY=Math.max(2,Math.round(drop*0.3));roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.fillStyle='#ffffff';ctx.fill();ctx.restore();}
+      if(drop>0){ctx.save();const dc=l.frameShadowColor||l.shadowColor||'#000000';const dop=(l.frameShadowOp??l.shadowOpacity??39)/100;const r2=parseInt(dc.slice(1,3),16)||0,g2=parseInt(dc.slice(3,5),16)||0,b2=parseInt(dc.slice(5,7),16)||0;ctx.shadowColor=`rgba(${r2},${g2},${b2},${dop})`;ctx.shadowBlur=drop*2.5;ctx.shadowOffsetX=0;ctx.shadowOffsetY=Math.max(2,Math.round(drop*0.3));roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.fillStyle='#ffffff';ctx.fill();ctx.restore();}
       if(l.frameImage){let img=await loadImgForExport(l.frameImage, layerExportW(l, scale));if(!img){const d=document.getElementById('fi-'+l.id);if(d&&d.complete&&d.naturalWidth>0)img=d;}if(img){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const sw=img.naturalWidth||img.width||l.w,sh=img.naturalHeight||img.height||l.h;const tr=frameImageTransformValuesMobile(l),sc2=Math.max(l.w/sw,l.h/sh)*tr.scale;const dw=sw*sc2,dh=sh*sc2,dx=fx+(l.w-dw)/2+tr.x,dy=fy+(l.h-dh)/2+tr.y;const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l,scale);const lx=hasRot?0:lCx,ly=hasRot?0:lCy;ctx.translate(lx,ly);ctx.scale(l.flipX?-1:1,l.flipY?-1:1);ctx.drawImage(adj,dx-lx+(l.flipX?-2*tr.x:0),dy-ly+(l.flipY?-2*tr.y:0),dw,dh);ctx.restore();}}
-      if(inner>0){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const ic=l.frameInnerShadowColor||'#000000';const iop=(l.frameInnerShadowOp??100)/100*0.5;const ri=parseInt(ic.slice(1,3),16),gi=parseInt(ic.slice(3,5),16),bi=parseInt(ic.slice(5,7),16);const d=Math.min(inner*1.5,Math.min(l.w,l.h)*0.4);for(const[x0,y0,x1,y1]of[[fx,fy,fx,fy+d],[fx,fy+l.h,fx,fy+l.h-d],[fx,fy,fx+d,fy],[fx+l.w,fy,fx+l.w-d,fy]]){const gr=ctx.createLinearGradient(x0,y0,x1,y1);gr.addColorStop(0,`rgba(${ri},${gi},${bi},${iop})`);gr.addColorStop(1,`rgba(${ri},${gi},${bi},0)`);ctx.fillStyle=gr;ctx.fillRect(fx,fy,l.w,l.h);}ctx.restore();}
+      if(inner>0){ctx.save();roundedRectPath(ctx,fx,fy,l.w,l.h,radius);ctx.clip();const ic=l.frameInnerShadowColor||l.innerShadowColor||'#000000';const iop=(l.frameInnerShadowOp??l.innerShadowOpacity??100)/100*0.5;const ri=parseInt(ic.slice(1,3),16)||0,gi=parseInt(ic.slice(3,5),16)||0,bi=parseInt(ic.slice(5,7),16)||0;const d=Math.min(inner*1.5,Math.min(l.w,l.h)*0.4);for(const[x0,y0,x1,y1]of[[fx,fy,fx,fy+d],[fx,fy+l.h,fx,fy+l.h-d],[fx,fy,fx+d,fy],[fx+l.w,fy,fx+l.w-d,fy]]){const gr=ctx.createLinearGradient(x0,y0,x1,y1);gr.addColorStop(0,`rgba(${ri},${gi},${bi},${iop})`);gr.addColorStop(1,`rgba(${ri},${gi},${bi},0)`);ctx.fillStyle=gr;ctx.fillRect(fx,fy,l.w,l.h);}ctx.restore();}
       if(bw>0){ctx.save();const ins=Math.max(0.5,bw/2);roundedRectPath(ctx,fx+ins,fy+ins,l.w-(ins*2),l.h-(ins*2),Math.max(0,radius-ins));ctx.lineWidth=bw;ctx.strokeStyle=bc2;ctx.stroke();ctx.restore();}
       ctx.restore();continue;
     }
@@ -3829,7 +3882,7 @@ async function renderDesignToCanvas(scale=3){
         const sc3=Math.min(l.w/nw,l.h/nh);const dw=Math.round(nw*sc3),dh=Math.round(nh*sc3);
         const adj=renderAdjustedImageCanvasMobile(img,dw,dh,l,scale);
         ctx.drawImage(adj,Math.round(-dw/2),Math.round(-dh/2),dw,dh);
-        const bw=Number(l.frameBorderWidth||l.borderWidth||0);
+        const bw=Number(l.frameBorderWidth || l.borderWidth || 0);
         if(bw>0){
           ctx.save();
           ctx.lineWidth=bw;
@@ -3873,7 +3926,23 @@ async function renderDesignToCanvas(scale=3){
       const measureLineVisualWidth=(line)=>{const text=String(line||''),chars=[...text];if(!chars.length)return 0;if(nativeLetterSpacing)return ctx.measureText(text).width;return ctx.measureText(text).width+(letterSpacing*(chars.length-1));};
       const wrapParagraph=(paragraph)=>{const text=String(paragraph??'');if(text==='')return[''];if(maxTextWidth<=0)return[text];const outLines=[];let current='',lastBreakIndex=-1;const recompute=()=>{lastBreakIndex=-1;for(let i=current.length-1;i>=0;i--){if(/\s/.test(current[i])){lastBreakIndex=i;break;}}};for(const ch of[...text]){const trial=current+ch;if(current===''||measureLineVisualWidth(trial)<=maxTextWidth){current=trial;if(/\s/.test(ch))lastBreakIndex=current.length-1;continue;}if(lastBreakIndex>=0){const line=current.slice(0,lastBreakIndex).replace(/\s+$/,'');outLines.push(line||current.trimEnd()||current);current=current.slice(lastBreakIndex+1).replace(/^\s+/,'')+ch;recompute();}else{outLines.push(current);current=ch;lastBreakIndex=/\s/.test(ch)?0:-1;}}outLines.push(current);return outLines;};
       const lines=rawText.split('\n').flatMap(p=>wrapParagraph(p));
-      const drawLine=(line,x,y)=>{const sw=Number(tp.strokeWidth||0),shadow=Number(tp.shadowBlur||0);const drawOF=(txt,px,py)=>{if(sw>0){ctx.save();ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=sw*2;ctx.strokeStyle=tp.strokeColor||'#000000';ctx.strokeText(txt,px,py);ctx.restore();}if(shadow>0){ctx.save();ctx.shadowColor=tp.shadowColor||'rgba(0,0,0,0.45)';ctx.shadowBlur=Math.max(3,shadow*0.8);ctx.shadowOffsetY=Math.max(1,Math.round(shadow*0.18));ctx.fillText(txt,px,py);ctx.restore();ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillText(txt,px,py);ctx.restore();}else ctx.fillText(txt,px,py);};if(letterSpacing===0||nativeLetterSpacing){drawOF(line,x,y);return;}const chars=[...line],total=measureLineVisualWidth(line);let startX=x;if(ctx.textAlign==='center')startX=x-total/2;else if(ctx.textAlign==='right')startX=x-total;let prefix='';ctx.save();ctx.textAlign='left';chars.forEach((ch,idx)=>{prefix+=ch;const glyphX=startX+ctx.measureText(prefix).width-ctx.measureText(ch).width+(idx*letterSpacing);drawOF(ch,glyphX,y);});ctx.restore();};
+      const drawLine=(line,x,y)=>{
+        const sw=Number(tp.strokeWidth||0),shadow=Number(tp.shadowBlur||0);
+        const drawOF=(txt,px,py)=>{
+          if(shadow>0){
+            ctx.save();ctx.shadowColor=tp.shadowColor||'rgba(0,0,0,0.45)';ctx.shadowBlur=Math.max(3,shadow*0.8);ctx.shadowOffsetY=Math.max(1,Math.round(shadow*0.18));ctx.fillText(txt,px,py);ctx.restore();
+          }
+          ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillText(txt,px,py);ctx.restore();
+          drawTextInnerShadowMobile(ctx,txt,px,py,{tp,fontSize,lineHeight,measureLineVisualWidth,nativeLetterSpacing,exportTextAscent});
+          if(sw>0){ctx.save();ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=sw*2;ctx.strokeStyle=tp.strokeColor||'#000000';ctx.strokeText(txt,px,py);ctx.restore();}
+        };
+        if(letterSpacing===0||nativeLetterSpacing){drawOF(line,x,y);return;}
+        const chars=[...line],total=measureLineVisualWidth(line);
+        let startX=x;if(ctx.textAlign==='center')startX=x-total/2;else if(ctx.textAlign==='right')startX=x-total;
+        let prefix='';ctx.save();ctx.textAlign='left';
+        chars.forEach((ch,idx)=>{prefix+=ch;const glyphX=startX+ctx.measureText(prefix).width-ctx.measureText(ch).width+(idx*letterSpacing);drawOF(ch,glyphX,y);});
+        ctx.restore();
+      };
       const anchorX=tp.align==='center'?textBaseX+l.w/2:tp.align==='right'?textBaseX+l.w-padX:textBaseX+padX;
       const halfLeading=Math.max(0,(lineHeight-fontSize)/2);
       // Ajuste de linea base calibrado por motor movil para igualar la vista previa.
@@ -3900,7 +3969,7 @@ async function renderDesignToCanvas(scale=3){
       const variableShiftY = Math.max(
         0,
         Number(tp.variableShiftY || 0),
-        isProfileVariableLayerMob(l, tp) && (isIOSExport || isAndroidExport) ? Math.round(fontSize * 0.28) : 0
+        isIOSExport && isProfileVariableLayerMob(l, tp) ? Math.round(fontSize * 0.18) : 0
       );
       const textOffsetY = padY + halfLeading + exportTextAscent + (fontSize * mobileBaselineFix) + variableShiftY;
       lines.forEach((line,idx)=>drawLine(line,anchorX,textBaseY+textOffsetY+idx*lineHeight));
@@ -3982,7 +4051,6 @@ async function downloadPNG(){
   toast('⏳ Generando imagen...');
   await new Promise(r=>setTimeout(r,80));
   const savedTransform = cvs.style.transform;
-  let blurPatches = [];
 
   cvs.style.transform = 'none';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -3990,8 +4058,7 @@ async function downloadPNG(){
     const canvasW = parseInt(cvs.style.width)||1080;
     const canvasH = parseInt(cvs.style.height)||1080;
 
-    // La exportacion principal captura el editor visible para conservar posiciones reales.
-    // El renderer manual queda solo como fallback si html2canvas falla.
+    // Renderizar desde el modelo conserva filtros y efectos sin modificar temporalmente el DOM.
     const fontSpecs = [...new Set(
       layers.filter(l => l.tp?.fontFamily).map(l => {
         const fw = l.tp.fontWeight || '400';
@@ -4012,35 +4079,17 @@ async function downloadPNG(){
     // iOS tiene límite de memoria para canvas grandes — usar scale 2 en vez de 3
     const exportScale = mobileExportScale(canvasW, canvasH);
 
-    let rendered;
     const ua = navigator.userAgent || '';
     const isIOS = (/iPad|iPhone|iPod/.test(ua) && !window.MSStream)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    try{
-      const visibleCapture = await renderVisibleDesignToCanvas(exportScale, canvasW, canvasH);
-      rendered = visibleCapture.rendered;
-      blurPatches = visibleCapture.patches;
-      if(!rendered || !rendered.width || !rendered.height){
-        throw new Error('Canvas vacío');
-      }
-    }catch(renderErr){
-      console.warn('Render principal fallo, usando fallback:', renderErr.message);
-      restoreBlurAfterExport(blurPatches);
-      blurPatches = [];
-      rendered = await renderDesignToCanvas(exportScale);
-    }
+    const rendered = await renderDesignToCanvas(exportScale);
+    if(!rendered || !rendered.width || !rendered.height) throw new Error('Canvas vacío');
 
     const savedName = localStorage.getItem('ts_design_name') || 'diseño';
     const safeName = savedName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-_]/g,'').trim() || 'diseño';
     const fileName = safeName + '.jpg';
     const blob = await canvasToJpegBlob(rendered);
     let exportUrl = '';
-    try{
-      toast('Preparando descarga compatible...');
-      exportUrl = await getOrUploadExportUrl(blob, fileName);
-    }catch(uploadErr){
-      console.warn('Cloudinary export fallback:', uploadErr.message);
-    }
 
     // Detectar navegadores embebidos: Telegram, WhatsApp, Instagram, Facebook, etc.
     // Estos bloquean a.download y el archivo va a carpeta temporal invisible para el usuario
@@ -4053,6 +4102,17 @@ async function downloadPNG(){
       /TikTok/.test(ua) ||                          // TikTok InApp Browser
       /Twitter/.test(ua) ||                         // Twitter InApp Browser
       (!isIOS && /Android/.test(ua) && !/Chrome\/\d/.test(ua) && !/Firefox\/\d/.test(ua));
+
+    // Native downloads + file sharing use the exact local JPEG, avoiding a round trip.
+    // Keep hosted downloads for iOS, embedded browsers and devices without file sharing.
+    if(isIOS || isWebView || !canShareExportFile(blob, fileName)){
+      try{
+        toast('Preparando descarga compatible...');
+        exportUrl = await getOrUploadExportUrl(blob, fileName);
+      }catch(uploadErr){
+        console.warn('Cloudinary export fallback:', uploadErr.message);
+      }
+    }
 
     // ── WEBVIEW (Telegram, WhatsApp, Instagram, etc.) ──
     // a.download no funciona → ir directo al modal con botón compartir
@@ -4086,7 +4146,6 @@ async function downloadPNG(){
     console.error('JPG error:', e);
     toast('✗ Error al generar. Intenta de nuevo.');
   }finally{
-    restoreBlurAfterExport(blurPatches);
     cvs.style.transform = savedTransform;
     if(btn){ btn.disabled=false; }
   }
