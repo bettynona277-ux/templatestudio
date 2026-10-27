@@ -1006,7 +1006,10 @@ window.addEventListener('load', async()=>{
       loadMobProfile && loadMobProfile();
       // Mostrar datos del caché inmediatamente
       renderCachedDesigns && renderCachedDesigns();
-      renderCachedTemplates && renderCachedTemplates();
+      if(isRestrictedTemplateCatalogUserMob()){
+        clearTemplateCatalogCacheMob();
+        renderRestrictedTemplateCatalogMob();
+      }else renderCachedTemplates && renderCachedTemplates();
     }catch(_){}
 
     // Firebase en segundo plano — no bloquea la UI
@@ -1046,7 +1049,12 @@ window.addEventListener('load', async()=>{
               await fetchAndCacheMobProfile(user.uid);
               loadMobProfile();
               try{ if(!hasFreshDesignsCache()) loadMyDesigns && loadMyDesigns(); }catch(_){}
-              try{ if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates(); }catch(_){}
+              try{
+                if(isRestrictedTemplateCatalogUserMob()){
+                  clearTemplateCatalogCacheMob();
+                  renderRestrictedTemplateCatalogMob();
+                }else if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates();
+              }catch(_){}
             } else {
               fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
             }
@@ -1455,9 +1463,30 @@ function showDashboard(){
   document.getElementById('user-avatar').textContent = email[0]?.toUpperCase() || 'U';
   showScreen('dash');
   renderCachedDesigns();
-  renderCachedTemplates();
+  if(isRestrictedTemplateCatalogUserMob()){
+    clearTemplateCatalogCacheMob();
+    renderRestrictedTemplateCatalogMob();
+  }else renderCachedTemplates();
   if(!hasFreshDesignsCache()) loadMyDesigns();
-  if(!hasFreshTemplatesCache()) loadTemplates();
+  if(!isRestrictedTemplateCatalogUserMob() && !hasFreshTemplatesCache()) loadTemplates();
+}
+
+function isRestrictedTemplateCatalogUserMob(){
+  return String(currentUser?.templateCatalogGroup || '').trim().toLowerCase() === 'ratas';
+}
+
+function clearTemplateCatalogCacheMob(){
+  try{ localStorage.removeItem(TEMPLATES_CACHE_KEY); }catch(_){}
+}
+
+function renderRestrictedTemplateCatalogMob(){
+  allTemplates=[];
+  const grid=document.getElementById('tpl-grid');
+  if(grid) grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No hay plantillas disponibles en el catálogo.</div>';
+  const count=document.getElementById('tpl-count'); if(count) count.textContent='0';
+  setHeroCounts(null,0);
+  const search=document.getElementById('tpl-search'); if(search) search.value='';
+  const category=document.getElementById('tpl-cat'); if(category) category.value='';
 }
 
 function getDesignsCacheKey(){
@@ -1732,6 +1761,7 @@ function normalizePublicTemplateCatalogMob(data){
 }
 
 async function loadPublicTemplateCatalogMob(){
+  if(isRestrictedTemplateCatalogUserMob()) return [];
   try{
     const snap = await fbDb.collection('public_catalog').doc('templates').get();
     return snap.exists ? normalizePublicTemplateCatalogMob(snap.data() || {}) : null;
@@ -1758,6 +1788,11 @@ function ensureTemplatesVisible(){
 }
 
 async function loadTemplates(){
+  if(isRestrictedTemplateCatalogUserMob()){
+    clearTemplateCatalogCacheMob();
+    renderRestrictedTemplateCatalogMob();
+    return;
+  }
   const grid = document.getElementById('tpl-grid');
   // Reset paginación
   allTemplates = [];
@@ -1877,6 +1912,10 @@ async function loadTemplatesPage(isFirst){
 }
 
 async function filterTemplates(){
+  if(isRestrictedTemplateCatalogUserMob()){
+    renderRestrictedTemplateCatalogMob();
+    return;
+  }
   const q = (document.getElementById('tpl-search').value || '').toLowerCase();
   const cat = canonicalTemplateCategoryMob(document.getElementById('tpl-cat').value || '');
 

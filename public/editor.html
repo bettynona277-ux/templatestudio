@@ -3679,13 +3679,18 @@ window.addEventListener('load',async()=>{
     }
 
     if(!loaded && tplId && fbDb){
-      const t=await fbDb.collection('templates').doc(tplId).get();
-      if(t.exists){
-        const tplData = t.data() || {};
-        if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
-        window.__lastLoadedTemplateMeta = { thumb: tplData.thumb || '', name: tplData.name || '', source: 'templates' };
-        const baseTpl=extractTemplatePayload(tplData);
-        if(baseTpl){ loadData(baseTpl); loaded=true; }
+      try{
+        const t=await fbDb.collection('templates').doc(tplId).get();
+        if(t.exists){
+          const tplData = t.data() || {};
+          if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
+          window.__lastLoadedTemplateMeta = { thumb: tplData.thumb || '', name: tplData.name || '', source: 'templates' };
+          const baseTpl=extractTemplatePayload(tplData);
+          if(baseTpl){ loadData(baseTpl); loaded=true; }
+        }
+      }catch(e){
+        if(e?.code === 'permission-denied') showToast('Esta plantilla no está habilitada para tu cuenta.');
+        else console.warn('Error cargando plantilla compartida:', e);
       }
     }
 
@@ -3716,8 +3721,10 @@ window.addEventListener('load',async()=>{
       showToast('✗ No tienes permisos de administrador');
       // Si tiene tplId, cargar igual en modo cliente
       if(tplId&&fbDb){
-        const t=await fbDb.collection('templates').doc(tplId).get();
-        if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
+        try{
+          const t=await fbDb.collection('templates').doc(tplId).get();
+          if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
+        }catch(e){ if(e?.code === 'permission-denied') showToast('Esta plantilla no está habilitada para tu cuenta.'); else console.warn('Error cargando plantilla compartida:',e); }
       }
     } else {
       if(tplId&&fbDb){

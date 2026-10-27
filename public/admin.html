@@ -634,6 +634,7 @@ function observeLazyImages(root) {
 let _allTemplates = [];
 let _currentFilter = 'all';
 const ADMIN_TEMPLATE_PAGE_SIZE = 20;
+let ratasTemplateAccess = new Set();
 let adminTemplateVisibleCount = ADMIN_TEMPLATE_PAGE_SIZE;
 let adminTemplateCatalogVersion = 0;
 let adminTemplateListReady = false;
@@ -873,6 +874,13 @@ async function loadTemplates(force=false) {
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
+    try{
+      const accessSnap = await fbDb.collection('template_link_access').get();
+      ratasTemplateAccess = new Set(accessSnap.docs.filter(doc => (doc.data()?.allowedGroups || []).includes('Ratas')).map(doc => doc.id));
+    }catch(e){
+      ratasTemplateAccess = new Set();
+      console.warn('No se pudo cargar la lista de plantillas permitidas para Ratas:', e);
+    }
     const cached = force ? null : readAdminTemplateCache();
     const published = await loadAdminPublishedTemplateCatalog();
     if(published) adminTemplateCatalogVersion = published.updatedAt;
@@ -998,6 +1006,7 @@ function renderTemplates() {
     addAction('✏️ Editar', () => editTemplate(d.id));
     addAction(isDraft ? '🚀 Publicar' : '📁 Borrador', () => isDraft ? publishTemplate(d.id) : draftTemplate(d.id));
     addAction('🔗 Link', () => showTemplateLink(d.id, name, isDraft), `${isDraft ? 'opacity:0.45;' : ''}color:var(--blue);`);
+    if(!isDraft) addAction(ratasTemplateAccess.has(d.id) ? '✓ Ratas' : '+ Ratas', () => toggleRatasTemplateAccess(d.id), `color:${ratasTemplateAccess.has(d.id) ? 'var(--green,#22c55e)' : 'var(--muted)'};`);
     addAction('🗑️', () => deleteTpl(d.id), 'color:var(--accent2);');
     info.appendChild(actions);
     card.appendChild(info);
@@ -1012,6 +1021,23 @@ function renderTemplates() {
     grid.appendChild(more);
   }
   observeLazyImages(grid);
+}
+
+async function toggleRatasTemplateAccess(id){
+  const allowed = !ratasTemplateAccess.has(id);
+  const ref = fbDb.collection('template_link_access').doc(id);
+  try{
+    if(allowed){
+      await ref.set({allowedGroups:['Ratas'], updatedAt:Date.now(), updatedBy:fbAuth.currentUser?.uid || ''}, {merge:true});
+      ratasTemplateAccess.add(id);
+    }else{
+      await ref.set({allowedGroups:[], updatedAt:Date.now(), updatedBy:fbAuth.currentUser?.uid || ''}, {merge:true});
+      ratasTemplateAccess.delete(id);
+    }
+    renderTemplates();
+  }catch(e){
+    alert('No se pudo actualizar el permiso para Ratas: ' + (e.message || e));
+  }
 }
 
 function showMoreTemplates(){
@@ -1524,6 +1550,10 @@ function renderUsersTable(users) {
         <td style="color:var(--muted);font-size:0.78rem;">${email}</td>
         <td style="color:var(--muted);font-size:0.75rem;">${fecha}</td>
         <td><span class="client-status ${statusClass}">${statusLabel}</span></td>
+        <td><select aria-label="Acceso al catálogo de ${email}" onchange="setUserTemplateCatalogGroup('${item.id}',this.value)" style="max-width:170px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:var(--panel2);color:var(--text);font:inherit;">
+          <option value="" ${String(d.templateCatalogGroup || '').toLowerCase() !== 'ratas' ? 'selected' : ''}>Catálogo normal</option>
+          <option value="ratas" ${String(d.templateCatalogGroup || '').toLowerCase() === 'ratas' ? 'selected' : ''}>Ratas · solo enlaces</option>
+        </select></td>
         <td>
           <button class="user-link" onclick="showLinkModal('${jsString(loginUrl)}','${jsString(rawEmail)}')">Ver link</button>
           <button class="copy-link" onclick="copyCredentialsForUser('${jsString(rawEmail)}','${jsString(userPass)}')">Copiar</button>
@@ -1539,11 +1569,24 @@ function renderUsersTable(users) {
   wrap.innerHTML = `
     <table class="users-table">
       <thead><tr>
-        <th>Nombre</th><th>Email</th><th>Registro</th><th>Estado</th><th>Link acceso</th><th>Accion</th>
+        <th>Nombre</th><th>Email</th><th>Registro</th><th>Estado</th><th>Catálogo</th><th>Link acceso</th><th>Accion</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   renderUsersPager(wrap, search, list.length);
+}
+
+async function setUserTemplateCatalogGroup(id, value){
+  const group = value === 'ratas' ? 'Ratas' : '';
+  const row = adminUsersCache.find(item => item.id === id);
+  try{
+    await fbDb.collection('users').doc(id).set({templateCatalogGroup:group, templateCatalogGroupUpdatedAt:Date.now()}, {merge:true});
+    if(row) row.data = {...row.data, templateCatalogGroup:group};
+    writeAdminCollectionCache(ADMIN_USERS_CACHE_KEY, adminUsersCache);
+  }catch(e){
+    alert('No se pudo cambiar el acceso al catálogo: ' + (e.message || e));
+    if(row) renderUsersTable(adminUsersCache);
+  }
 }
 
 function renderUsersPager(wrap, search, visibleCount=0) {

@@ -1963,9 +1963,13 @@ window.addEventListener('load', async () => {
             localStorage.setItem('ts_session', JSON.stringify(currentUser));
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
+            if(isRestrictedTemplateCatalogUser()){
+              clearTemplateCatalogCache();
+              renderRestrictedTemplateCatalog();
+            }
             // Cargar datos frescos de Firestore en segundo plano
             if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
-            if(!readDashCache('templates')) loadAdminTemplates();
+            if(!isRestrictedTemplateCatalogUser() && !readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
             localStorage.removeItem('ts_session');
@@ -2011,6 +2015,10 @@ window.addEventListener('load', async () => {
         localStorage.setItem('ts_session', JSON.stringify(currentUser));
         startDeviceRevokeListener(user.uid);
         loadUserProfile(); // cargar precios y WhatsApp del perfil
+        if(isRestrictedTemplateCatalogUser()){
+          clearTemplateCatalogCache();
+          renderRestrictedTemplateCatalog();
+        }
         const urlTpl = new URLSearchParams(window.location.search).get('tpl');
         const redirect = getSafePostLoginRedirect();
         if(redirect) window.location.href = redirect;
@@ -2609,7 +2617,11 @@ function warmDashboardFromCache(){
     noMoreDashboardDesigns = cachedDesigns.complete === true;
     renderMyDesignCards(cachedDesigns, true);
   }
-  const cachedTemplates = readDashCache('templates');
+  if(isRestrictedTemplateCatalogUser()){
+    clearTemplateCatalogCache();
+    renderRestrictedTemplateCatalog();
+  }
+  const cachedTemplates = isRestrictedTemplateCatalogUser() ? null : readDashCache('templates');
   if(cachedTemplates && Array.isArray(cachedTemplates.items)){
     allTemplatesCache = cachedTemplates.items;
     populateTemplateCategoryOptions(allTemplatesCache);
@@ -2627,9 +2639,30 @@ async function showDashboard() {
   warmDashboardFromCache();
   requestAnimationFrame(() => {
     if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
-    if(!readDashCache('templates')) loadAdminTemplates();
-    if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
+    if(isRestrictedTemplateCatalogUser()) renderRestrictedTemplateCatalog();
+    else if(!readDashCache('templates')) loadAdminTemplates();
+    if(readDashCache('designs') && (isRestrictedTemplateCatalogUser() || readDashCache('templates'))) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
+}
+
+function isRestrictedTemplateCatalogUser(){
+  return String(currentUser?.templateCatalogGroup || '').trim().toLowerCase() === 'ratas';
+}
+
+function clearTemplateCatalogCache(){
+  try{ localStorage.removeItem(dashCacheKey('templates')); }catch(_){}
+}
+
+function renderRestrictedTemplateCatalog(){
+  allTemplatesCache = [];
+  const grid=document.getElementById('admin-tpl-grid');
+  const count=document.getElementById('tpl-count');
+  const hero=document.getElementById('hero-template-count');
+  if(grid) grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No hay plantillas disponibles en el catálogo.</div>';
+  if(count) count.textContent='0 disponibles';
+  if(hero) hero.textContent='0';
+  const search=document.getElementById('tpl-search'); if(search) search.value='';
+  const category=document.getElementById('tpl-cat-filter'); if(category) category.value='';
 }
 
 // ================================================================
@@ -2828,6 +2861,7 @@ function normalizePublicTemplateCatalog(data){
 }
 
 async function loadPublicTemplateCatalog(){
+  if(isRestrictedTemplateCatalogUser()) return {total:0,items:[]};
   try{
     const snap = await fbDb.collection('public_catalog').doc('templates').get();
     return snap.exists ? normalizePublicTemplateCatalog(snap.data() || {}) : null;
@@ -2895,6 +2929,11 @@ async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   const heroCountEl = document.getElementById('hero-template-count');
   const countEl = document.getElementById('tpl-count');
+  if(isRestrictedTemplateCatalogUser()){
+    clearTemplateCatalogCache();
+    renderRestrictedTemplateCatalog();
+    return;
+  }
   if (!readDashCache('templates')) {
     if (heroCountEl) heroCountEl.textContent = '...';
     if (countEl) countEl.textContent = 'Cargando...';
