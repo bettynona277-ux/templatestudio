@@ -425,6 +425,40 @@ const MOBILE_STATE_CACHE_TTL = 30 * 60 * 1000;
 const MOBILE_MANUAL_REFRESH_COOLDOWN = 60 * 1000;
 let mobileLoadRetryTimer = null;
 let mobileLoadInFlight = null;
+let mobileNetworkRetryAttempt = 0;
+let mobileRetryPending = false;
+let mobileOnlineRefreshTimer = null;
+let mobileLastOnlineRefreshAt = 0;
+function scheduleMobileNetworkRetry(attempt){
+  mobileNetworkRetryAttempt = Math.max(mobileNetworkRetryAttempt, attempt);
+  if(mobileLoadRetryTimer) return;
+  const delays = [5000,15000,30000,60000,120000,300000];
+  const baseDelay = delays[Math.min(mobileNetworkRetryAttempt - 1, delays.length - 1)];
+  const delay = Math.round(baseDelay * (0.85 + Math.random() * 0.3));
+  mobileLoadRetryTimer = setTimeout(() => {
+    mobileLoadRetryTimer = null;
+    if(document.visibilityState === 'hidden'){
+      mobileRetryPending = true;
+      return;
+    }
+    mobileRetryPending = false;
+    probeMobileConnection(mobileNetworkRetryAttempt);
+  }, delay);
+}
+async function probeMobileConnection(attempt){
+  const uid = state.uid;
+  if(!uid) return;
+  if(mobileLoadInFlight){ scheduleMobileNetworkRetry(attempt); return; }
+  try{
+    const configSnapshot = await getDocFromServer(settingsRef(uid));
+    if(state.uid !== uid) return;
+    await loadOnce(false, true, attempt, configSnapshot);
+  }catch(err){
+    if(state.uid !== uid) return;
+    if(isMobileNetworkError(err)) scheduleMobileNetworkRetry(attempt + 1);
+    else showMobileSupportError(err, 'reconectar');
+  }
+}
 function cacheMobileState(){
   try{
     localStorage.setItem(mobileStateCacheKey(), JSON.stringify({
@@ -592,11 +626,13 @@ async function getFinanceMovements(uid, scope='current', readSource='default'){
     ));
     return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
   }catch(err){
+    if(isMobileNetworkError(err)) throw err;
     console.warn('No se pudo cargar finanzas por periodo; usando carga limitada:', err);
     try{
       const snap = await readDocs(query(col, orderBy('occurredAt','desc'), limit(FINANCE_RECENT_LIMIT)));
       return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
-    }catch(_){
+    }catch(fallbackError){
+      if(isMobileNetworkError(fallbackError)) throw fallbackError;
       const snap = await readDocs(query(col, limit(FINANCE_RECENT_LIMIT)));
       return snap.docs.map(d => normalizeFinanceMovement({id:d.id,...d.data()}));
     }
@@ -3797,7 +3833,7 @@ async function exportExcel(){
 async function loadOnceForExpired(){
   await loadOnce(false);
 }
-async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
+async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0, configSnapshot=null){
   if(!state.uid) return;
   if(mobileLoadInFlight) return mobileLoadInFlight;
   const loadTask=(async()=>{
@@ -3805,13 +3841,12 @@ async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
     const forceFresh = forceNetwork || new URLSearchParams(location.search).has('fresh');
     const restoredCache=!forceFresh && restoreMobileStateFromCache();
     if(restoredCache) render();
-    if(!navigator.onLine && restoredCache){
-      if(showToast) toast('Sin conexión. Se muestran los datos guardados en este celular.','bad');
-      return;
-    }
-    if(showToast) toast(restoredCache ? 'Actualizando datos guardados...' : 'Actualizando datos...');
+    const networkHint = !navigator.onLine;
+    if(showToast) toast(networkHint && restoredCache
+      ? 'Conexión inestable. Conservamos tus datos mientras reconectamos...'
+      : restoredCache ? 'Actualizando datos guardados...' : 'Actualizando datos...');
     const [cfg, acc, cli, fin] = await Promise.all([
-      getDocFromServer(settingsRef(state.uid)),
+      configSnapshot || getDocFromServer(settingsRef(state.uid)),
       getDocsFromServer(accountsCol(state.uid)),
       getDocsFromServer(clientsCol(state.uid)),
       getFinanceMovements(state.uid, 'current', 'server')
@@ -3828,6 +3863,12 @@ async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
     });
     state.settingsBaseline = cloneSettings(state.settings);
     state.syncRevision = cfg.data()?.gestorDataRevision ?? 0;
+    mobileNetworkRetryAttempt = 0;
+    mobileRetryPending = false;
+    clearTimeout(mobileLoadRetryTimer);
+    mobileLoadRetryTimer = null;
+    clearTimeout(mobileOnlineRefreshTimer);
+    mobileOnlineRefreshTimer = null;
     try{ localStorage.setItem(mobileStateCacheRevisionKey(), String(state.syncRevision)); }catch(_){}
     cacheMobileState();
     render();
@@ -3835,21 +3876,12 @@ async function loadOnce(showToast=true, forceNetwork=false, retryAttempt=0){
   }catch(err){
     // Una conexion movil puede tardar unos segundos en reabrir Firestore. No
     // mostramos un error tecnico en el primer corte: reintentamos solos antes.
-    if(isMobileNetworkError(err) && retryAttempt < 2){
-      const seconds = retryAttempt === 0 ? 2 : 5;
-      clearTimeout(mobileLoadRetryTimer);
-      mobileLoadRetryTimer = setTimeout(() => {
-        mobileLoadRetryTimer = null;
-        loadOnce(false, true, retryAttempt + 1);
-      }, seconds * 1000);
-      if(showToast || retryAttempt === 0) toast(`No se pudo conectar. Reintentando en ${seconds} segundos...`, 'bad');
-      return;
-    }
     if(isMobileNetworkError(err)){
-      if(restoreMobileStateFromCache()){
-        render();
-        toast('No se pudo actualizar. Se muestran los últimos datos guardados; revisa tu conexión y sincroniza de nuevo.','bad');
-      }else toast('No se pudo conectar a tus datos. No se borró nada. Revisa tu red y vuelve a abrir el gestor.', 'bad');
+      const nextAttempt = retryAttempt + 1;
+      const delays = [5,15,30,60,120,300];
+      const seconds = delays[Math.min(nextAttempt - 1, delays.length - 1)];
+      scheduleMobileNetworkRetry(nextAttempt);
+      if(showToast || retryAttempt === 0) toast(`No se pudo conectar. Se volverá a intentar en ${seconds} segundos.`, 'bad');
       return;
     }
     showMobileSupportError(err, 'actualizar-datos');
@@ -3865,11 +3897,33 @@ function startLive(){
   return loadOnce(false);
 }
 
+window.addEventListener('offline', () => {
+  if(state.uid) scheduleMobileNetworkRetry(Math.max(1, mobileNetworkRetryAttempt || 1));
+});
 window.addEventListener('online', () => {
-  clearTimeout(mobileLoadRetryTimer);
-  mobileLoadRetryTimer = null;
-  // Al recuperar conectividad se reemplaza la caché por el estado remoto.
-  loadOnce(false);
+  clearTimeout(mobileOnlineRefreshTimer);
+  mobileOnlineRefreshTimer = setTimeout(() => {
+    mobileOnlineRefreshTimer = null;
+    if(!state.uid) return;
+    if(document.visibilityState === 'hidden'){
+      mobileRetryPending = true;
+      return;
+    }
+    if(Date.now() - mobileLastOnlineRefreshAt < 30000) return;
+    mobileLastOnlineRefreshAt = Date.now();
+    clearTimeout(mobileLoadRetryTimer);
+    mobileLoadRetryTimer = null;
+    mobileRetryPending = false;
+    // Una comprobacion ligera confirma Firebase antes de volver a leer las colecciones.
+    probeMobileConnection(Math.max(1, mobileNetworkRetryAttempt || 1));
+  }, 1200);
+});
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible' || !state.uid) return;
+  if(mobileRetryPending){
+    mobileRetryPending = false;
+    probeMobileConnection(mobileNetworkRetryAttempt);
+  }
 });
 
 /* Select visual: conserva el select real para formularios, eventos y accesibilidad. */

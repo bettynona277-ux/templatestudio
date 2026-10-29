@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <title>Reconectando | Diseños Streaming</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#08111f;color:#eef4ff}
+    *{box-sizing:border-box}
+    body{min-height:100svh;margin:0;display:grid;place-items:center;padding:24px;background:#08111f}
+    main{width:min(100%,420px);text-align:center;padding:30px 24px;border:1px solid #26344b;border-radius:18px;background:#101b2c;box-shadow:0 18px 60px #0005}
+    .mark{width:52px;height:52px;margin:0 auto 18px;display:grid;place-items:center;border-radius:15px;background:#1b2c42;color:#55d7b2;font-size:27px}
+    h1{font-size:22px;line-height:1.25;margin:0 0 10px}
+    p{margin:0;color:#a9b8d0;line-height:1.55}
+    #status{min-height:24px;margin:18px 0;color:#61d7b5;font-size:14px}
+    button{width:100%;min-height:48px;border:0;border-radius:12px;background:#17c997;color:#06251e;font:700 16px system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
+    button:disabled{opacity:.7;cursor:wait}
+    .hint{margin-top:14px;font-size:12px}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">↻</div>
+    <h1>Conexión inestable</h1>
+    <p>El gestor no pudo conectarse ahora. Tus datos guardados en este dispositivo no se modificaron.</p>
+    <p id="status" role="status" aria-live="polite">Intentando reconectar…</p>
+    <button id="retry" type="button">Reintentar ahora</button>
+    <p class="hint">Volverás al gestor automáticamente cuando la conexión responda.</p>
+  </main>
+  <script>
+    (() => {
+      const status = document.getElementById('status');
+      const button = document.getElementById('retry');
+      const delays = [3000,6000,12000,20000,30000];
+      let attempt = 0;
+      let timer = 0;
+      let checking = false;
+
+      async function probe(){
+        if(checking || document.visibilityState === 'hidden') return;
+        checking = true;
+        button.disabled = true;
+        status.textContent = 'Comprobando conexión…';
+        const probeUrl = new URL(location.href);
+        probeUrl.hash = '';
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try{
+          const response = await fetch(probeUrl, {
+            cache:'no-store',
+            headers:{'X-DS-Connectivity-Probe':'1','Range':'bytes=0-0'},
+            signal:controller.signal
+          });
+          if(response.ok){
+            response.body?.cancel().catch(() => {});
+            status.textContent = 'Conexión recuperada. Abriendo el gestor…';
+            location.reload();
+            return;
+          }
+        }catch(_){ /* El siguiente intento comprobará de nuevo la red. */ }
+        finally{
+          clearTimeout(timeout);
+          checking = false;
+          button.disabled = false;
+        }
+        status.textContent = 'Aún no hay conexión con el gestor.';
+        schedule();
+      }
+
+      function schedule(){
+        clearTimeout(timer);
+        const delay = delays[Math.min(attempt, delays.length - 1)];
+        attempt = Math.min(attempt + 1, delays.length - 1);
+        timer = setTimeout(probe, delay);
+      }
+
+      button.addEventListener('click', () => { clearTimeout(timer); probe(); });
+      window.addEventListener('online', () => { clearTimeout(timer); probe(); });
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible'){ clearTimeout(timer); probe(); }
+      });
+      schedule();
+    })();
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v277`;
+const CACHE_NAME = `${CACHE_PREFIX}v278`;
 // Shared by production and dev; app releases must not discard image downloads.
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v2';
 const CLOUDINARY_MAX_ENTRIES = 256;
@@ -41,12 +41,13 @@ async function cachedCloudinaryResponse(request){
   }
 }
 const SCOPE_URL = new URL(self.registration.scope);
+const OFFLINE_URL = new URL('offline.html', SCOPE_URL).pathname;
 const ASSETS = [
-  'manifest.json',
-  'manifest-gestor.json',
-  'icons/icon-192.png',
-  'icons/icon-512.png'
-].map(path => new URL(path, SCOPE_URL).pathname);
+  ...['manifest.json','manifest-gestor.json','offline.html']
+    .map(path => new URL(path, SCOPE_URL).pathname),
+  ...['icons/icon-192.png','icons/icon-512.png']
+    .map(path => new URL(path, self.location.origin + '/').pathname)
+];
 
 // Install ? cache assets
 self.addEventListener('install', e => {
@@ -72,20 +73,40 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  if(e.request.headers.has('X-DS-Connectivity-Probe')) {
+    e.respondWith(fetch(e.request, { cache:'no-store' }).catch(() =>
+      new Response(null, { status:503, statusText:'Offline' })
+    ));
+    return;
+  }
   // El worker de produccion tiene scope raiz y tambien ve /dev. No debe
   // interceptarlo: una respuesta cacheada de produccion hacia que el gestor
   // movil de desarrollo terminara navegando a /gestor.html.
   if(!IS_DEV_SCOPE && url.pathname.startsWith('/dev/')) return;
+  if(url.pathname.endsWith('/sw.js')) {
+    e.respondWith(fetch(e.request, { cache:'no-store' }));
+    return;
+  }
   const isNavigation = e.request.mode === 'navigate';
   const isHtml = e.request.destination === 'document' ||
     url.pathname === '/' ||
     url.pathname.endsWith('.html');
 
-  if(isNavigation || isHtml || url.pathname.endsWith('/sw.js')) {
+  if(isNavigation || isHtml) {
     e.respondWith(
-      fetch(e.request, { cache:'no-store' })
-        .catch(() => caches.match(e.request))
-        .then(res => res || new Response('Sin conexión', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
+      (async() => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          const response = await fetch(e.request, { cache:'no-store', signal:controller.signal });
+          if(response.status < 500) return response;
+        } catch(_) {
+        } finally {
+          clearTimeout(timeout);
+        }
+        const fallback = await caches.open(CACHE_NAME).then(cache => cache.match(OFFLINE_URL));
+        return fallback || new Response('Sin conexión. Vuelve a intentarlo.', { status:503, headers:{'Content-Type':'text/plain; charset=utf-8'} });
+      })()
     );
     return;
   }
