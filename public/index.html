@@ -172,7 +172,11 @@ body{
 }
 .login-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(124,92,252,0.4);}
 .login-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none;}
+.login-reset-btn{display:block;margin:10px auto 0;padding:7px 10px;border:0;background:transparent;color:#b9c6f5;font:600 0.82rem 'Inter',sans-serif;cursor:pointer;border-radius:9px;}
+.login-reset-btn:hover,.login-reset-btn:focus-visible{color:#fff;background:rgba(124,92,252,0.12);outline:none;}
+.login-reset-btn:disabled{opacity:0.6;cursor:wait;}
 .login-err{font-size:0.78rem;color:var(--red);margin-top:12px;text-align:center;min-height:18px;font-weight:500;}
+.login-err.is-success{color:#22c55e;}
 .login-footer{margin-top:28px;padding-top:20px;border-top:1px solid var(--border);font-size:0.75rem;color:var(--muted);text-align:center;}
 .login-footer a{color:var(--accent);text-decoration:none;font-weight:600;}
 .login-footer a:hover{text-decoration:underline;}
@@ -1214,7 +1218,8 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
         <button class="login-password-toggle" id="login-pass-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false" onclick="toggleLoginPassword()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></button>
       </div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
-      <div class="login-err" id="login-err"></div>
+      <button class="login-reset-btn" id="login-reset-btn" type="button" onclick="requestPasswordReset()">¿Olvidaste tu contraseña?</button>
+      <div class="login-err" id="login-err" role="status" aria-live="polite"></div>
       <div class="login-divider-text"><span>Nuevo cliente</span></div>
       <a class="login-secondary-link" href="https://wa.me/51974834197?text=Hola%2C%20quiero%20ingresar%20al%20grupo%20de%20dise%C3%B1o%20y%20recibir%20informaci%C3%B3n%20para%20registrarme." target="_blank" rel="noopener">Solicitar acceso por WhatsApp</a>
       <div class="login-footer">
@@ -2368,6 +2373,35 @@ async function doLogin() {
     if(e.code === 'auth/user-disabled') msg = '✗ Cuenta desactivada. Contacta al administrador.';
     err.textContent = msg;
     btn.disabled = false; btn.textContent = 'Entrar';
+  }
+}
+
+async function requestPasswordReset() {
+  const email = document.getElementById('login-phone').value.trim();
+  const feedback = document.getElementById('login-err');
+  const button = document.getElementById('login-reset-btn');
+  feedback.classList.remove('is-success');
+  feedback.textContent = '';
+  if (!email || !email.includes('@')) {
+    feedback.textContent = 'Escribe tu correo para enviarte las instrucciones.';
+    return;
+  }
+  if (!fbAuth) {
+    feedback.textContent = 'El servicio no está disponible. Intenta nuevamente en unos momentos.';
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Enviando…';
+  try {
+    fbAuth.languageCode = 'es';
+    await fbAuth.sendPasswordResetEmail(email);
+    feedback.classList.add('is-success');
+    feedback.textContent = 'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.';
+  } catch(e) {
+    feedback.textContent = 'No se pudo enviar el correo. Verifica la dirección e intenta nuevamente.';
+  } finally {
+    button.disabled = false;
+    button.textContent = '¿Olvidaste tu contraseña?';
   }
 }
 
