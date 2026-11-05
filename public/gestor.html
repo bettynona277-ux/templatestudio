@@ -778,7 +778,7 @@ function sanitizeGestorClientForFirestore(data = {}) {
     customerId: fsOptionalString(data.customerId || id, 80),
     name: fsString(data.name, 120, 'Cliente'),
     whatsapp: fsOptionalString(data.whatsapp, 32),
-    accountId: fsValidId(data.accountId),
+    accountId: fsOptionalString(data.accountId, 80),
     platform: fsOptionalString(data.platform, 80),
     profile: fsOptionalString(data.profile, 50),
     pin: fsOptionalString(data.pin, 50),
@@ -1003,10 +1003,10 @@ window.__persistSingleDoc = async function(colName, docData, expectedUpdatedAt =
         return false;
       }
     }
-    notifySaveStatus('saving', 'Guardando dato...');
+    notifySaveStatus('saving', colName === 'accounts' ? 'Actualizando cuenta madre...' : 'Guardando dato...');
     await setDoc(doc(colRef, safeData.id), safeData, { merge: true });
     await touchGestorDataRevision(uid);
-    notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre guardada.' : 'Cliente guardado.');
+    notifySaveStatus('success', colName === 'accounts' ? 'Cuenta madre actualizada.' : 'Cliente guardado.');
     return true;
   } catch (err) {
     console.error('âŒ Error guardando doc:', err);
@@ -1170,10 +1170,11 @@ window.__persistFinanceMovementDoc = async function(docData) {
   if (!user) return false;
   try {
     const safeData = sanitizeFinanceMovementForFirestore(docData);
-    notifySaveStatus('saving', 'Guardando movimiento...');
+    const isAccountPurchase = safeData.source === 'account_purchase';
+    notifySaveStatus('saving', isAccountPurchase ? 'Actualizando cuenta madre...' : 'Guardando movimiento...');
     await setDoc(doc(financeCol(user.uid), safeData.id), safeData);
     await touchGestorDataRevision(user.uid);
-    notifySaveStatus('success', safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
+    notifySaveStatus('success', isAccountPurchase ? 'Cuenta madre actualizada.' : safeData.type === 'expense' ? 'Gasto guardado.' : 'Ingreso guardado.');
     return safeData;
   } catch (err) {
     console.error('Error guardando movimiento financiero:', err);
@@ -6259,10 +6260,7 @@ async function upsertAccountPurchaseExpense(account){
   if(!isFinanceModeEnabled()) return;
   const amount=moneyNumber(account.purchaseCost);
   const movementId=financeMovementId('account_purchase', account.id);
-  if(!amount){
-    await removeFinanceMovement(movementId).catch(()=>{});
-    return;
-  }
+  if(!amount) return;
   await persistFinanceMovement({
     id:movementId,
     type:'expense',
@@ -9225,6 +9223,12 @@ $('#saveClientBtn').onclick=async ()=>{
     return;
   }
   const account=state.accounts.find(a=>a.id===accountId);
+  if(!account){
+    alert('La cuenta madre seleccionada ya no existe o no terminó de cargar. Actualiza los datos y vuelve a elegir la cuenta.');
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
   const previousClient=editingClientId ? state.clients.find(c=>c.id===editingClientId) : null;
   const financeOn=isFinanceModeEnabled();
   const fullAccountSale=$('#cFullAccountSale')?.checked===true;
@@ -9267,8 +9271,13 @@ $('#saveClientBtn').onclick=async ()=>{
   saveBtn.disabled=false;
   closeModal('clientModalWrap'); clearClientForm(); refreshUI();
   if(wasNewSale){
-    showDeliveryPrompt(data);
-    focusClientAfterSale(data);
+    try{
+      showDeliveryPrompt(data);
+      focusClientAfterSale(data);
+    }catch(err){
+      console.warn('Venta guardada, pero fallo una accion posterior de entrega:', err);
+      notifySaveStatus('success', 'Venta guardada. Si no se abre la entrega, busca el cliente y usa WhatsApp.');
+    }
   }
   }finally{
     clientSaveInFlight=false;
