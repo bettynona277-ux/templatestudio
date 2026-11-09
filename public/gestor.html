@@ -1120,16 +1120,28 @@ window.__persistClientRenewalWithIncome = async function(clientsData, incomeData
   const user = auth.currentUser;
   if (!user || !Array.isArray(clientsData) || !clientsData.length) return false;
   try {
-    const batch = writeBatch(db);
-    clientsData.forEach(item => {
-      const safeClient = sanitizeGestorClientForFirestore(item);
-      batch.set(doc(clientsCol(user.uid), safeClient.id), safeClient, { merge:true });
-    });
+    const safeClients = clientsData.map(item => sanitizeGestorClientForFirestore(item));
     const safeIncome = incomeData ? sanitizeFinanceMovementForFirestore(incomeData) : null;
-    if (safeIncome) batch.set(doc(financeCol(user.uid), safeIncome.id), safeIncome, { merge:true });
-    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    const expectedById = new Map(state.clients.map(item => [item.id, item]));
     notifySaveStatus('saving', 'Guardando renovación...');
-    await batch.commit();
+    await runTransaction(db, async transaction => {
+      const snapshots = [];
+      for (const item of safeClients) snapshots.push([item, await transaction.get(doc(clientsCol(user.uid), item.id))]);
+      for (const [item, snapshot] of snapshots) {
+        const expected = expectedById.get(item.id);
+        if (!snapshot.exists() || !expected ||
+          String(snapshot.data().dueDate || '') !== String(expected.dueDate || '') ||
+          String(snapshot.data().updatedAt || '') !== String(expected.updatedAt || '')) {
+          throw new Error('Este cliente ya fue actualizado. Sincroniza la lista antes de volver a renovarlo.');
+        }
+        if (item.state === 'Activo' && String(item.dueDate || '') === String(expected.dueDate || '')) {
+          throw new Error('La fecha de renovación debe ser distinta al vencimiento actual.');
+        }
+      }
+      safeClients.forEach(item => transaction.set(doc(clientsCol(user.uid), item.id), item, { merge:true }));
+      if (safeIncome) transaction.set(doc(financeCol(user.uid), safeIncome.id), safeIncome, { merge:true });
+      transaction.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    });
     notifySaveStatus('success', 'Renovación guardada correctamente.');
     return { clients:clientsData, income:safeIncome };
   } catch (err) {
@@ -1189,12 +1201,23 @@ window.__persistAccountRenewalWithExpense = async function(accountData, expenseD
   try {
     const safeAccount = sanitizeGestorAccountForFirestore(accountData);
     const safeExpense = expenseData ? sanitizeFinanceMovementForFirestore(expenseData) : null;
-    const batch = writeBatch(db);
-    batch.set(doc(accountsCol(user.uid), safeAccount.id), safeAccount, { merge:true });
-    if (safeExpense) batch.set(doc(financeCol(user.uid), safeExpense.id), safeExpense, { merge:true });
-    batch.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    const expected = state.accounts.find(item => item.id === safeAccount.id);
+    if (!expected) throw new Error('No se encontró la cuenta en la lista actual. Sincroniza antes de renovar.');
     notifySaveStatus('saving', 'Renovando cuenta madre...');
-    await batch.commit();
+    await runTransaction(db, async transaction => {
+      const ref = doc(accountsCol(user.uid), safeAccount.id);
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists() || String(snapshot.data().dueDate || '') !== String(expected.dueDate || '') ||
+        String(snapshot.data().updatedAt || '') !== String(expected.updatedAt || '')) {
+        throw new Error('Esta cuenta ya fue actualizada. Sincroniza la lista antes de volver a renovarla.');
+      }
+      if (String(safeAccount.dueDate || '') === String(expected.dueDate || '')) {
+        throw new Error('La fecha de renovación debe ser distinta al vencimiento actual.');
+      }
+      transaction.set(ref, safeAccount, { merge:true });
+      if (safeExpense) transaction.set(doc(financeCol(user.uid), safeExpense.id), safeExpense, { merge:true });
+      transaction.set(settingsRef(user.uid), { gestorDataRevision: increment(1) }, { merge:true });
+    });
     try { localStorage.removeItem(gestorStateCacheKey(user.uid) + '_revision'); } catch (_) {}
     try { localStorage.removeItem('gestion_streaming_v5_revision'); } catch (_) {}
     notifySaveStatus('success', 'Cuenta madre renovada.');
@@ -8297,6 +8320,7 @@ function renewalDateFor(client, amount, unit){
   return dateToLocalString(next);
 }
 const clientRenewalsInFlight=new Set();
+const completedClientRenewals=new Set();
 async function applyRenewalDate(clientId, newDate){
   const c=state.clients.find(x=>x.id===clientId);
   if(!c) return;
@@ -8304,8 +8328,10 @@ async function applyRenewalDate(clientId, newDate){
     alert('Elige una fecha valida para renovar.');
     return;
   }
-  const renewalKey=`${c.comboId || c.id}:${newDate}`;
-  if(clientRenewalsInFlight.has(renewalKey)) return;
+  const selectedKey=c.comboId ? activeComboClients(c.comboId).map(item=>item.id).sort().join(',') : c.id;
+  const renewalKey=`${c.comboId || c.id}:${selectedKey}:${newDate}:${window.__comboRenewMonths || 0}`;
+  const clientBusy=[...clientRenewalsInFlight].some(key=>key.startsWith(`${c.comboId || c.id}:`));
+  if(clientBusy || completedClientRenewals.has(renewalKey)) return;
   clientRenewalsInFlight.add(renewalKey);
   try{
   const comboList=c.comboId ? activeComboClients(c.comboId).map(item=>({...item})) : [];
@@ -8341,6 +8367,7 @@ async function applyRenewalDate(clientId, newDate){
     const saved=await window.__persistClientRenewalWithIncome?.([...selected,...removed],buildPartialComboRenewalIncome(selected[0],renewalAmount,originalComboId));
     if(!saved) return;
     state.clients=[...selected,...removed,...state.clients.filter(item=>![...selected,...removed].some(next=>next.id===item.id))];
+    completedClientRenewals.add(renewalKey);
     if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
     refreshUI(); touchLocalStateCache(); selected.length>1?navigatePreparedWhatsapp(targetWindow,whatsappUrlForCombo(selected,'renewed')):sendWhatsapp(target.id,'renewed',targetWindow,true);
     return;
@@ -8361,6 +8388,7 @@ async function applyRenewalDate(clientId, newDate){
   const saved=await window.__persistClientRenewalWithIncome?.(rowsToSave,income);
   if(!saved) return;
   state.clients=[...rowsToSave,...state.clients.filter(item=>!rowsToSave.some(next=>next.id===item.id))];
+  completedClientRenewals.add(renewalKey);
   if(saved.income) state.financeMovements=[saved.income,...state.financeMovements.filter(item=>item.id!==saved.income.id)];
   refreshUI();
   touchLocalStateCache();
@@ -8370,6 +8398,7 @@ async function applyRenewalDate(clientId, newDate){
   }
 }
 const accountRenewalsInFlight=new Set();
+const completedAccountRenewals=new Set();
 async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
   const account=state.accounts.find(x=>x.id===accountId);
   if(!account || !safeDateFromYMD(newDate)){
@@ -8377,8 +8406,13 @@ async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
     return;
   }
   const renewalKey=`${account.id}:${newDate}`;
-  if(accountRenewalsInFlight.has(renewalKey)) return;
+  // Mientras una renovacion de esta cuenta se guarda, cualquier otro boton
+  // (otra duracion o fecha) se ignora en silencio en vez de mostrar un error.
+  const accountBusy=[...accountRenewalsInFlight].some(key=>key.startsWith(`${account.id}:`));
+  if(accountBusy || completedAccountRenewals.has(renewalKey)) return;
   accountRenewalsInFlight.add(renewalKey);
+  const renewButtons=[...document.querySelectorAll('#renewModalWrap .renew-option, #renewModalWrap button.btn')];
+  renewButtons.forEach(button=>button.disabled=true);
   try{
     const updated={...account,dueDate:newDate,updatedAt:new Date().toISOString()};
     const expense=buildAccountRenewalExpense(updated,expenseAmount);
@@ -8386,6 +8420,7 @@ async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
       ? await window.__persistAccountRenewalWithExpense(updated,expense)
       : false;
     if(!saved) return;
+    completedAccountRenewals.add(renewalKey);
     state.accounts=state.accounts.map(item=>item.id===updated.id?updated:item);
     if(expense){
       const cleanExpense=normalizeFinanceMovement(saved.expense || expense);
@@ -8396,7 +8431,10 @@ async function applyAccountRenewalDate(accountId, newDate, expenseAmount=0){
     refreshUI();
     touchLocalStateCache();
     notifySaveStatus('saved','Cuenta madre renovada');
-  }finally{ accountRenewalsInFlight.delete(renewalKey); }
+  }finally{
+    accountRenewalsInFlight.delete(renewalKey);
+    renewButtons.forEach(button=>button.disabled=false);
+  }
 }
 function renewUnitLabel(unit, amount){
   const qty=Number(amount)||1;

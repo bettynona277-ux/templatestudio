@@ -682,12 +682,26 @@ async function setClientsBatch(clients){
 async function persistClientRenewalWithIncome(clients, income){
   const rows=(clients||[]).filter(Boolean);
   if(!rows.length) throw new Error('No hay clientes para renovar.');
-  const batch=writeBatch(db);
-  rows.forEach(client=>batch.set(clientRef(client.id),client,{merge:true}));
   const movement=income ? normalizeFinanceMovement(income) : null;
-  if(movement) batch.set(financeRef(movement.id),movement,{merge:true});
-  batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
-  await batch.commit();
+  const expectedById=new Map(state.clients.map(client=>[client.id,client]));
+  await runTransaction(db,async transaction=>{
+    const snapshots=[];
+    for(const client of rows) snapshots.push([client,await transaction.get(clientRef(client.id))]);
+    for(const [client,snapshot] of snapshots){
+      const expected=expectedById.get(client.id);
+      if(!snapshot.exists() || !expected ||
+        clean(snapshot.data().dueDate)!==clean(expected.dueDate) ||
+        clean(snapshot.data().updatedAt)!==clean(expected.updatedAt)){
+        throw new Error('Este cliente ya fue actualizado. Sincroniza la lista antes de volver a renovarlo.');
+      }
+      if(clean(client.state)==='Activo' && clean(client.dueDate)===clean(expected.dueDate)){
+        throw new Error('La fecha de renovación debe ser distinta al vencimiento actual.');
+      }
+    }
+    rows.forEach(client=>transaction.set(clientRef(client.id),client,{merge:true}));
+    if(movement) transaction.set(financeRef(movement.id),movement,{merge:true});
+    transaction.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+  });
   state.syncRevision=null;
   try{ localStorage.removeItem(mobileStateCacheRevisionKey()); }catch(_){ }
   if(movement) state.financeMovements=[movement,...state.financeMovements.filter(item=>item.id!==movement.id)];
@@ -3233,20 +3247,33 @@ function renewAccount(account){
   $('#renewAccountCustomForm')?.addEventListener('submit',event=>{ event.preventDefault(); apply(clean(new FormData(event.currentTarget).get('dueDate'))); });
 }
 const accountRenewalsInFlight=new Set();
+const completedAccountRenewals=new Set();
 async function applyAccountRenewal(account,nextDate,expenseAmount=0){
   if(!account || !nextDate) return toast('Selecciona una fecha valida.','bad');
   const renewalKey=`${account.id}:${nextDate}`;
-  if(accountRenewalsInFlight.has(renewalKey)) return;
+  if(accountRenewalsInFlight.has(renewalKey) || completedAccountRenewals.has(renewalKey)) return;
   accountRenewalsInFlight.add(renewalKey);
-  document.querySelectorAll('#renewAccountOneMonth,#renewAccountThreeMonths,#renewAccountOneYear,#renewAccountCustomForm button').forEach(button=>button.disabled=true);
+  const renewButtons=[...document.querySelectorAll('#renewAccountOneMonth,#renewAccountThreeMonths,#renewAccountOneYear,#renewAccountCustomForm button')];
+  renewButtons.forEach(button=>button.disabled=true);
+  let renewalCommitted=false;
   try{
     const updated={...account,dueDate:nextDate,updatedAt:new Date().toISOString()};
     const expense=buildAccountRenewalExpense(updated,expenseAmount);
-    const batch=writeBatch(db);
-    batch.set(accountRef(updated.id),updated,{merge:true});
-    if(expense) batch.set(financeRef(expense.id),expense,{merge:true});
-    batch.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
-    await batch.commit();
+    await runTransaction(db,async transaction=>{
+      const snapshot=await transaction.get(accountRef(updated.id));
+      if(!snapshot.exists() || clean(snapshot.data().dueDate)!==clean(account.dueDate) ||
+        clean(snapshot.data().updatedAt)!==clean(account.updatedAt)){
+        throw new Error('Esta cuenta ya fue actualizada. Sincroniza la lista antes de volver a renovarla.');
+      }
+      if(clean(updated.dueDate)===clean(account.dueDate)){
+        throw new Error('La fecha de renovación debe ser distinta al vencimiento actual.');
+      }
+      transaction.set(accountRef(updated.id),updated,{merge:true});
+      if(expense) transaction.set(financeRef(expense.id),expense,{merge:true});
+      transaction.set(settingsRef(state.uid),{gestorDataRevision:increment(1)},{merge:true});
+    });
+    renewalCommitted=true;
+    completedAccountRenewals.add(renewalKey);
     state.accounts=[updated,...state.accounts.filter(item=>item.id!==updated.id)];
     if(expense) state.financeMovements=[expense,...state.financeMovements.filter(item=>item.id!==expense.id)];
     state.syncRevision=null;
@@ -3256,14 +3283,27 @@ async function applyAccountRenewal(account,nextDate,expenseAmount=0){
     closeSheet();
     render();
   }catch(err){ showMobileSupportError(err, 'renovar-cuenta'); }
-  finally{ accountRenewalsInFlight.delete(renewalKey); }
+  finally{
+    accountRenewalsInFlight.delete(renewalKey);
+    // Si fallo (sin red, lista vieja), se puede reintentar sin cerrar la hoja.
+    if(!renewalCommitted) renewButtons.forEach(button=>button.disabled=false);
+  }
 }
+// Keep the lock after a successful write. A second tap after the sheet closes
+// must not renew the same entity/date again; a failed write can be retried.
 const clientRenewalsInFlight=new Set();
+const completedClientRenewals=new Set();
 async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado', renewalAmount=0, options={}){
   if(!c || !nextDate) return;
-  const renewalKey=`${c.comboId || c.id}:${nextDate}`;
-  if(clientRenewalsInFlight.has(renewalKey)) return;
+  const selectedIds=Array.isArray(options.selectedIds) && options.selectedIds.length
+    ? [...new Set(options.selectedIds)].sort()
+    : [];
+  const renewalKey=`${c.comboId || c.id}:${selectedIds.join(',') || 'all'}:${nextDate}:${options.durationMonths || 0}`;
+  if(clientRenewalsInFlight.has(renewalKey) || completedClientRenewals.has(renewalKey)) return;
   clientRenewalsInFlight.add(renewalKey);
+  const renewButtons=[...document.querySelectorAll('#renewOneMonth,#renewThreeMonths,#renewCustomForm button')];
+  renewButtons.forEach(button=>button.disabled=true);
+  let renewalCommitted=false;
   try{
     let sendRenewedMessage = null;
     const pricePatch = c.comboId ? { comboRenewalPrice:renewalAmount || moneyNumber(c.comboRenewalPrice) } : { renewalPrice:renewalAmount || moneyNumber(c.renewalPrice) };
@@ -3278,6 +3318,7 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       const updated=[...renewed,...removed.map(item=>({...item,accountId:'',state:'Retirado del combo',comboRemovedAt:now,updatedAt:now}))];
       const income=removed.length?buildPartialComboRenewalIncome(renewed[0],renewalAmount,originalComboId):buildComboRenewalIncome(renewed,renewalAmount);
       await persistClientRenewalWithIncome(updated,income);
+      renewalCommitted=true;
       state.clients=[...updated,...state.clients.filter(item=>!updated.some(row=>row.id===item.id))];
       sendRenewedMessage=()=>selected.length>1?openWhatsAppCombo(selected,'renewed'):openWhatsApp(selected[0],'renewed');
     }else if(c.comboId){
@@ -3286,11 +3327,13 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
       applyComboMetadataMobile(updatedCombo,comboMetadataMobile(combo));
       updatedCombo.forEach(item=>{item.comboRenewalPrice=renewalAmount || moneyNumber(item.comboRenewalPrice);});
       await persistClientRenewalWithIncome(updatedCombo,buildComboRenewalIncome(updatedCombo,renewalAmount));
+      renewalCommitted=true;
       state.clients = [...updatedCombo, ...state.clients.filter(item => item.comboId !== c.comboId)];
       sendRenewedMessage = () => openWhatsAppCombo(updatedCombo, 'renewed');
     }else{
       const updated = { ...c, ...pricePatch, dueDate:nextDate, state:'Activo', updatedAt:new Date().toISOString() };
       await persistClientRenewalWithIncome([updated],buildRenewalIncome(updated,renewalAmount));
+      renewalCommitted=true;
       state.clients = [updated, ...state.clients.filter(item => item.id !== updated.id)];
       sendRenewedMessage = () => openWhatsApp(updated, 'renewed');
     }
@@ -3303,6 +3346,8 @@ async function applyClientRenewal(c, nextDate, successMessage='Cliente renovado'
     showMobileSupportError(err, 'renovar-cliente');
   }finally{
     clientRenewalsInFlight.delete(renewalKey);
+    if(renewalCommitted) completedClientRenewals.add(renewalKey);
+    else renewButtons.forEach(button=>button.disabled=false);
   }
 }
 async function markNoRenew(c){
