@@ -172,7 +172,11 @@ body{
 }
 .login-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(124,92,252,0.4);}
 .login-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none;}
+.login-reset-btn{display:block;margin:10px auto 0;padding:7px 10px;border:0;background:transparent;color:#b9c6f5;font:600 0.82rem 'Inter',sans-serif;cursor:pointer;border-radius:9px;}
+.login-reset-btn:hover,.login-reset-btn:focus-visible{color:#fff;background:rgba(124,92,252,0.12);outline:none;}
+.login-reset-btn:disabled{opacity:0.6;cursor:wait;}
 .login-err{font-size:0.78rem;color:var(--red);margin-top:12px;text-align:center;min-height:18px;font-weight:500;}
+.login-err.is-success{color:#22c55e;}
 .login-footer{margin-top:28px;padding-top:20px;border-top:1px solid var(--border);font-size:0.75rem;color:var(--muted);text-align:center;}
 .login-footer a{color:var(--accent);text-decoration:none;font-weight:600;}
 .login-footer a:hover{text-decoration:underline;}
@@ -483,9 +487,10 @@ body{
 .dash-select{
   width:100%;min-height:46px;padding:0 14px;border-radius:14px;
   border:1.5px solid rgba(124,92,252,0.10);background:var(--surface);
-  color:var(--text);font-family:'Inter',sans-serif;font-size:0.83rem;outline:none;
+  color:var(--text);color-scheme:light;font-family:'Inter',sans-serif;font-size:0.83rem;outline:none;
   transition:all 0.2s;
 }
+.dash-select option{background:#fff;color:#1a1a2e;}
 .dash-input{padding-left:40px;}
 .dash-input:focus,
 .dash-select:focus{border-color:rgba(124,92,252,0.38);box-shadow:0 0 0 4px rgba(124,92,252,0.10);}
@@ -907,6 +912,8 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
 .search-shell{min-width:220px;}
 .dash-select,.dash-input{background:rgba(255,255,255,0.92);}
 [data-theme="dark"] .dash-select,[data-theme="dark"] .dash-input{background:rgba(255,255,255,0.05);}
+[data-theme="dark"] .dash-select{color-scheme:dark;}
+[data-theme="dark"] .dash-select option{background:#1a1a2e;color:#f0f0ff;}
 .tpl-toolbar{margin-bottom:20px;}
 .toolbar-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
 .toolbar-btn{
@@ -1211,7 +1218,8 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
         <button class="login-password-toggle" id="login-pass-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false" onclick="toggleLoginPassword()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></button>
       </div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">Entrar</button>
-      <div class="login-err" id="login-err"></div>
+      <button class="login-reset-btn" id="login-reset-btn" type="button" onclick="requestPasswordReset()">¿Olvidaste tu contraseña?</button>
+      <div class="login-err" id="login-err" role="status" aria-live="polite"></div>
       <div class="login-divider-text"><span>Nuevo cliente</span></div>
       <a class="login-secondary-link" href="https://wa.me/51974834197?text=Hola%2C%20quiero%20ingresar%20al%20grupo%20de%20dise%C3%B1o%20y%20recibir%20informaci%C3%B3n%20para%20registrarme." target="_blank" rel="noopener">Solicitar acceso por WhatsApp</a>
       <div class="login-footer">
@@ -1386,6 +1394,7 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
         <button class="desk-tab active" id="desktab-designs" onclick="switchMobTab('designs')">🎨 Mis diseños</button>
         <button class="desk-tab" id="desktab-templates" onclick="switchMobTab('templates')">📦 Plantillas</button>
         <button class="desk-tab" id="desktab-accounts" onclick="window.open('/gestor.html','_blank','noopener')">Gestor</button>
+        <button class="desk-tab" id="desktab-landing" onclick="window.open('/mi-landing.html','_blank','noopener')">🌐 Mi página</button>
         <span class="desk-tab-meta">Cambia entre biblioteca personal y catálogo sin bajar de más.</span>
       </div>
 
@@ -1394,6 +1403,7 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-r
         <button class="mob-tab active" id="mobtab-designs" onclick="switchMobTab('designs')">🎨 Mis diseños</button>
         <button class="mob-tab" id="mobtab-templates" onclick="switchMobTab('templates')">📦 Plantillas</button>
         <button class="mob-tab" id="mobtab-accounts" onclick="window.open('/gestor.html','_blank','noopener')">Gestor</button>
+        <button class="mob-tab" id="mobtab-landing" onclick="window.open('/mi-landing.html','_blank','noopener')">🌐 Mi página</button>
       </div>
 
       <div class="mob-section active" id="mobsec-designs">
@@ -1960,9 +1970,13 @@ window.addEventListener('load', async () => {
             localStorage.setItem('ts_session', JSON.stringify(currentUser));
             startDeviceRevokeListener(user.uid);
             loadUserProfile();
+            if(isRestrictedTemplateCatalogUser()){
+              clearTemplateCatalogCache();
+              renderRestrictedTemplateCatalog();
+            }
             // Cargar datos frescos de Firestore en segundo plano
             if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
-            if(!readDashCache('templates')) loadAdminTemplates();
+            if(!isRestrictedTemplateCatalogUser() && !readDashCache('templates')) loadAdminTemplates();
           } else {
             fbAuth.signOut();
             localStorage.removeItem('ts_session');
@@ -2008,6 +2022,10 @@ window.addEventListener('load', async () => {
         localStorage.setItem('ts_session', JSON.stringify(currentUser));
         startDeviceRevokeListener(user.uid);
         loadUserProfile(); // cargar precios y WhatsApp del perfil
+        if(isRestrictedTemplateCatalogUser()){
+          clearTemplateCatalogCache();
+          renderRestrictedTemplateCatalog();
+        }
         const urlTpl = new URLSearchParams(window.location.search).get('tpl');
         const redirect = getSafePostLoginRedirect();
         if(redirect) window.location.href = redirect;
@@ -2360,6 +2378,35 @@ async function doLogin() {
   }
 }
 
+async function requestPasswordReset() {
+  const email = document.getElementById('login-phone').value.trim();
+  const feedback = document.getElementById('login-err');
+  const button = document.getElementById('login-reset-btn');
+  feedback.classList.remove('is-success');
+  feedback.textContent = '';
+  if (!email || !email.includes('@')) {
+    feedback.textContent = 'Escribe tu correo para enviarte las instrucciones.';
+    return;
+  }
+  if (!fbAuth) {
+    feedback.textContent = 'El servicio no está disponible. Intenta nuevamente en unos momentos.';
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Enviando…';
+  try {
+    fbAuth.languageCode = 'es';
+    await fbAuth.sendPasswordResetEmail(email);
+    feedback.classList.add('is-success');
+    feedback.textContent = 'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.';
+  } catch(e) {
+    feedback.textContent = 'No se pudo enviar el correo. Verifica la dirección e intenta nuevamente.';
+  } finally {
+    button.disabled = false;
+    button.textContent = '¿Olvidaste tu contraseña?';
+  }
+}
+
 function doLogout() {
   if(_revokeUnsub){ _revokeUnsub(); _revokeUnsub = null; }
   if(currentUser?.uid) {
@@ -2606,7 +2653,11 @@ function warmDashboardFromCache(){
     noMoreDashboardDesigns = cachedDesigns.complete === true;
     renderMyDesignCards(cachedDesigns, true);
   }
-  const cachedTemplates = readDashCache('templates');
+  if(isRestrictedTemplateCatalogUser()){
+    clearTemplateCatalogCache();
+    renderRestrictedTemplateCatalog();
+  }
+  const cachedTemplates = isRestrictedTemplateCatalogUser() ? null : readDashCache('templates');
   if(cachedTemplates && Array.isArray(cachedTemplates.items)){
     allTemplatesCache = cachedTemplates.items;
     populateTemplateCategoryOptions(allTemplatesCache);
@@ -2624,9 +2675,30 @@ async function showDashboard() {
   warmDashboardFromCache();
   requestAnimationFrame(() => {
     if(!hasFreshDashCache('designs', DASH_BACKGROUND_REFRESH_TTL)) loadMyDesigns();
-    if(!readDashCache('templates')) loadAdminTemplates();
-    if(readDashCache('designs') && readDashCache('templates')) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
+    if(isRestrictedTemplateCatalogUser()) renderRestrictedTemplateCatalog();
+    else if(!readDashCache('templates')) loadAdminTemplates();
+    if(readDashCache('designs') && (isRestrictedTemplateCatalogUser() || readDashCache('templates'))) setDashboardSyncLabel('Mostrando datos recientes guardados en este dispositivo.');
   });
+}
+
+function isRestrictedTemplateCatalogUser(){
+  return String(currentUser?.templateCatalogGroup || '').trim().toLowerCase() === 'ratas';
+}
+
+function clearTemplateCatalogCache(){
+  try{ localStorage.removeItem(dashCacheKey('templates')); }catch(_){}
+}
+
+function renderRestrictedTemplateCatalog(){
+  allTemplatesCache = [];
+  const grid=document.getElementById('admin-tpl-grid');
+  const count=document.getElementById('tpl-count');
+  const hero=document.getElementById('hero-template-count');
+  if(grid) grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No hay plantillas disponibles en el catálogo.</div>';
+  if(count) count.textContent='0 disponibles';
+  if(hero) hero.textContent='0';
+  const search=document.getElementById('tpl-search'); if(search) search.value='';
+  const category=document.getElementById('tpl-cat-filter'); if(category) category.value='';
 }
 
 // ================================================================
@@ -2760,7 +2832,8 @@ const CLIENT_TEMPLATE_CATEGORY_RULES = [
   { category:'Canva', terms:['canva'] },
   { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
   { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
-  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] }
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] },
+  { category:'Activos', terms:['activo','activos'] }
 ];
 
 function normalizeTemplateCategoryText(value){
@@ -2782,6 +2855,7 @@ function inferTemplateCategoryFromName(name){
   const normalizedName = normalizeTemplateCategoryText(name);
   if(!normalizedName) return '';
   const nameWords = ` ${normalizedName} `;
+  if(nameWords.includes(' activo ') || nameWords.includes(' activos ')) return 'Activos';
   let best = null;
   CLIENT_TEMPLATE_CATEGORY_RULES.forEach(rule => {
     rule.terms.forEach(term => {
@@ -2823,6 +2897,7 @@ function normalizePublicTemplateCatalog(data){
 }
 
 async function loadPublicTemplateCatalog(){
+  if(isRestrictedTemplateCatalogUser()) return {total:0,items:[]};
   try{
     const snap = await fbDb.collection('public_catalog').doc('templates').get();
     return snap.exists ? normalizePublicTemplateCatalog(snap.data() || {}) : null;
@@ -2890,6 +2965,11 @@ async function loadAdminTemplates() {
   const grid = document.getElementById('admin-tpl-grid');
   const heroCountEl = document.getElementById('hero-template-count');
   const countEl = document.getElementById('tpl-count');
+  if(isRestrictedTemplateCatalogUser()){
+    clearTemplateCatalogCache();
+    renderRestrictedTemplateCatalog();
+    return;
+  }
   if (!readDashCache('templates')) {
     if (heroCountEl) heroCountEl.textContent = '...';
     if (countEl) countEl.textContent = 'Cargando...';
