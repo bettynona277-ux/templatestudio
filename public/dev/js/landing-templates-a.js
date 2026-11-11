@@ -83,16 +83,18 @@
 
   // Botón de compra/WhatsApp. data-lt-btn = brillo del núcleo en 'max'. shine: capa interna
   // (para botones que ya usan ::after o necesitan overflow visible, p. ej. el brillo neón).
-  function btn(ctx, href, inner, cls, aria, shine) {
+  // opt: 'main' = botón principal (el único con brillo en 'max'); 'main-layer' = principal con capa interna.
+  function btn(ctx, href, inner, cls, aria, opt) {
     const a = aria ? ` aria-label="${ctx.esc(aria)}"` : '';
-    const mark = shine ? '' : ' data-lt-btn';
-    const body = shine ? inner + SHN : inner;
+    const layer = opt === 'main-layer';
+    const mark = layer ? '' : (opt === 'main' ? ' data-lt-btn="main"' : ' data-lt-btn');
+    const body = layer ? inner + SHN : inner;
     return href
       ? `<a class="${cls}"${mark} href="${ctx.esc(href)}" target="_blank" rel="noopener"${a}>${body}</a>`
       : `<span class="${cls} lt-off"${mark} aria-disabled="true"${a}>${body}</span>`;
   }
   // Capa vacía que recibe el brillo del núcleo sin pisar los ::before/::after propios.
-  const SHN = '<i class="lt-shn" data-lt-btn aria-hidden="true"></i>';
+  const SHN = '<i class="lt-shn" data-lt-btn="main" aria-hidden="true"></i>';
 
   // Plural simple: pl(1,'plataforma','plataformas') -> '1 plataforma'.
   const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
@@ -174,14 +176,21 @@
       }).join('')}</div></section>`;
   }
   function footerHtml(data, ctx) {
-    return `<footer class="lt-foot"><div>${ctx.esc(data.name)} · ${new Date().getFullYear()}</div>
+    return `<footer class="lt-foot" data-lt-foot><div>${ctx.esc(data.name)} · ${new Date().getFullYear()}</div>
       <a href="https://disenosstreaming.com/" target="_blank" rel="noopener">Hecho con <b>Diseños Streaming</b></a></footer>`;
   }
   function fabHtml(data, ctx) {
     if (!data.whatsapp) return '';
     const href = ctx.buy('');
     if (!href) return '';
-    return `<div class="lt-fabw"><a class="lt-fab" href="${ctx.esc(href)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${WA_ICON}${SHN}</a></div>`;
+    return `<div class="lt-fabw" data-lt-fab><a class="lt-fab" data-lt-btn href="${ctx.esc(href)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${WA_ICON}</a></div>`;
+  }
+
+  // Chip de precio para el hero: "Desde S/ X" con hasta 3 logos de plataformas visibles.
+  function fromChip(ctx, cls) {
+    if (!ctx.minPrice) return '';
+    const logos = (ctx.platformIds || []).slice(0, 3).map(id => platLogo(ctx, id, 'lt-fl')).join('');
+    return `<div class="lt-from ${cls || ''}">${logos ? `<span class="lt-fls">${logos}</span>` : ''}<span>Desde <b>${ctx.esc(ctx.minPrice)}</b></span></div>`;
   }
 
   // Apariciones al hacer scroll. Sin IntersectionObserver o con movimiento reducido: todo visible.
@@ -194,7 +203,7 @@
       el.removeEventListener('transitionend', done);
       el.classList.remove('lt-rv', 'lt-in');
     });
-    if (ctx.reducedMotion || typeof W.IntersectionObserver !== 'function') { els.forEach(show); return; }
+    if (typeof W.IntersectionObserver !== 'function') { els.forEach(show); return; }
     root.classList.add('lt-js');
     const pending = new Set(els);
     const reveal = el => { if (!pending.has(el)) return; pending.delete(el); io.unobserve(el); settle(el); show(el); };
@@ -235,6 +244,7 @@ ${P} h1,${P} h2,${P} h3,${P} p,${P} ul{margin:0;padding:0}
 ${P} ul{list-style:none}
 ${P} .lt-off{opacity:.55;cursor:not-allowed}
 ${P} .lt-wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 clamp(16px,4vw,40px)}
+${P} .lt-plogo,${P} .lt-pl,${P} .lt-sl,${P} .lt-cl,${P} .lt-tl{outline:1px solid rgba(255,255,255,.16);outline-offset:-1px}
 ${P} .lt-ini{display:grid;place-items:center;font-weight:800;color:#fff;background:var(--pc,#7C3AED);text-shadow:0 1px 2px rgba(0,0,0,.45)}
 ${P} .lt-mono{display:grid;place-items:center;font-weight:900;color:var(--lt-on-primary,#fff);background:var(--lt-primary)}
 ${P} .lt-ben{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px}
@@ -276,8 +286,15 @@ ${P} .lt-shn{position:absolute;inset:0;border-radius:inherit;pointer-events:none
 ${P}[data-lt-motion] .lt-shn[data-lt-btn]{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${P}[data-lt-motion="calm"] *,${P}[data-lt-motion="calm"] *::before,${P}[data-lt-motion="calm"] *::after{animation-fill-mode:both!important}
 ${P}.lt-pm .ltp-avatar-in{border-color:var(--lt-bg0,#000)}
+${P} .lt-from{display:inline-flex;align-items:center;gap:10px;max-width:100%;padding:6px 14px 6px 6px;border-radius:999px;font-size:.95rem;margin:18px 0 0;overflow-wrap:anywhere}
+${P} .lt-from b{font-size:1.15em;font-weight:900}
+${P} .lt-fls{display:flex;flex:none}
+${P} .lt-fl{width:28px;height:28px;border-radius:50%;overflow:hidden;font-size:.8rem;box-shadow:0 0 0 2px var(--lt-bg0,#000)}
+${P} .lt-fl+.lt-fl{margin-left:-8px}
+${P} .lt-fl img{width:100%;height:100%;object-fit:cover}
 ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;transition:none!important}
-@media (prefers-reduced-motion:reduce){${P} *,${P} *::before,${P} *::after{animation:none!important;transition:none!important}${P} .lt-rv{opacity:1!important;transform:none!important}}
+${P}.lt-rm.lt-js .lt-rv{transform:none!important;transition:opacity .45s ease!important}
+@media (prefers-reduced-motion:reduce){${P} *,${P} *::before,${P} *::after{animation:none!important;transition:none!important}${P}.lt-js .lt-rv{transform:none!important;transition:opacity .45s ease!important}}
 `;
   }
 
@@ -310,7 +327,9 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
 .lt-cine .lt-kick::before{content:"";width:22px;height:30px;background:var(--lt-primary);clip-path:polygon(0 0,35% 0,100% 100%,65% 100%);display:inline-block}
 .lt-cine h1{font-size:clamp(2.2rem,9.5vw,4.9rem);line-height:.98;font-weight:900;letter-spacing:-.02em;text-shadow:0 4px 30px rgba(0,0,0,.6);overflow-wrap:anywhere;animation:lt-cine-up .9s cubic-bezier(.2,.7,.2,1) both}
 .lt-cine .lt-sub{margin-top:14px;font-size:clamp(1rem,2.6vw,1.2rem);color:#e6e6e6;max-width:560px;animation:lt-cine-up .9s .12s cubic-bezier(.2,.7,.2,1) both}
-.lt-cine .lt-hbtns{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;animation:lt-cine-up .9s .24s cubic-bezier(.2,.7,.2,1) both}
+.lt-cine .lt-from{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);animation:lt-cine-up .9s .18s cubic-bezier(.2,.7,.2,1) both}
+.lt-cine .lt-from b{color:#fff}
+.lt-cine .lt-hbtns{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;animation:lt-cine-up .9s .24s cubic-bezier(.2,.7,.2,1) both}
 @keyframes lt-cine-up{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
 .lt-cine .lt-b1,.lt-cine .lt-b2{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:14px 24px;border-radius:6px;font-weight:800;font-size:1.02rem;transition:transform .2s,opacity .2s;max-width:100%}
 .lt-cine .lt-b1 svg,.lt-cine .lt-b2 svg{width:22px;height:22px;flex:0 0 auto}
@@ -406,7 +425,7 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
     if (data.coverUrl && !ctx.profileMode) {
       bg = `<div class="lt-hbg"><img src="${esc(data.coverUrl)}" alt="" fetchpriority="high" decoding="async"></div>`;
     } else {
-      let ids = data.platforms.length ? data.platforms.slice() : ['netflix', 'disney', 'max', 'prime', 'spotify', 'youtube'];
+      let ids = ctx.platformIds.length ? ctx.platformIds.slice() : ['netflix', 'disney', 'max', 'prime', 'spotify', 'youtube'];
       while (ids.length < 7) ids = ids.concat(ids);
       ids = ids.slice(0, 9);
       const rows = [0, 1, 2, 3].map(r => {
@@ -462,11 +481,12 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
       <header class="lt-top">${brandMark(data, ctx, 'lt-brand')}
         <div class="lt-bname"><b>${esc(data.name)}</b>${data.tagline ? `<small>${esc(data.tagline)}</small>` : ''}</div>
         ${mainHref ? btn(ctx, mainHref, 'Contáctanos', 'lt-topcta') : ''}</header>`) + `
-      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}">${bg}<div class="lt-shade"></div>
+      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}" data-lt-hero>${bg}<div class="lt-shade"></div>
         <div class="lt-hc">
-          <div class="lt-kick">${data.platforms.length ? pl(data.platforms.length, 'plataforma', 'plataformas') : 'Streaming'}</div>
+          <div class="lt-kick">${ctx.platformIds.length ? pl(ctx.platformIds.length, 'plataforma', 'plataformas') : 'Streaming'}</div>
           <h1>${esc(heroTitle)}</h1><p class="lt-sub">${esc(heroSub)}</p>
-          <div class="lt-hbtns">${btn(ctx, mainHref, `${PLAY}${esc(data.ctaText)}`, 'lt-b1')}
+          ${fromChip(ctx)}
+          <div class="lt-hbtns">${btn(ctx, mainHref, `${PLAY}${esc(data.ctaText)}`, 'lt-b1', '', 'main')}
             ${firstSec ? `<a class="lt-b2" href="${firstSec}">Ver planes</a>` : ''}</div>
         </div></section>
       <main>${planRows}${comboRow}
@@ -539,7 +559,10 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
 @keyframes lt-neon-g1{0%,88%,100%{opacity:0;transform:none}89%{opacity:.9;transform:translate(-4px,-1px)}91%{opacity:.9;transform:translate(3px,1px)}93%{opacity:0}}
 @keyframes lt-neon-g2{0%,89%,100%{opacity:0;transform:none}90%{opacity:.85;transform:translate(4px,1px)}92%{opacity:.85;transform:translate(-3px,0)}94%{opacity:0}}
 .lt-neon .lt-sub{margin:18px auto 0;max-width:600px;font-size:clamp(1rem,2.6vw,1.18rem);color:#cdd6ea}
-.lt-neon .lt-hbtns{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:28px}
+.lt-neon .lt-hbtns{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:22px}
+.lt-neon .lt-from{background:rgba(5,4,13,.75);border:1px solid var(--lt-accent);color:var(--nA);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em}
+.lt-neon .lt-from b{color:#fff;text-shadow:0 0 10px var(--lt-accent);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (max-width:640px){.lt-neon .lt-sun{opacity:.5;bottom:6%}}
 .lt-neon .lt-b1,.lt-neon .lt-b2{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:15px 26px;border-radius:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:.92rem;transition:transform .2s;max-width:100%}
 .lt-neon .lt-b1 svg{width:22px;height:22px;flex:0 0 auto}
 .lt-neon .lt-b1{background:var(--lt-primary);color:var(--lt-on-primary)}
@@ -646,13 +669,14 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
       <header class="lt-top">${brandMark(data, ctx, 'lt-brand')}
         <div class="lt-bname"><b>${esc(data.name)}</b>${data.tagline ? `<small>${esc(data.tagline)}</small>` : ''}</div>
         <div class="lt-live lt-mono-f" aria-hidden="true"><i></i><span>ONLINE</span></div></header>`) + `
-      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}">${cover}<div class="lt-sun" aria-hidden="true"></div>
+      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}" data-lt-hero>${cover}<div class="lt-sun" aria-hidden="true"></div>
         <div class="lt-gw" aria-hidden="true"><div class="lt-grid"><i></i></div></div>
         <div class="lt-hc">
-          <span class="lt-tag lt-mono-f">${data.platforms.length ? `${pl(data.platforms.length, 'plataforma', 'plataformas')} · activación rápida` : 'Streaming'}</span>
+          <span class="lt-tag lt-mono-f">${ctx.platformIds.length ? `${pl(ctx.platformIds.length, 'plataforma', 'plataformas')} · activación rápida` : 'Streaming'}</span>
           <h1 class="lt-glitch" data-text="${esc(heroTitle)}">${esc(heroTitle)}</h1>
           <p class="lt-sub">${esc(heroSub)}</p>
-          <div class="lt-hbtns">${btn(ctx, mainHref, `${WA_ICON}${esc(data.ctaText)}`, 'lt-b1 lt-glow', '', true)}
+          ${fromChip(ctx)}
+          <div class="lt-hbtns">${btn(ctx, mainHref, `${WA_ICON}${esc(data.ctaText)}`, 'lt-b1 lt-glow', '', 'main-layer')}
             ${plans.length || combos.length ? `<a class="lt-b2 lt-glow" href="#lt-n-${plans.length ? 'planes' : 'combos'}">Ver planes</a>` : ''}</div>
         </div></section>
       <main class="lt-wrap">
@@ -705,13 +729,16 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
 .lt-aurora .lt-topcta svg{width:18px;height:18px}
 .lt-aurora .lt-hero{text-align:center;padding:clamp(48px,10vh,110px) clamp(16px,4vw,40px) 40px;max-width:980px;margin:0 auto}
 .lt-aurora .lt-pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font-size:.8rem;font-weight:700;margin-bottom:20px}
-.lt-aurora .lt-pill i{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:lt-au-dot 2s infinite}
-@keyframes lt-au-dot{0%{box-shadow:0 0 0 0 rgba(74,222,128,.6)}100%{box-shadow:0 0 0 10px rgba(74,222,128,0)}}
+.lt-aurora .lt-pill i{position:relative;width:8px;height:8px;border-radius:50%;background:#4ade80}
+.lt-aurora .lt-pill i::after{content:"";position:absolute;inset:0;border-radius:50%;background:#4ade80;animation:lt-au-dot 2s ease-out infinite}
+@keyframes lt-au-dot{0%{transform:scale(1);opacity:.6}100%{transform:scale(3.4);opacity:0}}
 .lt-aurora h1{font-size:clamp(2.3rem,8.6vw,5.2rem);line-height:1.02;font-weight:800;letter-spacing:-.035em;overflow-wrap:anywhere;color:#fff}
 @supports (color:color-mix(in srgb,red 50%,blue)) and ((-webkit-background-clip:text) or (background-clip:text)){
   .lt-aurora h1{background:linear-gradient(100deg,#fff 30%,var(--aA) 70%,#fff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}}
 .lt-aurora .lt-sub{margin:18px auto 0;max-width:620px;font-size:clamp(1rem,2.6vw,1.22rem);color:#d3d8ee}
-.lt-aurora .lt-hbtns{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:28px}
+.lt-aurora .lt-hbtns{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:22px}
+.lt-aurora .lt-from{color:#fff}
+@media (max-width:640px){.lt-aurora .lt-mq{display:none}}
 .lt-aurora .lt-b1,.lt-aurora .lt-b2{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:15px 26px;border-radius:999px;font-weight:800;font-size:1rem;transition:transform .25s cubic-bezier(.2,.7,.2,1),box-shadow .25s;max-width:100%}
 .lt-aurora .lt-b1 svg{width:22px;height:22px;flex:0 0 auto}
 .lt-aurora .lt-b1{background:var(--lt-primary);color:var(--lt-on-primary);box-shadow:0 14px 34px rgba(0,0,0,.35)}
@@ -729,7 +756,7 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
 .lt-aurora .lt-mq:hover .lt-mqt{animation-play-state:paused}
 @keyframes lt-au-mq{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 .lt-aurora .lt-chip{margin-right:14px;display:flex;align-items:center;gap:10px;padding:8px 16px 8px 8px;border-radius:999px;white-space:nowrap;font-weight:700;font-size:.92rem}
-.lt-aurora .lt-chip .lt-cl{width:34px;height:34px;border-radius:50%;overflow:hidden;font-size:.95rem;flex:0 0 auto}
+.lt-aurora .lt-chip .lt-cl{width:34px;height:34px;border-radius:28%;overflow:hidden;font-size:.95rem;flex:0 0 auto}
 .lt-aurora .lt-chip .lt-cl img{width:100%;height:100%;object-fit:cover}
 .lt-aurora.lt-rm .lt-mq{overflow-x:auto}
 @media (prefers-reduced-motion:reduce){.lt-aurora .lt-mq{overflow-x:auto}}
@@ -759,8 +786,8 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
 .lt-aurora .lt-buy{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:999px;font-weight:800;background:#fff;color:#0b0d1d;transition:transform .2s,background .2s,color .2s}
 .lt-aurora .lt-buy svg{width:18px;height:18px}
 .lt-aurora .lt-buy:hover{background:var(--lt-primary);color:var(--lt-on-primary);transform:scale(1.02)}
-.lt-aurora .lt-cls{display:flex;padding-left:6px}
-.lt-aurora .lt-cls .lt-pl{width:46px;height:46px;border-radius:50%;margin-left:-8px;box-shadow:0 0 0 3px rgba(20,24,50,.9);font-size:1.1rem}
+.lt-aurora .lt-cls{display:flex;flex-wrap:wrap;row-gap:8px;padding-left:8px}
+.lt-aurora .lt-cls .lt-pl{width:46px;height:46px;border-radius:28%;margin-left:-8px;box-shadow:0 0 0 3px rgba(20,24,50,.9);font-size:1.1rem}
 .lt-aurora .lt-cnames{font-size:.82rem;color:#c7cde6;overflow-wrap:anywhere;position:relative}
 .lt-aurora .lt-combo{background:linear-gradient(150deg,rgba(255,255,255,.14),rgba(255,255,255,.04)),var(--glass)}
 .lt-aurora .lt-ac h3{position:relative}
@@ -817,23 +844,16 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
     const heroTitle = data.heroTitle || LC.DEFAULTS.heroTitle;
     const heroSub = data.heroSubtitle || LC.DEFAULTS.heroSubtitle;
 
-    // Estadísticas: plataformas, opciones y precio más bajo.
-    const prices = plans.map(p => Number(String(p.price).replace(',', '.'))).concat(combos.map(c => Number(String(c.price).replace(',', '.'))))
-      .filter(n => Number.isFinite(n) && n > 0);
-    const minPrice = prices.length ? ctx.money(Math.min.apply(null, prices)) : '';
-    const nPlat = data.platforms.length;
+    // Un solo indicador en el hero: "precio desde" (con los logos de las plataformas visibles).
+    const nPlat = ctx.platformIds.length;
     const nOpt = plans.length + combos.length;
-    const stats = [];
-    if (nPlat) stats.push(`<div class="lt-stat lt-glass"><b data-n="${nPlat}" data-s="+">${nPlat}+</b><span>${nPlat === 1 ? 'plataforma' : 'plataformas'}</span></div>`);
-    if (nOpt) stats.push(`<div class="lt-stat lt-glass"><b data-n="${nOpt}">${nOpt}</b><span>${nOpt === 1 ? 'opción' : 'planes y combos'}</span></div>`);
-    if (minPrice) stats.push(`<div class="lt-stat lt-glass"><b>${esc(minPrice)}</b><span>precio desde</span></div>`);
-    const statsHtml = stats.length ? `<div class="lt-stats lt-rv" style="grid-template-columns:repeat(${stats.length},minmax(0,1fr))">${stats.join('')}</div>` : '';
+    const statsHtml = fromChip(ctx, 'lt-glass');
 
-    // Marquesina infinita de logos (se repite para llenar y se duplica para el bucle).
+    // Marquesina infinita de logos (solo visibles; se repite para llenar y se duplica para el bucle).
     let mq = '';
     if (nPlat) {
-      let ids = data.platforms.slice();
-      while (ids.length < 8) ids = ids.concat(data.platforms);
+      let ids = ctx.platformIds.slice();
+      while (ids.length < 8) ids = ids.concat(ctx.platformIds);
       const chips = ids.map(id => `<span class="lt-chip lt-glass">${platLogo(ctx, id, 'lt-cl')}${esc(ctx.platformInfo(id).name)}</span>`).join('');
       mq = `<section class="lt-mq" aria-label="Plataformas disponibles"><div class="lt-mqt">${chips}<span style="display:contents" aria-hidden="true">${chips}</span></div></section>`;
     }
@@ -864,13 +884,13 @@ ${P}.lt-rm *,${P}.lt-rm *::before,${P}.lt-rm *::after{animation:none!important;t
       ${ctx.profileMode ? '' : `<header class="lt-top lt-glass">${brandMark(data, ctx, 'lt-brand')}
         <div class="lt-bname"><b>${esc(data.name)}</b>${data.tagline ? `<small>${esc(data.tagline)}</small>` : ''}</div>
         ${mainHref ? btn(ctx, mainHref, `${WA_ICON}<span>Escríbenos</span>`, 'lt-topcta', 'Escríbenos por WhatsApp') : ''}</header>`}
-      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}">
+      <section class="lt-hero${ctx.profileMode ? ' lt-hero-p' : ''}" data-lt-hero>
         <span class="lt-pill lt-glass"><i aria-hidden="true"></i>Atención inmediata por WhatsApp</span>
         <h1>${esc(heroTitle)}</h1><p class="lt-sub">${esc(heroSub)}</p>
-        <div class="lt-hbtns">${btn(ctx, mainHref, `${WA_ICON}${esc(data.ctaText)}`, 'lt-b1')}
+        ${statsHtml}
+        <div class="lt-hbtns">${btn(ctx, mainHref, `${WA_ICON}${esc(data.ctaText)}`, 'lt-b1', '', 'main')}
           ${nOpt ? `<a class="lt-b2 lt-glass" href="#lt-a-${plans.length ? 'planes' : 'combos'}">Ver planes</a>` : ''}</div>
         ${data.coverUrl && !ctx.profileMode ? `<div class="lt-cover lt-glass"><img src="${esc(data.coverUrl)}" alt="" fetchpriority="high" decoding="async"></div>` : ''}
-        ${statsHtml}
       </section>
       ${mq}
       <main class="lt-wrap">

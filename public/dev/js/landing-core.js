@@ -85,24 +85,26 @@
     { id: 'paramount', name: 'Paramount+', color: '#0064FF', logo: '/logos/Paramount.svg' },
     { id: 'vix', name: 'ViX', color: '#FF5A00', logo: '/logos/vix.svg' },
     { id: 'crunchyroll', name: 'Crunchyroll', color: '#F47521', logo: '/logos/Crunchyroll.svg' },
-    { id: 'apple', name: 'Apple TV+', color: '#555555', logo: '/logos/Apple%20tv.svg' },
+    { id: 'apple', name: 'Apple TV+', color: '#6E6E73', logo: '/logos/appletv.svg' },
     { id: 'universal', name: 'Universal+', color: '#1A1A8C', logo: '/logos/Universal.svg' },
     { id: 'iptv', name: 'IPTV', color: '#7C3AED', logo: '/logos/IPTV.svg' },
-    { id: 'directv', name: 'DirecTV GO', color: '#00A3E0', logo: '/logos/Directv%20Go.svg' },
-    { id: 'l1max', name: 'L1 MAX', color: '#D4002A', logo: '/logos/L1%20MAX.svg' },
+    { id: 'directv', name: 'DirecTV GO', color: '#00A3E0', logo: '/logos/directvgo.svg' },
+    { id: 'l1max', name: 'L1 MAX', color: '#D4002A', logo: '/logos/l1max.svg' },
     { id: 'movistar', name: 'Movistar TV', color: '#019DF4', logo: '/logos/Movistar.svg' },
-    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/Chat%20GPT.svg' },
+    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/chatgpt.svg' },
     { id: 'canva', name: 'Canva Pro', color: '#00C4CC', logo: '/logos/Canva.svg' },
-    { id: 'capcut', name: 'CapCut Pro', color: '#111111', logo: '/logos/Capcut.svg' },
+    { id: 'capcut', name: 'CapCut Pro', color: '#3A3A3A', logo: '/logos/Capcut.svg' },
     { id: 'deezer', name: 'Deezer', color: '#A238FF', logo: '/logos/Deezer.svg' },
     { id: 'viki', name: 'Viki Rakuten', color: '#1E90FF', logo: '/logos/viki.svg' },
-    { id: 'googleone', name: 'Google One', color: '#4285F4', logo: '/logos/Google%20One.svg' },
+    { id: 'googleone', name: 'Google One', color: '#4285F4', logo: '/logos/googleone.svg' },
     { id: 'gemini', name: 'Gemini', color: '#8E75FF', logo: '/logos/GEMINI.svg' },
     { id: 'ufc', name: 'UFC Fight Pass', color: '#D20A0A', logo: '/logos/UFC.svg' },
     { id: 'fanatiz', name: 'Fanatiz', color: '#00C853', logo: '/logos/Fanatiz.svg' },
+    { id: 'cablego', name: 'Cable Go', color: '#0057B8', logo: '/logos/cablego.svg' },
+    { id: 'telelatino', name: 'Tele Latino', color: '#E3262E', logo: '/logos/telelatino.svg' },
     { id: 'other', name: 'Otro', color: '#7C3AED', logo: '' }
   ];
-  const ALIASES = { disneyplus: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount' };
+  const ALIASES = { disneyplus: 'disney', starplus: 'disney', star: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', amazonprime: 'prime', amazonprimevideo: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount', fightpass: 'ufc', cablegoperu: 'cablego', tvlatino: 'telelatino' };
   function platformInfo(idOrName) {
     const k = keyOf(idOrName);
     const id = ALIASES[k] || k;
@@ -154,6 +156,11 @@
     plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], enabled: true
   });
 
+  // Número de un precio escrito por el usuario ("15", "15,50"); NaN si no es número.
+  const priceNum = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : NaN; };
+  // Precio anterior solo si es mayor que el actual (si no, no es oferta y no se tacha).
+  const offerOld = (price, old) => { const a = priceNum(price), b = priceNum(old); return (Number.isFinite(a) && Number.isFinite(b) && b <= a) ? '' : old; };
+
   /** Normaliza cualquier objeto al formato guardado. Úsalo antes de guardar y al leer. */
   function normalize(raw = {}, ownerUid = '') {
     const d = raw || {};
@@ -166,12 +173,14 @@
       features: list(p?.features, 6).map(f => text(f, 60)).filter(Boolean), badge: text(p?.badge, 24),
       imageUrl: safeImage(p?.imageUrl), visible: p?.visible !== false
     })).filter(p => p.platform);
+    plans.forEach(p => { p.oldPrice = offerOld(p.price, p.oldPrice); });
     const combos = list(d.combos, 20).map((c, i) => ({
       id: text(c?.id, 40) || `c${i}`, name: text(c?.name, 60) || 'Combo',
       platforms: list(c?.platforms, 8).map(x => { const inf = platformInfo(x); return inf.id === 'other' ? text(x, 40) : inf.id; }).filter(Boolean),
       price: text(c?.price, 12), oldPrice: text(c?.oldPrice, 12), period: text(c?.period, 24) || '1 mes',
       badge: text(c?.badge, 24), visible: c?.visible !== false
     })).filter(c => c.platforms.length);
+    combos.forEach(c => { c.oldPrice = offerOld(c.price, c.oldPrice); });
     const links = list(d.links, 12).map(l => ({
       type: LINK_TYPES.some(t => t.id === l?.type) ? l.type : 'other',
       label: text(l?.label, 40), url: safeUrl(l?.url)
@@ -226,14 +235,31 @@
   }
 
   /** Contexto común que reciben las plantillas en render(root, data, ctx). */
+  /** Solo lo visible: planes, combos, plataformas (sin repetir) y precio más bajo. */
+  function visibleInfo(data) {
+    const plans = data.plans.filter(p => p.visible);
+    const combos = data.combos.filter(c => c.visible);
+    const platformIds = [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))];
+    const nums = plans.map(p => priceNum(p.price)).concat(combos.map(c => priceNum(c.price))).filter(Number.isFinite);
+    const min = nums.length ? Math.min(...nums) : NaN;
+    return { plans, combos, platformIds, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '' };
+  }
+
   function buildContext(data, opts = {}) {
     const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const vis = visibleInfo(data);
     return {
+      /** Solo planes/combos con visible !== false. Úsalos SIEMPRE (también en murales, marquesinas y contadores). */
+      visiblePlans: vis.plans, visibleCombos: vis.combos,
+      /** Ids de plataforma de planes y combos visibles, sin repetir. */
+      platformIds: vis.platformIds,
+      /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
+      minPrice: vis.minPrice, minPriceValue: vis.minPriceValue,
       preview: !!opts.preview, reducedMotion,
       esc, money: v => money(v, data.currency), platformInfo, linkIcon: t => LINK_ICONS[t] || LINK_ICONS.other,
       linkLabel: l => l.label || (LINK_TYPES.find(t => t.id === l.type) || {}).label || 'Enlace',
       /** Enlace de WhatsApp con mensaje prellenado para un producto (texto libre). */
-      buy: product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, product || ''].join(' ').replace(/\s{2,}/g, ' ').trim()),
+      buy: product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, String(product || '').trim() || 'tus planes'].join(' ').replace(/\s{2,}/g, ' ').trim()),
       planTitle: p => p.title || `${platformInfo(p.platform).name}${p.type === 'full' ? ' · Cuenta completa' : ''}`,
       typeLabel: p => p.type === 'full' ? 'Cuenta completa' : 'Perfil',
       /** true si el usuario eligió la cabecera tipo perfil de Facebook. */
@@ -255,27 +281,24 @@
     const avatar = d.logoUrl
       ? `<img src="${esc(d.logoUrl)}" alt="Logo de ${esc(d.name)}" decoding="async">`
       : `<span class="ltp-initial">${initial}</span>`;
-    const wa = whatsappUrl(d.whatsapp, (d.whatsappMessage || DEFAULTS.whatsappMessage).replace(/\s+$/, '') + ' tus planes');
     const links = d.links.slice(0, 6).map(l => `<a class="ltp-social" href="${esc(l.url)}" target="_blank" rel="noopener" aria-label="${esc(l.label || (LINK_TYPES.find(t => t.id === l.type) || {}).label || 'Enlace')}">${LINK_ICONS[l.type] || LINK_ICONS.other}</a>`).join('');
-    const count = new Set(d.plans.filter(p => p.visible).map(p => p.platform)).size;
+    const count = visibleInfo(d).platformIds.length;
     return `<header class="ltp" data-lt-profile>
       <div class="ltp-cover">${cover}<span class="ltp-shade" aria-hidden="true"></span></div>
       <div class="ltp-body">
         <div class="ltp-avatar"><span class="ltp-ring" aria-hidden="true"></span><span class="ltp-avatar-in">${avatar}</span></div>
         <div class="ltp-info">
-          <h1 class="ltp-name">${esc(d.name)} <span class="ltp-check" title="Tienda verificada" aria-label="Tienda verificada"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.4 2.1 3.2-.4.9 3.1 2.9 1.5-1 3 1 3-2.9 1.5-.9 3.1-3.2-.4L12 22l-2.4-2.1-3.2.4-.9-3.1-2.9-1.5 1-3-1-3 2.9-1.5.9-3.1 3.2.4z"/><path fill="#fff" d="M10.6 15.6 7.4 12.4l1.4-1.4 1.8 1.8 4.6-4.6 1.4 1.4z"/></svg></span></h1>
+          <h1 class="ltp-name">${esc(d.name)}</h1>
           ${d.tagline ? `<p class="ltp-tag">${esc(d.tagline)}</p>` : ''}
-          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}<span class="ltp-online"><i></i>Atención por WhatsApp</span></p>
+          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? '<span class="ltp-online"><i></i>Atención por WhatsApp</span>' : ''}</p>
         </div>
-        <div class="ltp-actions">
-          ${wa ? `<a class="ltp-btn" data-lt-btn href="${esc(wa)}" target="_blank" rel="noopener">${LINK_ICONS.whatsapp}<span>Escríbenos</span></a>` : ''}
-          ${links ? `<div class="ltp-socials">${links}</div>` : ''}
-        </div>
+        ${links ? `<div class="ltp-actions"><div class="ltp-socials">${links}</div></div>` : ''}
       </div>
     </header>`;
   }
 
   const SHARED_CSS = `
+  .lt-root{isolation:isolate}
   .lt-root .ltp{position:relative;z-index:3;max-width:1100px;margin:0 auto;padding:0 0 8px;color:#fff;font-family:inherit}
   .lt-root .ltp-cover{position:relative;height:clamp(150px,34vw,340px);overflow:hidden;border-radius:0 0 22px 22px;background:linear-gradient(135deg,var(--lt-primary),var(--lt-accent))}
   @media(min-width:1100px){.lt-root .ltp-cover{border-radius:0 0 26px 26px}}
@@ -294,18 +317,18 @@
   .lt-root .ltp-initial{font-size:clamp(38px,9vw,64px);font-weight:900;color:#fff}
   .lt-root .ltp-info{flex:1 1 240px;min-width:0;padding-bottom:4px;animation:ltp-up .7s .15s ease-out both}
   .lt-root .ltp-name{display:flex;align-items:center;gap:8px;margin:0;font-size:clamp(24px,5.4vw,40px);line-height:1.1;font-weight:900;overflow-wrap:anywhere;color:inherit}
-  .lt-root .ltp-check{display:inline-grid;width:.8em;height:.8em;flex:0 0 auto;color:var(--lt-accent)}
-  .lt-root .ltp-check svg{width:100%;height:100%}
   .lt-root .ltp-tag{margin:6px 0 0;opacity:.85;font-size:15px;overflow-wrap:anywhere}
   .lt-root .ltp-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:13px;opacity:.75}
   .lt-root .ltp-online{display:inline-flex;align-items:center;gap:6px}
-  .lt-root .ltp-online i{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:ltp-dot 2s infinite}
+  .lt-root .ltp-online i{position:relative;width:8px;height:8px;border-radius:50%;background:#22c55e}
+  .lt-root .ltp-online i::after{content:"";position:absolute;inset:0;border-radius:50%;background:#22c55e;animation:ltp-dot 2s ease-out infinite}
   .lt-root .ltp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-bottom:6px;animation:ltp-up .7s .3s ease-out both}
   .lt-root .ltp-btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 20px;border-radius:999px;background:#22c55e;color:#04130a;font-weight:900;text-decoration:none}
   .lt-root .ltp-btn svg{width:20px;height:20px}
   .lt-root .ltp-socials{display:flex;gap:8px}
   .lt-root .ltp-social{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.12);color:inherit;border:1px solid rgba(255,255,255,.18)}
   .lt-root .ltp-social svg{width:20px;height:20px}
+  @media(min-width:641px){.lt-root .ltp-body{align-items:flex-start}.lt-root .ltp-info,.lt-root .ltp-actions{padding-top:calc(clamp(96px,22vw,168px) / 2 + 12px)}}
   @media(max-width:640px){.lt-root .ltp-body{justify-content:center;text-align:center}.lt-root .ltp-info{flex-basis:100%}.lt-root .ltp-name,.lt-root .ltp-meta,.lt-root .ltp-actions{justify-content:center}}
   .lt-root.lt-light-profile .ltp{color:#111}
   .lt-root.lt-light-profile .ltp-avatar-in{border-color:#fff}
@@ -314,20 +337,50 @@
   @keyframes ltp-blob{to{transform:translate(18%,22%) scale(1.25)}}
   @keyframes ltp-pop{from{opacity:0;transform:scale(.4) rotate(-12deg)}to{opacity:1;transform:none}}
   @keyframes ltp-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-  @keyframes ltp-dot{0%{box-shadow:0 0 0 0 rgba(34,197,94,.6)}80%,100%{box-shadow:0 0 0 9px rgba(34,197,94,0)}}
+  @keyframes ltp-dot{0%{transform:scale(1);opacity:.6}80%,100%{transform:scale(3.2);opacity:0}}
   @keyframes ltp-spin{to{transform:rotate(360deg)}}
   @keyframes lt-shine{0%,60%{transform:translateX(-120%) skewX(-20deg)}100%{transform:translateX(220%) skewX(-20deg)}}
   @keyframes lt-float{0%{transform:translate3d(0,0,0);opacity:0}10%{opacity:.9}90%{opacity:.9}100%{transform:translate3d(var(--dx),-110vh,0);opacity:0}}
   /* --- nivel de animación --- */
   .lt-root[data-lt-motion="max"] .ltp-ring{animation:ltp-spin 4s linear infinite}
-  .lt-root[data-lt-motion="max"] [data-lt-btn]{position:relative;overflow:hidden;isolation:isolate}
-  .lt-root[data-lt-motion="max"] [data-lt-btn]::after{content:"";position:absolute;inset:0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);transform:translateX(-120%) skewX(-20deg);animation:lt-shine 3.2s ease-in-out infinite;pointer-events:none;z-index:1}
+  .lt-root[data-lt-motion="max"] [data-lt-btn="main"]{position:relative;overflow:hidden;isolation:isolate}
+  .lt-root[data-lt-motion="max"] [data-lt-btn="main"]::after{content:"";position:absolute;inset:0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);transform:translateX(-120%) skewX(-20deg);animation:lt-shine 3.2s ease-in-out infinite;pointer-events:none;z-index:1}
   .lt-root[data-lt-motion="max"] [data-lt-card]{transition:transform .25s ease-out;transform-style:preserve-3d;will-change:transform}
-  .lt-root .lt-particles{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
+  .lt-root .lt-particles{position:fixed;inset:0;pointer-events:none;z-index:-1;overflow:hidden}
   .lt-root.lt-in-preview .lt-particles{position:absolute}
   .lt-root .lt-particles i{position:absolute;bottom:-20px;width:var(--s);height:var(--s);border-radius:50%;background:var(--c);opacity:0;animation:lt-float var(--t) linear var(--d) infinite;filter:none}
   .lt-root[data-lt-motion="calm"] *,.lt-root[data-lt-motion="calm"] *::before,.lt-root[data-lt-motion="calm"] *::after{animation-iteration-count:1!important}
-  @media (prefers-reduced-motion: reduce){.lt-root *,.lt-root *::before,.lt-root *::after{animation:none!important;transition:none!important}.lt-root .lt-particles{display:none}}
+  /* --- micro-interacciones (solo transform) --- */
+  .lt-root [data-lt-btn]:active{transform:scale(.96)}
+  .lt-root [data-lt-card]:active{transform:translateY(-3px)}
+  /* --- barra de compra fija (móvil) --- */
+  .lt-root .lt-bbw{display:none}
+  @media (max-width:720px){
+    .lt-root.lt-has-bb{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+    .lt-root.lt-has-bb [data-lt-fab]{display:none!important}
+    .lt-root .lt-bbw{display:block;position:fixed;left:0;right:0;bottom:0;z-index:60;pointer-events:none;padding:0 10px calc(10px + env(safe-area-inset-bottom,0px))}
+    .lt-root.lt-in-preview .lt-bbw{position:sticky;height:0;padding:0}
+    .lt-root.lt-in-preview .lt-bb{position:absolute;left:10px;right:10px;bottom:10px}
+  }
+  .lt-root .lt-bb{display:flex;align-items:center;gap:10px;min-height:58px;padding:7px 7px 7px 18px;border-radius:18px;background:rgba(14,14,22,.94);color:#fff;text-decoration:none;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-shadow:0 12px 34px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.1);pointer-events:auto;transform:translateY(130%);opacity:0;transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .25s;-webkit-tap-highlight-color:transparent}
+  .lt-root .lt-bbw.is-on .lt-bb{transform:none;opacity:1}
+  .lt-root .lt-bbw.is-on .lt-bb:active{transform:scale(.97)}
+  .lt-root .lt-bb-p{display:flex;flex-direction:column;line-height:1.1;min-width:0;white-space:nowrap}
+  .lt-root .lt-bb-p small{font-size:11px;opacity:.7;font-weight:600}
+  .lt-root .lt-bb-p b{font-size:18px;font-weight:900}
+  .lt-root .lt-bb-c{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:13px;background:#25d366;color:#052e14;font-weight:900;font-size:15px;white-space:nowrap;position:relative;overflow:hidden}
+  .lt-root .lt-bb-c svg{width:20px;height:20px;flex:none}
+  .lt-root .lt-bb.is-solo .lt-bb-c{margin:0;flex:1}
+  .lt-root .lt-bb.is-solo{padding-left:7px}
+  @media (max-width:340px){.lt-root .lt-bb-c{padding:0 12px;font-size:14px}}
+  /* --- reducir movimiento: sin bucles, desplazamientos ni partículas; solo un fundido corto una vez --- */
+  @keyframes lt-fade{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion: reduce){
+    .lt-root *,.lt-root *::before,.lt-root *::after{animation:none!important;transition:none!important}
+    .lt-root .lt-particles{display:none}
+    .lt-root.lt-root>:not(.lt-particles):not(.lt-bbw){animation:lt-fade .45s ease-out both!important}
+    .lt-root.lt-root .lt-bb{transition:opacity .3s!important;transform:none!important}
+  }
   `;
 
   /** Efectos comunes según data.motion. Se aplica DESPUÉS de la plantilla. Devuelve función de limpieza. */
@@ -365,6 +418,35 @@
     return () => cleanups.forEach(f => f());
   }
 
+  /** Barra de compra fija en móvil (≤720px). Aparece tras pasar el hero y se oculta en el pie.
+   *  Las plantillas marcan su hero con data-lt-hero, su pie con data-lt-foot y su botón flotante con data-lt-fab. */
+  function applyBuyBar(root, d, ctx) {
+    const href = ctx.buy('');
+    if (!d.whatsapp || !href) return null;
+    const price = ctx.minPrice;
+    const wrap = document.createElement('div');
+    wrap.className = 'lt-bbw';
+    wrap.innerHTML = `<a class="lt-bb${price ? '' : ' is-solo'}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${price ? 'Desde ' + esc(price) + ' · ' : ''}Pedir por WhatsApp">` +
+      (price ? `<span class="lt-bb-p"><small>Desde</small><b>${esc(price)}</b></span>` : '') +
+      `<span class="lt-bb-c" data-lt-btn="main">${LINK_ICONS.whatsapp}<span>Pedir por WhatsApp</span></span></a>`;
+    root.appendChild(wrap);
+    root.classList.add('lt-has-bb');
+    const hero = root.querySelector('[data-lt-hero]') || root.querySelector('[data-lt-profile]');
+    const foot = root.querySelector('[data-lt-foot]');
+    if (typeof IntersectionObserver !== 'function' || !hero) { wrap.classList.add('is-on'); return null; }
+    let pastHero = false, atFoot = false;
+    const sync = () => wrap.classList.toggle('is-on', pastHero && !atFoot);
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.target === hero) pastHero = !e.isIntersecting && e.boundingClientRect.top < 0;
+        else if (e.target === foot) atFoot = e.isIntersecting;
+      });
+      sync();
+    }, { threshold: 0 });
+    io.observe(hero); if (foot) io.observe(foot);
+    return () => io.disconnect();
+  }
+
   function render(root, data, opts = {}) {
     const d = normalize(data, data?.ownerUid);
     const tpl = getTemplate(opts.template || d.template);
@@ -384,13 +466,16 @@
     // Encadena la limpieza de la plantilla con la de los efectos comunes.
     const tplCleanup = root.__ltCleanup;
     const motionCleanup = applyMotion(root, view, ctx);
-    if (motionCleanup) root.__ltCleanup = () => { try { tplCleanup && tplCleanup(); } finally { motionCleanup(); } };
+    const barCleanup = applyBuyBar(root, view, ctx);
+    if (motionCleanup || barCleanup) root.__ltCleanup = () => {
+      try { tplCleanup && tplCleanup(); } finally { try { motionCleanup && motionCleanup(); } finally { barCleanup && barCleanup(); } }
+    };
   }
 
   root.LandingCore = Object.freeze({
     FIREBASE, CLOUDINARY, STORAGE, COLLECTION, DEFAULTS, PLATFORMS, LINK_TYPES, LINK_ICONS, CURRENCIES,
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
-    profileHeaderHtml, SHARED_CSS
+    profileHeaderHtml, SHARED_CSS, visibleInfo
   });
 })(typeof window !== 'undefined' ? window : globalThis);

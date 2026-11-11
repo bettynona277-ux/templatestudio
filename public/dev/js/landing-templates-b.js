@@ -47,7 +47,8 @@
     s.textContent = img.getAttribute('data-ini');
     img.replaceWith(s);
   }
-  const visible = d => ({ plans: d.plans.filter(p => p.visible), combos: d.combos.filter(c => c.visible) });
+  // Solo lo visible (ctx.visiblePlans/visibleCombos del núcleo; respaldo por si se usa un núcleo viejo).
+  const visible = (d, ctx) => ({ plans: (ctx && ctx.visiblePlans) || d.plans.filter(p => p.visible), combos: (ctx && ctx.visibleCombos) || d.combos.filter(c => c.visible) });
   const platformIds = (plans, combos) => [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))];
   function planBuy(ctx, p) {
     const title = ctx.planTitle(p), type = ctx.typeLabel(p);
@@ -60,11 +61,12 @@
     const parts = [`${c.name} (${names})`]; const m = ctx.money(c.price); if (m) parts.push(m); if (c.period) parts.push(c.period);
     return ctx.buy(parts.join(' · '));
   }
-  function btn(ctx, url, label, cls, icon) {
+  function btn(ctx, url, label, cls, icon, main) {
     const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span>${ctx.esc(label)}</span>`;
-    // data-lt-btn: el núcleo añade brillo en el nivel 'max'.
-    if (!url) return `<span class="ltb-btn ${cls} is-off" data-lt-btn aria-disabled="true">${inner}</span>`;
-    return `<a class="ltb-btn ${cls}" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener">${inner}</a>`;
+    // data-lt-btn: micro-interacción del núcleo; "main" = botón principal (único con brillo en 'max').
+    const mark = main ? 'data-lt-btn="main"' : 'data-lt-btn';
+    if (!url) return `<span class="ltb-btn ${cls} is-off" ${mark} aria-disabled="true">${inner}</span>`;
+    return `<a class="ltb-btn ${cls}" ${mark} href="${ctx.esc(url)}" target="_blank" rel="noopener">${inner}</a>`;
   }
   function priceHtml(ctx, price, old, period) {
     const m = ctx.money(price), o = ctx.money(old);
@@ -101,12 +103,18 @@
   const paysSec = (ctx, d, t) => !d.paymentMethods.length ? '' : sec('pays', t, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map(p => `<li>${ctx.esc(p)}</li>`).join('')}</ul>`);
   const faqSec = (ctx, d, t) => !d.faq.length ? '' : sec('faq', t, `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary>${ctx.esc(f.q)}</summary><p>${ctx.esc(f.a)}</p></details>`).join('')}</div>`);
   const linksSec = (ctx, d, t) => !d.links.length ? '' : sec('links', t, `<div class="ltb-links" data-rv>${d.links.map(l => `<a class="ltb-link" href="${ctx.esc(l.url)}" target="_blank" rel="noopener">${ctx.linkIcon(l.type)}<span>${ctx.esc(ctx.linkLabel(l))}</span></a>`).join('')}</div>`);
-  const footer = (ctx, d, extra = '') => `<footer class="ltb-foot">${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p><p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p></footer>`;
+  const footer = (ctx, d, extra = '') => `<footer class="ltb-foot" data-lt-foot>${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p><p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p></footer>`;
   // El brillo del núcleo va en una capa interna (.ltb-shn): el ::before del botón es el anillo que late.
-  const fab = (ctx, wa) => wa ? `<div class="ltb-fabwrap"><a class="ltb-fab" href="${ctx.esc(wa)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${ctx.linkIcon('whatsapp')}<i class="ltb-shn" data-lt-btn aria-hidden="true"></i></a></div>` : '';
+  const fab = (ctx, wa) => wa ? `<div class="ltb-fabwrap" data-lt-fab><a class="ltb-fab" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${ctx.linkIcon('whatsapp')}</a></div>` : '';
+  /** Chip "Desde S/ X" para el hero, con hasta 3 logos de plataformas visibles (ctx.minPrice / ctx.platformIds). */
+  function fromChip(ctx) {
+    if (!ctx.minPrice) return '';
+    const logos = (ctx.platformIds || []).slice(0, 3).map(id => logoHtml(ctx, id, 'ltb-fl')).join('');
+    return `<div class="ltb-from">${logos ? `<span class="ltb-fls" aria-hidden="true">${logos}</span>` : ''}<span>Desde <b>${ctx.esc(ctx.minPrice)}</b></span></div>`;
+  }
   /** Cabecera: tipo perfil (núcleo) o la barra propia de la plantilla. */
   const top = (ctx, d, wa) => (ctx.profileMode && typeof ctx.profileHeader === 'function') ? ctx.profileHeader() : header(ctx, d, wa);
-  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true) : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
+  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true) : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
 
   /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup. */
   function setup(root, ctx, d) {
@@ -131,13 +139,17 @@
   /** Aparición al hacer scroll. Sin IntersectionObserver o con reducedMotion: todo visible. */
   function reveal(root, ctx, cleanups) {
     const els = [...root.querySelectorAll('[data-rv]')];
-    if (ctx.reducedMotion || typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
+    if (typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
     root.classList.add('ltb-rv');
+    let fired = false;
     const io = new G.IntersectionObserver(entries => {
+      fired = true;
       entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('is-in'); io.unobserve(en.target); } });
     }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 });
     els.forEach(e => io.observe(e));
-    cleanups.push(() => io.disconnect());
+    // Respaldo: si el observer no responde en 2,5 s, se muestra todo (nunca queda contenido invisible).
+    const timer = G.setTimeout(() => { if (!fired) els.forEach(e => e.classList.add('is-in')); }, 2500);
+    cleanups.push(() => { io.disconnect(); G.clearTimeout(timer); });
   }
 
   /** CSS estructural común, con el prefijo de cada plantilla. */
@@ -161,6 +173,7 @@ ${s} .ltb-mono{display:grid;place-items:center;font-weight:800}
 ${s} .ltb-brand b{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 ${s} .ltb-headcta{flex:none}
 ${s} .ltb-logo{width:52px;height:52px;border-radius:14px;flex:none;object-fit:cover}
+.lt-premium .ltb-logo,.lt-kinetic .ltb-logo{outline:1px solid rgba(255,255,255,.16);outline-offset:-1px}
 ${s} .lt-ini{display:grid;place-items:center;font-weight:800;font-size:22px;line-height:1}
 ${s} .ltb-card{position:relative;display:flex;flex-direction:column;gap:14px;min-width:0}
 ${s} .ltb-card-top{display:flex;align-items:center;gap:12px;min-width:0}
@@ -211,8 +224,15 @@ ${s} .ltb-shn{position:absolute;inset:0;border-radius:inherit;pointer-events:non
 ${s}[data-lt-motion] .ltb-shn[data-lt-btn]{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${s}[data-lt-motion="max"] .ltb-card[data-lt-card]{transition:transform .25s ease-out,rotate .45s cubic-bezier(.3,1.7,.5,1),box-shadow .2s,border-color .4s}
 ${s}[data-lt-motion="calm"] *,${s}[data-lt-motion="calm"] *::before,${s}[data-lt-motion="calm"] *::after{animation-fill-mode:both!important}
+${s} .ltb-from{display:inline-flex;align-items:center;gap:10px;max-width:100%;padding:6px 14px 6px 6px;border-radius:999px;font-size:15px;margin:0 0 22px;overflow-wrap:anywhere}
+${s} .ltb-from b{font-size:1.15em;font-weight:900}
+${s} .ltb-fls{display:flex;flex:none}
+${s} .ltb-fl{width:28px;height:28px;border-radius:50%;object-fit:cover;font-size:12px;flex:none}
+${s} .ltb-fl+.ltb-fl{margin-left:-8px}
+@keyframes ltb-fade-${id}{from{opacity:0}to{opacity:1}}
 ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!important;transition:none!important}
-@media (prefers-reduced-motion:reduce){${s} *,${s} *::before,${s} *::after{animation:none!important;transition:none!important}}
+${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!important}
+@media (prefers-reduced-motion:reduce){${s} *,${s} *::before,${s} *::after{animation:none!important;transition:none!important}${s}.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!important}}
 `;
   }
 
@@ -236,6 +256,8 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-pop .ltb-hl::before{content:"";position:absolute;left:-.08em;right:-.08em;bottom:.02em;height:.4em;background:var(--lt-accent);border-radius:.18em;z-index:-1;rotate:-2deg;transform-origin:left center;animation:pp-mark .7s .55s cubic-bezier(.3,1.4,.5,1) both}
 .lt-pop .ltb-sub{font-size:clamp(16px,4.3vw,20px);max-width:560px;margin:0 0 28px;font-weight:600;color:#3d3556}
 .lt-pop .ltb-ctas{display:flex;flex-wrap:wrap;gap:16px}
+.lt-pop .ltb-from{background:#fff;border:3px solid var(--pp-ink);box-shadow:3px 3px 0 var(--pp-ink);font-weight:800}
+.lt-pop .ltb-fl{border:2px solid var(--pp-ink)}
 .lt-pop .ltb-btn{border:3px solid var(--pp-ink);border-radius:999px;font-size:17px;font-weight:900;box-shadow:5px 5px 0 var(--pp-ink);transition:transform .3s cubic-bezier(.3,1.8,.5,1),box-shadow .15s;background:#fff;color:var(--pp-ink)}
 .lt-pop .ltb-btn:hover{transform:translateY(-3px) scale(1.04) rotate(-1deg)}
 .lt-pop .ltb-btn:active{transform:translate(4px,4px);box-shadow:1px 1px 0 var(--pp-ink)}
@@ -290,7 +312,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-pop .ltb-combo:nth-child(3n){background:#c9f7e3}
 .lt-pop .ltb-combo .ltb-title{font-size:25px;padding-right:10px}
 .lt-pop .ltb-combo .ltb-logos{gap:0;padding-left:2px}
-.lt-pop .ltb-combo .ltb-logos .ltb-logo{margin-right:-10px;box-shadow:2px 2px 0 var(--pp-ink);border-radius:50%;transition:transform .3s cubic-bezier(.3,1.8,.5,1)}
+.lt-pop .ltb-combo .ltb-logos .ltb-logo{margin-right:-10px;box-shadow:2px 2px 0 var(--pp-ink);border-radius:28%;transition:transform .3s cubic-bezier(.3,1.8,.5,1)}
 .lt-pop .ltb-combo:hover .ltb-logos .ltb-logo{transform:translateY(-4px) rotate(-8deg)}
 .lt-pop .ltb-incl{font-weight:700}
 .lt-pop .ltb-bens li{background:#fff;border:3px solid var(--pp-ink);border-radius:18px;padding:14px 16px;font-weight:800;box-shadow:4px 4px 0 var(--pp-ink)}
@@ -319,7 +341,6 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-pop .ltp{color:var(--pp-ink)}
 .lt-pop .ltp-cover{margin:12px 12px 0;border:3px solid var(--pp-ink);border-radius:24px;box-shadow:6px 6px 0 var(--pp-ink)}
 .lt-pop .ltp-shade{background:linear-gradient(180deg,transparent 60%,rgba(27,21,48,.25))}
-.lt-pop .ltp-body{margin-top:calc(clamp(96px,22vw,168px) / -2 + 6px)}
 .lt-pop .ltp-avatar{box-shadow:5px 5px 0 var(--pp-ink);background:var(--pp-ink)}
 .lt-pop .ltp-ring{inset:3px}
 .lt-pop.lt-light-profile .ltp-avatar-in{border:3px solid var(--pp-ink);background:var(--lt-primary)}
@@ -341,7 +362,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
   function renderPop(root, d, ctx) {
     LC.injectCss('pop', CSS_POP);
     const cl = setup(root, ctx, d);
-    const { plans, combos } = visible(d);
+    const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const title = d.heroTitle || LC.DEFAULTS.heroTitle;
     const words = title.split(/\s+/).filter(Boolean);
@@ -367,9 +388,9 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
     if (ctx.profileMode) root.classList.add('lt-light-profile');
     const html =
       top(ctx, d, wa) +
-      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}">${shapes}${confetti}<div class="ltb-wrap ltb-hero-in"><div class="ltb-hero-txt">` +
+      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}" data-lt-hero>${shapes}${confetti}<div class="ltb-wrap ltb-hero-in"><div class="ltb-hero-txt">` +
       `<span class="ltb-kicker">${ctx.esc((!ctx.profileMode && d.tagline) || '¡Activación inmediata!')}</span>` +
-      `<h1 class="ltb-h1">${h1}</h1><p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      `<h1 class="ltb-h1">${h1}</h1><p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn ltb-ghost" data-goto="plans">Ver precios</button>' : ''}</div>` +
       `</div>${art}</div></section>` +
       (plans.length ? sec('plans', 'Elige tu plataforma', `<div class="ltb-grid">${plans.map((p, i) => planCard(ctx, p, i)).join('')}</div>`) : '') +
@@ -409,6 +430,11 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-premium .ltb-hero-txt>:nth-child(2){animation-delay:.15s}
 .lt-premium .ltb-hero-txt>:nth-child(4){animation-delay:.45s}
 .lt-premium .ltb-hero-txt>:nth-child(5){animation-delay:.6s}
+.lt-premium .ltb-hero-txt>:nth-child(6){animation-delay:.72s}
+.lt-premium .ltb-from{border:1px solid var(--pr-line);color:var(--pr-mut);letter-spacing:.06em;background:rgba(217,180,106,.06);margin:-12px 0 28px}
+.lt-premium .ltb-from b{font-family:${PR_SERIF};font-weight:400;font-size:1.4em;color:var(--pr-gold2);letter-spacing:0}
+.lt-premium .ltb-fl{box-shadow:0 0 0 2px var(--pr-bg)}
+@media (max-width:540px){.lt-premium .ltb-tcap,.lt-premium .ltb-tablewrap{display:none}}
 .lt-premium .ltb-hero-txt .ltb-rule{animation:pr-draw 1.4s .35s cubic-bezier(.2,.7,.2,1) both}
 @keyframes pr-fade{from{opacity:0;translate:0 20px}to{opacity:1;translate:0 0}}
 @keyframes pr-draw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
@@ -435,15 +461,15 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-premium .ltb-card{background:linear-gradient(180deg,#17140f,#0f0d0a);border:1px solid var(--pr-line);border-radius:20px;padding:28px 24px 24px;overflow:hidden;transition:border-color .5s,transform .5s cubic-bezier(.2,.7,.2,1)}
 .lt-premium .ltb-card:hover{border-color:var(--pr-gold);transform:translateY(-5px)}
 .lt-premium .ltb-card::before{content:"";position:absolute;left:24px;right:24px;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--pc,var(--pr-gold)),transparent)}
-.lt-premium .ltb-logo{border-radius:50%;width:54px;height:54px;box-shadow:0 0 0 1px var(--pr-line),0 0 0 6px rgba(217,180,106,.06)}
+.lt-premium .ltb-logo{border-radius:28%;width:54px;height:54px;box-shadow:0 0 0 1px var(--pr-line),0 0 0 6px rgba(217,180,106,.06)}
 .lt-premium .ltb-title{font-size:23px;line-height:1.15}
-.lt-premium .ltb-type{color:var(--pr-gold);letter-spacing:.22em;font-weight:500;font-size:10.5px}
+.lt-premium .ltb-type{color:var(--pr-gold);letter-spacing:.2em;font-weight:500;font-size:12px}
 .lt-premium .ltb-price{padding:16px 0;border-top:1px solid var(--pr-line);border-bottom:1px solid var(--pr-line)}
 .lt-premium .ltb-price strong{font-size:44px;color:var(--pr-gold2)}
 .lt-premium .ltb-old,.lt-premium .ltb-per{color:var(--pr-mut)}
 .lt-premium .ltb-feats{color:#ddd5c3}
 .lt-premium .ltb-feats li::before{content:"";flex:none;width:14px;height:1px;background:var(--pr-gold);margin-top:.78em}
-.lt-premium .ltb-badge{align-self:flex-start;max-width:100%;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#1b1407;background:var(--pr-grad);border-radius:999px;padding:5px 12px;font-weight:700;overflow-wrap:anywhere}
+.lt-premium .ltb-badge{align-self:flex-start;max-width:100%;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#1b1407;background:var(--pr-grad);border-radius:999px;padding:5px 12px;font-weight:700;overflow-wrap:anywhere;font-size:12px;letter-spacing:.18em}
 .lt-premium .ltb-tablewrap{margin-top:64px;overflow-x:auto;border:1px solid var(--pr-line);border-radius:20px;background:#0f0d0a}
 .lt-premium .ltb-tcap{text-align:center;color:var(--pr-gold);font-size:11px;letter-spacing:.34em;text-transform:uppercase;margin:64px 0 0}
 .lt-premium .ltb-tcap+.ltb-tablewrap{margin-top:18px}
@@ -512,7 +538,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
   function renderPremium(root, d, ctx) {
     LC.injectCss('premium', CSS_PREMIUM);
     const cl = setup(root, ctx, d);
-    const { plans, combos } = visible(d);
+    const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const title = d.heroTitle || LC.DEFAULTS.heroTitle;
     const words = title.split(/\s+/).filter(Boolean);
@@ -540,10 +566,10 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
     const featIdx = combos.findIndex(c => c.badge);
     const html =
       top(ctx, d, wa) +
-      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}">${bg}<div class="ltb-wrap"><div class="ltb-hero-txt">` +
+      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}" data-lt-hero>${bg}<div class="ltb-wrap"><div class="ltb-hero-txt">` +
       `<span class="ltb-eyebrow">${ctx.esc(ctx.profileMode ? 'Streaming premium' : (d.tagline || d.name))}</span>` +
       `<h1 class="ltb-h1">${h1}</h1><span class="ltb-rule" aria-hidden="true"></span>` +
-      `<p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      `<p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn" data-goto="plans">Ver planes</button>' : ''}</div>` +
       `</div></div></section>` +
       (plans.length ? sec('plans', '<small>Catálogo</small>Planes individuales', `<div class="ltb-grid">${plans.map((p, i) => planCard(ctx, p, i)).join('')}</div>${table}`) : '') +
@@ -582,7 +608,10 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 @keyframes kn-drift{from{transform:translateX(0)}to{transform:translateX(-45%)}}
 @keyframes kn-blink{50%{opacity:.15}}
 .lt-kinetic .ltb-kicker{display:inline-flex;align-items:center;gap:10px;font-size:12px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:var(--kn-mut);max-width:100%;overflow-wrap:anywhere}
-.lt-kinetic .ltb-kicker i{width:10px;height:10px;border-radius:50%;background:var(--kn-hi);flex:none;animation:kn-blink 1.1s ease-in-out infinite}
+.lt-kinetic .ltb-kicker i{width:10px;height:10px;border-radius:50%;background:var(--kn-hi);flex:none}
+.lt-kinetic .ltb-from{background:var(--kn-card);border:1px solid var(--kn-line);border-radius:6px;text-transform:uppercase;letter-spacing:.08em;font-size:13px;font-weight:800;color:var(--kn-mut)}
+.lt-kinetic .ltb-from b{font-family:var(--kn-disp);font-size:1.7em;color:var(--kn-hi);letter-spacing:0}
+.lt-kinetic .ltb-fl{border-radius:6px;box-shadow:0 0 0 2px var(--kn-card)}
 .lt-kinetic .ltb-h1{margin:16px 0 18px;line-height:.9;font-size:clamp(34px,12vw,150px);font-size:clamp(26px,min(15cqi,calc(128cqi / var(--kn-len,8))),150px)}
 .lt-kinetic .ltb-w{display:inline-block;white-space:nowrap}
 .lt-kinetic .ltb-w:last-child{color:var(--kn-hi)}
@@ -590,7 +619,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 @keyframes kn-in{from{opacity:0;transform:translateY(.7em) rotate(12deg) scale(.5)}to{opacity:1;transform:none}}
 .lt-kinetic .ltb-rotline{display:flex;flex-direction:column;gap:6px;margin:0 0 22px}
 .lt-kinetic .ltb-rotlbl{font-size:13px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--kn-mut)}
-.lt-kinetic .ltb-rot{display:grid;line-height:1;perspective:700px;font-size:clamp(30px,10vw,100px);font-size:clamp(26px,min(11cqi,calc(118cqi / var(--kn-rlen,8))),100px)}
+.lt-kinetic .ltb-rot{display:grid;overflow:hidden;padding-bottom:.08em;line-height:1;perspective:700px;font-size:clamp(30px,10vw,100px);font-size:clamp(26px,min(11cqi,calc(118cqi / var(--kn-rlen,8))),100px)}
 .lt-kinetic .ltb-rw{grid-area:1/1;opacity:0;transform:translateY(55%) rotateX(-80deg);transform-origin:50% 100%;transition:transform .6s cubic-bezier(.2,.8,.2,1),opacity .4s;overflow-wrap:anywhere}
 .lt-kinetic .ltb-rw.is-on{opacity:1;transform:none}
 .lt-kinetic .ltb-rw.is-out{opacity:0;transform:translateY(-55%) rotateX(80deg);transform-origin:50% 0}
@@ -635,7 +664,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
 .lt-kinetic .ltb-feats li::before{content:"→";flex:none;color:var(--kn-hi);font-weight:900}
 .lt-kinetic .ltb-combo{border-top:6px solid var(--lt-primary)}
 .lt-kinetic .ltb-combo .ltb-title{font-size:clamp(26px,8vw,36px)}
-.lt-kinetic .ltb-combo .ltb-logo{border-radius:50%;box-shadow:0 0 0 2px var(--kn-card),0 0 0 3px var(--kn-line);transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.lt-kinetic .ltb-combo .ltb-logo{border-radius:28%;box-shadow:0 0 0 2px var(--kn-card),0 0 0 3px var(--kn-line);transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
 .lt-kinetic .ltb-combo:hover .ltb-logo{transform:translateY(-4px)}
 .lt-kinetic .ltb-combo:hover .ltb-logo:nth-child(2n){transform:translateY(4px)}
 .lt-kinetic .ltb-incl{color:var(--kn-mut)}
@@ -690,7 +719,7 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
     LC.injectCss('kinetic', CSS_KINETIC);
     const cl = setup(root, ctx, d);
     root.style.setProperty('--kn-hi', readable('#07070a', [d.theme.accent, d.theme.primary, '#ffffff'], 4));
-    const { plans, combos } = visible(d);
+    const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const title = d.heroTitle || LC.DEFAULTS.heroTitle;
     const tWords = title.split(/\s+/).filter(Boolean);
@@ -703,21 +732,19 @@ ${s}.ltb-rm *,${s}.ltb-rm *::before,${s}.ltb-rm *::after{animation:none!importan
     const rlen = Math.max(6, ...rot.flatMap(r => String(r.name).split(/\s+/).map(w => [...w].length)));
     const bg = `<div class="ltb-hero-bg" aria-hidden="true">${d.coverUrl && !ctx.profileMode ? `<img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high">` : ''}<div class="ltb-glow"></div><div class="ltb-gridbg"></div><div class="ltb-ghost">${ctx.esc(d.name)}</div></div>`;
     const mq1 = `<div class="ltb-mq" aria-hidden="true">${marquee(ctx, rot.map(r => r.name), 'b1')}${marquee(ctx, (d.benefits.length ? d.benefits : ['Activación inmediata', 'Soporte por WhatsApp', 'Garantía total']), 'b2')}</div>`;
-    const mq2 = `<div class="ltb-mq" aria-hidden="true">${marquee(ctx, [d.name, d.tagline || 'Streaming al mejor precio'].concat(d.paymentMethods), 'b2')}</div>`;
     const num = i => `<span class="ltb-num" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span>`;
     const html =
       top(ctx, d, wa) +
-      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}">${bg}<div class="ltb-wrap"><div class="ltb-hero-txt">` +
+      `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}" data-lt-hero>${bg}<div class="ltb-wrap"><div class="ltb-hero-txt">` +
       `<span class="ltb-kicker"><i aria-hidden="true"></i>${ctx.esc((!ctx.profileMode && d.tagline) || 'Disponible ahora')}</span>` +
       `<h1 class="ltb-h1" aria-label="${ctx.esc(title)}" style="--kn-len:${longest}"><span aria-hidden="true">${h1}</span></h1>` +
       `<div class="ltb-rotline"><span class="ltb-rotlbl">Disfruta ya</span><span class="ltb-sr">${ctx.esc(rot.map(r => r.name).join(', '))}</span>` +
       `<span class="ltb-rot" aria-hidden="true" style="--kn-rlen:${rlen}">${rot.map((r, i) => `<span class="ltb-rw${i === 0 ? ' is-on' : ''}" style="--wc:${r.color}"><span>${ctx.esc(r.name)}</span></span>`).join('')}</span></div>` +
-      `<p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      `<p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn ltb-ghostbtn" data-goto="plans">Ver precios</button>' : ''}</div>` +
       `</div></div></section>` + mq1 +
       (plans.length ? sec('plans', 'Elige <span class="ltb-o">tu plan</span>', `<div class="ltb-grid">${plans.map((p, i) => planCard(ctx, p, i, num(i), true)).join('')}</div>`) : '') +
       (combos.length ? sec('combos', 'Combos <span class="ltb-o">full</span>', `<div class="ltb-grid">${combos.map((c, i) => comboCard(ctx, c, i, num(i))).join('')}</div>`) : '') +
-      ((plans.length || combos.length) ? mq2 : '') +
       benefitsSec(ctx, d, 'Por qué <span class="ltb-o">nosotros</span>') +
       paysSec(ctx, d, 'Paga <span class="ltb-o">fácil</span>') +
       faqSec(ctx, d, 'Preguntas <span class="ltb-o">frecuentes</span>') +
