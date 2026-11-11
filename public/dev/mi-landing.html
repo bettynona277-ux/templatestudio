@@ -463,9 +463,13 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <div class="modal" id="modal" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle" id="modalSheet"></div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="/js/landing-core.js"></script>
-<script src="/js/landing-templates-a.js"></script>
-<script src="/js/landing-templates-b.js"></script>
+<script>
+/* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
+window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
+['js/landing-core.js?v=2', 'js/landing-templates-a.js?v=2', 'js/landing-templates-b.js?v=2'].forEach(function (f) {
+  document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
+});
+</script>
 <script>
 /* ===== Editor "Mi página" (lógica de UI; Firebase va en el script module de abajo) ===== */
 (function () {
@@ -479,8 +483,10 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
   const SITE = 'disenosstreaming.com';
   const CANON = 'https://disenosstreaming.com';
   const isLocal = /^(localhost|127\.|192\.168\.|10\.)/.test(location.hostname) || location.protocol === 'file:';
-  const publicUrl = slug => `${CANON}/s/${slug}`;
-  const openUrl = slug => (isLocal && location.origin && location.origin !== 'null' ? location.origin : CANON) + '/s/' + slug;
+  const IS_DEV = location.pathname.indexOf('/dev/') === 0;
+  // En la zona de pruebas el enlace apunta a /dev/tienda.html?s=..., para probar sin tocar la web pública.
+  const publicUrl = slug => IS_DEV ? `${location.origin}/dev/tienda.html?s=${encodeURIComponent(slug)}` : `${CANON}/s/${slug}`;
+  const openUrl = slug => IS_DEV ? publicUrl(slug) : (isLocal && location.origin && location.origin !== 'null' ? location.origin : CANON) + '/s/' + slug;
   const nid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const withTimeout = (p, ms = 20000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { code: 'timeout' })), ms))]);
