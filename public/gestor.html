@@ -3353,6 +3353,19 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute
 .combo-activate-text strong{font-size:12.5px;font-weight:800;color:#f0f4ff}
 .combo-activate-text small{font-size:10.5px;line-height:1.25;color:var(--muted);font-weight:600}
 .combo-due-field{margin-top:9px}
+.combo-mode-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-top:9px}
+.combo-modal .combo-mode-chip{position:relative;min-height:36px!important;line-height:1.15;display:flex!important;flex-direction:row!important;align-items:center;justify-content:center;gap:7px;padding:0 10px;border-radius:999px;cursor:pointer;border:1px solid rgba(148,163,184,.18);background:rgba(8,13,24,.42);color:var(--muted);font-size:12px;font-weight:800;text-align:center;transition:all .15s}
+.combo-modal .combo-mode-chip input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.combo-modal .combo-mode-chip svg,.combo-modal .combo-mode-chip i{width:15px;height:15px}
+.combo-modal .combo-mode-chip:has(input:checked),.combo-modal .combo-mode-chip.is-on{color:#fff;border-color:color-mix(in srgb,var(--pcolor,#38bdf8) 85%,#fff 15%);background:color-mix(in srgb,var(--pcolor,#38bdf8) 28%,rgba(8,13,24,.6))}
+.combo-modal .combo-mode-chip:has(input:checked) span::before,.combo-modal .combo-mode-chip.is-on span::before{content:"\2713\00a0";font-weight:900}
+.combo-modal .combo-mode-chip:has(input:focus-visible){outline:2px solid #38bdf8;outline-offset:2px}
+.combo-mode-help{display:block;margin-top:6px;font-size:11.5px;line-height:1.3;color:var(--muted);font-weight:650}
+.combo-mode-help.is-warn{color:#fbbf24;font-weight:800}
+.combo-mode-help[hidden],.combo-access-fields[hidden]{display:none!important}
+html[data-theme="light"] .combo-modal .combo-mode-chip{background:rgba(255,255,255,.68);border-color:var(--border-3);color:var(--text)}
+html[data-theme="light"] .combo-modal .combo-mode-chip:has(input:checked),html[data-theme="light"] .combo-modal .combo-mode-chip.is-on{color:#0f172a;background:color-mix(in srgb,var(--pcolor,#38bdf8) 22%,#ffffff);border-color:color-mix(in srgb,var(--pcolor,#38bdf8) 85%,#000 15%)}
+html[data-theme="light"] .combo-mode-help.is-warn{color:#b45309}
 
 /* Client sale modal */
 #clientModalWrap{
@@ -4337,6 +4350,7 @@ i[data-lucide="search"]::before{content:"âŒ•"}
 i[data-lucide="home"]::before{content:"\2302"}
 i[data-lucide="users"]::before{content:"\2637"}
 i[data-lucide="key-round"]::before{content:"\25C7"}
+i[data-lucide="crown"]::before{content:"\265B"}
 i[data-lucide="badge-check"]::before{content:"\2713"}
 i[data-lucide="alarm-clock"]::before{content:"\25F7"}
 i[data-lucide="log-out"]::before{content:"\21AA"}
@@ -6754,6 +6768,9 @@ function freeProfiles(account){
   return list;
 }
 function nextProfileSuggestion(accountId){ const acc=state.accounts.find(a=>a.id===accountId); return acc?freeProfiles(acc)[0]||'':''; }
+function accountCanSellFullDesktop(accountId, exclId=''){ return !!accountId && !!state.accounts.find(a=>a.id===accountId) && !activeOccupants(accountId).some(c=>c.id!==exclId); }
+function accountCanSellProfileDesktop(accountId, exclId=''){ const acc=state.accounts.find(a=>a.id===accountId); if(!acc) return false; const occ=activeOccupants(accountId).filter(c=>c.id!==exclId); return !occ.some(c=>c.fullAccountSale===true) && occ.length<Number(acc.capacity||0); }
+function comboAccessLabel(client){ return client?.fullAccountSale===true ? 'Cuenta completa' : `Perfil ${client?.profile||'-'}`; }
 function shouldUseDefaultPrice(value){
   return !String(value ?? '').trim() || moneyNumber(value)===0;
 }
@@ -6949,7 +6966,7 @@ function compactClientItem(client, label){
     <div class="home-item-top">
       <div>
         <strong>${escapeHtml(client.name||'Sin nombre')}</strong>
-        <div class="sub">${platformIcon(platform)} ${escapeHtml(platform||'-')} - Perfil ${escapeHtml(client.profile||'-')} - ${escapeHtml(label||'')}</div>
+        <div class="sub">${platformIcon(platform)} ${escapeHtml(platform||'-')} - ${escapeHtml(comboAccessLabel(client))} - ${escapeHtml(label||'')}</div>
       </div>
       ${chipForState(effectiveClientState(client))}
     </div>
@@ -7021,7 +7038,7 @@ function renderHome(){
     return `<div class="mini-item">
       <div>
         <strong>${escapeHtml(c.name||'Sin nombre')}</strong>
-        <div class="sub">${platformIcon(c.platform||account?.platform)} ${escapeHtml(c.platform||account?.platform||'')} - Perfil ${escapeHtml(c.profile||'-')} - ${when}</div>
+        <div class="sub">${platformIcon(c.platform||account?.platform)} ${escapeHtml(c.platform||account?.platform||'')} - ${escapeHtml(comboAccessLabel(c))} - ${when}</div>
       </div>
       <div class="row-actions">
         <button class="mini wa" onclick="sendWhatsapp('${c.id}')">WhatsApp</button>
@@ -7050,9 +7067,9 @@ function renderClientPlatformOptions(selected='', selectedAccountId=''){
   sel.innerHTML=`<option value="">Todas las plataformas</option>`+sorted.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('');
   sel.value=selected||'';
 }
-function renderAccountOptions(selectedId='', platform=''){
+function renderAccountOptions(selectedId='', platform='', fullSale=false){
   const options=sortedAccountsForPick()
-    .filter(a=>accountAvailability(a).free>0||a.id===selectedId)
+    .filter(a=>fullSale ? accountCanSellFullDesktop(a.id, editingClientId||'') : (accountAvailability(a).free>0||a.id===selectedId))
     .filter(a=>!platform||a.platform===platform)
     .map(a=>{
       const av=accountAvailability(a);
@@ -7163,13 +7180,13 @@ function renderClients(){
       <td><div class="client-copy-value"><span class="copy-value" title="${escapeAttr(first.whatsapp||'')}">${escapeHtml(first.whatsapp||'-')}</span>${first.whatsapp?`<button class="client-copy-btn" title="Copiar WhatsApp" aria-label="Copiar WhatsApp" onclick="copyClientValue(this,'${escapeJs(first.whatsapp)}')"><i data-lucide="copy"></i></button>`:''}</div></td>
       <td><div class="combo-platform-logos" title="${escapeAttr(rows.map(item=>item.platform).join(', '))}">${rows.map(item=>`<span class="combo-platform-logo">${platformLogo(item.platform,'chip')}</span>`).join('')}</div></td>
       <td><span class="combo-account-summary">${rows.length} cuenta${rows.length===1?'':'s'} vinculada${rows.length===1?'':'s'}</span></td>
-      <td><span class="combo-profile-summary">${rows.length} perfil${rows.length===1?'':'es'}</span></td>
+      <td><span class="combo-profile-summary">${rows.some(item=>item.fullAccountSale===true) ? `${rows.length} acceso${rows.length===1?'':'s'}` : `${rows.length} perfil${rows.length===1?'':'es'}`}</span></td>
       <td>-</td>
       <td>${fmtDate(earliest.dueDate)}</td>
       <td>${chipForState(comboState)}</td>
       <td><div class="row-actions"><button class="mini wa" onclick="sendWhatsapp('${first.id}')">WhatsApp</button><details class="action-more"><summary>Mas</summary><div class="action-more-menu"><button class="mini" data-combo-data-toggle="${escapeAttr(first.comboId)}" onclick="toggleComboClientData('${escapeJs(first.comboId)}')">Ver datos</button><button class="mini" onclick="renewClient('${first.id}')">Renovar combo</button><button class="mini" onclick="openRetireComboModal('${first.id}')">Retirar apps</button><button class="mini" onclick="showComboAppEditor('${escapeJs(first.comboId)}')">Editar una app</button><button class="mini" onclick="setNoRenewCombo('${first.id}')">No renovar combo</button></div></details></div></td>
     </tr>
-    <tr class="combo-data-row" id="${escapeAttr(dataRowId)}" hidden><td colspan="9"><div class="combo-data-panel"><div class="combo-data-head"><span>Datos de las cuentas del combo</span><small>Elige la app que deseas editar; cambiar su cuenta no modifica las demás.</small></div><div class="combo-data-grid">${rows.map(item=>{const account=state.accounts.find(a=>a.id===item.accountId);const platform=item.platform||account?.platform||'';return `<div class="combo-data-account"><div class="combo-data-account-top">${platformLogo(platform,'chip')}<strong>${escapeHtml(platform||'Plataforma')}</strong></div><small>Correo: ${escapeHtml(account?.email||'Sin correo registrado')}</small><small>Perfil: ${escapeHtml(item.profile||'-')}${item.pin?` · PIN: ${escapeHtml(item.pin)}`:''}</small><button class="mini combo-data-edit" onclick="editClient('${item.id}')">Editar esta app</button></div>`;}).join('')}</div></div></td></tr>`;
+    <tr class="combo-data-row" id="${escapeAttr(dataRowId)}" hidden><td colspan="9"><div class="combo-data-panel"><div class="combo-data-head"><span>Datos de las cuentas del combo</span><small>Elige la app que deseas editar; cambiar su cuenta no modifica las demás.</small></div><div class="combo-data-grid">${rows.map(item=>{const account=state.accounts.find(a=>a.id===item.accountId);const platform=item.platform||account?.platform||'';return `<div class="combo-data-account"><div class="combo-data-account-top">${platformLogo(platform,'chip')}<strong>${escapeHtml(platform||'Plataforma')}</strong></div><small>Correo: ${escapeHtml(account?.email||'Sin correo registrado')}</small><small>${item.fullAccountSale===true ? 'Cuenta completa' : `Perfil: ${escapeHtml(item.profile||'-')}${item.pin?` · PIN: ${escapeHtml(item.pin)}`:''}`}</small><button class="mini combo-data-edit" onclick="editClient('${item.id}')">Editar esta app</button></div>`;}).join('')}</div></div></td></tr>`;
   }).join('');
   $('#clientsTable').innerHTML=tableRows.length?renderGroupedRows:`<tr><td colspan="9"><div class="empty">Sin clientes activos</div></td></tr>`;
   if(window.lucide?.createIcons) window.lucide.createIcons();
@@ -7573,7 +7590,7 @@ function renderRenewalCombo(comboRows){
     <div class="renewal-due ${due.cls}"><span class="due-state">${dueLabel}</span><span class="sub">${due.sub}</span></div>
     <div class="renewal-actions"><button class="${alreadyNotified?'mini notified':'mini wa'}" onclick="sendWhatsapp('${anchor.client.id}','renewal')">${alreadyNotified?'Avisado':'WhatsApp'}</button><button class="mini" onclick="renewClient('${anchor.client.id}')">Renovar combo</button><details class="action-more"><summary class="renewal-more" title="Mas acciones">...</summary><div class="action-more-menu"><button class="mini" data-renewal-combo-detail-toggle="${escapeAttr(anchor.client.comboId)}" onclick="toggleRenewalComboDetails('${escapeJs(anchor.client.comboId)}')">Ver apps</button><button class="mini" onclick="setNoRenewCombo('${anchor.client.id}')">No renovar combo</button></div></details></div>
     <div class="renewal-status-chip"><span class="chip platform">Combo</span></div>
-  </div><div class="renewal-combo-details" id="${escapeAttr(detailsId)}" hidden><div class="renewal-combo-apps">${members.map(item=>{const itemDue=renewalDueInfo(item.dd,item.client.dueDate);return `<div class="renewal-combo-app ${itemDue.cls==='expired'?'expired':renewalAlertDays(item.dd)?'alert':''}">${platformLogo(item.platform,'chip')}<span><strong>${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.client.profile||'-')} · ${escapeHtml(itemDue.sub)}</small></span></div>`;}).join('')}</div></div></div>`;
+  </div><div class="renewal-combo-details" id="${escapeAttr(detailsId)}" hidden><div class="renewal-combo-apps">${members.map(item=>{const itemDue=renewalDueInfo(item.dd,item.client.dueDate);return `<div class="renewal-combo-app ${itemDue.cls==='expired'?'expired':renewalAlertDays(item.dd)?'alert':''}">${platformLogo(item.platform,'chip')}<span><strong>${escapeHtml(friendlyPlatform(item.platform))}</strong><small>${escapeHtml(comboAccessLabel(item.client))} · ${escapeHtml(itemDue.sub)}</small></span></div>`;}).join('')}</div></div></div>`;
 }
 function renderRenewals(){
   const currentFilter=$('#renewalAccountFilter')?.value||'';
@@ -7896,13 +7913,14 @@ function whatsappText(client){
   if(isNoRenewState(client.state) || (dd!==null && dd<=1)){
     const accessLines=isActivationByCode(client?.activationByCode) ? [
       '',
+      ...(client.fullAccountSale===true ? ['Cuenta completa'] : []),
       ...codeActivationAccessLines(client,account,false)
     ] : [
       '',
-      `\ud83c\udfac Perfil: ${client.profile || '-'}`,
+      client.fullAccountSale===true ? `\ud83c\udfac Cuenta completa` : `\ud83c\udfac Perfil: ${client.profile || '-'}`,
       `\ud83d\udce7 Correo: ${account?.email || '-'}`,
       `\ud83d\udd11 Contrase\u00f1a: ${account?.password || '-'}`,
-      `\ud83d\udd10 PIN: ${client.pin || '-'}`
+      ...(client.fullAccountSale===true ? [] : [`\ud83d\udd10 PIN: ${client.pin || '-'}`])
     ];
     return [
       `Hola, ${client.name || ''} \ud83d\udc4b\u2728`,
@@ -7929,10 +7947,10 @@ function accountClientUpdateText(client, account){
   return [
     `Hola ${client.name || ''}, tuvimos que actualizar los datos de tu ${platform}. Te paso los nuevos accesos:`,
     '',
-    `Perfil: ${client.profile || '-'}`,
+    client.fullAccountSale===true ? 'Cuenta completa' : `Perfil: ${client.profile || '-'}`,
     `Correo: ${account?.email || '-'}`,
-    `Contrasena: ${account?.password || '-'}`,
-    ...(client.pin ? [`Pin: ${client.pin}`] : []),
+    `Contraseña: ${account?.password || '-'}`,
+    ...(client.pin && client.fullAccountSale!==true ? [`Pin: ${client.pin}`] : []),
     `Fecha de vencimiento: ${fmtDateLong(client.dueDate) || '-'}`,
     '',
     'Por favor ingresa con estos datos desde ahora. Gracias por tu paciencia ðŸ™Œ'
@@ -7956,7 +7974,7 @@ function renderAccountClientsModal(accountId){
     <div class="client-notify-card">
       <div class="left">
         <strong>${escapeHtml(c.name||'Cliente')}</strong>
-        <div class="sub">Perfil ${escapeHtml(c.profile||'-')} ${c.pin?`- PIN ${escapeHtml(c.pin)}`:''} - vence ${fmtDate(c.dueDate)}</div>
+        <div class="sub">${c.fullAccountSale===true ? 'Cuenta completa' : `Perfil ${escapeHtml(c.profile||'-')} ${c.pin?`- PIN ${escapeHtml(c.pin)}`:''}`} - vence ${fmtDate(c.dueDate)}</div>
       </div>
       <div class="client-notify-actions">
         <button class="mini wa" onclick="sendClientAccountUpdate('${c.id}','${acc.id}')">WhatsApp</button>
@@ -8238,7 +8256,7 @@ window.togglePassword=(id)=>{
 window.copyAccountPassword=async(id)=>{ const acc=state.accounts.find(a=>a.id===id); if(!acc?.password) return; try{ await navigator.clipboard.writeText(acc.password); notifySaveStatus('copy','Contraseña copiada'); }catch(e){ notifySaveStatus('copyFail','No se pudo copiar la contraseña'); console.warn('clipboard password:',e); } };
 window.editClient=(id)=>{
   const c=state.clients.find(x=>x.id===id); if(!c) return;
-  editingClientId=id; editingClientUpdatedAt=String(c.updatedAt||''); selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'');
+  editingClientId=id; editingClientUpdatedAt=String(c.updatedAt||''); selectedExistingClientCustomerId=clientCustomerId(c); $('#clientModalTitle').textContent='Editar cliente'; setClientSubmitMode(false); renderClientPlatformOptions(c.platform||'',c.accountId); renderAccountOptions(c.accountId,c.platform||'',c.fullAccountSale===true);
   $('#cName').value=c.name||''; $('#cWhatsapp').value=c.whatsapp||''; $('#cProfile').value=c.profile||''; $('#cPin').value=c.pin||''; $('#cSalePrice').value=c.salePrice||''; $('#cRenewalPrice').value=c.renewalPrice||c.salePrice||''; $('#cDueDisplay').value=c.dueDate||''; $('#cState').value=c.state||'Activo'; $('#cNotes').value=c.notes||''; $('#cAccount').value=c.accountId||''; const fullSale=$('#cFullAccountSale'); if(fullSale) fullSale.checked=c.fullAccountSale===true; const activation=$('#cActivationByCode'); if(activation) activation.checked=isActivationByCode(c.activationByCode); syncClientAccessMode();
   const acc=state.accounts.find(a=>a.id===c.accountId);
   applyDefaultClientPrices(c.platform || acc?.platform || '', {fillMissingForExisting:true});
@@ -8464,7 +8482,7 @@ function openRenewModal(id){
   $('#renewModalTitle').textContent=`Renovar ${c.name || 'cliente'}`;
   $('#renewClientSummary').innerHTML=`
     <strong>${escapeHtml(c.name || 'Sin nombre')}</strong><br>
-    ${platformIcon(platform)} ${escapeHtml(platform)} - Perfil ${escapeHtml(c.profile || '-')}<br>
+    ${platformIcon(platform)} ${escapeHtml(platform)} - ${escapeHtml(comboAccessLabel(c))}<br>
     Vence actualmente: <strong>${fmtDateLong(c.dueDate) || 'Sin fecha'}</strong><br>
     La renovacion se calculara desde: <strong>${fmtDateLong(dateToLocalString(base))}</strong>`;
   const amountEl=$('#renewCustomAmount');
@@ -8479,7 +8497,7 @@ function openRenewModal(id){
   const scopeEl=$('#renewComboScope');
   if(scopeBox && scopeEl){
     scopeBox.style.display=comboList.length>1?'':'none';
-    scopeEl.innerHTML=`<div class="renew-combo-apps">${comboList.map(item=>`<label class="checkline renew-combo-app"><input type="checkbox" value="${escapeAttr(item.id)}" checked><span><strong>${platformLogo(item.platform,'chip')} ${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.profile||'-')}</small></span></label>`).join('')}</div>`;
+    scopeEl.innerHTML=`<div class="renew-combo-apps">${comboList.map(item=>`<label class="checkline renew-combo-app"><input type="checkbox" value="${escapeAttr(item.id)}" checked><span><strong>${platformLogo(item.platform,'chip')} ${escapeHtml(friendlyPlatform(item.platform))}</strong><small>${escapeHtml(comboAccessLabel(item))}</small></span></label>`).join('')}</div>`;
     const syncScope=()=>{ const selected=$$('#renewComboScope input:checked').map(input=>comboList.find(item=>item.id===input.value)).filter(Boolean); const removed=comboList.filter(item=>!selected.includes(item)); $('#renewComboScopeHelp').className='renew-combo-help'; $('#renewComboScopeHelp').textContent=removed.length?`Se renovarán ${selected.map(item=>friendlyPlatform(item.platform)).join(', ')}. Se retirarán ${removed.map(item=>friendlyPlatform(item.platform)).join(', ')} y se liberarán sus perfiles.`:`Se renovarán las ${selected.length} apps. Ningún perfil será liberado.`; };
     $$('input',scopeEl).forEach(input=>input.onchange=syncScope); syncScope();
   }
@@ -8499,7 +8517,7 @@ window.openRetireComboModal=(id)=>{
   const apps=$('#retireComboApps');
   const help=$('#retireComboHelp');
   summary.innerHTML=`<strong>${escapeHtml(meta.name)}</strong><br>Marca las apps que se dejarán de gestionar. Sus perfiles se liberarán.`;
-  apps.innerHTML=`<div class="renew-combo-apps">${combo.map(item=>`<label class="checkline renew-combo-app"><input type="checkbox" value="${escapeAttr(item.id)}"><span><strong>${platformLogo(item.platform,'chip')} ${escapeHtml(friendlyPlatform(item.platform))}</strong><small>Perfil ${escapeHtml(item.profile || '-')}</small></span></label>`).join('')}</div>`;
+  apps.innerHTML=`<div class="renew-combo-apps">${combo.map(item=>`<label class="checkline renew-combo-app"><input type="checkbox" value="${escapeAttr(item.id)}"><span><strong>${platformLogo(item.platform,'chip')} ${escapeHtml(friendlyPlatform(item.platform))}</strong><small>${escapeHtml(comboAccessLabel(item))}</small></span></label>`).join('')}</div>`;
   const selectedIds=()=>$$('#retireComboApps input:checked').map(input=>input.value);
   const sync=()=>{
     const removed=combo.filter(item=>selectedIds().includes(item.id));
@@ -8635,13 +8653,14 @@ function accountMatchesComboPlatform(account, platform){
   const accountKey=key(account?.platform), platformKey=key(platform);
   return !!accountKey && accountKey===platformKey;
 }
-function comboAccountOptions(platform, selected=''){
+function comboAccountOptions(platform, selected='', fullSale=false){
   const list=state.accounts
     .filter(a=>accountMatchesComboPlatform(a,platform))
-    .filter(a=>a.id===selected || accountAvailability(a).free>0)
+    .filter(a=>a.id===selected || (fullSale ? accountCanSellFullDesktop(a.id) : accountAvailability(a).free>0))
     .sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free);
-  const prompt=list.length ? `Elige cuenta para ${escapeHtml(platform)}` : `Sin cuentas libres para ${escapeHtml(platform)}`;
-  return `<option value="">${prompt}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres</option>`).join('')}`;
+  const prompt=list.length ? `Elige cuenta para ${escapeHtml(platform)}` : (fullSale ? `Sin cuentas vacías para ${escapeHtml(platform)}` : `Sin cuentas libres para ${escapeHtml(platform)}`);
+  const optionLabel=a=>{ const n=Number(a.capacity||0); return fullSale ? `${escapeHtml(accountLabel(a))} - vacía (${n} perfil${n===1?'':'es'})` : `${escapeHtml(accountLabel(a))} - ${accountAvailability(a).free} libres`; };
+  return `<option value="">${prompt}</option>${list.map(a=>`<option value="${escapeAttr(a.id)}" ${selected===a.id?'selected':''}>${optionLabel(a)}</option>`).join('')}`;
 }
 function selectedComboTemplate(){
   const templates=normalizeComboTemplates(state.settings.comboTemplates,state.settings.categories);
@@ -8659,20 +8678,96 @@ function renderComboRows(){
   const split=!!$('#comboSplitDates')?.checked;
   const baseDate=$('#comboDueDate')?.value || todayPlus(30);
   wrap.innerHTML=tpl ? tpl.platforms.map(platform=>{
-    const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountAvailability(a).free>0) || state.accounts.find(a=>accountMatchesComboPlatform(a,platform));
+    const first=state.accounts.find(a=>accountMatchesComboPlatform(a,platform) && accountAvailability(a).free>0);
     return `<div class="combo-app-card" style="--pcolor:${platformColor(platform)}" data-platform="${escapeAttr(platform)}">
       <div class="combo-app-title"><span class="combo-app-name">${platformLogo(platform,'chip')} ${escapeHtml(platform)}</span><span class="combo-badge">App combo</span></div>
       <label>Cuenta madre<span class="field-control"><i data-lucide="building-2"></i><select class="select combo-account">${comboAccountOptions(platform,first?.id||'')}</select></span></label>
-      <div class="combo-app-grid" style="margin-top:9px">
+      <div class="combo-mode-row">
+        <label class="combo-mode-chip"><input type="checkbox" class="combo-full-sale" /><i data-lucide="crown"></i><span>Cuenta completa</span></label>
+        <label class="combo-mode-chip"><input type="checkbox" class="combo-activation-code" /><i data-lucide="key-round"></i><span>Activar por código</span></label>
+      </div>
+      <small class="combo-mode-help" aria-live="polite" hidden></small>
+      <div class="combo-app-grid combo-access-fields" style="margin-top:9px">
         <label>Perfil<span class="field-control"><i data-lucide="user-round"></i><input class="input combo-profile" value="${escapeAttr(first ? nextProfileSuggestion(first.id) : '')}" placeholder="1" /></span></label>
         <label>PIN<span class="field-control"><i data-lucide="lock-keyhole"></i><input class="input combo-pin" placeholder="1234" /></span></label>
       </div>
-      <label class="combo-activate-toggle" style="margin-top:9px"><input type="checkbox" class="combo-activation-code" /><span class="switch-ui" aria-hidden="true"></span><span class="combo-activate-text"><strong>Activar por código</strong><small>Envía correo, perfil y PIN si existen; nunca la contraseña.</small></span></label>
       <label class="combo-due-field" style="${split?'':'display:none'}">Vence esta app<span class="field-control"><i data-lucide="calendar-days"></i><input class="input date-input combo-due" value="${escapeAttr(baseDate)}" placeholder="Elige fecha" /></span></label>
     </div>`;
   }).join('') : `<div class="empty">Elige una plantilla o escribe apps separadas por coma.</div>`;
   if(window.lucide?.createIcons) window.lucide.createIcons();
   initDatepickers();
+}
+function syncComboRowMode(row, {accountChanged=false}={}){
+  if(!row) return;
+  const fullInput=row.querySelector('.combo-full-sale');
+  const codeInput=row.querySelector('.combo-activation-code');
+  const full=fullInput?.checked===true;
+  const code=codeInput?.checked===true;
+  fullInput?.closest('.combo-mode-chip')?.classList.toggle('is-on',full);
+  codeInput?.closest('.combo-mode-chip')?.classList.toggle('is-on',code);
+  const select=row.querySelector('.combo-account');
+  const platform=row.dataset.platform||'';
+  const wasFull=row.classList.contains('is-full');
+  if(select && !accountChanged && wasFull!==full){
+    const current=select.value;
+    const currentValid=current && (full ? accountCanSellFullDesktop(current) : accountAvailability(state.accounts.find(a=>a.id===current)||{}).free>0);
+    let next=currentValid ? current : '';
+    if(!next){
+      const candidate=state.accounts
+        .filter(a=>accountMatchesComboPlatform(a,platform))
+        .filter(a=>full ? accountCanSellFullDesktop(a.id) : accountAvailability(a).free>0)
+        .sort((a,b)=>accountAvailability(b).free-accountAvailability(a).free)[0];
+      next=candidate?.id||'';
+    }
+    select.innerHTML=comboAccountOptions(platform,next,full);
+    select.value=next;
+    if(next!==current) accountChanged=true;
+    window.syncEnhancedSelects?.();
+  }
+  row.classList.toggle('is-full',full);
+  row.classList.toggle('is-code',code);
+  const fields=row.querySelector('.combo-access-fields');
+  const profile=row.querySelector('.combo-profile');
+  const pin=row.querySelector('.combo-pin');
+  if(fields) fields.hidden=full;
+  if(full){
+    if(profile) profile.value='';
+    if(pin) pin.value='';
+  }else if(profile && (accountChanged || !profile.value.trim())){
+    profile.value=select?.value ? nextProfileSuggestion(select.value) : '';
+  }
+  if(profile){ profile.disabled=false; profile.placeholder=code ? 'Perfil para indicar al cliente' : '1'; }
+  if(pin){ pin.disabled=false; pin.placeholder=code ? 'PIN para indicar al cliente (opcional)' : '1234'; }
+  const help=row.querySelector('.combo-mode-help');
+  if(help){
+    const noEmpty=full && !!select && !Array.from(select.options).some(o=>o.value);
+    const text=noEmpty ? `No tienes cuentas vacías de ${platform}. Agrega una cuenta nueva o desmarca "Cuenta completa".`
+      : full && code ? 'Cuenta completa por código: se envía solo el correo, nunca la contraseña.'
+      : full ? 'Ocupa toda la cuenta. Solo verás cuentas vacías.'
+      : code ? 'Se envía correo, perfil y PIN; nunca la contraseña.'
+      : '';
+    help.textContent=text;
+    help.classList.toggle('is-warn',noEmpty);
+    help.hidden=!text;
+  }
+}
+function comboRowsHaveCapacityDesktop(rows){
+  const pending={}, fullIds=new Set();
+  for(const r of rows){
+    const acc=state.accounts.find(a=>a.id===r.accountId);
+    if(!acc) return {ok:false,msg:`La cuenta madre de ${r.platform} ya no existe. Elige otra.`};
+    if(r.fullAccountSale){
+      if(pending[r.accountId] || fullIds.has(r.accountId)) return {ok:false,msg:`Elegiste la misma cuenta de ${r.platform} dos veces. Elige otra cuenta.`};
+      if(!accountCanSellFullDesktop(r.accountId)) return {ok:false,msg:`La cuenta de ${r.platform} ya tiene perfiles vendidos. Para cuenta completa elige una cuenta vacía.`};
+      fullIds.add(r.accountId);
+      continue;
+    }
+    if(fullIds.has(r.accountId)) return {ok:false,msg:`Elegiste la misma cuenta de ${r.platform} dos veces. Elige otra cuenta.`};
+    if(accountHasFullSale(r.accountId)) return {ok:false,msg:`La cuenta de ${r.platform} ya fue vendida completa. Elige otra.`};
+    pending[r.accountId]=(pending[r.accountId]||0)+1;
+    if(accountAvailability(acc).used+pending[r.accountId]>Number(acc.capacity||0)) return {ok:false,msg:`La cuenta de ${r.platform} ya no tiene perfiles libres. Elige otra cuenta.`};
+  }
+  return {ok:true};
 }
 function renderComboTemplatePicker(){
   const picker=$('#comboTemplatePicker');
@@ -8772,10 +8867,15 @@ function comboText(clients, context='delivery'){
     const account=state.accounts.find(a=>a.id===client.accountId);
     lines.push(`${index+1}. ${friendlyPlatform(client.platform||account?.platform)}`);
     if(isActivationByCode(client.activationByCode)){
+      if(client.fullAccountSale===true) lines.push('Cuenta completa');
       lines.push(...codeActivationAccessLines(client,account,context!=='renewal'));
+    }else if(client.fullAccountSale===true){
+      lines.push('Cuenta completa');
+      lines.push(`Correo: ${account?.email || '-'}`);
+      lines.push(`Contraseña: ${account?.password || '-'}`);
     }else{
       lines.push(`Correo: ${account?.email || '-'}`);
-      lines.push(`Contrasena: ${account?.password || '-'}`);
+      lines.push(`Contraseña: ${account?.password || '-'}`);
       lines.push(`Perfil: ${client.profile || '-'}`);
       if(client.pin) lines.push(`PIN: ${client.pin}`);
     }
@@ -8851,6 +8951,7 @@ async function saveComboSale(e){
     const accountId=row.querySelector('.combo-account')?.value || '';
     const account=state.accounts.find(a=>a.id===accountId);
     const activationByCode=row.querySelector('.combo-activation-code')?.checked===true;
+    const fullAccountSale=row.querySelector('.combo-full-sale')?.checked===true;
     return {
       id:uid(),
       customerId:comboId,
@@ -8858,8 +8959,9 @@ async function saveComboSale(e){
       whatsapp,
       accountId,
       platform:account?.platform || row.dataset.platform || '',
-      profile:row.querySelector('.combo-profile')?.value.trim() || '',
-      pin:row.querySelector('.combo-pin')?.value.trim() || '',
+      profile:fullAccountSale ? '' : (row.querySelector('.combo-profile')?.value.trim() || ''),
+      pin:fullAccountSale ? '' : (row.querySelector('.combo-pin')?.value.trim() || ''),
+      fullAccountSale,
       activationByCode,
       dueDate:split ? (row.querySelector('.combo-due')?.value.trim() || dueDate) : dueDate,
       state:'Activo',
@@ -8877,8 +8979,26 @@ async function saveComboSale(e){
       updatedAt:now
     };
   });
+  const missingFull=rows.find(c=>c.fullAccountSale && !c.accountId);
+  if(missingFull){
+    alert(`No hay cuentas vacías de ${missingFull.platform} para vender completa. Desactiva "Cuenta completa" o agrega una cuenta.`);
+    if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
+    return;
+  }
+  const missingProfile=rows.find(c=>!c.accountId);
+  if(missingProfile && !state.accounts.some(a=>accountMatchesComboPlatform(a,missingProfile.platform) && accountAvailability(a).free>0)){
+    alert(`No hay cuentas con perfiles libres de ${missingProfile.platform}. Agrega una cuenta o libera un perfil.`);
+    if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
+    return;
+  }
   if(!name || !whatsapp || !rows.length || rows.some(c=>!c.accountId)){
     alert('Completa nombre, WhatsApp y una cuenta madre para cada app.');
+    if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
+    return;
+  }
+  const capacityCheck=comboRowsHaveCapacityDesktop(rows);
+  if(!capacityCheck.ok){
+    alert(capacityCheck.msg);
     if(btn){ btn.disabled=false; btn.textContent='Guardar y entregar'; }
     return;
   }
@@ -9089,18 +9209,22 @@ $('#accountSearch').oninput=renderAccounts;
 
 $('#freeSort').onchange=()=>{ state.settings.freeSort=$('#freeSort').value; renderFree(); persistSettings(); };
 $('#cAccount').onchange=()=>{ const acc=state.accounts.find(a=>a.id===$('#cAccount').value); $('#cPlatform').value=acc?.platform||''; if(!editingClientId) $('#cProfile').value=nextProfileSuggestion(acc?.id)||''; applyDefaultClientPrices(acc?.platform||'', {fillMissingForExisting:!!editingClientId}); };
-$('#cFullAccountSale')?.addEventListener('change',syncClientAccessMode);
+$('#cFullAccountSale')?.addEventListener('change',()=>{
+  syncClientAccessMode();
+  const fullSale=$('#cFullAccountSale')?.checked===true;
+  const current=$('#cAccount').value;
+  renderAccountOptions(current,$('#cPlatform').value,fullSale);
+  $('#cAccount').value=Array.from($('#cAccount').options).some(o=>o.value===current) ? current : '';
+  if(!fullSale && !editingClientId && $('#cAccount').value && !$('#cProfile').value.trim()) $('#cProfile').value=nextProfileSuggestion($('#cAccount').value)||'';
+  window.syncEnhancedSelects?.();
+});
 $('#cActivationByCode')?.addEventListener('change',syncClientAccessMode);
-$('#cPlatform').addEventListener('change',()=>{ const platform=$('#cPlatform').value; renderAccountOptions('',platform); applyDefaultClientPrices(platform,{fillMissingForExisting:!!editingClientId,overwrite:!editingClientId}); });
+$('#cPlatform').addEventListener('change',()=>{ const platform=$('#cPlatform').value; renderAccountOptions('',platform,$('#cFullAccountSale')?.checked===true); applyDefaultClientPrices(platform,{fillMissingForExisting:!!editingClientId,overwrite:!editingClientId}); });
 $('#openComboBtn').onclick=()=>openComboModal();
 $('#comboRows')?.addEventListener('change',e=>{
-  if(!e.target.classList.contains('combo-activation-code')) return;
-  const row=e.target.closest('.combo-app-card');
-  const on=e.target.checked===true;
-  const profile=row?.querySelector('.combo-profile');
-  const pin=row?.querySelector('.combo-pin');
-  if(profile){ profile.disabled=false; profile.placeholder=on ? 'Perfil para indicar al cliente' : '1'; }
-  if(pin){ pin.disabled=false; pin.placeholder=on ? 'PIN para indicar al cliente (opcional)' : '1234'; }
+  const row=e.target.closest('.combo-app-card'); if(!row) return;
+  if(e.target.matches('.combo-full-sale,.combo-activation-code')) syncComboRowMode(row);
+  else if(e.target.matches('.combo-account')) syncComboRowMode(row,{accountChanged:true});
 });
 $('#comboTemplatePicker').onchange=()=>renderComboRows();
 $('#comboSplitDates').onchange=()=>renderComboRows();
@@ -9271,6 +9395,13 @@ $('#saveClientBtn').onclick=async ()=>{
   const financeOn=isFinanceModeEnabled();
   const fullAccountSale=$('#cFullAccountSale')?.checked===true;
   const activationByCode=$('#cActivationByCode')?.checked===true;
+  if(fullAccountSale && !(previousClient?.fullAccountSale===true && previousClient?.accountId===accountId) && !accountCanSellFullDesktop(accountId, editingClientId||'')){
+    alert('Esa cuenta ya tiene perfiles vendidos. Para vender la cuenta completa elige una cuenta vacía.');
+    saveBtn.disabled=false;
+    setClientSubmitMode(wasNewSale);
+    return;
+  }
+  if(!fullAccountSale && (!previousClient || previousClient.accountId!==accountId || previousClient.fullAccountSale===true || isNoRenewState(previousClient.state)) && !accountCanSellProfileDesktop(accountId, editingClientId||'')){ alert('Esa cuenta ya fue vendida completa o no tiene perfiles libres. Elige otra.'); saveBtn.disabled=false; setClientSubmitMode(wasNewSale); return; }
   const hidesAccessFields=fullAccountSale;
   const now=new Date().toISOString();
   const saleId=editingClientId||uid();
