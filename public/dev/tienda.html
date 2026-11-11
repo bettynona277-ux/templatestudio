@@ -73,7 +73,7 @@
 </style>
 <script>
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=2"><\/script>');
+document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=3"><\/script>');
 </script>
 <script>
 /* Arranca la lectura de Firestore cuanto antes (en paralelo con las plantillas). */
@@ -183,12 +183,6 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=2">
 </section>
 
 <script>
-// Se escriben como scripts normales para que estén listos antes de DOMContentLoaded.
-['js/landing-templates-a.js?v=2', 'js/landing-templates-b.js?v=2'].forEach(function (f) {
-  document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
-});
-</script>
-<script>
 (function () {
   'use strict';
   var T = window.TiendaPublica;
@@ -290,15 +284,51 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=2">
     if (d.theme.mode === 'light') document.documentElement.style.background = document.body.style.background = '#ffffff';
   }
 
+  /* Solo se descarga el archivo de la plantilla que usa la tienda (a: cine/neon/aurora, b: pop/premium/kinetic, c: bio). */
+  var TEMPLATE_FILES = { cine: 'a', neon: 'a', aurora: 'a', pop: 'b', premium: 'b', kinetic: 'b', bio: 'c' };
+  var loadingFiles = {};
+  function hasTemplate(id) {
+    var core = window.LandingCore;
+    return !!(core && core.listTemplates().some(function (t) { return t.id === id; }));
+  }
+  function loadTemplate(id) {
+    if (hasTemplate(id)) return Promise.resolve(id);
+    var file = TEMPLATE_FILES[id] || 'a';
+    if (!loadingFiles[file]) {
+      loadingFiles[file] = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = window.LANDING_BASE + 'js/landing-templates-' + file + '.js?v=3';
+        s.async = true;
+        s.onload = function () { resolve(); };
+        s.onerror = function () { delete loadingFiles[file]; s.remove(); reject(new Error('plantilla ' + file)); };
+        document.head.appendChild(s);
+      });
+    }
+    return loadingFiles[file].then(function () {
+      if (hasTemplate(id)) return id;
+      if (window.LandingCore.listTemplates().length) return window.LandingCore.listTemplates()[0].id;
+      throw new Error('sin plantillas');
+    });
+  }
+
   function renderStore(raw) {
     var core = window.LandingCore;
-    if (!core || typeof core.render !== 'function' || !core.listTemplates().length) { showTemplatesError(); return; }
+    if (!core || typeof core.render !== 'function') { showTemplatesError(); return; }
     if (raw.enabled === false) { showPaused(raw); return; }
     var d = core.normalize(raw, raw.ownerUid);
+    var want = TEMPLATE_FILES[d.template] ? d.template : core.DEFAULTS.template;
+    rendered = true; // evita pintar dos veces mientras llega la plantilla
+    loadTemplate(want).then(function (id) { paint(core, d, id); }, function (err) {
+      console.error('[tienda] no se pudo cargar la plantilla', err);
+      rendered = false;
+      showTemplatesError();
+    });
+  }
+  function paint(core, d, id) {
     try {
       clearTimers();
       show('none');
-      core.render($('app'), d);
+      core.render($('app'), d, { template: id });
       rendered = true;
       applyHead(d);
     } catch (err) {
@@ -339,7 +369,7 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=2">
     // Si estaba sin internet, reintenta en cuanto vuelva la conexión.
     window.addEventListener('online', function () { if (!rendered && !$('tsMessage').hidden && $('tsMessage').getAttribute('data-kind') === 'error' && T.slug) { attempt = 0; load(); } });
   }
-  // DOMContentLoaded se dispara después de ejecutar las plantillas (defer).
+  // La plantilla se descarga después de leer Firestore (ver loadTemplate).
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
