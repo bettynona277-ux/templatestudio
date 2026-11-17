@@ -132,6 +132,9 @@
     templates.set(def.id, Object.freeze({ ...def }));
   }
   const listTemplates = () => [...templates.values()];
+  // Plantillas retiradas → la más parecida que sigue disponible.
+  const RETIRED_TPL = { cine: 'premium', neon: 'premium', aurora: 'premium', kinetic: 'premium', bio: 'pop' };
+  const tplId = v => { const t = String(v || '').trim().slice(0, 30); return RETIRED_TPL[t] || t || 'pop'; };
   const getTemplate = id => templates.get(id) || templates.values().next().value;
 
   // Inserta una vez una hoja de estilos por plantilla (id único).
@@ -146,7 +149,7 @@
 
   // ---------- modelo de datos ----------
   const DEFAULTS = Object.freeze({
-    template: 'cine', name: 'Mi Streaming', tagline: 'Tus plataformas favoritas al mejor precio',
+    template: 'pop', name: 'Mi Streaming', tagline: 'Tus plataformas favoritas al mejor precio',
     heroTitle: 'Todo el entretenimiento en un solo lugar',
     heroSubtitle: 'Cuentas y perfiles originales, activación inmediata y soporte por WhatsApp.',
     ctaText: 'Comprar por WhatsApp', whatsapp: '', whatsappMessage: 'Hola, quiero información sobre ',
@@ -188,7 +191,7 @@
     const theme = { primary: color(d.theme?.primary) || DEFAULTS.theme.primary, accent: color(d.theme?.accent) || DEFAULTS.theme.accent,
       mode: d.theme?.mode === 'light' ? 'light' : 'dark' };
     return {
-      ownerUid: text(ownerUid || d.ownerUid, 128), slug: slugify(d.slug), template: text(d.template, 30) || DEFAULTS.template,
+      ownerUid: text(ownerUid || d.ownerUid, 128), slug: slugify(d.slug), template: tplId(d.template),
       name: text(d.name, 80) || DEFAULTS.name, tagline: text(d.tagline, 120), heroTitle: text(d.heroTitle, 120),
       heroSubtitle: text(d.heroSubtitle, 240), ctaText: text(d.ctaText, 40) || DEFAULTS.ctaText,
       whatsapp: phoneDigits(d.whatsapp), whatsappMessage: text(d.whatsappMessage, 160),
