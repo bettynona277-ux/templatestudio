@@ -22,7 +22,7 @@
   const keyOf = v => String(v ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
   // ---------- slug ----------
-  const RESERVED = new Set(['admin', 'api', 'dev', 'gestor', 'login', 'editor', 'tienda', 'landing', 's', 'www', 'app', 'soporte', 'help', 'disenosstreaming']);
+  const RESERVED = new Set(['admin', 'api', 'dev', 'gestor', 'login', 'editor', 'tienda', 'landing', 's', 'www', 'app', 'soporte', 'help', 'disenosstreaming', 'js', 'logos', 'icons', 'fonts', 'docs', 'functions', 'scripts', 'assets', 'css', 'offline', 'index', 'manifest', 'sw', 'backup', 'catalogo', 'publicidad', 'precios', 'contacto', 'registro', 'cuenta', 'mi-landing', 'mi-pagina']);
   function slugify(v) {
     return String(v ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
