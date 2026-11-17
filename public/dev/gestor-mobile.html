@@ -1690,7 +1690,7 @@ function renderHome(){
       <button class="btn" id="newAccount">${icon('database-plus')}<span>Nueva cuenta</span></button>
       ${isFinanceModeEnabled() ? `<button class="btn" id="openFinance">${icon('wallet')}<span>Finanzas</span></button>` : ''}
     </div>
-    <a class="landing-cta" href="/mi-landing.html"><span class="landing-cta-ico">${icon('eye')}</span><span><strong>Mi página de ventas</strong><small>Crea tu landing con logo, precios y combos</small></span><em>Nuevo</em></a>
+    <a class="landing-cta" href="mi-landing.html"><span class="landing-cta-ico">${icon('eye')}</span><span><strong>Mi página de ventas</strong><small>Crea tu landing con logo, precios y combos</small></span><em>Nuevo</em></a>
     <section class="section">
       <div class="section-head"><h2>Proximos vencimientos</h2><span>${due.length} clientes</span></div>
       <div class="list">${renderClientGroups(due.slice(0,8)) || empty('No tienes vencimientos pendientes.')}</div>
@@ -3308,6 +3308,13 @@ function renewClient(c){
     if(!selected.length) return false;
     const dates=selected.map(item=>`${platformShort(item.platform)}: ${durationMonths ? addMonthsISO(clean(item.dueDate)||todayISO(),durationMonths) : date}`);
     const exactNote=durationMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
+    // Protección: renovar justo después de vender suele ser un toque por error.
+    const recent=selected.map(item=>Date.parse(item.createdAt||'')).filter(Number.isFinite).map(t=>Math.round((Date.now()-t)/60000)).filter(min=>min>=0 && min<120);
+    if(recent.length){
+      const mins=Math.min(...recent);
+      const ago=mins<1?'hace menos de 1 minuto':mins===1?'hace 1 minuto':`hace ${mins} minutos`;
+      if(!confirm(`⚠ Este cliente se vendió ${ago}.\n\nRenovar ahora le suma OTRO periodo y registra otro ingreso en Finanzas.\n\nSi solo querías entregar la cuenta, pulsa Cancelar.`)) return false;
+    }
     return confirm(`Se renovarán estas apps:\n${dates.join('\n')}${exactNote}`);
   };
   const apply=(date,message,durationMonths=0)=>{ const ids=selectedIds(); if(!ids.length) return toast('Selecciona al menos una app para renovar.','bad'); if(!confirmRenewal(ids,date,durationMonths)) return; return applyClientRenewal(c,date,message,moneyNumber($('#renewPriceMobile')?.value),{selectedIds:ids,durationMonths}); };
