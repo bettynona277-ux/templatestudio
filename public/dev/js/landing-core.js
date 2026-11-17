@@ -303,7 +303,7 @@
   const SHARED_CSS = `
   .lt-root{isolation:isolate}
   .lt-root .ltp{position:relative;z-index:3;max-width:1100px;margin:0 auto;padding:0 0 8px;color:#fff;font-family:inherit}
-  .lt-root .ltp-cover{position:relative;height:clamp(150px,34vw,340px);overflow:hidden;border-radius:0 0 22px 22px;background:linear-gradient(135deg,var(--lt-primary),var(--lt-accent))}
+  .lt-root .ltp-cover{position:relative;aspect-ratio:851/315;min-height:120px;overflow:hidden;border-radius:0 0 22px 22px;background:linear-gradient(135deg,var(--lt-primary),var(--lt-accent))}
   @media(min-width:1100px){.lt-root .ltp-cover{border-radius:0 0 26px 26px}}
   .lt-root .ltp-cover-img{width:100%;height:100%;object-fit:cover;display:block;transform-origin:50% 40%;animation:ltp-kb 18s ease-in-out infinite alternate}
   .lt-root .ltp-cover-fx{position:absolute;inset:0;overflow:hidden}
@@ -336,7 +336,7 @@
   .lt-root.lt-light-profile .ltp{color:#111}
   .lt-root.lt-light-profile .ltp-avatar-in{border-color:#fff}
   .lt-root.lt-light-profile .ltp-social{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.12)}
-  @keyframes ltp-kb{from{transform:scale(1)}to{transform:scale(1.12) translate(-2%,-2%)}}
+  @keyframes ltp-kb{from{transform:scale(1)}to{transform:scale(1.05) translate(-1%,-1%)}}
   @keyframes ltp-blob{to{transform:translate(18%,22%) scale(1.25)}}
   @keyframes ltp-pop{from{opacity:0;transform:scale(.4) rotate(-12deg)}to{opacity:1;transform:none}}
   @keyframes ltp-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}

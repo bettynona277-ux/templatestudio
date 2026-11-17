@@ -392,6 +392,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltb-fab::after{content:"";position:absolute;top:-15px;right:-7px;width:30px;height:26px;background:linear-gradient(160deg,#ef3543,#a50d1d);clip-path:polygon(10% 100%,90% 100%,72% 22%,42% 0);rotate:18deg;filter:drop-shadow(0 4px 0 #fff)}
 /* cabecera tipo perfil sobre fondo rojo */
 .lt-navidad .ltp-ring{background:${NV_GOLD}}
+.lt-navidad .ltp-cover{box-shadow:0 14px 30px rgba(40,0,6,.45);border-bottom:4px solid var(--nv-gold)}
 .lt-navidad .ltp-avatar-in{border-color:#7d0714}
 .lt-navidad .ltp-name{text-shadow:0 2px 0 rgba(60,0,8,.5)}
 .lt-navidad .ltp-tag{color:#ffe2df;opacity:1}
@@ -481,6 +482,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   function renderNavidad(root, d, ctx) {
     LC.injectCss('navidad', CSS_NAVIDAD);
     const cl = setup(root, ctx, d);
+    // Con logo o portada se usa siempre la cabecera tipo perfil (portada ancha + logo redondo).
+    const pm = !!(ctx.profileMode || d.coverUrl || d.logoUrl) && typeof ctx.profileHeader === 'function';
+    if (pm) root.classList.add('ltb-pm');
     const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const pids = (ctx.platformIds || platformIds(plans, combos)).slice(0, 6);
@@ -490,15 +494,13 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     if (pids.length) coupons.push(['Tenemos', String((ctx.platformIds || pids).length), 'apps']);
     coupons.push(['Atención', '24/7', 'WhatsApp']);
     const couponsHtml = `<ul class="ltn-coupons">${coupons.slice(0, 3).map((c, k) => `<li class="ltn-cp" style="--k:${k}"><span>${c[0] ? `<small>${ctx.esc(c[0])}</small>` : ''}<b>${ctx.esc(c[1])}</b><small>${ctx.esc(c[2])}</small></span></li>`).join('')}</ul>`;
-    const art = d.coverUrl && !ctx.profileMode
-      ? `<figure class="ltn-photo">${NV_BOW}<img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>`
-      : (pids.length ? `<div class="ltn-show">${NV_BOW}<h3>Plataformas disponibles</h3><div class="ltn-tiles">${pids.map((p, k) => `<span class="ltn-tile" style="--k:${k}">${logoHtml(ctx, p, 'ltb-logo')}</span>`).join('')}</div>${ctx.minPrice ? `<p class="ltn-show-min">Desde <b>${ctx.esc(ctx.minPrice)}</b></p>` : ''}</div>` : '');
+    const art = (pids.length ? `<div class="ltn-show">${NV_BOW}<h3>Plataformas disponibles</h3><div class="ltn-tiles">${pids.map((p, k) => `<span class="ltn-tile" style="--k:${k}">${logoHtml(ctx, p, 'ltb-logo')}</span>`).join('')}</div>${ctx.minPrice ? `<p class="ltn-show-min">Desde <b>${ctx.esc(ctx.minPrice)}</b></p>` : ''}</div>` : '');
     const cd = nvCountdown(new Date());
     const html =
-      (ctx.profileMode && typeof ctx.profileHeader === 'function' ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) +
+      (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) +
       `<section class="ltn-hero" data-lt-hero>${bokeh}<div class="ltn-snow" aria-hidden="true"></div><div class="ltn-snow3" aria-hidden="true"></div>${NV_GARLAND}` +
       `<div class="ltb-wrap ltn-hero-in"><div class="ltn-hero-txt">` +
-      `<p class="ltn-script">${ctx.esc((!ctx.profileMode && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
+      `<p class="ltn-script">${ctx.esc((!pm && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
       `<h1 class="ltb-h1">${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       couponsHtml +
       (cd.hide ? '' : `<div class="ltn-count" role="timer" aria-live="off">${nvCountHtml(cd)}</div>`) +
