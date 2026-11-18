@@ -38,6 +38,7 @@
   // Si un logo no carga, se cambia por el círculo con la inicial (listener dentro de root).
   function onImgError(e) {
     const img = e.target;
+    if (img && img.tagName === 'IMG' && img.closest && img.closest('.ltb-cph')) { img.closest('.ltb-cph').remove(); return; }
     if (!img || img.tagName !== 'IMG' || !img.getAttribute('data-ini')) return;
     const s = img.ownerDocument.createElement('span');
     s.className = img.className + ' lt-ini';
@@ -62,6 +63,10 @@
   }
   /** Atributo de edición directa (solo en la vista previa del editor; '' en la tienda o con un núcleo viejo). */
   const ed = (ctx, path) => (ctx && typeof ctx.ed === 'function') ? ctx.ed(path) : '';
+  /** Marca de producto para las estadísticas de la tienda (data-lt-item, núcleo ronda 6; '' con un núcleo viejo). */
+  const itm = (ctx, kind, id) => (ctx && typeof ctx.item === 'function') ? ctx.item(kind, id) : '';
+  /** Franja de oferta con cuenta regresiva (solo VIP; '' si no hay promo vigente). Va justo debajo de la cabecera. */
+  const promo = ctx => (ctx && ctx.promo && typeof ctx.promoHtml === 'function') ? ctx.promoHtml() : '';
   function btn(ctx, url, label, cls, icon, main, editPath) {
     const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span${editPath ? ed(ctx, editPath) : ''}>${ctx.esc(label)}</span>`;
     // data-lt-btn: micro-interacción del núcleo; "main" = botón principal (único con brillo en 'max').
@@ -78,17 +83,20 @@
     // short: sin " · Cuenta completa" en el título (la etiqueta ya va aparte en .ltb-type)
     const tt = short ? (p.title || inf.name) : ctx.planTitle(p);
     const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li><span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
-    return `<article class="ltb-card ltb-plan" data-rv data-lt-card style="--i:${i % 8};--pc:${safeColor(inf.color)}">${extra}` +
+    return `<article class="ltb-card ltb-plan" data-rv data-lt-card${itm(ctx, 'p', p.id)} style="--i:${i % 8};--pc:${safeColor(inf.color)}">${extra}` +
       `${p.badge ? `<span class="ltb-badge">${ctx.esc(p.badge)}</span>` : ''}` +
       `<div class="ltb-card-top">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div class="ltb-meta"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(tt)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
       `${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}${feats}${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Comprar' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
+  /** Foto propia del combo (combo.imageUrl, https validada por el núcleo). Sin foto: logos de sus plataformas. */
+  const comboPhoto = (ctx, c) => c.imageUrl ? `<figure class="ltb-cph"><img src="${ctx.esc(c.imageUrl)}" alt="${ctx.esc(c.name)}" width="640" height="360" loading="lazy" decoding="async"></figure>` : '';
   function comboCard(ctx, c, i, extra = '', cls = '') {
     const names = c.platforms.map(x => ctx.platformInfo(x).name);
-    return `<article class="ltb-card ltb-combo ${cls}" data-rv data-lt-card style="--i:${i % 8}">${extra}` +
+    return `<article class="ltb-card ltb-combo ${cls}${c.imageUrl ? ' has-ph' : ''}" data-rv data-lt-card${itm(ctx, 'c', c.id)} style="--i:${i % 8}">${extra}` +
       `${c.badge ? `<span class="ltb-badge">${ctx.esc(c.badge)}</span>` : ''}` +
+      comboPhoto(ctx, c) +
       `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
-      `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>` +
+      (c.imageUrl ? '' : `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>`) +
       `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
       `${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Comprar combo' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
@@ -112,14 +120,16 @@
     return `<div class="ltb-revs"${rv ? ' data-rv' : ''}>${d.reviews.map((r, i) => {
       const s = Math.min(5, Math.max(1, Math.round(Number(r.stars)) || 5));
       const nm = r.name || 'Cliente';
-      return `<figure class="ltb-rev" style="--i:${Math.min(i, 5)}">` +
+      // Reseña de ejemplo: solo llega aquí en la vista previa del editor (el núcleo la quita de la tienda).
+      const smp = false; // las reseñas de ejemplo se muestran como cualquier otra
+      return `<figure class="ltb-rev${smp ? ' is-sample' : ''}" style="--i:${Math.min(i, 5)}">${smp ? '<span class="ltb-rsample">Ejemplo — no se publica</span>' : ''}` +
         `<span class="ltb-stars" role="img" aria-label="${s} de 5 estrellas">${[1, 2, 3, 4, 5].map(k => `<i class="${k <= s ? 'on' : ''}" style="--k:${k - 1}" aria-hidden="true">★</i>`).join('')}</span>` +
         `<blockquote class="ltb-rq"><p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></blockquote>` +
         `<figcaption class="ltb-rby"><span class="ltb-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b></figcaption></figure>`;
     }).join('')}</div>`;
   }
   const reviewsSec = (ctx, d, t) => !(d.reviews && d.reviews.length) ? '' : sec('reviews', t, reviewsHtml(ctx, d));
-  const footer = (ctx, d, extra = '') => `<footer class="ltb-foot" data-lt-foot>${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p><p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p></footer>`;
+  const footer = (ctx, d, extra = '') => `<footer class="ltb-foot" data-lt-foot>${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p>${ctx.showBrand === false ? '' : '<p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p>'}</footer>`;
   // El brillo del núcleo va en una capa interna (.ltb-shn): el ::before del botón es el anillo que late.
   const fab = (ctx, wa) => wa ? `<div class="ltb-fabwrap" data-lt-fab><a class="ltb-fab" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${ctx.linkIcon('whatsapp')}</a></div>` : '';
   /** Chip "Desde S/ X" para el hero, con hasta 3 logos de plataformas visibles (ctx.minPrice / ctx.platformIds). */
@@ -345,6 +355,11 @@ ${s}.ltb-rv .is-in>.ltb-rev,${s}.ltb-rv .is-in .ltb-revs>.ltb-rev{animation:ltb-
 ${s}.ltb-rv .is-in .ltb-stars i.on{animation:ltb-star-${id} .45s calc(var(--rvd,0ms) + var(--i,0) * 90ms + 320ms + var(--k,0) * 60ms) cubic-bezier(.3,1.6,.5,1) both}
 @keyframes ltb-rin-${id}{from{opacity:0;translate:32px 0}to{opacity:1;translate:0 0}}
 @keyframes ltb-star-${id}{from{opacity:0;scale:.3}to{opacity:1;scale:1}}
+${s} .ltb-rev.is-sample{position:relative;outline:2px dashed rgba(245,158,11,.9);outline-offset:-2px}
+${s} .ltb-rev.is-sample>:not(.ltb-rsample){opacity:.45}
+${s} .ltb-rsample{align-self:flex-start;display:inline-block;padding:3px 9px;border-radius:999px;background:#f59e0b;color:#1a1204;font:800 11px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.02em}
+${s} .ltb-cph{margin:0;border-radius:16px;overflow:hidden;aspect-ratio:16/9;background:rgba(127,127,127,.15)}
+${s} .ltb-cph img{width:100%;height:100%;object-fit:cover}
 ${s} .ltb-rdots{display:flex;justify-content:center;gap:8px;height:8px;margin:2px 0 0}
 ${s} .ltb-rdots i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.22;transition:opacity .3s,transform .3s cubic-bezier(.3,1.6,.5,1)}
 ${s} .ltb-rdots i.on{opacity:.85;transform:scale(1.35)}
@@ -568,6 +583,15 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad[data-lt-motion="max"] .ltn-snow3{display:block;position:absolute;inset:-260px 0 0;pointer-events:none;z-index:1;background-image:radial-gradient(5px 5px at 70px 80px,rgba(255,255,255,.9) 50%,transparent 56%),radial-gradient(4px 4px at 230px 190px,rgba(255,255,255,.8) 50%,transparent 56%);background-size:300px 260px;animation:nv-f3 10s linear infinite}
 @keyframes nv-f3{to{transform:translate3d(0,260px,0)}}
 @media (max-width:480px){.lt-navidad .ltn-snow::after{display:none}.lt-navidad .ltb-headcta span{display:none}.lt-navidad .ltb-headcta{padding:8px}.lt-navidad .ltn-tile{animation:nv-tile .5s calc(.55s + var(--k) * 70ms) cubic-bezier(.3,1.6,.5,1) both}.lt-navidad .ltn-bokeh i:nth-child(n+4){display:none}}
+/* ronda 6: oferta con cuenta regresiva (cinta roja y dorada) y foto propia del combo */
+.lt-navidad .lt-promo{z-index:6;margin-bottom:10px}
+.lt-navidad .lt-promo-in{background:linear-gradient(110deg,#137a3e,#0b5229);color:#fff;border:2px dashed var(--nv-gold);border-radius:20px;box-shadow:0 14px 30px rgba(40,0,5,.35)}
+.lt-navidad .lt-promo-tag{background:var(--nv-gold);color:#5c050c}
+.lt-navidad .lt-promo-u{background:#fff8ec;color:var(--nv-red)}
+.lt-navidad .lt-promo-u small{color:var(--nv-ink)}
+.lt-navidad .lt-promo-btn{background:var(--nv-gold);color:#5c050c}
+.lt-navidad .ltb-cph{border-radius:14px;border:3px solid #fff;box-shadow:0 8px 18px rgba(90,5,12,.15)}
+@media (min-width:760px){.lt-navidad .ltn-combo.has-ph .ltb-cph{grid-column:1}}
 `;
 
   // ---------- dibujos ----------
@@ -641,17 +665,18 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   function nvPlanCard(ctx, p, i) {
     const inf = ctx.platformInfo(p.platform);
     const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li><span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
-    return `<article class="ltb-card ltn-card" data-rv data-lt-card style="--i:${i % 8}">` +
+    return `<article class="ltb-card ltn-card" data-rv data-lt-card${itm(ctx, 'p', p.id)} style="--i:${i % 8}">` +
       `${p.badge ? `<span class="ltn-stamp">${ctx.esc(p.badge)}</span>` : ''}` +
       `<div class="ltb-card-top"><span class="ltn-lg">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}</span><div class="ltb-meta"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(p.title || inf.name)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
       `${feats}<div class="ltn-buyrow"><div class="ltn-pricetag">${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}</div>${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Comprar' : 'Consultar', 'ltb-buy', true)}</div></article>`;
   }
   function nvComboCard(ctx, c, i) {
     const names = c.platforms.map(x => ctx.platformInfo(x).name);
-    return `<article class="ltb-card ltn-combo${c.badge ? ' ltn-hs' : ''}" data-rv data-lt-card style="--i:${i % 8}">` +
+    return `<article class="ltb-card ltn-combo${c.badge ? ' ltn-hs' : ''}${c.imageUrl ? ' has-ph' : ''}" data-rv data-lt-card${itm(ctx, 'c', c.id)} style="--i:${i % 8}">` +
       `${c.badge ? `<span class="ltn-stamp">${ctx.esc(c.badge)}</span>` : ''}` +
+      comboPhoto(ctx, c) +
       `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
-      `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>` +
+      (c.imageUrl ? '' : `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>`) +
       `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
       `<div class="ltn-cbuy"><div class="ltn-pricetag">${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}</div>${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Pedir combo' : 'Consultar', 'ltb-buy', true)}</div></article>`;
   }
@@ -676,7 +701,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const art = (pids.length ? `<div class="ltn-show">${NV_BOW}<h3>Plataformas disponibles</h3><div class="ltn-tiles">${pids.map((p, k) => `<span class="ltn-tile" style="--k:${k}">${logoHtml(ctx, p, 'ltb-logo')}</span>`).join('')}</div>${ctx.minPrice ? `<p class="ltn-show-min">Desde <b>${ctx.esc(ctx.minPrice)}</b></p>` : ''}</div>` : '');
     const cd = nvCountdown(new Date());
     const html =
-      (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) +
+      (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) + promo(ctx) +
       `<section class="ltn-hero" data-lt-hero>${bokeh}<div class="ltn-snow" aria-hidden="true"></div><div class="ltn-snow3" aria-hidden="true"></div>${NV_GARLAND}` +
       `<div class="ltb-wrap ltn-hero-in"><div class="ltn-hero-txt">` +
       `<p class="ltn-script"${(!pm && d.tagline && d.tagline.length <= 22) ? ed(ctx, 'tagline') : ''}>${ctx.esc((!pm && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
@@ -704,6 +729,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   LC.registerTemplate({
     id: 'navidad', name: 'Navidad', description: 'Roja elegante: guirnalda con esferas brillantes, dorado, cupones de precio y cuenta regresiva',
+    // Plantilla de temporada exclusiva VIP (sin VIP vigente se pinta 'fallback'). El editor la agrupa en "De temporada · VIP".
+    seasonal: true, vipOnly: true, fallback: 'pop',
     tags: ['festiva', 'navidad', 'animada'], preview: { bg: '#b80f1f', fg: '#ffffff', accent: '#f2c75a' }, render: renderNavidad
   });
 })(typeof window !== 'undefined' ? window : globalThis);

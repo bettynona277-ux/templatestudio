@@ -156,6 +156,13 @@
   const RETIRED_TPL = { cine: 'premium', neon: 'premium', aurora: 'premium', kinetic: 'premium', bio: 'pop' };
   const tplId = v => { const t = String(v || '').trim().slice(0, 30); return RETIRED_TPL[t] || t || 'pop'; };
   const getTemplate = id => templates.get(id) || templates.values().next().value;
+  /** Plantilla de reemplazo sin VIP: VIP_TEMPLATES (navidad → pop) o las registradas con vipOnly:true (fallback o 'pop').
+   *  '' si la plantilla es libre. Las de temporada se registran con seasonal:true + vipOnly:true (el editor las agrupa). */
+  function vipFallback(id) {
+    if (VIP_TEMPLATES[id]) return VIP_TEMPLATES[id];
+    const t = templates.get(id);
+    return t && t.vipOnly ? (t.fallback && t.fallback !== id ? t.fallback : 'pop') : '';
+  }
 
   // Inserta una vez una hoja de estilos por plantilla (id único).
   function injectCss(id, css) {
@@ -176,13 +183,47 @@
     currency: 'PEN', logoUrl: '', coverUrl: '',
     theme: { primary: '#7C3AED', accent: '#22D3EE', mode: 'dark' },
     headerStyle: 'cover', motion: 'normal',
-    plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], reviews: [], enabled: true
+    plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], reviews: [], promo: null, enabled: true
   });
   /** Límites de los textos (los usa normalize y el editor para la edición directa en la vista previa). */
   const LIMITS = Object.freeze({
     name: 80, tagline: 120, heroTitle: 120, heroSubtitle: 240, ctaText: 40, planTitle: 60, feature: 60, comboName: 60,
-    price: 12, benefit: 80, faqQ: 120, faqA: 400, payment: 30, reviewName: 40, reviewText: 280, maxReviews: 12, maxCombos: 30
+    price: 12, benefit: 80, faqQ: 120, faqA: 400, payment: 30, reviewName: 40, reviewText: 280, maxReviews: 12, maxCombos: 30,
+    // Máximo técnico (= VIP) y plan Normal: plataformas (planes) y combos que se MUESTRAN en la tienda.
+    maxPlans: 40, normalPlans: 10, normalCombos: 5, promoText: 60, maxApps: 40
   });
+  /** Límites del plan: VIP = máximos técnicos; Normal = 10 plataformas y 5 combos visibles. */
+  const planLimits = vip => vip ? { plans: LIMITS.maxPlans, combos: LIMITS.maxCombos } : { plans: LIMITS.normalPlans, combos: LIMITS.normalCombos };
+
+  /** Reseñas de ejemplo del sistema (inventadas). Una reseña con exactamente este nombre y texto se trata como ejemplo
+   *  (landings creadas antes de la ronda 6, sin la marca sample). Los ejemplos NO se publican en la tienda. */
+  const SAMPLE_REVIEWS = Object.freeze([
+    { name: 'Rosa M.', text: 'Me activaron Netflix en 10 minutos. Rápido y confiable, ya voy 4 meses comprando aquí.', stars: 5 },
+    { name: 'Luis A.', text: 'Excelente atención por WhatsApp, me ayudaron a ponerlo en mi Smart TV paso a paso.', stars: 5 },
+    { name: 'Carla P.', text: 'El combo con Disney+ me sale mucho más barato que pagar cada uno. 100% recomendado.', stars: 5 },
+    { name: 'Jorge R.', text: 'Tuve un problema con mi perfil y me lo repusieron al toque. Muy serios.', stars: 5 },
+    { name: 'Milagros T.', text: 'Pagué con Yape y en minutos ya tenía mi cuenta. Precios justos.', stars: 5 },
+    { name: 'Diego S.', text: 'Buen servicio y cumplen. De noche a veces demoran un poquito en responder.', stars: 4 },
+    // Variantes antiguas (sampleData y ronda 4).
+    { name: 'Luis A.', text: 'Excelente atención por WhatsApp, me ayudaron a ponerlo en mi Smart TV.', stars: 5 },
+    { name: 'Diego S.', text: 'Buen precio y cumplen. De noche a veces demoran un poquito en responder.', stars: 4 }
+  ].map(Object.freeze));
+  const SAMPLE_KEYS = new Set(SAMPLE_REVIEWS.map(r => r.name + '\n' + r.text));
+  /** true si la reseña es de ejemplo: marcada sample:true o idéntica (nombre + texto) a una del sistema y no marcada sample:false. */
+  const isSampleReview = r => !!r && (r.sample === true || (r.sample !== false && isSampleText(r)));
+  /** true si nombre + texto son idénticos a una reseña de ejemplo del sistema (sin mirar la marca). La tienda pública nunca
+   *  las muestra, aunque vengan con sample:false (p. ej. el dueño la editó y la dejó igual, o un documento manipulado). */
+  function isSampleText(r) { return !!r && SAMPLE_KEYS.has(text(r.name, 40) + '\n' + text(r.text, 280)); }
+  /** Clave de producto para estadísticas y data-lt-item: p_<id> (plan) o c_<id> (combo). */
+  const itemKey = (kind, id) => { const k = String(id ?? '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 40); return k ? (kind === 'c' ? 'c_' : 'p_') + k : ''; };
+  /** Promo (solo VIP): {text, endsAt (ms), planId?, comboId?} o null. */
+  function normPromo(p) {
+    if (!p || typeof p !== 'object') return null;
+    const t = text(p.text, LIMITS.promoText), e = Number(p.endsAt);
+    if (!t || !Number.isFinite(e) || e <= 0) return null;
+    const planId = text(p.planId, 40), comboId = planId ? '' : text(p.comboId, 40);
+    return { text: t, endsAt: Math.round(e), planId, comboId };
+  }
 
   // Número de un precio escrito por el usuario ("15", "15,50"); NaN si no es número.
   const priceNum = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : NaN; };
@@ -194,19 +235,21 @@
     const d = raw || {};
     const color = v => /^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : '';
     const list = (arr, max) => Array.isArray(arr) ? arr.slice(0, max) : [];
-    const plans = list(d.plans, 40).map((p, i) => ({
+    const plans = list(d.plans, LIMITS.maxPlans).map((p, i) => ({
       id: text(p?.id, 40) || `p${i}`, platform: platformInfo(p?.platform).id === 'other' ? text(p?.platform, 40) : platformInfo(p?.platform).id,
       title: text(p?.title, 60), price: text(p?.price, 12), oldPrice: text(p?.oldPrice, 12),
       period: text(p?.period, 24) || '1 mes', type: ['profile', 'full'].includes(p?.type) ? p.type : 'profile',
       features: list(p?.features, 6).map(f => text(f, 60)).filter(Boolean), badge: text(p?.badge, 24),
-      imageUrl: safeImage(p?.imageUrl), visible: p?.visible !== false
+      // imageUrl: logo propio (app personalizada o reemplazo del logo del catálogo); color: color de la app propia.
+      imageUrl: safeImage(p?.imageUrl), color: color(p?.color), visible: p?.visible !== false
     })).filter(p => p.platform);
     plans.forEach(p => { p.oldPrice = offerOld(p.price, p.oldPrice); });
     const combos = list(d.combos, LIMITS.maxCombos).map((c, i) => ({
       id: text(c?.id, 40) || `c${i}`, name: text(c?.name, 60) || 'Combo',
       platforms: list(c?.platforms, 8).map(x => { const inf = platformInfo(x); return inf.id === 'other' ? text(x, 40) : inf.id; }).filter(Boolean),
       price: text(c?.price, 12), oldPrice: text(c?.oldPrice, 12), period: text(c?.period, 24) || '1 mes',
-      badge: text(c?.badge, 24), visible: c?.visible !== false
+      // imageUrl: foto propia del combo (opcional, https); sin foto las plantillas muestran los logos.
+      badge: text(c?.badge, 24), imageUrl: safeImage(c?.imageUrl), visible: c?.visible !== false
     })).filter(c => c.platforms.length);
     combos.forEach(c => { c.oldPrice = offerOld(c.price, c.oldPrice); });
     const links = list(d.links, 12).map(l => ({
@@ -230,8 +273,12 @@
       // Reseñas de clientes: [{name, text, stars 1..5}] (máx. 12). Sin texto no se guardan.
       reviews: list(d.reviews, LIMITS.maxReviews).map(r => ({
         name: text(r?.name, LIMITS.reviewName), text: text(r?.text, LIMITS.reviewText),
-        stars: Math.min(5, Math.max(1, Math.round(Number(r?.stars)) || 5))
+        stars: Math.min(5, Math.max(1, Math.round(Number(r?.stars)) || 5)),
+        // sample: reseña de ejemplo (inventada). Se ve en el editor; NO se publica en la tienda.
+        sample: isSampleReview(r)
       })).filter(r => r.text),
+      // Oferta con cuenta regresiva (solo se muestra con VIP vigente y antes de endsAt).
+      promo: normPromo(d.promo),
       // Cabecera: 'cover' = portada propia de la plantilla; 'profile' = estilo perfil de Facebook (portada + logo redondo).
       headerStyle: d.headerStyle === 'profile' ? 'profile' : 'cover',
       // Nivel de animación: 'calm' (tranquilo), 'normal' (animado), 'max' (espectacular).
@@ -277,15 +324,59 @@
   /** Contexto común que reciben las plantillas en render(root, data, ctx). */
   /** Solo lo visible: planes, combos, plataformas (sin repetir) y precio más bajo. */
   // Planes y combos se muestran si están visibles; sin precio salen con "Precio a consultar" y botón "Consultar".
+  // Plan Normal (sin VIP vigente): solo los primeros 10 planes y 5 combos visibles (los datos no se borran: con VIP vuelven).
   const hasPrice = it => Number.isFinite(priceNum(it.price));
   function visibleInfo(data) {
-    const plans = data.plans.filter(p => p.visible);
-    const combos = data.combos.filter(c => c.visible);
+    const lim = planLimits(vipActive(data));
+    const allPlans = data.plans.filter(p => p.visible), allCombos = data.combos.filter(c => c.visible);
+    const plans = allPlans.slice(0, lim.plans), combos = allCombos.slice(0, lim.combos);
     const platformIds = [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))];
     const nums = plans.map(p => priceNum(p.price)).concat(combos.map(c => priceNum(c.price))).filter(Number.isFinite);
     const min = nums.length ? Math.min(...nums) : NaN;
-    return { plans, combos, platformIds, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '' };
+    return { plans, combos, platformIds, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '',
+      hiddenByLimit: { plans: allPlans.length - plans.length, combos: allCombos.length - combos.length } };
   }
+  /** Logos y colores propios por plataforma, tomados de los planes (app personalizada o logo que reemplaza al del catálogo).
+   *  Clave: id del catálogo o keyOf(nombre) para apps propias. El primer plan con logo manda. */
+  function appOverrides(data) {
+    const m = new Map();
+    (data.plans || []).forEach(p => {
+      const inf = platformInfo(p.platform), k = inf.id === 'other' ? 'x:' + keyOf(p.platform) : inf.id;
+      const cur = m.get(k) || {};
+      if (!cur.logo && p.imageUrl) cur.logo = p.imageUrl;
+      if (!cur.color && p.color) cur.color = p.color;
+      if (cur.logo || cur.color) m.set(k, cur);
+    });
+    return m;
+  }
+  function platformInfoWith(over) {
+    return idOrName => {
+      const inf = platformInfo(idOrName);
+      const o = over.get(inf.id === 'other' ? 'x:' + keyOf(idOrName) : inf.id);
+      return o ? { ...inf, logo: o.logo || inf.logo, color: o.color || inf.color } : inf;
+    };
+  }
+  /** Promo vigente (VIP, con texto y antes de endsAt) + producto destacado visible (o null). */
+  function activePromo(data, vis, now = Date.now()) {
+    const p = data.promo;
+    if (!p || !vipActive(data, now) || !(p.endsAt > now)) return null;
+    // Si el VIP vence antes que la oferta, la franja se va al vencer el VIP (sin recargar la página).
+    const until = vipUntilNum(data.vipUntil), endsAt = until !== null && until < p.endsAt ? until : p.endsAt;
+    const plan = p.planId ? vis.plans.find(x => x.id === p.planId) : null;
+    const combo = !plan && p.comboId ? vis.combos.find(x => x.id === p.comboId) : null;
+    return { ...p, endsAt, plan: plan || null, combo: combo || null };
+  }
+  /** Cuenta regresiva: {d,h,m,s} hasta endsAt (o null si ya terminó). */
+  function promoLeft(endsAt, now = Date.now()) {
+    const ms = endsAt - now; if (!(ms > 0)) return null;
+    return { d: Math.floor(ms / 864e5), h: Math.floor(ms % 864e5 / 36e5), m: Math.floor(ms % 36e5 / 6e4), s: Math.floor(ms % 6e4 / 1e3) };
+  }
+  function promoCountHtml(left) {
+    const box = (v, l, u) => `<span class="lt-promo-u"><b data-u="${u}">${String(v).padStart(2, '0')}</b><small>${l}</small></span>`;
+    return left.d > 0 ? box(left.d, left.d === 1 ? 'día' : 'días', 'd') + box(left.h, 'horas', 'h') + box(left.m, 'min', 'm')
+      : box(left.h, 'horas', 'h') + box(left.m, 'min', 'm') + box(left.s, 'seg', 's');
+  }
+  const promoAria = l => l.d > 0 ? `Termina en ${l.d} ${l.d === 1 ? 'día' : 'días'} y ${l.h} horas` : `Termina en ${l.h} horas y ${l.m} minutos`;
 
   function buildContext(data, opts = {}) {
     // Sin VIP vigente la página se pinta quieta (noMotion): se trata como "reducir movimiento" y además sin
@@ -294,6 +385,10 @@
     const noMotion = !vip;
     const reducedMotion = noMotion || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const vis = visibleInfo(data);
+    const pInfo = platformInfoWith(appOverrides(data));
+    const promo = activePromo(data, vis);
+    const ed = path => opts.preview && path ? ` data-lt-edit="${esc(path)}"` : '';
+    const buy = product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, String(product || '').trim() || 'tus planes'].join(' ').replace(/\s{2,}/g, ' ').trim());
     return {
       /** Solo planes/combos con visible !== false. Úsalos SIEMPRE (también en murales, marquesinas y contadores). */
       visiblePlans: vis.plans, visibleCombos: vis.combos,
@@ -310,11 +405,20 @@
        *  (en la tienda pública devuelve ''). Paths: name, tagline, heroTitle, heroSubtitle, ctaText,
        *  plans.<id>.title|price|features.<k>, combos.<id>.name|price, benefits.<i>, faq.<i>.q|a,
        *  reviews.<i>.name|text, paymentMethods.<i> (índices = posición en data ya normalizada). */
-      ed: path => opts.preview && path ? ` data-lt-edit="${esc(path)}"` : '',
-      esc, money: v => money(v, data.currency), platformInfo, linkIcon: t => LINK_ICONS[t] || LINK_ICONS.other,
+      ed,
+      /** platformInfo con los logos/colores propios del usuario (apps personalizadas y logos reemplazados). */
+      esc, money: v => money(v, data.currency), platformInfo: pInfo, linkIcon: t => LINK_ICONS[t] || LINK_ICONS.other,
+      /** Marca "Hecho con Diseños Streaming": visible en Normal, oculta con VIP vigente. */
+      showBrand: !vip,
+      /** Atributo para estadísticas: ' data-lt-item="p_<id>"' (plan) / 'c_<id>' (combo). También en la tienda pública. */
+      item: (kind, id) => { const k = itemKey(kind, id); return k ? ` data-lt-item="${k}"` : ''; },
+      /** Promo vigente (solo VIP) o null: {text, endsAt, plan, combo}. promoHtml() = franja lista para insertar
+       *  (la plantilla la pone justo debajo de su cabecera y la decora con CSS prefijado; el núcleo actualiza la cuenta). */
+      promo,
+      promoHtml: () => promoHtml(data, promo, { ed, buy, pInfo, preview: !!opts.preview }),
       linkLabel: l => l.label || (LINK_TYPES.find(t => t.id === l.type) || {}).label || 'Enlace',
       /** Enlace de WhatsApp con mensaje prellenado para un producto (texto libre). */
-      buy: product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, String(product || '').trim() || 'tus planes'].join(' ').replace(/\s{2,}/g, ' ').trim()),
+      buy,
       planTitle: p => p.title || `${platformInfo(p.platform).name}${p.type === 'full' ? ' · Cuenta completa' : ''}`,
       typeLabel: p => p.type === 'full' ? 'Cuenta completa' : 'Perfil',
       /** true si el usuario eligió la cabecera tipo perfil de Facebook. */
@@ -351,6 +455,61 @@
         ${links ? `<div class="ltp-actions"><div class="ltp-socials">${links}</div></div>` : ''}
       </div>
     </header>`;
+  }
+
+  // ---------- oferta con cuenta regresiva (solo VIP) ----------
+  const BOLT = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>';
+  function promoHtml(d, promo, h) {
+    if (!promo) return '';
+    const left = promoLeft(promo.endsAt); if (!left) return '';
+    let prod = '', item = '', href = h.buy(`Promo: ${promo.text}`);
+    const it = promo.plan || promo.combo;
+    if (it) {
+      const isPlan = !!promo.plan;
+      const name = isPlan ? (it.title || h.pInfo(it.platform).name) : it.name;
+      const m = money(it.price, d.currency);
+      const logo = isPlan ? h.pInfo(it.platform).logo : (it.imageUrl || '');
+      const src = isPlan ? (it.imageUrl || logo) : logo;
+      prod = `<span class="lt-promo-p">${src ? `<img src="${esc(src)}" alt="" width="26" height="26" decoding="async">` : ''}<span>${esc(name)}${m ? ` · <b>${esc(m)}</b>` : ''}</span></span>`;
+      href = h.buy([`Promo: ${promo.text}`, name, m].filter(Boolean).join(' · '));
+      item = ` data-lt-item="${itemKey(isPlan ? 'p' : 'c', it.id)}"`;
+    }
+    return `<aside class="lt-promo" data-lt-promo data-end="${promo.endsAt}" aria-label="Oferta por tiempo limitado"><div class="lt-promo-in">` +
+      `<span class="lt-promo-tag">${BOLT}<span>Oferta</span></span>` +
+      `<p class="lt-promo-t"><span${h.ed('promo.text')}>${esc(promo.text)}</span>${prod}</p>` +
+      `<div class="lt-promo-cd" role="timer" aria-live="off" aria-label="${esc(promoAria(left))}"><span class="lt-promo-l">Termina en</span><span class="lt-promo-units">${promoCountHtml(left)}</span></div>` +
+      (d.whatsapp && href ? `<a class="lt-promo-btn" data-lt-btn href="${esc(href)}" target="_blank" rel="noopener"${item}>${LINK_ICONS.whatsapp}<span>Lo quiero</span></a>` : '') +
+      `</div></aside>`;
+  }
+  /** Actualiza la cuenta regresiva (cada minuto con días; cada segundo en el último día) y quita la franja al vencer. */
+  function startPromo(root, ctx) {
+    if (!ctx.promo) return null;
+    let el = root.querySelector('[data-lt-promo]');
+    if (!el) {
+      // Plantilla sin franja propia: el núcleo la pone debajo de la cabecera.
+      const html = ctx.promoHtml(); if (!html) return null;
+      const head = root.querySelector('[data-lt-profile]') || root.querySelector('header') || null;
+      if (head && head.parentNode === root) head.insertAdjacentHTML('afterend', html); else root.insertAdjacentHTML('afterbegin', html);
+      el = root.querySelector('[data-lt-promo]'); if (!el) return null;
+    }
+    const end = Number(el.getAttribute('data-end'));
+    const view = (root.ownerDocument && root.ownerDocument.defaultView) || root;
+    let t = 0, mode = '';
+    const tick = () => {
+      const l = promoLeft(end);
+      if (!l) { el.remove(); return; }
+      const m = l.d > 0 ? 'd' : 's', units = el.querySelector('.lt-promo-units'), cd = el.querySelector('.lt-promo-cd');
+      if (units) {
+        if (m !== mode) units.innerHTML = promoCountHtml(l);
+        else units.querySelectorAll('b[data-u]').forEach(b => { const v = String(l[b.getAttribute('data-u')]).padStart(2, '0'); if (b.textContent !== v) b.textContent = v; });
+      }
+      mode = m;
+      if (cd) cd.setAttribute('aria-label', promoAria(l));
+      const ms = end - Date.now();
+      t = view.setTimeout(tick, m === 'd' ? (ms % 6e4) + 30 : (ms % 1e3) + 30);
+    };
+    tick();
+    return () => view.clearTimeout(t);
   }
 
   const SHARED_CSS = `
@@ -440,6 +599,24 @@
   .lt-root .lt-bb.is-solo .lt-bb-c{margin:0;flex:1}
   .lt-root .lt-bb.is-solo{padding-left:7px}
   @media (max-width:340px){.lt-root .lt-bb-c{padding:0 12px;font-size:14px}}
+  /* --- oferta con cuenta regresiva (VIP): estructura común; cada plantilla la decora con su prefijo --- */
+  .lt-root .lt-promo{position:relative;z-index:4;padding:10px 12px 0;max-width:1124px;margin:0 auto}
+  .lt-root .lt-promo-in{position:relative;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:12px 14px;border-radius:18px;background:linear-gradient(110deg,var(--lt-primary),var(--lt-accent));color:#fff;box-shadow:0 10px 28px rgba(0,0,0,.25)}
+  .lt-root .lt-promo-in::after{content:"";position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-120%) skewX(-20deg);animation:lt-shine 3.6s 1s ease-in-out 3;pointer-events:none}
+  .lt-root .lt-promo-tag{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:rgba(0,0,0,.28);font-weight:900;font-size:12px;letter-spacing:.06em;text-transform:uppercase;flex:none}
+  .lt-root .lt-promo-tag svg{width:14px;height:14px}
+  .lt-root .lt-promo-t{margin:0;flex:1 1 200px;min-width:0;font-weight:900;font-size:clamp(17px,4.4vw,22px);line-height:1.15;overflow-wrap:anywhere}
+  .lt-root .lt-promo-p{display:flex;align-items:center;gap:7px;margin-top:5px;font-size:13px;font-weight:700;opacity:.95}
+  .lt-root .lt-promo-p img{width:26px;height:26px;border-radius:8px;object-fit:cover;flex:none;background:#fff}
+  .lt-root .lt-promo-cd{display:flex;align-items:center;gap:8px;flex:none}
+  .lt-root .lt-promo-l{font-size:12px;font-weight:800;opacity:.9}
+  .lt-root .lt-promo-units{display:flex;gap:5px}
+  .lt-root .lt-promo-u{display:grid;justify-items:center;min-width:46px;padding:6px 4px 5px;border-radius:10px;background:rgba(0,0,0,.3);line-height:1}
+  .lt-root .lt-promo-u b{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums}
+  .lt-root .lt-promo-u small{font-size:10px;font-weight:700;opacity:.85;margin-top:3px}
+  .lt-root .lt-promo-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:999px;background:#25d366;color:#052e14;font-weight:900;text-decoration:none;white-space:nowrap;flex:none}
+  .lt-root .lt-promo-btn svg{width:18px;height:18px}
+  @media (max-width:560px){.lt-root .lt-promo-cd{flex:1 1 100%;justify-content:space-between}.lt-root .lt-promo-btn{flex:1 1 100%}}
   /* --- sin VIP (lt-static): página quieta, todo visible desde el inicio, sin pérdida de diseño --- */
   .lt-root.lt-static *,.lt-root.lt-static *::before,.lt-root.lt-static *::after{animation:none!important;transition:none!important}
   .lt-root.lt-static .lt-particles{display:none!important}
@@ -571,7 +748,7 @@
     const d = normalize(data, data?.ownerUid);
     // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
     let tid = opts.template || d.template;
-    if (VIP_TEMPLATES[tid] && !vipActive(d)) tid = VIP_TEMPLATES[tid];
+    if (vipFallback(tid) && !vipActive(d)) tid = vipFallback(tid);
     const tpl = getTemplate(tid);
     if (!tpl) { root.textContent = 'No hay plantillas cargadas.'; return; }
     // Repintado del mismo root con la misma plantilla (editor o datos nuevos en la tienda): ctx.rerender = true.
@@ -586,7 +763,9 @@
     injectCss('shared', SHARED_CSS);
     // En pantallas pequeñas se usa la portada ligera: menos datos para el cliente y menos descarga.
     const narrow = typeof innerWidth === 'number' && innerWidth <= 820;
-    const view = (narrow && d.coverSmUrl) ? { ...d, coverUrl: d.coverSmUrl } : d;
+    const view = (narrow && d.coverSmUrl) ? { ...d, coverUrl: d.coverSmUrl } : { ...d };
+    // Reseñas de ejemplo: solo en la vista previa del editor (atenuadas, "Ejemplo — no se publica"); nunca en la tienda.
+    // Las reseñas (también las de ejemplo) se publican tal cual: el dueño decide si las cambia.
     const ctx = buildContext(view, opts);
     ctx.rerender = rerender;
     tpl.render(root, view, ctx);
@@ -596,7 +775,8 @@
     const barCleanup = applyBuyBar(root, view, ctx);
     const holdCleanup = holdLazyImages(root, ctx);
     const profCleanup = ctx.noMotion ? null : pauseProfileOffscreen(root);
-    const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup].filter(Boolean);
+    const promoCleanup = startPromo(root, ctx);
+    const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
     if (extra.length) root.__ltCleanup = () => {
       try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
     };
@@ -607,6 +787,7 @@
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
-    normDomain, vipState, vipActive, VIP_TEMPLATES
+    normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
+    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft
   });
 })(typeof window !== 'undefined' ? window : globalThis);
