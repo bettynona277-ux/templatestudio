@@ -74,7 +74,7 @@
   }
   const vipActive = (d, now) => vipState(d, now) === 'active';
   /** Plantillas exclusivas del plan VIP (sin VIP se pintan con la indicada). */
-  const VIP_TEMPLATES = Object.freeze({ navidad: 'pop' });
+  const VIP_TEMPLATES = Object.freeze({ navidad: 'pop', navidad2: 'pop', navidad3: 'pop' });
 
   // Tipos de enlaces personalizados. icon = nombre corto usado por las plantillas.
   const LINK_TYPES = [
