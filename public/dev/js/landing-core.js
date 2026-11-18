@@ -156,7 +156,12 @@
     currency: 'PEN', logoUrl: '', coverUrl: '',
     theme: { primary: '#7C3AED', accent: '#22D3EE', mode: 'dark' },
     headerStyle: 'cover', motion: 'normal',
-    plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], enabled: true
+    plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], reviews: [], enabled: true
+  });
+  /** Límites de los textos (los usa normalize y el editor para la edición directa en la vista previa). */
+  const LIMITS = Object.freeze({
+    name: 80, tagline: 120, heroTitle: 120, heroSubtitle: 240, ctaText: 40, planTitle: 60, feature: 60, comboName: 60,
+    price: 12, benefit: 80, faqQ: 120, faqA: 400, payment: 30, reviewName: 40, reviewText: 280, maxReviews: 12, maxCombos: 30
   });
 
   // Número de un precio escrito por el usuario ("15", "15,50"); NaN si no es número.
@@ -177,7 +182,7 @@
       imageUrl: safeImage(p?.imageUrl), visible: p?.visible !== false
     })).filter(p => p.platform);
     plans.forEach(p => { p.oldPrice = offerOld(p.price, p.oldPrice); });
-    const combos = list(d.combos, 20).map((c, i) => ({
+    const combos = list(d.combos, LIMITS.maxCombos).map((c, i) => ({
       id: text(c?.id, 40) || `c${i}`, name: text(c?.name, 60) || 'Combo',
       platforms: list(c?.platforms, 8).map(x => { const inf = platformInfo(x); return inf.id === 'other' ? text(x, 40) : inf.id; }).filter(Boolean),
       price: text(c?.price, 12), oldPrice: text(c?.oldPrice, 12), period: text(c?.period, 24) || '1 mes',
@@ -202,6 +207,11 @@
       benefits: list(d.benefits, 6).map(b => text(b, 80)).filter(Boolean),
       faq: list(d.faq, 10).map(f => ({ q: text(f?.q, 120), a: text(f?.a, 400) })).filter(f => f.q && f.a),
       paymentMethods: list(d.paymentMethods, 8).map(p => text(p, 30)).filter(Boolean),
+      // Reseñas de clientes: [{name, text, stars 1..5}] (máx. 12). Sin texto no se guardan.
+      reviews: list(d.reviews, LIMITS.maxReviews).map(r => ({
+        name: text(r?.name, LIMITS.reviewName), text: text(r?.text, LIMITS.reviewText),
+        stars: Math.min(5, Math.max(1, Math.round(Number(r?.stars)) || 5))
+      })).filter(r => r.text),
       // Cabecera: 'cover' = portada propia de la plantilla; 'profile' = estilo perfil de Facebook (portada + logo redondo).
       headerStyle: d.headerStyle === 'profile' ? 'profile' : 'cover',
       // Nivel de animación: 'calm' (tranquilo), 'normal' (animado), 'max' (espectacular).
@@ -233,12 +243,19 @@
       faq: [{ q: '¿Cuánto tarda la entrega?', a: 'Entre 5 y 15 minutos después de confirmar tu pago.' },
         { q: '¿Qué pasa si falla mi cuenta?', a: 'Te la reponemos sin costo durante todo el periodo contratado.' }],
       paymentMethods: ['Yape', 'Plin', 'Transferencia'],
+      reviews: [
+        { name: 'Rosa M.', text: 'Me activaron Netflix en 10 minutos. Rápido y confiable, ya voy 4 meses comprando aquí.', stars: 5 },
+        { name: 'Luis A.', text: 'Excelente atención por WhatsApp, me ayudaron a ponerlo en mi Smart TV.', stars: 5 },
+        { name: 'Diego S.', text: 'Buen precio y cumplen. De noche a veces demoran un poquito en responder.', stars: 4 }
+      ],
       links: [{ type: 'instagram', url: 'https://instagram.com/' }, { type: 'tiktok', url: 'https://tiktok.com/' }]
     }, 'demo');
   }
 
   /** Contexto común que reciben las plantillas en render(root, data, ctx). */
   /** Solo lo visible: planes, combos, plataformas (sin repetir) y precio más bajo. */
+  // Planes y combos se muestran si están visibles; sin precio salen con "Precio a consultar" y botón "Consultar".
+  const hasPrice = it => Number.isFinite(priceNum(it.price));
   function visibleInfo(data) {
     const plans = data.plans.filter(p => p.visible);
     const combos = data.combos.filter(c => c.visible);
@@ -259,6 +276,11 @@
       /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
       minPrice: vis.minPrice, minPriceValue: vis.minPriceValue,
       preview: !!opts.preview, reducedMotion,
+      /** Edición directa en la vista previa del editor: devuelve ' data-lt-edit="<path>"' solo si preview es true
+       *  (en la tienda pública devuelve ''). Paths: name, tagline, heroTitle, heroSubtitle, ctaText,
+       *  plans.<id>.title|price|features.<k>, combos.<id>.name|price, benefits.<i>, faq.<i>.q|a,
+       *  reviews.<i>.name|text, paymentMethods.<i> (índices = posición en data ya normalizada). */
+      ed: path => opts.preview && path ? ` data-lt-edit="${esc(path)}"` : '',
       esc, money: v => money(v, data.currency), platformInfo, linkIcon: t => LINK_ICONS[t] || LINK_ICONS.other,
       linkLabel: l => l.label || (LINK_TYPES.find(t => t.id === l.type) || {}).label || 'Enlace',
       /** Enlace de WhatsApp con mensaje prellenado para un producto (texto libre). */
@@ -271,18 +293,19 @@
       /** HTML de la cabecera tipo perfil (portada ancha + logo redondo superpuesto + nombre + acciones).
        *  La plantilla la coloca arriba de todo cuando profileMode es true, y entonces NO pinta su
        *  propia cabecera de logo ni la imagen de portada en su hero (para no repetir). */
-      profileHeader: () => profileHeaderHtml(data)
+      profileHeader: () => profileHeaderHtml(data, !!opts.preview)
     };
   }
 
   // ---------- cabecera tipo perfil (compartida por todas las plantillas) ----------
-  function profileHeaderHtml(d) {
+  function profileHeaderHtml(d, edit) {
+    const ed = path => edit ? ` data-lt-edit="${path}"` : '';
     const initial = esc((d.name || '?').trim().charAt(0).toUpperCase() || '?');
     const cover = d.coverUrl
-      ? `<img class="ltp-cover-img" src="${esc(d.coverUrl)}" alt="" loading="eager" decoding="async">`
+      ? `<img class="ltp-cover-img" src="${esc(d.coverUrl)}" alt="" width="851" height="315" loading="eager" decoding="async" fetchpriority="high">`
       : '<span class="ltp-cover-fx" aria-hidden="true"><i></i><i></i><i></i></span>';
     const avatar = d.logoUrl
-      ? `<img src="${esc(d.logoUrl)}" alt="Logo de ${esc(d.name)}" decoding="async">`
+      ? `<img src="${esc(d.logoUrl)}" alt="Logo de ${esc(d.name)}" width="168" height="168" decoding="async">`
       : `<span class="ltp-initial">${initial}</span>`;
     const links = d.links.slice(0, 6).map(l => `<a class="ltp-social" href="${esc(l.url)}" target="_blank" rel="noopener" aria-label="${esc(l.label || (LINK_TYPES.find(t => t.id === l.type) || {}).label || 'Enlace')}">${LINK_ICONS[l.type] || LINK_ICONS.other}</a>`).join('');
     const count = visibleInfo(d).platformIds.length;
@@ -291,8 +314,8 @@
       <div class="ltp-body">
         <div class="ltp-avatar"><span class="ltp-ring" aria-hidden="true"></span><span class="ltp-avatar-in">${avatar}</span></div>
         <div class="ltp-info">
-          <h1 class="ltp-name">${esc(d.name)}</h1>
-          ${d.tagline ? `<p class="ltp-tag">${esc(d.tagline)}</p>` : ''}
+          <h1 class="ltp-name"><span${ed('name')}>${esc(d.name)}</span></h1>
+          ${d.tagline ? `<p class="ltp-tag"${ed('tagline')}>${esc(d.tagline)}</p>` : ''}
           <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? '<span class="ltp-online"><i></i>Atención por WhatsApp</span>' : ''}</p>
         </div>
         ${links ? `<div class="ltp-actions"><div class="ltp-socials">${links}</div></div>` : ''}
@@ -368,6 +391,17 @@
   .lt-root .lt-bb{display:flex;align-items:center;gap:10px;min-height:58px;padding:7px 7px 7px 18px;border-radius:18px;background:rgba(14,14,22,.94);color:#fff;text-decoration:none;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-shadow:0 12px 34px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.1);pointer-events:auto;transform:translateY(130%);opacity:0;transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .25s;-webkit-tap-highlight-color:transparent}
   .lt-root .lt-bbw.is-on .lt-bb{transform:none;opacity:1}
   .lt-root .lt-bbw.is-on .lt-bb:active{transform:scale(.97)}
+  /* Un solo "latido" del botón verde al aparecer la barra (la primera vez que se pinta is-on). */
+  .lt-root .lt-bbw.is-on .lt-bb-c{animation:lt-bbpulse .5s .35s cubic-bezier(.3,1.6,.5,1) 1 both}
+  @keyframes lt-bbpulse{50%{transform:scale(1.05)}}
+  /* Bucles del núcleo pausados cuando no se ven: brillo con la barra oculta, partículas en reposo,
+     cabecera de perfil fuera de pantalla. Repintado (editor / datos nuevos): sin repetir entradas.
+     (En pseudo-elementos se usa animation:none: en Chrome un ::after en pausa se recalcula en cada cuadro, ~400 ms/s con CPU 4x.) */
+  .lt-root .lt-bbw:not(.is-on) [data-lt-btn="main"]::after{animation:none}
+  .lt-root.lt-idle .lt-particles i{animation-play-state:paused}
+  .lt-root .ltp.ltp-off :is(.ltp-cover-img,.ltp-ring,.ltp-cover-fx i){animation-play-state:paused}
+  .lt-root .ltp.ltp-off .ltp-online i::after{animation:none}
+  .lt-root.lt-rerender *,.lt-root.lt-rerender *::before,.lt-root.lt-rerender *::after{animation-delay:-30s!important}
   .lt-root .lt-bb-p{display:flex;flex-direction:column;line-height:1.1;min-width:0;white-space:nowrap}
   .lt-root .lt-bb-p small{font-size:11px;opacity:.7;font-weight:600}
   .lt-root .lt-bb-p b{font-size:18px;font-weight:900}
@@ -395,28 +429,45 @@
     // Partículas de colores de marca subiendo suavemente (12 en móvil, 20 en PC).
     const layer = document.createElement('div');
     layer.className = 'lt-particles'; layer.setAttribute('aria-hidden', 'true');
-    const n = (typeof innerWidth === 'number' && innerWidth < 720) ? 12 : 20;
+    const mobile = typeof innerWidth === 'number' && innerWidth < 720;
+    const n = mobile ? 8 : 20;
     const colors = [d.theme.primary, d.theme.accent, '#ffffff'];
     let html = '';
     for (let i = 0; i < n; i++) {
       const s = 3 + Math.round(Math.random() * 6);
-      html += `<i style="left:${Math.round(Math.random() * 100)}%;--s:${s}px;--c:${colors[i % 3]};--t:${9 + Math.round(Math.random() * 10)}s;--d:-${Math.round(Math.random() * 15)}s;--dx:${Math.round(Math.random() * 80 - 40)}px"></i>`;
+      html += `<i style="left:${Math.round(Math.random() * 100)}%;--s:${s}px;--c:${colors[i % 3]};--t:${(mobile ? 12 : 9) + Math.round(Math.random() * 10)}s;--d:-${Math.round(Math.random() * 15)}s;--dx:${Math.round(Math.random() * 80 - 40)}px"></i>`;
     }
     layer.innerHTML = html; root.prepend(layer);
+    // Partículas en pausa con la pestaña oculta o tras 20 s sin desplazarse (se reanudan al mover la página).
+    const view = root.ownerDocument && root.ownerDocument.defaultView;
+    if (view) {
+      let idleT = 0;
+      const wake = () => { root.classList.remove('lt-idle'); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add('lt-idle'), 20000); };
+      const vis = () => { if (view.document.hidden) root.classList.add('lt-idle'); else wake(); };
+      view.addEventListener('scroll', wake, { passive: true });
+      view.document.addEventListener('visibilitychange', vis);
+      wake();
+      cleanups.push(() => { clearTimeout(idleT); view.removeEventListener('scroll', wake); view.document.removeEventListener('visibilitychange', vis); });
+    }
     // Inclinación 3D de tarjetas solo con mouse (en táctil no aporta y gasta batería).
     const fine = typeof matchMedia === 'function' && matchMedia('(hover:hover) and (pointer:fine)').matches;
-    if (fine) {
-      const move = e => {
-        const card = e.target.closest && e.target.closest('[data-lt-card]');
+    if (fine && !ctx.preview) {
+      // Un solo cálculo por cuadro (rAF): leer el rect y escribir el transform juntos, sin layout forzado por evento.
+      let last = null, raf = 0;
+      const frame = () => {
+        raf = 0;
+        const e = last; last = null;
+        const card = e && e.target.closest && e.target.closest('[data-lt-card]');
         if (!card || !root.contains(card)) return;
         const r = card.getBoundingClientRect();
         const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
         card.style.transform = `perspective(800px) rotateY(${(x * 10).toFixed(2)}deg) rotateX(${(-y * 10).toFixed(2)}deg) translateY(-4px)`;
       };
-      const leave = e => { const card = e.target.closest && e.target.closest('[data-lt-card]'); if (card && !card.contains(e.relatedTarget)) card.style.transform = ''; };
+      const move = e => { last = e; if (!raf) raf = requestAnimationFrame(frame); };
+      const leave = e => { const card = e.target.closest && e.target.closest('[data-lt-card]'); if (card && !card.contains(e.relatedTarget)) { last = null; card.style.transform = ''; } };
       root.addEventListener('pointermove', move, { passive: true });
       root.addEventListener('pointerout', leave, { passive: true });
-      cleanups.push(() => { root.removeEventListener('pointermove', move); root.removeEventListener('pointerout', leave); });
+      cleanups.push(() => { if (raf) cancelAnimationFrame(raf); root.removeEventListener('pointermove', move); root.removeEventListener('pointerout', leave); });
     }
     return () => cleanups.forEach(f => f());
   }
@@ -450,14 +501,49 @@
     return () => io.disconnect();
   }
 
+  /** Tienda pública: mientras baja la imagen principal (portada con fetchpriority="high", casi siempre el LCP),
+   *  los logos con loading="lazy" esperan (máx. 3 s) para no repartirse el ancho de banda de datos móviles con ella.
+   *  Solo fuera del editor. Los lazy aún no han empezado a descargarse cuando se llama (mismo turno que innerHTML). */
+  const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  function holdLazyImages(root, ctx) {
+    if (ctx.preview || typeof document === 'undefined') return null;
+    const hero = root.querySelector('img[fetchpriority="high"]');
+    if (!hero || hero.complete) return null;
+    const held = [...root.querySelectorAll('img[loading="lazy"][src]')].filter(img => !img.src.startsWith('data:'));
+    if (!held.length) return null;
+    held.forEach(img => { img.setAttribute('data-lt-src', img.getAttribute('src')); img.setAttribute('src', BLANK); });
+    let done = false, timer = 0;
+    const release = () => {
+      if (done) return; done = true; clearTimeout(timer);
+      hero.removeEventListener('load', release); hero.removeEventListener('error', release);
+      held.forEach(img => { const src = img.getAttribute('data-lt-src'); img.removeAttribute('data-lt-src'); if (src && img.isConnected) img.setAttribute('src', src); });
+    };
+    hero.addEventListener('load', release); hero.addEventListener('error', release);
+    timer = setTimeout(release, 3000);
+    return () => { done = true; clearTimeout(timer); hero.removeEventListener('load', release); hero.removeEventListener('error', release); };
+  }
+
+  /** Ken Burns de la portada, anillo y puntito de la cabecera de perfil: en pausa cuando no se ve. */
+  function pauseProfileOffscreen(root) {
+    const prof = root.querySelector('[data-lt-profile]');
+    const IO = root.ownerDocument && root.ownerDocument.defaultView && root.ownerDocument.defaultView.IntersectionObserver;
+    if (!prof || typeof IO !== 'function') return null;
+    const io = new IO(es => es.forEach(e => prof.classList.toggle('ltp-off', !e.isIntersecting)), { rootMargin: '100px 0px' });
+    io.observe(prof);
+    return () => io.disconnect();
+  }
+
   function render(root, data, opts = {}) {
     const d = normalize(data, data?.ownerUid);
     const tpl = getTemplate(opts.template || d.template);
     if (!tpl) { root.textContent = 'No hay plantillas cargadas.'; return; }
+    // Repintado del mismo root con la misma plantilla (editor o datos nuevos en la tienda): ctx.rerender = true.
+    const rerender = root.__ltTpl === tpl.id && root.childElementCount > 0;
     if (typeof root.__ltCleanup === 'function') { try { root.__ltCleanup(); } catch (_) {} }
     root.__ltCleanup = null;
     root.innerHTML = '';
-    root.className = `lt-root lt-${tpl.id}`;
+    root.className = `lt-root lt-${tpl.id}${rerender ? ' lt-rerender' : ''}`;
+    root.__ltTpl = tpl.id;
     root.style.setProperty('--lt-primary', d.theme.primary);
     root.style.setProperty('--lt-accent', d.theme.accent);
     injectCss('shared', SHARED_CSS);
@@ -465,13 +551,17 @@
     const narrow = typeof innerWidth === 'number' && innerWidth <= 820;
     const view = (narrow && d.coverSmUrl) ? { ...d, coverUrl: d.coverSmUrl } : d;
     const ctx = buildContext(view, opts);
+    ctx.rerender = rerender;
     tpl.render(root, view, ctx);
     // Encadena la limpieza de la plantilla con la de los efectos comunes.
     const tplCleanup = root.__ltCleanup;
     const motionCleanup = applyMotion(root, view, ctx);
     const barCleanup = applyBuyBar(root, view, ctx);
-    if (motionCleanup || barCleanup) root.__ltCleanup = () => {
-      try { tplCleanup && tplCleanup(); } finally { try { motionCleanup && motionCleanup(); } finally { barCleanup && barCleanup(); } }
+    const holdCleanup = holdLazyImages(root, ctx);
+    const profCleanup = pauseProfileOffscreen(root);
+    const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup].filter(Boolean);
+    if (extra.length) root.__ltCleanup = () => {
+      try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
     };
   }
 
@@ -479,6 +569,6 @@
     FIREBASE, CLOUDINARY, STORAGE, COLLECTION, DEFAULTS, PLATFORMS, LINK_TYPES, LINK_ICONS, CURRENCIES,
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
-    profileHeaderHtml, SHARED_CSS, visibleInfo
+    profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice
   });
 })(typeof window !== 'undefined' ? window : globalThis);

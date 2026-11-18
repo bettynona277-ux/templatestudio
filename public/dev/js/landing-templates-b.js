@@ -61,48 +61,65 @@
     const parts = [`${c.name} (${names})`]; const m = ctx.money(c.price); if (m) parts.push(m); if (c.period) parts.push(c.period);
     return ctx.buy(parts.join(' · '));
   }
-  function btn(ctx, url, label, cls, icon, main) {
-    const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span>${ctx.esc(label)}</span>`;
+  /** Atributo de edición directa (solo en la vista previa del editor; '' en la tienda o con un núcleo viejo). */
+  const ed = (ctx, path) => (ctx && typeof ctx.ed === 'function') ? ctx.ed(path) : '';
+  function btn(ctx, url, label, cls, icon, main, editPath) {
+    const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span${editPath ? ed(ctx, editPath) : ''}>${ctx.esc(label)}</span>`;
     // data-lt-btn: micro-interacción del núcleo; "main" = botón principal (único con brillo en 'max').
     const mark = main ? 'data-lt-btn="main"' : 'data-lt-btn';
     if (!url) return `<span class="ltb-btn ${cls} is-off" ${mark} aria-disabled="true">${inner}</span>`;
     return `<a class="ltb-btn ${cls}" ${mark} href="${ctx.esc(url)}" target="_blank" rel="noopener">${inner}</a>`;
   }
-  function priceHtml(ctx, price, old, period) {
+  function priceHtml(ctx, price, old, period, editPath) {
     const m = ctx.money(price), o = ctx.money(old);
-    return `<div class="ltb-price">${o && m ? `<s class="ltb-old"><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<strong>${ctx.esc(m || 'Consultar')}</strong>${m && period ? `<span class="ltb-per">/ ${ctx.esc(period)}</span>` : ''}</div>`;
+    return `<div class="ltb-price">${o && m ? `<s class="ltb-old"><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<strong${editPath ? ed(ctx, editPath) : ''}${m ? '' : ' class="ltb-ask"'}>${ctx.esc(m || 'Precio a consultar')}</strong>${m && period ? `<span class="ltb-per">/ ${ctx.esc(period)}</span>` : ''}</div>`;
   }
   function planCard(ctx, p, i, extra = '', short = false) {
     const inf = ctx.platformInfo(p.platform);
     // short: sin " · Cuenta completa" en el título (la etiqueta ya va aparte en .ltb-type)
     const tt = short ? (p.title || inf.name) : ctx.planTitle(p);
-    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map(f => `<li>${ctx.esc(f)}</li>`).join('')}</ul>` : '';
+    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li><span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
     return `<article class="ltb-card ltb-plan" data-rv data-lt-card style="--i:${i % 8};--pc:${safeColor(inf.color)}">${extra}` +
       `${p.badge ? `<span class="ltb-badge">${ctx.esc(p.badge)}</span>` : ''}` +
-      `<div class="ltb-card-top">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div class="ltb-meta"><h3 class="ltb-title">${ctx.esc(tt)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
-      `${priceHtml(ctx, p.price, p.oldPrice, p.period)}${feats}${btn(ctx, planBuy(ctx, p), 'Comprar', 'ltb-buy', true)}</article>`;
+      `<div class="ltb-card-top">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div class="ltb-meta"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(tt)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
+      `${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}${feats}${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Comprar' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
   function comboCard(ctx, c, i, extra = '', cls = '') {
     const names = c.platforms.map(x => ctx.platformInfo(x).name);
     return `<article class="ltb-card ltb-combo ${cls}" data-rv data-lt-card style="--i:${i % 8}">${extra}` +
       `${c.badge ? `<span class="ltb-badge">${ctx.esc(c.badge)}</span>` : ''}` +
-      `<h3 class="ltb-title">${ctx.esc(c.name)}</h3>` +
+      `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
       `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>` +
       `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
-      `${priceHtml(ctx, c.price, c.oldPrice, c.period)}${btn(ctx, comboBuy(ctx, c), 'Comprar combo', 'ltb-buy', true)}</article>`;
+      `${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Comprar combo' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
   function header(ctx, d, wa) {
     const mark = d.logoUrl
       ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="42" height="42" decoding="async">`
       : `<span class="ltb-mono" aria-hidden="true">${ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase())}</span>`;
-    return `<header class="ltb-head"><div class="ltb-brand">${mark}<b>${ctx.esc(d.name)}</b></div>` +
+    return `<header class="ltb-head"><div class="ltb-brand">${mark}<b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b></div>` +
       `${wa ? `<a class="ltb-headcta" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>WhatsApp</span></a>` : ''}</header>`;
   }
   const sec = (kind, title, body) => `<section class="ltb-sec ltb-sec-${kind}"><div class="ltb-wrap">${title ? `<h2 class="ltb-h2" data-rv>${title}</h2>` : ''}${body}</div></section>`;
-  const benefitsSec = (ctx, d, t) => !d.benefits.length ? '' : sec('benefits', t, `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li data-rv style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span>${ctx.esc(b)}</span></li>`).join('')}</ul>`);
-  const paysSec = (ctx, d, t) => !d.paymentMethods.length ? '' : sec('pays', t, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map(p => `<li>${ctx.esc(p)}</li>`).join('')}</ul>`);
-  const faqSec = (ctx, d, t) => !d.faq.length ? '' : sec('faq', t, `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary>${ctx.esc(f.q)}</summary><p>${ctx.esc(f.a)}</p></details>`).join('')}</div>`);
+  const benefitsSec = (ctx, d, t) => !d.benefits.length ? '' : sec('benefits', t, `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li data-rv style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul>`);
+  const paysSec = (ctx, d, t) => !d.paymentMethods.length ? '' : sec('pays', t, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`);
+  const faqSec = (ctx, d, t) => !d.faq.length ? '' : sec('faq', t, `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div>`);
   const linksSec = (ctx, d, t) => !d.links.length ? '' : sec('links', t, `<div class="ltb-links" data-rv>${d.links.map(l => `<a class="ltb-link" href="${ctx.esc(l.url)}" target="_blank" rel="noopener">${ctx.linkIcon(l.type)}<span>${ctx.esc(ctx.linkLabel(l))}</span></a>`).join('')}</div>`);
+  /** Reseñas: tarjetas con estrellas, texto y nombre. Carrusel con snap en celular, grilla en PC.
+   *  ANIM: el carril (no cada tarjeta) lleva data-rv; las tarjetas entran escalonadas desde la derecha
+   *  (sugiere deslizar) y las estrellas se encienden una a una. Las tarjetas fuera de pantalla en
+   *  horizontal ya no se quedan invisibles esperando al observer. */
+  function reviewsHtml(ctx, d, rv = true) {
+    return `<div class="ltb-revs"${rv ? ' data-rv' : ''}>${d.reviews.map((r, i) => {
+      const s = Math.min(5, Math.max(1, Math.round(Number(r.stars)) || 5));
+      const nm = r.name || 'Cliente';
+      return `<figure class="ltb-rev" style="--i:${Math.min(i, 5)}">` +
+        `<span class="ltb-stars" role="img" aria-label="${s} de 5 estrellas">${[1, 2, 3, 4, 5].map(k => `<i class="${k <= s ? 'on' : ''}" style="--k:${k - 1}" aria-hidden="true">★</i>`).join('')}</span>` +
+        `<blockquote class="ltb-rq"><p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></blockquote>` +
+        `<figcaption class="ltb-rby"><span class="ltb-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b></figcaption></figure>`;
+    }).join('')}</div>`;
+  }
+  const reviewsSec = (ctx, d, t) => !(d.reviews && d.reviews.length) ? '' : sec('reviews', t, reviewsHtml(ctx, d));
   const footer = (ctx, d, extra = '') => `<footer class="ltb-foot" data-lt-foot>${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p><p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p></footer>`;
   // El brillo del núcleo va en una capa interna (.ltb-shn): el ::before del botón es el anillo que late.
   const fab = (ctx, wa) => wa ? `<div class="ltb-fabwrap" data-lt-fab><a class="ltb-fab" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${ctx.linkIcon('whatsapp')}</a></div>` : '';
@@ -114,16 +131,23 @@
   }
   /** Cabecera: tipo perfil (núcleo) o la barra propia de la plantilla. */
   const top = (ctx, d, wa) => (ctx.profileMode && typeof ctx.profileHeader === 'function') ? ctx.profileHeader() : header(ctx, d, wa);
-  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true) : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
+  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true, 'ctaText') : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
 
-  /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup. */
-  function setup(root, ctx, d) {
+  /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup.
+   *  ANIM: en la vista previa del editor, si se repinta la MISMA plantilla/nivel/cabecera (p. ej. tras editar
+   *  un texto) la página queda "quieta" (ltb-still): sin entradas, apariciones ni confeti repetidos. */
+  function setup(root, ctx, d, id) {
     root.style.setProperty('--ltb-on-p', ink(d.theme.primary));
     root.style.setProperty('--ltb-on-a', ink(d.theme.accent));
     if (ctx.reducedMotion) root.classList.add('ltb-rm');
     if (ctx.preview) root.classList.add('ltb-preview');
     if (ctx.profileMode) root.classList.add('ltb-pm');
+    const key = [id, ctx.motion, ctx.profileMode ? 1 : 0].join('|');
+    const still = !!ctx.preview && root.__ltbKey === key;
+    root.__ltbKey = key;
+    if (still) root.classList.add('ltb-still');
     const cleanups = [];
+    cleanups.still = still;
     const onClick = e => {
       const g = e.target && e.target.closest ? e.target.closest('[data-goto]') : null;
       if (!g || !root.contains(g)) return;
@@ -136,20 +160,103 @@
     root.__ltCleanup = () => { while (cleanups.length) { try { cleanups.pop()(); } catch (_) {} } };
     return cleanups;
   }
-  /** Aparición al hacer scroll. Sin IntersectionObserver o con reducedMotion: todo visible. */
+  /** Aparición al hacer scroll. Sin IntersectionObserver o en la vista previa "quieta": todo visible.
+   *  ANIM: escalonado por lote (lo que entra junto a la vez: 0, 70, 140 ms…, máx. 350 ms) en lugar de por índice
+   *  fijo (la 6.ª tarjeta ya no espera 450 ms estando a la vista). threshold 0: los bloques muy altos
+   *  (40 planes en un panel) también aparecen. */
   function reveal(root, ctx, cleanups) {
     const els = [...root.querySelectorAll('[data-rv]')];
-    if (typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
+    if (cleanups.still || typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
     root.classList.add('ltb-rv');
     let fired = false;
     const io = new G.IntersectionObserver(entries => {
       fired = true;
-      entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('is-in'); io.unobserve(en.target); } });
-    }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 });
+      let k = 0;
+      entries.forEach(en => {
+        if (!en.isIntersecting) return;
+        en.target.style.setProperty('--rvd', Math.min(k++, 5) * 70 + 'ms');
+        en.target.classList.add('is-in'); io.unobserve(en.target);
+      });
+    }, { rootMargin: '0px 0px -7% 0px', threshold: 0 });
     els.forEach(e => io.observe(e));
     // Respaldo: si el observer no responde en 2,5 s, se muestra todo (nunca queda contenido invisible).
     const timer = G.setTimeout(() => { if (!fired) els.forEach(e => e.classList.add('is-in')); }, 2500);
     cleanups.push(() => { io.disconnect(); G.clearTimeout(timer); });
+  }
+  /** ANIM: pausa los bucles (formas, auras, nieve, brillos, partículas propias) de las secciones que no están en
+   *  pantalla: clase ltb-off → animation-play-state:paused. Ahorra CPU/GPU y batería en celulares. */
+  function pauseOffscreen(root, cleanups) {
+    if (typeof G.IntersectionObserver !== 'function') return;
+    const els = root.querySelectorAll('[data-lt-hero],[data-lt-profile],.ltb-sec');
+    const io = new G.IntersectionObserver(entries => {
+      entries.forEach(en => en.target.classList.toggle('ltb-off', !en.isIntersecting));
+    }, { rootMargin: '120px 0px 120px 0px', threshold: 0 });
+    els.forEach(e => io.observe(e));
+    cleanups.push(() => io.disconnect());
+  }
+  /** ANIM: onda al tocar botones de compra (confirmación inmediata antes de abrir WhatsApp). Solo transform/opacity.
+   *  No en la vista previa (el toque edita el texto) ni con movimiento reducido. */
+  function tapRipple(root, ctx, cleanups) {
+    if (ctx.preview || ctx.reducedMotion) return;
+    const down = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.ltb-btn,.ltb-headcta') : null;
+      if (!b || !root.contains(b) || b.classList.contains('is-off')) return;
+      const r = b.getBoundingClientRect(), s = Math.ceil(Math.max(r.width, r.height) * 2.2);
+      const x = (e.clientX || r.left + r.width / 2) - r.left - s / 2, y = (e.clientY || r.top + r.height / 2) - r.top - s / 2;
+      const i = b.ownerDocument.createElement('span');
+      i.className = 'ltb-rip'; i.setAttribute('aria-hidden', 'true');
+      i.style.cssText = `width:${s}px;height:${s}px;left:${x.toFixed(0)}px;top:${y.toFixed(0)}px`;
+      b.appendChild(i);
+      G.setTimeout(() => i.remove(), 700);
+    };
+    root.addEventListener('pointerdown', down, { passive: true });
+    cleanups.push(() => root.removeEventListener('pointerdown', down));
+  }
+  /** ANIM: carrusel de reseñas (celular): puntos indicadores y avance automático suave cada 5 s.
+   *  Solo si hay desborde horizontal, la sección está en pantalla, la pestaña visible y nadie la tocó.
+   *  Se detiene para siempre al primer toque/rueda/foco del usuario, con 'calm' o movimiento reducido,
+   *  y mientras se edita un texto en la vista previa. scrollTo smooth + scroll-snap = desplazamiento en el compositor. */
+  function reviewsMotion(root, ctx, cleanups) {
+    const track = root.querySelector('.ltb-revs');
+    if (!track || track.children.length < 2) return;
+    const cards = [...track.children];
+    const doc = track.ownerDocument;
+    const dots = doc.createElement('div');
+    dots.className = 'ltb-rdots'; dots.setAttribute('aria-hidden', 'true');
+    dots.innerHTML = cards.map((_, k) => `<i${k ? '' : ' class="on"'}></i>`).join('');
+    track.after(dots);
+    if (typeof G.IntersectionObserver !== 'function') return;
+    let cur = 0;
+    const dio = new G.IntersectionObserver(entries => {
+      entries.forEach(en => { if (en.isIntersecting) { cur = cards.indexOf(en.target); [...dots.children].forEach((x, k) => x.classList.toggle('on', k === cur)); } });
+    }, { root: track, threshold: 0.6 });
+    cards.forEach(c => dio.observe(c));
+    cleanups.push(() => dio.disconnect());
+    if (ctx.reducedMotion || ctx.motion === 'calm') return;
+    let timer = 0, stopped = false;
+    const stop = () => { stopped = true; G.clearInterval(timer); timer = 0; };
+    const tick = () => {
+      if (stopped || doc.hidden || track.scrollWidth <= track.clientWidth + 4) return;
+      if (root.querySelector('[contenteditable],[data-lt-editing]')) return;
+      const next = (cur + 1) % cards.length;
+      track.scrollTo({ left: cards[next].offsetLeft - cards[0].offsetLeft, behavior: 'smooth' });
+    };
+    const vio = new G.IntersectionObserver(entries => {
+      const on = entries.some(en => en.isIntersecting);
+      if (on && !timer && !stopped) timer = G.setInterval(tick, 5000);
+      else if (!on && timer) { G.clearInterval(timer); timer = 0; }
+    }, { threshold: 0.5 });
+    vio.observe(track);
+    const evs = ['pointerdown', 'wheel', 'focusin', 'keydown'];
+    evs.forEach(t => track.addEventListener(t, stop, { passive: true }));
+    cleanups.push(() => { stop(); vio.disconnect(); evs.forEach(t => track.removeEventListener(t, stop)); });
+  }
+  /** ANIM: todo el movimiento común tras pintar. */
+  function motionKit(root, ctx, cleanups) {
+    reveal(root, ctx, cleanups);
+    pauseOffscreen(root, cleanups);
+    tapRipple(root, ctx, cleanups);
+    reviewsMotion(root, ctx, cleanups);
   }
 
   /** CSS estructural común, con el prefijo de cada plantilla. */
@@ -182,6 +289,7 @@ ${s} .ltb-title{margin:0;font-size:18px;line-height:1.15;overflow-wrap:anywhere}
 ${s} .ltb-type{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 ${s} .ltb-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px}
 ${s} .ltb-price strong{font-size:34px;line-height:1}
+${s} .ltb-price strong.ltb-ask{font-size:20px;line-height:1.15;letter-spacing:0}
 ${s} .ltb-old{font-size:15px}
 ${s} .ltb-per{font-size:14px;opacity:.8}
 ${s} .ltb-feats{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:14px}
@@ -211,15 +319,52 @@ ${s} .ltb-fabwrap{position:fixed;right:16px;bottom:16px;z-index:40}
 ${s}.ltb-preview .ltb-fabwrap{position:sticky;right:auto;bottom:16px;display:flex;justify-content:flex-end;padding:0 16px 16px;pointer-events:none}
 ${s} .ltb-fab{position:relative;pointer-events:auto;width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:#25D366;color:#fff;box-shadow:0 10px 26px rgba(0,0,0,.32);text-decoration:none;animation:ltb-fabin-${id} .7s .8s cubic-bezier(.3,1.6,.5,1) both}
 ${s} .ltb-fab svg{width:32px;height:32px}
-${s} .ltb-fab::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25D366;animation:ltb-ping-${id} 2.2s 1.6s ease-out infinite}
+${s} .ltb-fab::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25D366;animation:ltb-ping-${id} 2.2s 1.6s ease-out 3}
 @keyframes ltb-fabin-${id}{from{opacity:0;transform:scale(0) rotate(-90deg)}to{opacity:1;transform:none}}
 @keyframes ltb-ping-${id}{from{transform:scale(1);opacity:.85}to{transform:scale(1.75);opacity:0}}
 @media (max-width:480px){${s} .ltb-fabwrap{right:12px;bottom:12px}${s} .ltb-fab{width:52px;height:52px}${s} .ltb-fab svg{width:28px;height:28px}}
 ${s} .ltb-pays li,${s} .ltb-faq,${s} .ltb-faq summary,${s} .ltb-faq p,${s} .ltb-foot,${s} .ltb-link span,${s} .ltb-incl,${s} .ltb-sub,${s} .ltb-eyebrow,${s} .ltb-price,${s} .ltb-tp b{overflow-wrap:anywhere;min-width:0}
 ${s} .ltb-pays li{max-width:100%}
+${s} .ltb-revs{display:grid;grid-auto-flow:column;grid-auto-columns:min(84%,330px);gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px 4px 18px;margin:0 -4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+@media (min-width:860px){${s} .ltb-revs{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-columns:auto;overflow:visible}}
+${s} .ltb-rev{margin:0;scroll-snap-align:start;display:flex;flex-direction:column;gap:12px;min-width:0;padding:20px}
+${s} .ltb-stars{display:flex;gap:2px;font-size:18px;line-height:1;letter-spacing:0}
+${s} .ltb-stars i{font-style:normal;opacity:.25}
+${s} .ltb-stars i.on{opacity:1;color:#f5b301}
+${s} .ltb-rq{margin:0;flex:1}
+${s} .ltb-rq p{margin:0;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+${s} .ltb-rby{display:flex;align-items:center;gap:10px;min-width:0}
+${s} .ltb-rby b{min-width:0;overflow-wrap:anywhere}
+${s} .ltb-rav{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;font-weight:800;background:var(--lt-primary);color:var(--ltb-on-p)}
 ${s}.ltb-rv [data-rv]:not(.is-in){opacity:0}
-${s}.ltb-rv [data-rv].is-in{animation:ltb-up-${id} .75s calc(var(--i,0) * 90ms) cubic-bezier(.2,.75,.25,1) both}
-@keyframes ltb-up-${id}{from{opacity:0;translate:0 28px}to{opacity:1;translate:0 0}}
+${s}.ltb-rv [data-rv].is-in{animation:ltb-up-${id} .65s var(--rvd,0ms) cubic-bezier(.16,1,.3,1) both}
+@keyframes ltb-up-${id}{from{opacity:0;translate:0 22px}to{opacity:1;translate:0 0}}
+/* ANIM: reseñas — el carril aparece de golpe y sus tarjetas entran escalonadas desde la derecha; las estrellas se encienden una a una */
+${s}.ltb-rv .ltb-revs[data-rv].is-in{animation:none}
+${s}.ltb-rv .is-in>.ltb-rev,${s}.ltb-rv .is-in .ltb-revs>.ltb-rev{animation:ltb-rin-${id} .6s calc(var(--rvd,0ms) + var(--i,0) * 90ms) cubic-bezier(.16,1,.3,1) both}
+${s}.ltb-rv .is-in .ltb-stars i.on{animation:ltb-star-${id} .45s calc(var(--rvd,0ms) + var(--i,0) * 90ms + 320ms + var(--k,0) * 60ms) cubic-bezier(.3,1.6,.5,1) both}
+@keyframes ltb-rin-${id}{from{opacity:0;translate:32px 0}to{opacity:1;translate:0 0}}
+@keyframes ltb-star-${id}{from{opacity:0;scale:.3}to{opacity:1;scale:1}}
+${s} .ltb-rdots{display:flex;justify-content:center;gap:8px;height:8px;margin:2px 0 0}
+${s} .ltb-rdots i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.22;transition:opacity .3s,transform .3s cubic-bezier(.3,1.6,.5,1)}
+${s} .ltb-rdots i.on{opacity:.85;transform:scale(1.35)}
+@media (min-width:860px){${s} .ltb-rdots{display:none}}
+/* ANIM: micro-interacción al tocar: onda (ltb-rip, creada por JS) + presión rápida (80 ms) y suelta suave */
+${s} .ltb-btn,${s} .ltb-headcta{position:relative;overflow:hidden;isolation:isolate}
+${s} .ltb-btn>:not(.ltb-rip),${s} .ltb-headcta>:not(.ltb-rip){position:relative;z-index:1}
+${s} .ltb-btn:active,${s} .ltb-headcta:active{transition-duration:.08s}
+${s} .ltb-rip{position:absolute;z-index:0;border-radius:50%;background:currentColor;pointer-events:none;opacity:0;transform:scale(0);animation:ltb-rip-${id} .6s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes ltb-rip-${id}{0%{opacity:.3;transform:scale(0)}100%{opacity:0;transform:scale(1)}}
+/* ANIM: bucles en pausa cuando su sección no está en pantalla (clase ltb-off, IntersectionObserver). Lista cerrada de
+   elementos con bucle (no '*'): no congela entradas a medias y el cambio de clase no recalcula estilos de toda la sección. */
+${s} .ltb-off :is(.ltb-s,.ltb-stk,.ltb-cta,.ltb-aura,.ltb-aura2,.ltb-spark i,.ltn-sw,.ltn-glint,.ltn-bokeh i,.ltn-snow3,.ltn-tile,.ltp-cover-fx i,.ltp-cover-img,.ltp-ring),${s} .ltb-off :is(.ltn-snow,.ltb-cta,.ltp-online i)::before,${s} .ltb-off :is(.ltn-snow,[data-lt-btn="main"],.ltp-online i)::after{animation-play-state:paused!important}
+/* ANIM: vista previa — repintado tras editar: nada vuelve a entrar (todas las entradas ya terminadas; los bucles siguen) */
+${s}.ltb-still *,${s}.ltb-still *::before,${s}.ltb-still *::after{animation-delay:-30s!important}
+/* ANIM: texto en edición quieto y legible: sin animaciones ni transiciones en él ni en sus contenedores,
+   y sin elevar/inclinar tarjetas ni botones bajo el cursor en la vista previa */
+${s} [contenteditable],${s} [data-lt-editing],${s} :has(>[contenteditable]),${s} [data-lt-card]:has([contenteditable]),${s} .ltb-hero-txt:has([contenteditable])>*{animation:none!important;transition:none!important}
+${s}.ltb-preview [data-lt-card]:is(:hover,:active,:focus-within),${s} [data-lt-card]:has([contenteditable]){transform:none!important;rotate:var(--rot,0deg)!important}
+${s}.ltb-preview .ltb-btn:has([data-lt-edit]):is(:hover,:active),${s} .ltb-btn:has([contenteditable]){transform:none!important;translate:none!important}
 ${s} .ltb-shn{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${s}[data-lt-motion] .ltb-shn[data-lt-btn]{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${s}[data-lt-motion="max"] .ltb-card[data-lt-card]{transition:transform .25s ease-out,rotate .45s cubic-bezier(.3,1.7,.5,1),box-shadow .2s,border-color .4s}
@@ -250,19 +395,26 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-pop .ltb-hero{position:relative;overflow:hidden;padding:26px 0 76px}
 .lt-pop .ltb-hero-in{position:relative;z-index:2;display:grid;gap:40px;align-items:center}
 @media (min-width:860px){.lt-pop .ltb-hero-in{grid-template-columns:1.15fr .85fr}.lt-pop .ltb-hero{padding:48px 0 104px}}
-.lt-pop .ltb-kicker{display:inline-block;background:var(--pp-yel);border:3px solid var(--pp-ink);border-radius:999px;padding:6px 14px;font-weight:900;font-size:14px;box-shadow:3px 3px 0 var(--pp-ink);rotate:-3deg;max-width:100%;overflow-wrap:anywhere}
-.lt-pop .ltb-h1{font-size:clamp(36px,10vw,78px);line-height:1.02;margin:20px 0 16px;font-weight:900;letter-spacing:-.03em;overflow-wrap:anywhere;animation:pp-pop .8s cubic-bezier(.3,1.5,.5,1) both}
+.lt-pop .ltb-kicker{display:inline-block;background:var(--pp-yel);border:3px solid var(--pp-ink);border-radius:999px;padding:6px 14px;font-weight:900;font-size:14px;box-shadow:3px 3px 0 var(--pp-ink);rotate:-3deg;max-width:100%;overflow-wrap:anywhere;animation:pp-kick .55s .05s cubic-bezier(.3,1.6,.5,1) both}
+.lt-pop .ltb-h1{font-size:clamp(36px,10vw,78px);line-height:1.02;margin:20px 0 16px;font-weight:900;letter-spacing:-.03em;overflow-wrap:anywhere;animation:pp-pop .7s .1s cubic-bezier(.3,1.5,.5,1) both}
 .lt-pop .ltb-hl{position:relative;display:inline-block;z-index:0}
 .lt-pop .ltb-hl::before{content:"";position:absolute;left:-.08em;right:-.08em;bottom:.02em;height:.4em;background:var(--lt-accent);border-radius:.18em;z-index:-1;rotate:-2deg;transform-origin:left center;animation:pp-mark .7s .55s cubic-bezier(.3,1.4,.5,1) both}
-.lt-pop .ltb-sub{font-size:clamp(16px,4.3vw,20px);max-width:560px;margin:0 0 28px;font-weight:600;color:#3d3556}
-.lt-pop .ltb-ctas{display:flex;flex-wrap:wrap;gap:16px}
+.lt-pop .ltb-sub{font-size:clamp(16px,4.3vw,20px);max-width:560px;margin:0 0 28px;font-weight:600;color:#3d3556;animation:pp-rise .55s .26s cubic-bezier(.16,1,.3,1) both}
+.lt-pop .ltb-ctas{display:flex;flex-wrap:wrap;gap:16px;animation:pp-rise .55s .46s cubic-bezier(.16,1,.3,1) both}
+/* ANIM: coreografía del hero — etiqueta, título, subtítulo, precio (rebota y su cifra hace 'tic'), botones; luego el botón salta 2 veces */
+.lt-pop .ltb-hero .ltb-from{animation:pp-chip .6s .36s cubic-bezier(.3,1.6,.5,1) both}
+.lt-pop .ltb-hero .ltb-from b{display:inline-block;animation:pp-tick .55s 1.05s cubic-bezier(.3,1.8,.5,1) both}
+@keyframes pp-kick{from{opacity:0;transform:translateY(-12px) scale(.7)}to{opacity:1;transform:none}}
+@keyframes pp-rise{from{opacity:0;translate:0 14px}to{opacity:1;translate:0 0}}
+@keyframes pp-chip{from{opacity:0;transform:scale(.6) rotate(-6deg)}to{opacity:1;transform:none}}
+@keyframes pp-tick{0%,100%{transform:none}45%{transform:scale(1.28) rotate(-4deg)}}
 .lt-pop .ltb-from{background:#fff;border:3px solid var(--pp-ink);box-shadow:3px 3px 0 var(--pp-ink);font-weight:800}
 .lt-pop .ltb-fl{border:2px solid var(--pp-ink)}
 .lt-pop .ltb-btn{border:3px solid var(--pp-ink);border-radius:999px;font-size:17px;font-weight:900;box-shadow:5px 5px 0 var(--pp-ink);transition:transform .3s cubic-bezier(.3,1.8,.5,1),box-shadow .15s;background:#fff;color:var(--pp-ink)}
 .lt-pop .ltb-btn:hover{transform:translateY(-3px) scale(1.04) rotate(-1deg)}
 .lt-pop .ltb-btn:active{transform:translate(4px,4px);box-shadow:1px 1px 0 var(--pp-ink)}
 .lt-pop .ltb-cta,.lt-pop .ltb-buy{background:var(--lt-primary);color:var(--ltb-on-p)}
-.lt-pop .ltb-cta{font-size:19px;min-height:60px;padding:14px 28px;animation:pp-bounce 2.8s 1.2s ease-in-out 3}
+.lt-pop .ltb-cta{font-size:19px;min-height:60px;padding:14px 28px;animation:pp-bounce 2.4s 1.5s ease-in-out 2}
 .lt-pop .ltb-shapes{position:absolute;inset:0;z-index:0;pointer-events:none}
 .lt-pop .ltb-s{position:absolute;display:block;border:3px solid var(--pp-ink);animation:pp-float 7s ease-in-out infinite alternate}
 .lt-pop .ltb-s-c1{width:92px;height:92px;border-radius:50%;background:var(--lt-primary);top:5%;right:-30px;animation-duration:8s}
@@ -281,12 +433,13 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @keyframes pp-mark{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @keyframes pp-bounce{0%,100%,40%{translate:0 0}10%{translate:0 -9px}20%{translate:0 0}28%{translate:0 -4px}}
 @keyframes pp-wiggle{0%,78%,100%{transform:rotate(0)}84%{transform:rotate(-9deg)}90%{transform:rotate(8deg)}95%{transform:rotate(-3deg)}}
-.lt-pop .ltb-cover{margin:0;position:relative;border:4px solid var(--pp-ink);border-radius:26px;box-shadow:10px 10px 0 var(--lt-primary),10px 10px 0 3px var(--pp-ink);rotate:3deg;background:#fff;max-width:520px;width:calc(100% - 14px);justify-self:center;transition:rotate .5s cubic-bezier(.3,1.7,.5,1)}
+.lt-pop .ltb-cover{margin:0;position:relative;border:4px solid var(--pp-ink);border-radius:26px;box-shadow:10px 10px 0 var(--lt-primary),10px 10px 0 3px var(--pp-ink);rotate:3deg;background:#fff;max-width:520px;width:calc(100% - 14px);justify-self:center;transition:rotate .5s cubic-bezier(.3,1.7,.5,1);animation:pp-stk .7s .3s cubic-bezier(.3,1.4,.5,1) both}
 .lt-pop .ltb-cover:hover{rotate:0deg}
 .lt-pop .ltb-cover img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:22px}
 .lt-pop .ltb-cover::before{content:"";position:absolute;top:-17px;left:50%;width:110px;height:30px;margin-left:-55px;background:rgba(255,210,63,.9);border:2px solid var(--pp-ink);rotate:-5deg;z-index:1}
 .lt-pop .ltb-stickers{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:380px;width:100%;justify-self:center;padding:8px}
-.lt-pop .ltb-stk{display:block;background:#fff;border:3px solid var(--pp-ink);border-radius:24px;padding:9px;box-shadow:5px 5px 0 var(--pp-ink);rotate:calc((var(--i) - 2.5) * 4deg);animation:pp-float 4.2s calc(var(--i) * -.7s) ease-in-out infinite alternate}
+.lt-pop .ltb-stk{display:block;background:#fff;border:3px solid var(--pp-ink);border-radius:24px;padding:9px;box-shadow:5px 5px 0 var(--pp-ink);rotate:calc((var(--i) - 2.5) * 4deg);animation:pp-stk .5s calc(.32s + var(--i) * 70ms) cubic-bezier(.3,1.6,.5,1) both,pp-float 4.2s calc(var(--i) * -.7s) ease-in-out infinite alternate}
+@keyframes pp-stk{from{opacity:0;scale:.35}to{opacity:1;scale:1}}
 .lt-pop .ltb-stk .ltb-logo{width:100%;height:auto;aspect-ratio:1;border-radius:16px;border:0;font-size:30px}
 .lt-pop .ltb-h2{font-weight:900;letter-spacing:-.025em}
 .lt-pop .ltb-h2::after{content:"";display:block;width:76px;height:12px;margin-top:12px;border-radius:999px;background:var(--lt-accent);border:3px solid var(--pp-ink)}
@@ -304,7 +457,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-pop .ltb-per{font-weight:700}
 .lt-pop .ltb-feats{font-weight:600}
 .lt-pop .ltb-feats li::before{content:"✓";flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--lt-accent);color:var(--ltb-on-a);border:2px solid var(--pp-ink);font-size:11px;font-weight:900;line-height:1}
-.lt-pop .ltb-badge{position:absolute;z-index:2;top:-17px;right:14px;max-width:70%;background:var(--pp-pink);color:var(--pp-ink);border:3px solid var(--pp-ink);border-radius:12px;padding:4px 10px;font-weight:900;font-size:12px;text-transform:uppercase;rotate:5deg;box-shadow:3px 3px 0 var(--pp-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:pp-wiggle 3s ease-in-out 2}
+.lt-pop .ltb-badge{position:absolute;z-index:2;top:-17px;right:14px;max-width:70%;background:var(--pp-pink);color:var(--pp-ink);border:3px solid var(--pp-ink);border-radius:12px;padding:4px 10px;font-weight:900;font-size:12px;text-transform:uppercase;rotate:5deg;box-shadow:3px 3px 0 var(--pp-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ANIM: la insignia ('Más vendido') se sacude UNA vez cuando su tarjeta aparece (antes: 2 veces al cargar, fuera de pantalla) */
+.lt-pop.ltb-rv .is-in>.ltb-badge{animation:pp-wig .9s calc(var(--rvd,0ms) + .55s) ease-in-out both}
+@keyframes pp-wig{0%,100%{transform:none}20%{transform:rotate(-10deg) scale(1.08)}45%{transform:rotate(8deg)}70%{transform:rotate(-3deg)}}
 .lt-pop .ltb-sec-combos{background:var(--lt-primary);color:var(--ltb-on-p);border-top:4px solid var(--pp-ink);border-bottom:4px solid var(--pp-ink);overflow:hidden}
 .lt-pop .ltb-sec-combos::before{content:"";position:absolute;inset:0;background:radial-gradient(rgba(255,255,255,.22) 2px,transparent 2.6px) 0 0/26px 26px;pointer-events:none}
 .lt-pop .ltb-combo{background:var(--pp-yel);color:var(--pp-ink)}
@@ -335,7 +491,19 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-pop .ltb-made a{font-weight:900;text-decoration-thickness:3px;text-decoration-color:var(--lt-accent)}
 .lt-pop .ltb-fab{border:3px solid var(--pp-ink);box-shadow:4px 4px 0 var(--pp-ink)}
 .lt-pop .ltb-fab svg{animation:pp-wiggle 3s 2s ease-in-out 3}
-@media (max-width:480px){.lt-pop .ltb-s:not(.ltb-s-c1):not(.ltb-s-st){animation:none}.lt-pop .ltb-stk{animation:none}}
+@media (max-width:480px){.lt-pop .ltb-s:not(.ltb-s-c1):not(.ltb-s-st){animation:none}.lt-pop .ltb-stk{animation:pp-stk .5s calc(.32s + var(--i) * 70ms) cubic-bezier(.3,1.6,.5,1) both}.lt-pop .ltb-s-dot,.lt-pop .ltb-s-pl2{display:none}}
+/* el aro decorativo tapaba el inicio del subtítulo en celular */
+@media (max-width:600px){.lt-pop .ltb-s-rg{top:auto;bottom:2%;left:-40px}}
+/* reseñas: stickers blancos con sombra dura */
+.lt-pop .ltb-sec-reviews{background:#fff3df;border-top:4px solid var(--pp-ink)}
+.lt-pop .ltb-rev{background:#fff;border:3px solid var(--pp-ink);border-radius:22px;box-shadow:6px 6px 0 var(--pp-ink);rotate:-1deg}
+.lt-pop .ltb-rev:nth-child(2n){rotate:1deg;background:#fffbea}
+.lt-pop .ltb-revs{padding:10px 12px 22px;margin:0 -12px}
+.lt-pop .ltb-stars i.on{color:#ffb800;-webkit-text-stroke:1px var(--pp-ink)}
+.lt-pop .ltb-rq p{font-weight:700;color:var(--pp-ink)}
+.lt-pop .ltb-rq p::before{content:"“";font-size:1.6em;line-height:0;vertical-align:-.3em;margin-right:2px;color:var(--lt-primary)}
+.lt-pop .ltb-rby b{font-weight:900}
+.lt-pop .ltb-rav{border:3px solid var(--pp-ink)}
 /* cabecera tipo perfil: estilo sticker */
 .lt-pop .ltb-hero.ltb-hero-p{padding-top:14px}
 .lt-pop .ltp{color:var(--pp-ink)}
@@ -361,7 +529,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   function renderPop(root, d, ctx) {
     LC.injectCss('pop', CSS_POP);
-    const cl = setup(root, ctx, d);
+    const cl = setup(root, ctx, d, 'pop');
     const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const title = d.heroTitle || LC.DEFAULTS.heroTitle;
@@ -375,7 +543,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       : (pids.length ? `<div class="ltb-stickers" aria-hidden="true">${pids.map((p, i) => `<span class="ltb-stk" style="--i:${i}">${logoHtml(ctx, p, 'ltb-logo')}</span>`).join('')}</div>` : '');
     // Confeti (solo 'max'): CSS puro, una sola vez; desaparece con el siguiente render.
     let confetti = '';
-    if (ctx.motion === 'max') {
+    // ANIM: no se repite al repintar la vista previa tras editar (cl.still).
+    if (ctx.motion === 'max' && !cl.still) {
       const cols = [safeColor(d.theme.primary), safeColor(d.theme.accent), '#ffd23f', '#ff7ac0', '#5ee6b0'];
       let bits = '';
       for (let i = 0; i < 22; i++) {
@@ -389,19 +558,20 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const html =
       top(ctx, d, wa) +
       `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}" data-lt-hero>${shapes}${confetti}<div class="ltb-wrap ltb-hero-in"><div class="ltb-hero-txt">` +
-      `<span class="ltb-kicker">${ctx.esc((!ctx.profileMode && d.tagline) || '¡Activación inmediata!')}</span>` +
-      `<h1 class="ltb-h1">${h1}</h1><p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
+      `<span class="ltb-kicker"${!ctx.profileMode && d.tagline ? ed(ctx, 'tagline') : ''}>${ctx.esc((!ctx.profileMode && d.tagline) || '¡Activación inmediata!')}</span>` +
+      `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${h1}</h1><p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn ltb-ghost" data-goto="plans">Ver precios</button>' : ''}</div>` +
       `</div>${art}</div></section>` +
       (plans.length ? sec('plans', 'Elige tu plataforma', `<div class="ltb-grid">${plans.map((p, i) => planCard(ctx, p, i)).join('')}</div>`) : '') +
       (combos.length ? sec('combos', 'Combos que convienen', `<div class="ltb-grid">${combos.map((c, i) => comboCard(ctx, c, i)).join('')}</div>`) : '') +
+      reviewsSec(ctx, d, 'Lo que dicen nuestros clientes') +
       benefitsSec(ctx, d, '¿Por qué con nosotros?') +
       paysSec(ctx, d, 'Paga como quieras') +
       faqSec(ctx, d, 'Preguntas frecuentes') +
       linksSec(ctx, d, 'Síguenos') +
       footer(ctx, d) + fab(ctx, wa);
     root.innerHTML = html;
-    reveal(root, ctx, cl);
+    motionKit(root, ctx, cl);
   }
 
   // =====================================================================
@@ -426,17 +596,23 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-premium .ltb-aura2{position:absolute;width:120%;height:120%;left:-10%;top:-10%;background:radial-gradient(closest-side at 72% 64%,var(--lt-primary),transparent 70%);opacity:.22;animation:pr-aura 22s ease-in-out infinite alternate-reverse}
 .lt-premium .ltb-lines{position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 79px,rgba(217,180,106,.08) 79px 80px);-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent)}
 @keyframes pr-aura{from{transform:translate3d(-4%,-3%,0) scale(1)}to{transform:translate3d(4%,3%,0) scale(1.1)}}
-.lt-premium .ltb-hero-txt>*{animation:pr-fade 1.1s cubic-bezier(.2,.7,.2,1) both}
-.lt-premium .ltb-hero-txt>:nth-child(2){animation-delay:.15s}
-.lt-premium .ltb-hero-txt>:nth-child(4){animation-delay:.45s}
-.lt-premium .ltb-hero-txt>:nth-child(5){animation-delay:.6s}
-.lt-premium .ltb-hero-txt>:nth-child(6){animation-delay:.72s}
+@media (max-width:480px){.lt-premium .ltb-aura2{animation:none}}
+.lt-premium .ltb-hero-txt>*{animation:pr-fade .9s cubic-bezier(.16,1,.3,1) both}
+/* ANIM: entrada más ágil (botón visible a ~0,4 s, antes ~0,7 s + 1,1 s) y por clase, no por posición */
+.lt-premium .ltb-hero-txt>.ltb-h1{animation-delay:.08s}
+.lt-premium .ltb-hero-txt>.ltb-sub{animation-delay:.2s}
+.lt-premium .ltb-hero-txt>.ltb-from{animation-delay:.28s}
+.lt-premium .ltb-hero-txt>.ltb-ctas{animation-delay:.36s}
+/* ANIM: un destello dorado recorre UNA vez el chip 'Desde S/ X' cuando termina la entrada (lleva la vista al precio) */
+.lt-premium .ltb-hero .ltb-from{position:relative;overflow:hidden;isolation:isolate}
+.lt-premium .ltb-hero .ltb-from::after{content:"";position:absolute;top:-20%;bottom:-20%;left:0;width:40%;background:linear-gradient(90deg,transparent,rgba(244,226,176,.35),transparent);transform:translateX(-120%) skewX(-20deg);animation:pr-sweep 1.1s 1.15s cubic-bezier(.4,0,.2,1) both;pointer-events:none}
+@keyframes pr-sweep{to{transform:translateX(320%) skewX(-20deg)}}
 .lt-premium .ltb-from{border:1px solid var(--pr-line);color:var(--pr-mut);letter-spacing:.06em;background:rgba(217,180,106,.06);margin:-12px 0 28px}
 .lt-premium .ltb-from b{font-family:${PR_SERIF};font-weight:400;font-size:1.4em;color:var(--pr-gold2);letter-spacing:0}
 .lt-premium .ltb-fl{box-shadow:0 0 0 2px var(--pr-bg)}
 @media (max-width:540px){.lt-premium .ltb-tcap,.lt-premium .ltb-tablewrap{display:none}}
-.lt-premium .ltb-hero-txt .ltb-rule{animation:pr-draw 1.4s .35s cubic-bezier(.2,.7,.2,1) both}
-@keyframes pr-fade{from{opacity:0;translate:0 20px}to{opacity:1;translate:0 0}}
+.lt-premium .ltb-hero-txt .ltb-rule{animation:pr-draw 1.1s .18s cubic-bezier(.16,1,.3,1) both}
+@keyframes pr-fade{from{opacity:0;translate:0 16px}to{opacity:1;translate:0 0}}
 @keyframes pr-draw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .lt-premium .ltb-eyebrow{display:inline-flex;align-items:center;gap:14px;color:var(--pr-gold);font-size:12px;letter-spacing:.32em;text-transform:uppercase;max-width:100%;overflow-wrap:anywhere}
 .lt-premium .ltb-eyebrow::before,.lt-premium .ltb-eyebrow::after{content:"";width:32px;height:1px;background:var(--pr-gold);flex:none}
@@ -451,7 +627,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-premium .ltb-cta,.lt-premium .ltb-cta:hover,.lt-premium .ltb-buy,.lt-premium .ltb-buy:hover{background:var(--pr-grad);color:#1b1407;border-color:transparent}
 .lt-premium .ltb-cta{padding:14px 30px;min-height:54px}
 .lt-premium .ltb-cta::before,.lt-premium .ltb-card::after{content:"";position:absolute;top:-50%;left:-70%;width:45%;height:200%;background:linear-gradient(90deg,transparent,rgba(255,250,230,.55),transparent);transform:translateX(0) rotate(18deg);animation:pr-shine 5.5s 1.4s ease-in-out infinite;pointer-events:none}
-.lt-premium .ltb-card::after{background:linear-gradient(90deg,transparent,rgba(244,226,176,.12),transparent);animation-duration:7s;animation-delay:calc(var(--i,0) * .8s + 1s)}
+.lt-premium .ltb-card::after{background:linear-gradient(90deg,transparent,rgba(244,226,176,.12),transparent);animation:none}
+/* ANIM: el brillo de cada tarjeta pasa UNA vez al aparecer (antes: 8 bucles infinitos de 7 s, también fuera de pantalla) y al pasar el mouse */
+.lt-premium.ltb-rv .ltb-card.is-in::after{animation:pr-shine 2.6s calc(var(--rvd,0ms) + .45s) ease-in-out both}
+@media (hover:hover){.lt-premium .ltb-card:hover::after{animation:pr-shine-h 2.2s ease-in-out both}}
+@keyframes pr-shine-h{0%{transform:translateX(0) rotate(18deg)}45%,100%{transform:translateX(480%) rotate(18deg)}}
 @keyframes pr-shine{0%{transform:translateX(0) rotate(18deg)}38%,100%{transform:translateX(480%) rotate(18deg)}}
 .lt-premium .ltb-sec{padding:80px 0}
 .lt-premium .ltb-h2{font-size:clamp(32px,7.5vw,56px);text-align:center;margin-bottom:44px;line-height:1.08}
@@ -505,6 +685,13 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-premium .ltb-pays li{border:1px solid var(--pr-line);border-radius:999px;padding:9px 20px;letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:var(--pr-gold2)}
 .lt-premium .ltb-faq{margin:0 auto;gap:0}
 .lt-premium .ltb-faq details{border-bottom:1px solid var(--pr-line)}
+.lt-premium .ltb-rev{position:relative;background:linear-gradient(180deg,rgba(217,180,106,.07),rgba(217,180,106,.015));border:1px solid var(--pr-line);border-radius:4px;padding:26px 22px 22px}
+.lt-premium .ltb-rev::before{content:"“";position:absolute;top:-4px;right:18px;font-family:${PR_SERIF};font-size:74px;line-height:1;color:var(--pr-gold);opacity:.35;pointer-events:none}
+.lt-premium .ltb-stars i.on{color:var(--pr-gold)}
+.lt-premium .ltb-stars{font-size:15px;letter-spacing:.15em}
+.lt-premium .ltb-rq p{font-family:${PR_SERIF};font-size:19px;line-height:1.45;color:#ece4d2;font-style:italic}
+.lt-premium .ltb-rby b{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--pr-mut);font-weight:600}
+.lt-premium .ltb-rav{background:transparent;border:1px solid var(--pr-gold);color:var(--pr-gold);font-family:${PR_SERIF};font-weight:400}
 .lt-premium .ltb-faq summary{font-size:20px;padding:20px 46px 20px 4px}
 .lt-premium .ltb-faq summary::after{color:var(--pr-gold);font-family:system-ui,sans-serif;font-weight:300}
 .lt-premium .ltb-faq p{color:var(--pr-mut);padding:0 4px 20px;line-height:1.7}
@@ -537,7 +724,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   function renderPremium(root, d, ctx) {
     LC.injectCss('premium', CSS_PREMIUM);
-    const cl = setup(root, ctx, d);
+    const cl = setup(root, ctx, d, 'premium');
     const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
     const title = d.heroTitle || LC.DEFAULTS.heroTitle;
@@ -556,10 +743,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     if (plans.length > 1) {
       const rows = plans.map(p => {
         const m = ctx.money(p.price), o = ctx.money(p.oldPrice), url = planBuy(ctx, p);
-        return `<tr><th scope="row"><div class="ltb-tp">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div><b>${ctx.esc(ctx.planTitle(p))}</b><small>${ctx.esc(ctx.typeLabel(p))}</small></div></div></th>` +
+        return `<tr><th scope="row"><div class="ltb-tp">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div><b${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(ctx.planTitle(p))}</b><small>${ctx.esc(ctx.typeLabel(p))}</small></div></div></th>` +
           `<td class="ltb-hide-s">${ctx.esc(p.period)}</td>` +
-          `<td class="ltb-tprice ltb-tright">${o && m ? `<s><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<b>${ctx.esc(m || 'Consultar')}</b></td>` +
-          `<td class="ltb-tright">${url ? `<a class="ltb-tbuy" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener">Pedir</a>` : ''}</td></tr>`;
+          `<td class="ltb-tprice ltb-tright">${o && m ? `<s><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<b${ed(ctx, `plans.${p.id}.price`)}>${ctx.esc(m || 'Consultar')}</b></td>` +
+          `<td class="ltb-tright">${url ? `<a class="ltb-tbuy" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener">${m ? 'Pedir' : 'Consultar'}</a>` : ''}</td></tr>`;
       }).join('');
       table = `<p class="ltb-tcap" data-rv>Compara de un vistazo</p><div class="ltb-tablewrap" data-rv><table class="ltb-table"><thead><tr><th scope="col">Plataforma</th><th scope="col" class="ltb-hide-s">Periodo</th><th scope="col" class="ltb-tright">Precio</th><th scope="col"><span class="ltb-sr">Comprar</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
@@ -567,20 +754,21 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const html =
       top(ctx, d, wa) +
       `<section class="ltb-hero${ctx.profileMode ? ' ltb-hero-p' : ''}" data-lt-hero>${bg}<div class="ltb-wrap"><div class="ltb-hero-txt">` +
-      `<span class="ltb-eyebrow">${ctx.esc(ctx.profileMode ? 'Streaming premium' : (d.tagline || d.name))}</span>` +
-      `<h1 class="ltb-h1">${h1}</h1><span class="ltb-rule" aria-hidden="true"></span>` +
-      `<p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
+      `<span class="ltb-eyebrow"${ctx.profileMode ? '' : ed(ctx, d.tagline ? 'tagline' : 'name')}>${ctx.esc(ctx.profileMode ? 'Streaming premium' : (d.tagline || d.name))}</span>` +
+      `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${h1}</h1><span class="ltb-rule" aria-hidden="true"></span>` +
+      `<p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` + fromChip(ctx) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn" data-goto="plans">Ver planes</button>' : ''}</div>` +
       `</div></div></section>` +
       (plans.length ? sec('plans', '<small>Catálogo</small>Planes individuales', `<div class="ltb-grid">${plans.map((p, i) => planCard(ctx, p, i)).join('')}</div>${table}`) : '') +
       (combos.length ? sec('combos', '<small>Membresías</small>Todo en una sola suscripción', `<div class="ltb-grid">${combos.map((c, i) => comboCard(ctx, c, i, `<span class="ltb-roman">Membresía ${ROMAN[i] || i + 1}</span>`, i === featIdx ? 'is-feat' : '')).join('')}</div>`) : '') +
+      reviewsSec(ctx, d, '<small>Testimonios</small>Lo que dicen nuestros clientes') +
       benefitsSec(ctx, d, '<small>La diferencia</small>Un servicio a tu altura') +
       paysSec(ctx, d, '<small>Pagos</small>Métodos aceptados') +
       faqSec(ctx, d, '<small>Dudas</small>Preguntas frecuentes') +
       linksSec(ctx, d, '<small>Contacto</small>Encuéntranos') +
       footer(ctx, d) + fab(ctx, wa);
     root.innerHTML = html;
-    reveal(root, ctx, cl);
+    motionKit(root, ctx, cl);
   }
 
   // ---------- registro ----------

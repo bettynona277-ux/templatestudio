@@ -60,48 +60,65 @@
     const parts = [`${c.name} (${names})`]; const m = ctx.money(c.price); if (m) parts.push(m); if (c.period) parts.push(c.period);
     return ctx.buy(parts.join(' · '));
   }
-  function btn(ctx, url, label, cls, icon, main) {
-    const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span>${ctx.esc(label)}</span>`;
+  /** Atributo de edición directa (solo en la vista previa del editor; '' en la tienda o con un núcleo viejo). */
+  const ed = (ctx, path) => (ctx && typeof ctx.ed === 'function') ? ctx.ed(path) : '';
+  function btn(ctx, url, label, cls, icon, main, editPath) {
+    const inner = `${icon ? ctx.linkIcon('whatsapp') : ''}<span${editPath ? ed(ctx, editPath) : ''}>${ctx.esc(label)}</span>`;
     // data-lt-btn: micro-interacción del núcleo; "main" = botón principal (único con brillo en 'max').
     const mark = main ? 'data-lt-btn="main"' : 'data-lt-btn';
     if (!url) return `<span class="ltb-btn ${cls} is-off" ${mark} aria-disabled="true">${inner}</span>`;
     return `<a class="ltb-btn ${cls}" ${mark} href="${ctx.esc(url)}" target="_blank" rel="noopener">${inner}</a>`;
   }
-  function priceHtml(ctx, price, old, period) {
+  function priceHtml(ctx, price, old, period, editPath) {
     const m = ctx.money(price), o = ctx.money(old);
-    return `<div class="ltb-price">${o && m ? `<s class="ltb-old"><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<strong>${ctx.esc(m || 'Consultar')}</strong>${m && period ? `<span class="ltb-per">/ ${ctx.esc(period)}</span>` : ''}</div>`;
+    return `<div class="ltb-price">${o && m ? `<s class="ltb-old"><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<strong${editPath ? ed(ctx, editPath) : ''}${m ? '' : ' class="ltb-ask"'}>${ctx.esc(m || 'Precio a consultar')}</strong>${m && period ? `<span class="ltb-per">/ ${ctx.esc(period)}</span>` : ''}</div>`;
   }
   function planCard(ctx, p, i, extra = '', short = false) {
     const inf = ctx.platformInfo(p.platform);
     // short: sin " · Cuenta completa" en el título (la etiqueta ya va aparte en .ltb-type)
     const tt = short ? (p.title || inf.name) : ctx.planTitle(p);
-    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map(f => `<li>${ctx.esc(f)}</li>`).join('')}</ul>` : '';
+    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li><span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
     return `<article class="ltb-card ltb-plan" data-rv data-lt-card style="--i:${i % 8};--pc:${safeColor(inf.color)}">${extra}` +
       `${p.badge ? `<span class="ltb-badge">${ctx.esc(p.badge)}</span>` : ''}` +
-      `<div class="ltb-card-top">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div class="ltb-meta"><h3 class="ltb-title">${ctx.esc(tt)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
-      `${priceHtml(ctx, p.price, p.oldPrice, p.period)}${feats}${btn(ctx, planBuy(ctx, p), 'Comprar', 'ltb-buy', true)}</article>`;
+      `<div class="ltb-card-top">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<div class="ltb-meta"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(tt)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
+      `${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}${feats}${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Comprar' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
   function comboCard(ctx, c, i, extra = '', cls = '') {
     const names = c.platforms.map(x => ctx.platformInfo(x).name);
     return `<article class="ltb-card ltb-combo ${cls}" data-rv data-lt-card style="--i:${i % 8}">${extra}` +
       `${c.badge ? `<span class="ltb-badge">${ctx.esc(c.badge)}</span>` : ''}` +
-      `<h3 class="ltb-title">${ctx.esc(c.name)}</h3>` +
+      `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
       `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>` +
       `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
-      `${priceHtml(ctx, c.price, c.oldPrice, c.period)}${btn(ctx, comboBuy(ctx, c), 'Comprar combo', 'ltb-buy', true)}</article>`;
+      `${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Comprar combo' : 'Consultar', 'ltb-buy', true)}</article>`;
   }
   function header(ctx, d, wa) {
     const mark = d.logoUrl
       ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="42" height="42" decoding="async">`
       : `<span class="ltb-mono" aria-hidden="true">${ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase())}</span>`;
-    return `<header class="ltb-head"><div class="ltb-brand">${mark}<b>${ctx.esc(d.name)}</b></div>` +
+    return `<header class="ltb-head"><div class="ltb-brand">${mark}<b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b></div>` +
       `${wa ? `<a class="ltb-headcta" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>WhatsApp</span></a>` : ''}</header>`;
   }
   const sec = (kind, title, body) => `<section class="ltb-sec ltb-sec-${kind}"><div class="ltb-wrap">${title ? `<h2 class="ltb-h2" data-rv>${title}</h2>` : ''}${body}</div></section>`;
-  const benefitsSec = (ctx, d, t) => !d.benefits.length ? '' : sec('benefits', t, `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li data-rv style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span>${ctx.esc(b)}</span></li>`).join('')}</ul>`);
-  const paysSec = (ctx, d, t) => !d.paymentMethods.length ? '' : sec('pays', t, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map(p => `<li>${ctx.esc(p)}</li>`).join('')}</ul>`);
-  const faqSec = (ctx, d, t) => !d.faq.length ? '' : sec('faq', t, `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary>${ctx.esc(f.q)}</summary><p>${ctx.esc(f.a)}</p></details>`).join('')}</div>`);
+  const benefitsSec = (ctx, d, t) => !d.benefits.length ? '' : sec('benefits', t, `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li data-rv style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul>`);
+  const paysSec = (ctx, d, t) => !d.paymentMethods.length ? '' : sec('pays', t, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`);
+  const faqSec = (ctx, d, t) => !d.faq.length ? '' : sec('faq', t, `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div>`);
   const linksSec = (ctx, d, t) => !d.links.length ? '' : sec('links', t, `<div class="ltb-links" data-rv>${d.links.map(l => `<a class="ltb-link" href="${ctx.esc(l.url)}" target="_blank" rel="noopener">${ctx.linkIcon(l.type)}<span>${ctx.esc(ctx.linkLabel(l))}</span></a>`).join('')}</div>`);
+  /** Reseñas: tarjetas con estrellas, texto y nombre. Carrusel con snap en celular, grilla en PC.
+   *  ANIM: el carril (no cada tarjeta) lleva data-rv; las tarjetas entran escalonadas desde la derecha
+   *  (sugiere deslizar) y las estrellas se encienden una a una. Las tarjetas fuera de pantalla en
+   *  horizontal ya no se quedan invisibles esperando al observer. */
+  function reviewsHtml(ctx, d, rv = true) {
+    return `<div class="ltb-revs"${rv ? ' data-rv' : ''}>${d.reviews.map((r, i) => {
+      const s = Math.min(5, Math.max(1, Math.round(Number(r.stars)) || 5));
+      const nm = r.name || 'Cliente';
+      return `<figure class="ltb-rev" style="--i:${Math.min(i, 5)}">` +
+        `<span class="ltb-stars" role="img" aria-label="${s} de 5 estrellas">${[1, 2, 3, 4, 5].map(k => `<i class="${k <= s ? 'on' : ''}" style="--k:${k - 1}" aria-hidden="true">★</i>`).join('')}</span>` +
+        `<blockquote class="ltb-rq"><p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></blockquote>` +
+        `<figcaption class="ltb-rby"><span class="ltb-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b></figcaption></figure>`;
+    }).join('')}</div>`;
+  }
+  const reviewsSec = (ctx, d, t) => !(d.reviews && d.reviews.length) ? '' : sec('reviews', t, reviewsHtml(ctx, d));
   const footer = (ctx, d, extra = '') => `<footer class="ltb-foot" data-lt-foot>${extra}<p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p><p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p></footer>`;
   // El brillo del núcleo va en una capa interna (.ltb-shn): el ::before del botón es el anillo que late.
   const fab = (ctx, wa) => wa ? `<div class="ltb-fabwrap" data-lt-fab><a class="ltb-fab" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">${ctx.linkIcon('whatsapp')}</a></div>` : '';
@@ -113,16 +130,23 @@
   }
   /** Cabecera: tipo perfil (núcleo) o la barra propia de la plantilla. */
   const top = (ctx, d, wa) => (ctx.profileMode && typeof ctx.profileHeader === 'function') ? ctx.profileHeader() : header(ctx, d, wa);
-  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true) : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
+  const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true, 'ctaText') : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
 
-  /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup. */
-  function setup(root, ctx, d) {
+  /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup.
+   *  ANIM: en la vista previa del editor, si se repinta la MISMA plantilla/nivel/cabecera (p. ej. tras editar
+   *  un texto) la página queda "quieta" (ltb-still): sin entradas, apariciones ni confeti repetidos. */
+  function setup(root, ctx, d, id) {
     root.style.setProperty('--ltb-on-p', ink(d.theme.primary));
     root.style.setProperty('--ltb-on-a', ink(d.theme.accent));
     if (ctx.reducedMotion) root.classList.add('ltb-rm');
     if (ctx.preview) root.classList.add('ltb-preview');
     if (ctx.profileMode) root.classList.add('ltb-pm');
+    const key = [id, ctx.motion, ctx.profileMode ? 1 : 0].join('|');
+    const still = !!ctx.preview && root.__ltbKey === key;
+    root.__ltbKey = key;
+    if (still) root.classList.add('ltb-still');
     const cleanups = [];
+    cleanups.still = still;
     const onClick = e => {
       const g = e.target && e.target.closest ? e.target.closest('[data-goto]') : null;
       if (!g || !root.contains(g)) return;
@@ -135,20 +159,103 @@
     root.__ltCleanup = () => { while (cleanups.length) { try { cleanups.pop()(); } catch (_) {} } };
     return cleanups;
   }
-  /** Aparición al hacer scroll. Sin IntersectionObserver o con reducedMotion: todo visible. */
+  /** Aparición al hacer scroll. Sin IntersectionObserver o en la vista previa "quieta": todo visible.
+   *  ANIM: escalonado por lote (lo que entra junto a la vez: 0, 70, 140 ms…, máx. 350 ms) en lugar de por índice
+   *  fijo (la 6.ª tarjeta ya no espera 450 ms estando a la vista). threshold 0: los bloques muy altos
+   *  (40 planes en un panel) también aparecen. */
   function reveal(root, ctx, cleanups) {
     const els = [...root.querySelectorAll('[data-rv]')];
-    if (typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
+    if (cleanups.still || typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
     root.classList.add('ltb-rv');
     let fired = false;
     const io = new G.IntersectionObserver(entries => {
       fired = true;
-      entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('is-in'); io.unobserve(en.target); } });
-    }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 });
+      let k = 0;
+      entries.forEach(en => {
+        if (!en.isIntersecting) return;
+        en.target.style.setProperty('--rvd', Math.min(k++, 5) * 70 + 'ms');
+        en.target.classList.add('is-in'); io.unobserve(en.target);
+      });
+    }, { rootMargin: '0px 0px -7% 0px', threshold: 0 });
     els.forEach(e => io.observe(e));
     // Respaldo: si el observer no responde en 2,5 s, se muestra todo (nunca queda contenido invisible).
     const timer = G.setTimeout(() => { if (!fired) els.forEach(e => e.classList.add('is-in')); }, 2500);
     cleanups.push(() => { io.disconnect(); G.clearTimeout(timer); });
+  }
+  /** ANIM: pausa los bucles (formas, auras, nieve, brillos, partículas propias) de las secciones que no están en
+   *  pantalla: clase ltb-off → animation-play-state:paused. Ahorra CPU/GPU y batería en celulares. */
+  function pauseOffscreen(root, cleanups) {
+    if (typeof G.IntersectionObserver !== 'function') return;
+    const els = root.querySelectorAll('[data-lt-hero],[data-lt-profile],.ltb-sec');
+    const io = new G.IntersectionObserver(entries => {
+      entries.forEach(en => en.target.classList.toggle('ltb-off', !en.isIntersecting));
+    }, { rootMargin: '120px 0px 120px 0px', threshold: 0 });
+    els.forEach(e => io.observe(e));
+    cleanups.push(() => io.disconnect());
+  }
+  /** ANIM: onda al tocar botones de compra (confirmación inmediata antes de abrir WhatsApp). Solo transform/opacity.
+   *  No en la vista previa (el toque edita el texto) ni con movimiento reducido. */
+  function tapRipple(root, ctx, cleanups) {
+    if (ctx.preview || ctx.reducedMotion) return;
+    const down = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.ltb-btn,.ltb-headcta') : null;
+      if (!b || !root.contains(b) || b.classList.contains('is-off')) return;
+      const r = b.getBoundingClientRect(), s = Math.ceil(Math.max(r.width, r.height) * 2.2);
+      const x = (e.clientX || r.left + r.width / 2) - r.left - s / 2, y = (e.clientY || r.top + r.height / 2) - r.top - s / 2;
+      const i = b.ownerDocument.createElement('span');
+      i.className = 'ltb-rip'; i.setAttribute('aria-hidden', 'true');
+      i.style.cssText = `width:${s}px;height:${s}px;left:${x.toFixed(0)}px;top:${y.toFixed(0)}px`;
+      b.appendChild(i);
+      G.setTimeout(() => i.remove(), 700);
+    };
+    root.addEventListener('pointerdown', down, { passive: true });
+    cleanups.push(() => root.removeEventListener('pointerdown', down));
+  }
+  /** ANIM: carrusel de reseñas (celular): puntos indicadores y avance automático suave cada 5 s.
+   *  Solo si hay desborde horizontal, la sección está en pantalla, la pestaña visible y nadie la tocó.
+   *  Se detiene para siempre al primer toque/rueda/foco del usuario, con 'calm' o movimiento reducido,
+   *  y mientras se edita un texto en la vista previa. scrollTo smooth + scroll-snap = desplazamiento en el compositor. */
+  function reviewsMotion(root, ctx, cleanups) {
+    const track = root.querySelector('.ltb-revs');
+    if (!track || track.children.length < 2) return;
+    const cards = [...track.children];
+    const doc = track.ownerDocument;
+    const dots = doc.createElement('div');
+    dots.className = 'ltb-rdots'; dots.setAttribute('aria-hidden', 'true');
+    dots.innerHTML = cards.map((_, k) => `<i${k ? '' : ' class="on"'}></i>`).join('');
+    track.after(dots);
+    if (typeof G.IntersectionObserver !== 'function') return;
+    let cur = 0;
+    const dio = new G.IntersectionObserver(entries => {
+      entries.forEach(en => { if (en.isIntersecting) { cur = cards.indexOf(en.target); [...dots.children].forEach((x, k) => x.classList.toggle('on', k === cur)); } });
+    }, { root: track, threshold: 0.6 });
+    cards.forEach(c => dio.observe(c));
+    cleanups.push(() => dio.disconnect());
+    if (ctx.reducedMotion || ctx.motion === 'calm') return;
+    let timer = 0, stopped = false;
+    const stop = () => { stopped = true; G.clearInterval(timer); timer = 0; };
+    const tick = () => {
+      if (stopped || doc.hidden || track.scrollWidth <= track.clientWidth + 4) return;
+      if (root.querySelector('[contenteditable],[data-lt-editing]')) return;
+      const next = (cur + 1) % cards.length;
+      track.scrollTo({ left: cards[next].offsetLeft - cards[0].offsetLeft, behavior: 'smooth' });
+    };
+    const vio = new G.IntersectionObserver(entries => {
+      const on = entries.some(en => en.isIntersecting);
+      if (on && !timer && !stopped) timer = G.setInterval(tick, 5000);
+      else if (!on && timer) { G.clearInterval(timer); timer = 0; }
+    }, { threshold: 0.5 });
+    vio.observe(track);
+    const evs = ['pointerdown', 'wheel', 'focusin', 'keydown'];
+    evs.forEach(t => track.addEventListener(t, stop, { passive: true }));
+    cleanups.push(() => { stop(); vio.disconnect(); evs.forEach(t => track.removeEventListener(t, stop)); });
+  }
+  /** ANIM: todo el movimiento común tras pintar. */
+  function motionKit(root, ctx, cleanups) {
+    reveal(root, ctx, cleanups);
+    pauseOffscreen(root, cleanups);
+    tapRipple(root, ctx, cleanups);
+    reviewsMotion(root, ctx, cleanups);
   }
 
   /** CSS estructural común, con el prefijo de cada plantilla. */
@@ -181,6 +288,7 @@ ${s} .ltb-title{margin:0;font-size:18px;line-height:1.15;overflow-wrap:anywhere}
 ${s} .ltb-type{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 ${s} .ltb-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px}
 ${s} .ltb-price strong{font-size:34px;line-height:1}
+${s} .ltb-price strong.ltb-ask{font-size:20px;line-height:1.15;letter-spacing:0}
 ${s} .ltb-old{font-size:15px}
 ${s} .ltb-per{font-size:14px;opacity:.8}
 ${s} .ltb-feats{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:14px}
@@ -210,15 +318,52 @@ ${s} .ltb-fabwrap{position:fixed;right:16px;bottom:16px;z-index:40}
 ${s}.ltb-preview .ltb-fabwrap{position:sticky;right:auto;bottom:16px;display:flex;justify-content:flex-end;padding:0 16px 16px;pointer-events:none}
 ${s} .ltb-fab{position:relative;pointer-events:auto;width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:#25D366;color:#fff;box-shadow:0 10px 26px rgba(0,0,0,.32);text-decoration:none;animation:ltb-fabin-${id} .7s .8s cubic-bezier(.3,1.6,.5,1) both}
 ${s} .ltb-fab svg{width:32px;height:32px}
-${s} .ltb-fab::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25D366;animation:ltb-ping-${id} 2.2s 1.6s ease-out infinite}
+${s} .ltb-fab::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25D366;animation:ltb-ping-${id} 2.2s 1.6s ease-out 3}
 @keyframes ltb-fabin-${id}{from{opacity:0;transform:scale(0) rotate(-90deg)}to{opacity:1;transform:none}}
 @keyframes ltb-ping-${id}{from{transform:scale(1);opacity:.85}to{transform:scale(1.75);opacity:0}}
 @media (max-width:480px){${s} .ltb-fabwrap{right:12px;bottom:12px}${s} .ltb-fab{width:52px;height:52px}${s} .ltb-fab svg{width:28px;height:28px}}
 ${s} .ltb-pays li,${s} .ltb-faq,${s} .ltb-faq summary,${s} .ltb-faq p,${s} .ltb-foot,${s} .ltb-link span,${s} .ltb-incl,${s} .ltb-sub,${s} .ltb-eyebrow,${s} .ltb-price,${s} .ltb-tp b{overflow-wrap:anywhere;min-width:0}
 ${s} .ltb-pays li{max-width:100%}
+${s} .ltb-revs{display:grid;grid-auto-flow:column;grid-auto-columns:min(84%,330px);gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px 4px 18px;margin:0 -4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+@media (min-width:860px){${s} .ltb-revs{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-columns:auto;overflow:visible}}
+${s} .ltb-rev{margin:0;scroll-snap-align:start;display:flex;flex-direction:column;gap:12px;min-width:0;padding:20px}
+${s} .ltb-stars{display:flex;gap:2px;font-size:18px;line-height:1;letter-spacing:0}
+${s} .ltb-stars i{font-style:normal;opacity:.25}
+${s} .ltb-stars i.on{opacity:1;color:#f5b301}
+${s} .ltb-rq{margin:0;flex:1}
+${s} .ltb-rq p{margin:0;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+${s} .ltb-rby{display:flex;align-items:center;gap:10px;min-width:0}
+${s} .ltb-rby b{min-width:0;overflow-wrap:anywhere}
+${s} .ltb-rav{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;font-weight:800;background:var(--lt-primary);color:var(--ltb-on-p)}
 ${s}.ltb-rv [data-rv]:not(.is-in){opacity:0}
-${s}.ltb-rv [data-rv].is-in{animation:ltb-up-${id} .75s calc(var(--i,0) * 90ms) cubic-bezier(.2,.75,.25,1) both}
-@keyframes ltb-up-${id}{from{opacity:0;translate:0 28px}to{opacity:1;translate:0 0}}
+${s}.ltb-rv [data-rv].is-in{animation:ltb-up-${id} .65s var(--rvd,0ms) cubic-bezier(.16,1,.3,1) both}
+@keyframes ltb-up-${id}{from{opacity:0;translate:0 22px}to{opacity:1;translate:0 0}}
+/* ANIM: reseñas — el carril aparece de golpe y sus tarjetas entran escalonadas desde la derecha; las estrellas se encienden una a una */
+${s}.ltb-rv .ltb-revs[data-rv].is-in{animation:none}
+${s}.ltb-rv .is-in>.ltb-rev,${s}.ltb-rv .is-in .ltb-revs>.ltb-rev{animation:ltb-rin-${id} .6s calc(var(--rvd,0ms) + var(--i,0) * 90ms) cubic-bezier(.16,1,.3,1) both}
+${s}.ltb-rv .is-in .ltb-stars i.on{animation:ltb-star-${id} .45s calc(var(--rvd,0ms) + var(--i,0) * 90ms + 320ms + var(--k,0) * 60ms) cubic-bezier(.3,1.6,.5,1) both}
+@keyframes ltb-rin-${id}{from{opacity:0;translate:32px 0}to{opacity:1;translate:0 0}}
+@keyframes ltb-star-${id}{from{opacity:0;scale:.3}to{opacity:1;scale:1}}
+${s} .ltb-rdots{display:flex;justify-content:center;gap:8px;height:8px;margin:2px 0 0}
+${s} .ltb-rdots i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.22;transition:opacity .3s,transform .3s cubic-bezier(.3,1.6,.5,1)}
+${s} .ltb-rdots i.on{opacity:.85;transform:scale(1.35)}
+@media (min-width:860px){${s} .ltb-rdots{display:none}}
+/* ANIM: micro-interacción al tocar: onda (ltb-rip, creada por JS) + presión rápida (80 ms) y suelta suave */
+${s} .ltb-btn,${s} .ltb-headcta{position:relative;overflow:hidden;isolation:isolate}
+${s} .ltb-btn>:not(.ltb-rip),${s} .ltb-headcta>:not(.ltb-rip){position:relative;z-index:1}
+${s} .ltb-btn:active,${s} .ltb-headcta:active{transition-duration:.08s}
+${s} .ltb-rip{position:absolute;z-index:0;border-radius:50%;background:currentColor;pointer-events:none;opacity:0;transform:scale(0);animation:ltb-rip-${id} .6s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes ltb-rip-${id}{0%{opacity:.3;transform:scale(0)}100%{opacity:0;transform:scale(1)}}
+/* ANIM: bucles en pausa cuando su sección no está en pantalla (clase ltb-off, IntersectionObserver). Lista cerrada de
+   elementos con bucle (no '*'): no congela entradas a medias y el cambio de clase no recalcula estilos de toda la sección. */
+${s} .ltb-off :is(.ltb-s,.ltb-stk,.ltb-cta,.ltb-aura,.ltb-aura2,.ltb-spark i,.ltn-sw,.ltn-glint,.ltn-bokeh i,.ltn-snow3,.ltn-tile,.ltp-cover-fx i,.ltp-cover-img,.ltp-ring),${s} .ltb-off :is(.ltn-snow,.ltb-cta,.ltp-online i)::before,${s} .ltb-off :is(.ltn-snow,[data-lt-btn="main"],.ltp-online i)::after{animation-play-state:paused!important}
+/* ANIM: vista previa — repintado tras editar: nada vuelve a entrar (todas las entradas ya terminadas; los bucles siguen) */
+${s}.ltb-still *,${s}.ltb-still *::before,${s}.ltb-still *::after{animation-delay:-30s!important}
+/* ANIM: texto en edición quieto y legible: sin animaciones ni transiciones en él ni en sus contenedores,
+   y sin elevar/inclinar tarjetas ni botones bajo el cursor en la vista previa */
+${s} [contenteditable],${s} [data-lt-editing],${s} :has(>[contenteditable]),${s} [data-lt-card]:has([contenteditable]),${s} .ltb-hero-txt:has([contenteditable])>*{animation:none!important;transition:none!important}
+${s}.ltb-preview [data-lt-card]:is(:hover,:active,:focus-within),${s} [data-lt-card]:has([contenteditable]){transform:none!important;rotate:var(--rot,0deg)!important}
+${s}.ltb-preview .ltb-btn:has([data-lt-edit]):is(:hover,:active),${s} .ltb-btn:has([contenteditable]){transform:none!important;translate:none!important}
 ${s} .ltb-shn{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${s}[data-lt-motion] .ltb-shn[data-lt-btn]{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
 ${s}[data-lt-motion="max"] .ltb-card[data-lt-card]{transition:transform .25s ease-out,rotate .45s cubic-bezier(.3,1.7,.5,1),box-shadow .2s,border-color .4s}
@@ -258,7 +403,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-sw:nth-of-type(2n){animation-duration:4.4s;animation-delay:-1.2s}
 .lt-navidad .ltn-sw:nth-of-type(3n){animation-duration:3.1s;animation-delay:-2s}
 @keyframes nv-swing{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}
-.lt-navidad .ltn-glint{animation:nv-glint 2.4s ease-in-out infinite alternate}
+.lt-navidad .ltn-balls{filter:none}
+/* ANIM: el destello de las esferas solo en 'max' (9 bucles menos en 'normal'); las esferas de los extremos no se ven en celular */
+.lt-navidad[data-lt-motion="max"] .ltn-glint{animation:nv-glint 2.4s ease-in-out infinite alternate}
+@media (max-width:600px){.lt-navidad .ltn-edge{display:none}}
 @keyframes nv-glint{from{opacity:.25}to{opacity:1}}
 /* hero */
 .lt-navidad .ltn-hero{position:relative;overflow:hidden;padding:clamp(120px,15vw,190px) 0 64px}
@@ -270,18 +418,24 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-snow::before,.lt-navidad .ltn-snow::after{content:"";position:absolute;inset:0;will-change:transform}
 .lt-navidad .ltn-snow::before{background-image:radial-gradient(2.4px 2.4px at 20px 30px,#fff 50%,transparent 55%),radial-gradient(2px 2px at 95px 150px,rgba(255,255,255,.9) 50%,transparent 55%),radial-gradient(2.8px 2.8px at 160px 80px,rgba(255,255,255,.85) 50%,transparent 55%),radial-gradient(1.8px 1.8px at 60px 210px,#fff 50%,transparent 55%);background-size:230px 250px;animation:nv-f1 15s linear infinite}
 .lt-navidad .ltn-snow::after{background-image:radial-gradient(4px 4px at 50px 70px,rgba(255,255,255,.8) 50%,transparent 56%),radial-gradient(3.2px 3.2px at 220px 220px,rgba(255,255,255,.7) 50%,transparent 56%);background-size:300px 300px;animation:nv-f2 21s linear infinite}
-@keyframes nv-f1{to{transform:translate3d(-30px,250px,0)}}
-@keyframes nv-f2{to{transform:translate3d(40px,300px,0)}}
+/* ANIM: la nieve cae solo en vertical exactamente una baldosa (250/300 px): el bucle ya no 'salta' 30-40 px de lado cada 15-21 s */
+@keyframes nv-f1{to{transform:translate3d(0,250px,0)}}
+@keyframes nv-f2{to{transform:translate3d(0,300px,0)}}
 .lt-navidad .ltn-hero-in{position:relative;z-index:3;display:grid;gap:40px;align-items:center}
+.lt-navidad .ltn-hero-in>*{min-width:0}
+.lt-navidad .ltn-hero .ltb-h1,.lt-navidad .ltn-hero .ltb-sub{overflow-wrap:anywhere}
 @media (min-width:880px){.lt-navidad .ltn-hero-in{grid-template-columns:1.1fr .9fr}}
 @media (max-width:879px){.lt-navidad .ltn-hero-txt{text-align:center}.lt-navidad .ltn-coupons,.lt-navidad .ltb-ctas,.lt-navidad .ltn-count{justify-content:center}.lt-navidad .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-navidad .ltn-script{margin:0;font-family:var(--nv-script);font-weight:400;font-size:clamp(46px,11vw,84px);line-height:1;background:${NV_GOLD};-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 0 rgba(90,5,12,.55));padding:0 .1em;animation:nv-in .9s .1s cubic-bezier(.2,.8,.2,1) both}
-.lt-navidad .ltb-h1{font-size:clamp(30px,6vw,56px);line-height:1.08;margin:6px 0 14px;color:#fff;text-shadow:0 3px 0 rgba(90,5,12,.6),0 10px 30px rgba(40,0,6,.45);overflow-wrap:break-word;animation:nv-in .9s .25s cubic-bezier(.2,.8,.2,1) both}
+.lt-navidad .ltb-h1{font-size:clamp(30px,6vw,56px);line-height:1.08;margin:6px 0 14px;color:#fff;text-shadow:0 3px 0 rgba(90,5,12,.6),0 10px 30px rgba(40,0,6,.45);overflow-wrap:break-word;animation:nv-in .8s .18s cubic-bezier(.16,1,.3,1) both}
 @keyframes nv-in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-.lt-navidad .ltb-sub{font-size:clamp(15px,4vw,19px);max-width:540px;margin:0 0 24px;color:#ffe2df;font-weight:500}
+.lt-navidad .ltb-sub{font-size:clamp(15px,4vw,19px);max-width:540px;margin:0 0 24px;color:#ffe2df;font-weight:500;animation:nv-in .7s .28s cubic-bezier(.16,1,.3,1) both}
+/* ANIM: coreografía — guión, título, subtítulo, cupones (el de precio primero), cuenta regresiva y botones (visibles a ~0,45 s) */
+.lt-navidad .ltn-count{animation:nv-in .6s .5s cubic-bezier(.16,1,.3,1) both}
+.lt-navidad .ltn-hero .ltb-ctas{animation:nv-in .6s .42s cubic-bezier(.16,1,.3,1) both}
 /* cupones redondos */
 .lt-navidad .ltn-coupons{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-wrap:wrap;gap:12px}
-.lt-navidad .ltn-cp{position:relative;width:clamp(92px,24vw,112px);aspect-ratio:1;border-radius:50%;padding:5px;background:${NV_GOLD};box-shadow:0 10px 22px rgba(40,0,6,.45);animation:nv-pop .7s calc(.4s + var(--k) * .12s) cubic-bezier(.3,1.6,.5,1) both}
+.lt-navidad .ltn-cp{position:relative;width:clamp(92px,24vw,112px);aspect-ratio:1;border-radius:50%;padding:5px;background:${NV_GOLD};box-shadow:0 10px 22px rgba(40,0,6,.45);animation:nv-pop .6s calc(.32s + var(--k) * .1s) cubic-bezier(.3,1.6,.5,1) both}
 .lt-navidad .ltn-cp>span{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ec2c3d,#b30d1f 60%,#7d0714);border:2px dashed rgba(255,240,200,.7);text-align:center;line-height:1.05;padding:6px}
 .lt-navidad .ltn-cp small{font-size:9.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;color:#ffe3a6;text-transform:uppercase;letter-spacing:.04em}
 .lt-navidad .ltn-cp b{font-size:clamp(16px,4.4vw,21px);font-weight:900;color:#fff;margin:2px 0;overflow-wrap:anywhere}
@@ -306,7 +460,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-show{position:relative;justify-self:center;width:calc(100% - 10px);max-width:440px;margin-top:26px;padding:42px 20px 22px;border-radius:26px;border:9px solid transparent;background:linear-gradient(var(--nv-cream),var(--nv-cream)) padding-box,${NV_CANDY} border-box;box-shadow:0 26px 50px rgba(40,0,6,.55);color:var(--nv-ink);text-align:center;animation:nv-in 1s .35s cubic-bezier(.2,.8,.2,1) both}
 .lt-navidad .ltn-show h3{margin:0 0 14px;font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--nv-red)}
 .lt-navidad .ltn-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.lt-navidad .ltn-tile{position:relative;background:#fff;border-radius:18px;padding:8px;box-shadow:0 8px 18px rgba(90,5,12,.14);animation:nv-float 4s calc(var(--k) * -.7s) ease-in-out infinite alternate}
+.lt-navidad .ltn-tile{position:relative;background:#fff;border-radius:18px;padding:8px;box-shadow:0 8px 18px rgba(90,5,12,.14);animation:nv-tile .5s calc(.55s + var(--k) * 70ms) cubic-bezier(.3,1.6,.5,1) both,nv-float 4s calc(var(--k) * -.7s) ease-in-out infinite alternate}
+@keyframes nv-tile{from{opacity:0;scale:.4}to{opacity:1;scale:1}}
 .lt-navidad .ltn-tile .ltb-logo{width:100%;height:auto;aspect-ratio:1;border-radius:13px;font-size:26px}
 @keyframes nv-float{from{transform:translateY(0)}to{transform:translateY(-6px)}}
 .lt-navidad .ltn-show-min{margin:16px 0 0;font-weight:700;color:var(--nv-mut);font-size:14px}
@@ -329,6 +484,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-rib::after{right:-20px;clip-path:polygon(0 0,100% 0,62% 50%,100% 100%,0 100%)}
 .lt-navidad .ltn-panel-g .ltn-rib{background:linear-gradient(180deg,#22a356,#0d5d2f)}
 .lt-navidad .ltn-panel-g .ltn-rib::before,.lt-navidad .ltn-panel-g .ltn-rib::after{background:#063d1e}
+.lt-navidad .ltn-defs{position:absolute;width:0;height:0;overflow:hidden}
 .lt-navidad .ltn-sprig{position:absolute;width:110px;height:80px;z-index:2;pointer-events:none;filter:drop-shadow(0 4px 4px rgba(60,0,8,.3))}
 .lt-navidad .ltn-sprig.l{top:-30px;left:-24px}
 .lt-navidad .ltn-sprig.r{top:-30px;right:-24px;transform:scaleX(-1)}
@@ -353,11 +509,14 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-combo.ltn-hs .ltb-title{padding-left:52px;padding-right:0}
 .lt-navidad .ltn-pricetag .ltb-price{display:inline-flex;align-items:baseline;gap:6px;background:linear-gradient(180deg,#ef3543,#b80f1f);color:#fff;border-radius:14px;padding:8px 14px;box-shadow:0 4px 0 #7d0714}
 .lt-navidad .ltn-pricetag .ltb-price strong{font-size:30px;color:#fff}
+.lt-navidad .ltn-pricetag .ltb-price strong.ltb-ask{font-size:16px}
 .lt-navidad .ltn-pricetag .ltb-old{color:#ffd0d3;font-size:13px}
 .lt-navidad .ltn-pricetag .ltb-per{color:#ffe3a6;font-size:12px;opacity:1}
 /* sello de oferta */
-.lt-navidad .ltn-stamp{position:absolute;top:-14px;right:-10px;z-index:3;display:grid;place-items:center;width:66px;height:66px;border-radius:50%;padding:7px;background:radial-gradient(circle at 35% 30%,#ef3543,#a50d1d);border:3px solid var(--nv-gold);color:#fff;font-size:9.5px;font-weight:800;line-height:1.1;text-align:center;text-transform:uppercase;rotate:12deg;box-shadow:0 6px 12px rgba(90,5,12,.35);overflow:hidden;overflow-wrap:normal;word-break:normal;hyphens:none;animation:nv-stamp 3.4s 1s ease-in-out 3}
-@keyframes nv-stamp{0%,70%,100%{transform:scale(1)}80%{transform:scale(1.12)}90%{transform:scale(.96)}}
+.lt-navidad .ltn-stamp{position:absolute;top:-14px;right:-10px;z-index:3;display:grid;place-items:center;width:66px;height:66px;border-radius:50%;padding:7px;background:radial-gradient(circle at 35% 30%,#ef3543,#a50d1d);border:3px solid var(--nv-gold);color:#fff;font-size:9.5px;font-weight:800;line-height:1.1;text-align:center;text-transform:uppercase;rotate:12deg;box-shadow:0 6px 12px rgba(90,5,12,.35);overflow:hidden;overflow-wrap:normal;word-break:normal;hyphens:none}
+/* ANIM: el sello late UNA vez cuando su tarjeta aparece (antes 3 veces al cargar, fuera de pantalla) */
+.lt-navidad.ltb-rv .is-in>.ltn-stamp{animation:nv-stamp 1.1s calc(var(--rvd,0ms) + .5s) ease-in-out both}
+@keyframes nv-stamp{0%,100%{transform:scale(1)}35%{transform:scale(1.16)}65%{transform:scale(.95)}}
 /* combos */
 .lt-navidad .ltn-crow{display:grid;gap:18px}
 .lt-navidad .ltn-combo{background:#fff;border-radius:20px;padding:20px 18px 18px;border:2px dashed #e7b9b2;box-shadow:0 12px 26px rgba(90,5,12,.1);display:grid;gap:12px}
@@ -378,6 +537,13 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltb-pays li{padding:10px 20px;border-radius:999px;font-weight:800;color:#5c050c;background:${NV_GOLD};box-shadow:0 4px 0 #8a5a12}
 .lt-navidad .ltb-faq{margin:0 auto}
 .lt-navidad .ltb-faq details{background:#fff;border-radius:16px;box-shadow:0 8px 18px rgba(90,5,12,.08);border:1px solid #f3dcd6}
+.lt-navidad .ltb-rev{background:#fff;border-radius:18px;border:1px solid #f3dcd6;box-shadow:0 10px 22px rgba(90,5,12,.1);color:var(--nv-ink);position:relative}
+.lt-navidad .ltb-rev::after{content:"";position:absolute;top:-7px;right:18px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle at 33% 28%,#ffd0d4 0,#e2313b 30%,#8a0614 75%);box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.lt-navidad .ltb-stars i.on{color:#d4a017}
+.lt-navidad .ltb-rq p{font-weight:600}
+.lt-navidad .ltb-rby b{color:#8a0614}
+.lt-navidad .ltb-rav{background:radial-gradient(circle at 33% 28%,#ff8a92 0,#d7172b 40%,#7d0714);color:#fff}
+.lt-navidad .ltb-revs{padding-top:10px}
 .lt-navidad .ltb-faq summary{color:var(--nv-ink)}
 .lt-navidad .ltb-faq summary::after{color:var(--nv-red)}
 .lt-navidad .ltb-faq p{color:var(--nv-mut)}
@@ -399,17 +565,21 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* niveles */
 .lt-navidad .ltn-snow3{display:none}
 .lt-navidad[data-lt-motion="max"] .ltn-snow3{display:block;position:absolute;inset:-260px 0 0;pointer-events:none;z-index:1;background-image:radial-gradient(5px 5px at 70px 80px,rgba(255,255,255,.9) 50%,transparent 56%),radial-gradient(4px 4px at 230px 190px,rgba(255,255,255,.8) 50%,transparent 56%);background-size:300px 260px;animation:nv-f3 10s linear infinite}
-@keyframes nv-f3{to{transform:translate3d(-50px,260px,0)}}
-@media (max-width:480px){.lt-navidad .ltn-snow::after{display:none}.lt-navidad .ltb-headcta span{display:none}.lt-navidad .ltb-headcta{padding:8px}.lt-navidad .ltn-tile{animation:none}}
+@keyframes nv-f3{to{transform:translate3d(0,260px,0)}}
+@media (max-width:480px){.lt-navidad .ltn-snow::after{display:none}.lt-navidad .ltb-headcta span{display:none}.lt-navidad .ltb-headcta{padding:8px}.lt-navidad .ltn-tile{animation:nv-tile .5s calc(.55s + var(--k) * 70ms) cubic-bezier(.3,1.6,.5,1) both}.lt-navidad .ltn-bokeh i:nth-child(n+4){display:none}}
 `;
 
   // ---------- dibujos ----------
-  /** Guirnalda de pino (agujas generadas) con esferas 3D colgando. viewBox 1200x200. */
+  /** Guirnalda de pino (agujas generadas) con esferas 3D colgando. viewBox 1200x200.
+   *  ANIM: las agujas se agrupan en UN <path> por color (5 nodos en vez de ~1300: HTML ~90 KB → ~25 KB y
+   *  pintado inicial mucho más barato) y van en su propio SVG estático con la sombra; las esferas que se
+   *  mecen van en otro SVG superpuesto, sin filtro, para que su movimiento no obligue a repintar la sombra
+   *  del pino. Las esferas de los extremos (fuera de cuadro en celular) se ocultan en pantallas angostas. */
   const NV_GARLAND = (() => {
     let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const greens = ['#0a4a27', '#0f6334', '#16783f', '#0c5530', '#1d8a4a'];
     const anchors = [[-20, 4], [300, 4], [600, 4], [900, 4], [1220, 4]];
-    let needles = '';
+    const byColor = greens.map(() => []);
     for (let s = 0; s < 4; s++) {
       const [x0, y0] = anchors[s], [x2, y2] = anchors[s + 1];
       const cx = (x0 + x2) / 2, cy = 112;
@@ -418,27 +588,35 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
         const x = mt * mt * x0 + 2 * mt * t * cx + t * t * x2, y = mt * mt * y0 + 2 * mt * t * cy + t * t * y2;
         for (let n = 0; n < 5; n++) {
           const a = rnd() * Math.PI * 2, L = 12 + rnd() * 14;
-          needles += `<path d="M${x.toFixed(1)} ${y.toFixed(1)}l${(Math.cos(a) * L).toFixed(1)} ${(Math.sin(a) * L * .8).toFixed(1)}" stroke="${greens[(i + n) % greens.length]}"/>`;
+          byColor[(i + n) % greens.length].push(`M${x.toFixed(1)} ${y.toFixed(1)}l${(Math.cos(a) * L).toFixed(1)} ${(Math.sin(a) * L * .8).toFixed(1)}`);
         }
       }
     }
+    const needles = greens.map((g, k) => `<path d="${byColor[k].join('')}" stroke="${g}"/>`).join('');
     const balls = [[150, 58, 34, 22, 'r'], [300, 4, 66, 17, 'g'], [450, 58, 22, 27, 'g'], [600, 4, 96, 22, 'r'], [750, 58, 40, 18, 's'], [900, 4, 62, 25, 'r'], [1050, 58, 28, 21, 'g'], [60, 30, 40, 15, 'r'], [1140, 30, 44, 16, 's']];
-    const ball = ([x, y, len, r, c]) => `<g class="ltn-sw"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + len}" stroke="#e9c46a" stroke-width="1.5"/><rect x="${x - r * .32}" y="${y + len - 3}" width="${r * .64}" height="${r * .42}" rx="2" fill="url(#nvCap)"/><circle cx="${x}" cy="${y + len + r}" r="${r}" fill="url(#nvB${c})"/><ellipse class="ltn-glint" cx="${x - r * .38}" cy="${y + len + r * .6}" rx="${r * .22}" ry="${r * .14}" fill="#fff" opacity=".8" transform="rotate(-30 ${x - r * .38} ${y + len + r * .6})"/></g>`;
+    const ball = ([x, y, len, r, c]) => `<g class="ltn-sw${x < 240 || x > 960 ? ' ltn-edge' : ''}"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + len}" stroke="#e9c46a" stroke-width="1.5"/><rect x="${x - r * .32}" y="${y + len - 3}" width="${r * .64}" height="${r * .42}" rx="2" fill="url(#nvCap)"/><circle cx="${x}" cy="${y + len + r}" r="${r}" fill="url(#nvB${c})"/><ellipse class="ltn-glint" cx="${x - r * .38}" cy="${y + len + r * .6}" rx="${r * .22}" ry="${r * .14}" fill="#fff" opacity=".8" transform="rotate(-30 ${x - r * .38} ${y + len + r * .6})"/></g>`;
     const berries = [[300, 12], [600, 12], [900, 12], [150, 70], [450, 70], [750, 70], [1050, 70]].map(([x, y]) => `<circle cx="${x - 7}" cy="${y}" r="6" fill="#d7172b"/><circle cx="${x + 5}" cy="${y + 3}" r="5.5" fill="#ef3543"/><circle cx="${x - 1}" cy="${y + 9}" r="5" fill="#b30d1f"/>`).join('');
     const grad = (id, a, b, c, d) => `<radialGradient id="${id}" cx=".35" cy=".3" r=".75"><stop offset="0" stop-color="${a}"/><stop offset=".28" stop-color="${b}"/><stop offset=".65" stop-color="${c}"/><stop offset="1" stop-color="${d}"/></radialGradient>`;
-    return `<svg class="ltn-garland" viewBox="0 0 1200 200" preserveAspectRatio="xMidYMin slice" aria-hidden="true"><defs>${grad('nvBr', '#ffd0d3', '#ff4a55', '#c8102e', '#4a040c')}${grad('nvBg', '#fffbe0', '#ffd968', '#cf9426', '#5e3c06')}${grad('nvBs', '#ffffff', '#eef1f6', '#aab4c4', '#59627a')}<linearGradient id="nvCap" x1="0" x2="1"><stop offset="0" stop-color="#a8711a"/><stop offset=".5" stop-color="#fff0b3"/><stop offset="1" stop-color="#a8711a"/></linearGradient></defs><g stroke-width="2.4" stroke-linecap="round" fill="none">${needles}</g>${berries}${balls.map(ball).join('')}</svg>`;
+    return `<svg class="ltn-garland" viewBox="0 0 1200 200" preserveAspectRatio="xMidYMin slice" aria-hidden="true"><g stroke-width="2.4" stroke-linecap="round" fill="none">${needles}</g>${berries}</svg>` +
+      `<svg class="ltn-garland ltn-balls" viewBox="0 0 1200 200" preserveAspectRatio="xMidYMin slice" aria-hidden="true"><defs>${grad('nvBr', '#ffd0d3', '#ff4a55', '#c8102e', '#4a040c')}${grad('nvBg', '#fffbe0', '#ffd968', '#cf9426', '#5e3c06')}${grad('nvBs', '#ffffff', '#eef1f6', '#aab4c4', '#59627a')}<linearGradient id="nvCap" x1="0" x2="1"><stop offset="0" stop-color="#a8711a"/><stop offset=".5" stop-color="#fff0b3"/><stop offset="1" stop-color="#a8711a"/></linearGradient></defs>${balls.map(ball).join('')}</svg>`;
   })();
   const NV_SPRIG = (() => {
     let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const greens = ['#0a4a27', '#0f6334', '#16783f', '#1d8a4a'];
-    let p = '';
+    // ANIM: un <path> por color (4 nodos por ramita en vez de 152; hay 2 ramitas por panel).
+    const byColor = greens.map(() => []);
     [[[10, 20], [100, 60]], [[14, 24], [70, 8]]].forEach(([a, b]) => {
       for (let i = 0; i <= 18; i++) {
         const t = i / 18, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
-        for (let n = 0; n < 4; n++) { const an = rnd() * 6.28, L = 7 + rnd() * 8; p += `<path d="M${x.toFixed(1)} ${y.toFixed(1)}l${(Math.cos(an) * L).toFixed(1)} ${(Math.sin(an) * L).toFixed(1)}" stroke="${greens[(i + n) % 4]}"/>`; }
+        for (let n = 0; n < 4; n++) { const an = rnd() * 6.28, L = 7 + rnd() * 8; byColor[(i + n) % 4].push(`M${x.toFixed(1)} ${y.toFixed(1)}l${(Math.cos(an) * L).toFixed(1)} ${(Math.sin(an) * L).toFixed(1)}`); }
       }
     });
-    return cls => `<svg class="ltn-sprig ${cls}" viewBox="0 0 110 80" aria-hidden="true"><g stroke-width="2" stroke-linecap="round" fill="none">${p}</g><circle cx="22" cy="30" r="9" fill="url(#nvSr)"/><circle cx="38" cy="22" r="6" fill="#d7172b"/><circle cx="33" cy="32" r="5" fill="#ef3543"/><defs><radialGradient id="nvSr" cx=".35" cy=".3" r=".75"><stop offset="0" stop-color="#fffbe0"/><stop offset=".3" stop-color="#ffd968"/><stop offset=".7" stop-color="#cf9426"/><stop offset="1" stop-color="#5e3c06"/></radialGradient></defs></svg>`;
+    const p = greens.map((g, k) => `<path d="${byColor[k].join('')}" stroke="${g}"/>`).join('');
+    // UX/ANIM: la ramita se define UNA vez (<symbol>) y cada esquina la reutiliza con <use> (antes 14 copias completas).
+    const def = `<svg class="ltn-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs><symbol id="ltnSprig" viewBox="0 0 110 80"><g stroke-width="2" stroke-linecap="round" fill="none">${p}</g><circle cx="22" cy="30" r="9" fill="url(#nvSr)"/><circle cx="38" cy="22" r="6" fill="#d7172b"/><circle cx="33" cy="32" r="5" fill="#ef3543"/><radialGradient id="nvSr" cx=".35" cy=".3" r=".75"><stop offset="0" stop-color="#fffbe0"/><stop offset=".3" stop-color="#ffd968"/><stop offset=".7" stop-color="#cf9426"/><stop offset="1" stop-color="#5e3c06"/></radialGradient></symbol></defs></svg>`;
+    const f = cls => `<svg class="ltn-sprig ${cls}" viewBox="0 0 110 80" aria-hidden="true"><use href="#ltnSprig" width="110" height="80"/></svg>`;
+    f.def = def;
+    return f;
   })();
   const NV_BOW = '<svg class="ltn-bigbow" viewBox="0 0 120 62" aria-hidden="true"><defs><linearGradient id="nvBw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff5a66"/><stop offset=".6" stop-color="#c8102e"/><stop offset="1" stop-color="#7d0714"/></linearGradient></defs><path d="M60 30 C40 2 6 0 8 22 C9 38 34 40 60 30Z" fill="url(#nvBw)"/><path d="M60 30 C80 2 114 0 112 22 C111 38 86 40 60 30Z" fill="url(#nvBw)"/><path d="M54 34 L40 60 L48 56 L52 62 L58 36Z M66 34 L80 60 L72 56 L68 62 L62 36Z" fill="#a50d1d"/><path d="M22 14 C30 12 44 18 54 28" stroke="#ff9aa1" stroke-width="2" fill="none" opacity=".7"/><path d="M98 14 C90 12 76 18 66 28" stroke="#ff9aa1" stroke-width="2" fill="none" opacity=".7"/><rect x="50" y="22" width="20" height="18" rx="6" fill="#e2313b" stroke="#7d0714" stroke-width="1.5"/></svg>';
 
@@ -461,27 +639,27 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   function nvPlanCard(ctx, p, i) {
     const inf = ctx.platformInfo(p.platform);
-    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map(f => `<li>${ctx.esc(f)}</li>`).join('')}</ul>` : '';
+    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li><span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
     return `<article class="ltb-card ltn-card" data-rv data-lt-card style="--i:${i % 8}">` +
       `${p.badge ? `<span class="ltn-stamp">${ctx.esc(p.badge)}</span>` : ''}` +
-      `<div class="ltb-card-top"><span class="ltn-lg">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}</span><div class="ltb-meta"><h3 class="ltb-title">${ctx.esc(p.title || inf.name)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
-      `${feats}<div class="ltn-buyrow"><div class="ltn-pricetag">${priceHtml(ctx, p.price, p.oldPrice, p.period)}</div>${btn(ctx, planBuy(ctx, p), 'Comprar', 'ltb-buy', true)}</div></article>`;
+      `<div class="ltb-card-top"><span class="ltn-lg">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}</span><div class="ltb-meta"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(p.title || inf.name)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span></div></div>` +
+      `${feats}<div class="ltn-buyrow"><div class="ltn-pricetag">${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}</div>${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Comprar' : 'Consultar', 'ltb-buy', true)}</div></article>`;
   }
   function nvComboCard(ctx, c, i) {
     const names = c.platforms.map(x => ctx.platformInfo(x).name);
     return `<article class="ltb-card ltn-combo${c.badge ? ' ltn-hs' : ''}" data-rv data-lt-card style="--i:${i % 8}">` +
       `${c.badge ? `<span class="ltn-stamp">${ctx.esc(c.badge)}</span>` : ''}` +
-      `<h3 class="ltb-title">${ctx.esc(c.name)}</h3>` +
+      `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
       `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>` +
       `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
-      `<div class="ltn-cbuy"><div class="ltn-pricetag">${priceHtml(ctx, c.price, c.oldPrice, c.period)}</div>${btn(ctx, comboBuy(ctx, c), 'Pedir combo', 'ltb-buy', true)}</div></article>`;
+      `<div class="ltn-cbuy"><div class="ltn-pricetag">${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}</div>${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Pedir combo' : 'Consultar', 'ltb-buy', true)}</div></article>`;
   }
   /** Sección con panel crema, cinta de título y ramitas de pino en las esquinas. */
   const nvSec = (kind, title, body, green) => `<section class="ltb-sec ltb-sec-${kind}"><div class="ltb-wrap"><div class="ltn-panel${green ? ' ltn-panel-g' : ''}" data-rv>${NV_SPRIG('l')}${NV_SPRIG('r')}<h2 class="ltb-h2"><span class="ltn-rib">${title}</span></h2>${body}</div></div></section>`;
 
   function renderNavidad(root, d, ctx) {
     LC.injectCss('navidad', CSS_NAVIDAD);
-    const cl = setup(root, ctx, d);
+    const cl = setup(root, ctx, d, 'navidad');
     // Con logo o portada se usa siempre la cabecera tipo perfil (portada ancha + logo redondo).
     const pm = !!(ctx.profileMode || d.coverUrl || d.logoUrl) && typeof ctx.profileHeader === 'function';
     if (pm) root.classList.add('ltb-pm');
@@ -500,26 +678,27 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) +
       `<section class="ltn-hero" data-lt-hero>${bokeh}<div class="ltn-snow" aria-hidden="true"></div><div class="ltn-snow3" aria-hidden="true"></div>${NV_GARLAND}` +
       `<div class="ltb-wrap ltn-hero-in"><div class="ltn-hero-txt">` +
-      `<p class="ltn-script">${ctx.esc((!pm && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
-      `<h1 class="ltb-h1">${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub">${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      `<p class="ltn-script"${(!pm && d.tagline && d.tagline.length <= 22) ? ed(ctx, 'tagline') : ''}>${ctx.esc((!pm && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
+      `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       couponsHtml +
       (cd.hide ? '' : `<div class="ltn-count" role="timer" aria-live="off">${nvCountHtml(cd)}</div>`) +
       `<div class="ltb-ctas">${heroCta(ctx, d, wa)}${plans.length && wa ? '<button type="button" class="ltb-btn ltb-ghost" data-goto="plans">Ver precios</button>' : ''}</div>` +
       `</div>${art}</div></section>` +
       (plans.length ? nvSec('plans', 'Regalos de Navidad', `<div class="ltb-grid">${plans.map((p, i) => nvPlanCard(ctx, p, i)).join('')}</div>`) : '') +
       (combos.length ? nvSec('combos', 'Combos navideños', `<div class="ltn-crow">${combos.map((c, i) => nvComboCard(ctx, c, i)).join('')}</div>`, true) : '') +
-      (d.benefits.length ? nvSec('benefits', '¿Por qué con nosotros?', `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span>${ctx.esc(b)}</span></li>`).join('')}</ul>`, true) : '') +
-      (d.paymentMethods.length ? nvSec('pays', 'Paga como quieras', `<ul class="ltb-pays">${d.paymentMethods.map(p => `<li>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
-      (d.faq.length ? nvSec('faq', 'Preguntas frecuentes', `<div class="ltb-faq">${d.faq.map(f => `<details><summary>${ctx.esc(f.q)}</summary><p>${ctx.esc(f.a)}</p></details>`).join('')}</div>`, true) : '') +
+      (d.reviews && d.reviews.length ? nvSec('reviews', 'Lo que dicen nuestros clientes', reviewsHtml(ctx, d, false)) : '') +
+      (d.benefits.length ? nvSec('benefits', '¿Por qué con nosotros?', `<ul class="ltb-bens">${d.benefits.map((b, i) => `<li style="--i:${i}"><span class="ltb-bn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul>`, true) : '') +
+      (d.paymentMethods.length ? nvSec('pays', 'Paga como quieras', `<ul class="ltb-pays">${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
+      (d.faq.length ? nvSec('faq', 'Preguntas frecuentes', `<div class="ltb-faq">${d.faq.map((f, i) => `<details><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div>`, true) : '') +
       (d.links.length ? nvSec('links', 'Síguenos', `<div class="ltb-links">${d.links.map(l => `<a class="ltb-link" href="${ctx.esc(l.url)}" target="_blank" rel="noopener">${ctx.linkIcon(l.type)}<span>${ctx.esc(ctx.linkLabel(l))}</span></a>`).join('')}</div>`) : '') +
-      footer(ctx, d, `<p class="ltn-felices">Felices fiestas</p>`) + fab(ctx, wa);
+      footer(ctx, d, `<p class="ltn-felices">Felices fiestas</p>`) + fab(ctx, wa) + NV_SPRIG.def;
     root.innerHTML = html;
     const box = root.querySelector('.ltn-count');
     if (box && !cd.msg) {
       const t = G.setInterval(() => { box.innerHTML = nvCountHtml(nvCountdown(new Date())); }, 30000);
       cl.push(() => G.clearInterval(t));
     }
-    reveal(root, ctx, cl);
+    motionKit(root, ctx, cl);
   }
 
   LC.registerTemplate({
