@@ -86,7 +86,7 @@
   var W = window, D = document, HEAD = D.head;
   var BASE = W.LANDING_BASE = W.__TIENDA_BASE__ === '/dev/' || location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   // Versiones de caché (?v=): súbelas al cambiar el archivo.
-  var V = { core: 11, b: 11, d: 11 };
+  var V = { core: 14, b: 13, d: 13 };
   // Plantilla → archivo (b: pop/premium, d: navidad). Las retiradas pasan a pop/premium en normalize() → 'b'.
   var FILES = { pop: 'b', premium: 'b', navidad: 'd' };
   // Igual que LandingCore.FIREBASE / COLLECTION (aquí para no esperar al núcleo antes de pedir los datos).
@@ -280,7 +280,7 @@
     slug: slug, fromRestValue: fromRestValue, fromRestFields: fromRestFields, loadCatalog: loadCatalog,
     first: first, initial: initial, core: core, loadScript: loadScript, tplFile: tplFile, tplSrc: tplSrc, hint: hint,
     cachePut: cachePut, cacheDel: cacheDel, versions: V, coreSrc: coreSrc, files: FILES,
-    hosted: HOSTED, host: HOSTED ? INJ.host : '', vipState: vipState, effTemplate: effTemplate
+    hosted: HOSTED, host: HOSTED ? INJ.host : '', vipState: vipState, effTemplate: effTemplate, fs: FS
   };
 })();
 </script>
@@ -480,6 +480,67 @@
       showTemplatesError();
     });
   }
+  /* ---------- Estadísticas (solo tiendas VIP vigentes; nunca con ?preview) ----------
+   * 1 visita por sesión y 1 clic a WhatsApp por producto (o general) por sesión, en landing_stats/{slug}/days/{AAAA-MM-DD}
+   * (día de Lima). Escritura REST sin sesión con incrementos atómicos; las reglas solo aceptan +1 en tiendas VIP vigentes.
+   * Se envía después de pintar (keepalive) y nunca bloquea ni retrasa la apertura de WhatsApp. */
+  var STATS = (function () {
+    var PREVIEW = /[?&]preview(?:[=&]|$)/.test(location.search);
+    var on = false, sslug = '', armed = false;
+    // El dueño (marcado por el editor en este navegador) no cuenta.
+    function ownStore(slug) { try { var a = JSON.parse(localStorage.getItem('ds-own-slugs') || '[]'); return Array.isArray(a) && a.indexOf(slug) >= 0; } catch (_) { return false; } }
+    var url = 'https://firestore.googleapis.com/v1/projects/' + T.fs.projectId + '/databases/(default)/documents:commit?key=' + T.fs.apiKey;
+    var day = function () { return new Date(Date.now() - 5 * 36e5).toISOString().slice(0, 10); };
+    // true si ya se contó en esta sesión (o si no hay sessionStorage: entonces no se cuenta nada).
+    function seen(k) {
+      try {
+        var key = 'ds-st:' + sslug + ':' + day(), o = JSON.parse(sessionStorage.getItem(key) || '{}');
+        if (o[k]) return true;
+        o[k] = 1; sessionStorage.setItem(key, JSON.stringify(o)); return false;
+      } catch (_) { return true; }
+    }
+    // item: clave del producto (p_<id>/c_<id>) que se suma; va también en `last` porque las reglas lo necesitan para validar.
+    function send(paths, item) {
+      var body = JSON.stringify({ writes: [{
+        update: { name: 'projects/' + T.fs.projectId + '/databases/(default)/documents/landing_stats/' + sslug + '/days/' + day(),
+          fields: item ? { last: { stringValue: item } } : {} },
+        updateMask: { fieldPaths: item ? ['last'] : [] },
+        updateTransforms: paths.map(function (f) { return { fieldPath: f, increment: { integerValue: '1' } }; })
+      }] });
+      // keepalive solo en clics (la página puede pasar a segundo plano al abrir WhatsApp). Algunos navegadores rechazan
+      // keepalive cuando hay preflight CORS (Content-Type JSON): entonces se reintenta una vez sin keepalive.
+      var opts = { method: 'POST', body: body, credentials: 'omit', headers: { 'Content-Type': 'application/json' } };
+      var plain = function () { try { var q = window.fetch(url, opts); if (q && q.catch) q.catch(function () {}); } catch (_) {} };
+      try {
+        if (!item && paths[0] === 'views') plain();
+        else {
+          var p = window.fetch(url, { method: opts.method, body: body, credentials: 'omit', headers: opts.headers, keepalive: true });
+          if (p && p.catch) p.catch(plain);
+        }
+      } catch (_) { plain(); }
+      (window.__statsSent = window.__statsSent || []).push(paths.join('+'));
+    }
+    function onClick(e) {
+      if (!on || e.defaultPrevented) return;
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a || !$('app').contains(a) || !/^https:\/\/wa\.me\//.test(a.href)) return;
+      var box = a.closest('[data-lt-item]'), k = box ? box.getAttribute('data-lt-item') : '';
+      if (!/^[pc]_[A-Za-z0-9_]{1,40}$/.test(k || '')) k = '';
+      if (seen(k ? 'i:' + k : 'w')) return;
+      send(k ? ['wa', 'items.' + k] : ['wa'], k);
+    }
+    return {
+      /* Tras cada pintado: decide si esta tienda cuenta (VIP vigente) y registra la visita de la sesión. */
+      painted: function (core, d) {
+        on = !PREVIEW && !!T.slug && core.vipActive(d) && !ownStore(T.slug);
+        if (!on) return;
+        sslug = T.slug;
+        if (!armed) { armed = true; document.addEventListener('click', onClick, true); }
+        var go = function () { if (on && !seen('v')) send(['views']); };
+        if (window.requestIdleCallback) window.requestIdleCallback(go, { timeout: 4000 }); else setTimeout(go, 1500);
+      }
+    };
+  })();
   function paint(core, d, id, key) {
     try {
       clearTimers();
@@ -489,6 +550,7 @@
       core.render($('app'), d, { template: id });
       shownKey = key; pendingKey = '';
       applyHead(d);
+      try { STATS.painted(core, d); } catch (e) { console.warn('[tienda] estadísticas', e); }
       if (y) window.scrollTo(0, y);
     } catch (err) {
       console.error('[tienda] error al pintar', err);
