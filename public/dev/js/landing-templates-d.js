@@ -39,6 +39,8 @@
   function onImgError(e) {
     const img = e.target;
     if (img && img.tagName === 'IMG' && img.closest && img.closest('.ltb-cph')) { img.closest('.ltb-cph').remove(); return; }
+    // Decoraciones (ramas, regalo): si la imagen no está en el servidor se ocultan, nunca se ve el ícono de imagen rota.
+    if (img && img.tagName === 'IMG' && /(^|\s)ltz-(rama|rama2|regalo|frama)(\s|$)/.test(img.className)) { img.style.display = 'none'; return; }
     if (!img || img.tagName !== 'IMG' || !img.getAttribute('data-ini')) return;
     const s = img.ownerDocument.createElement('span');
     s.className = img.className + ' lt-ini';
@@ -1034,6 +1036,27 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   };
   /** Destellos dorados de 4 puntas repartidos (x%, y%, tamaño px, retraso). */
   const NV3_SPARKS = list => `<div class="ltz-sparks" aria-hidden="true">${list.map(([x, y, z, k]) => `<i style="left:${x}%;top:${y}%;--z:${z}px;--k:${k}"></i>`).join('')}</div>`;
+  /** Trineo con renos (silueta dorada) que cruza la cabecera de vez en cuando. viewBox 260x70. */
+  const NV3_SLEIGH = `<svg class="ltz-sleigh" viewBox="0 0 260 70" aria-hidden="true"><g fill="#f6d469">` +
+    `<path d="M14 30h44c6 0 9-5 10-11h4c-1 12-7 21-18 21H18c-6 0-8-5-4-10z"/><path d="M8 50h66c8 0 12-4 12-9" fill="none" stroke="#f6d469" stroke-width="3" stroke-linecap="round"/>` +
+    `<path d="M26 44v6M58 44v6" stroke="#f6d469" stroke-width="3"/><circle cx="36" cy="16" r="6"/><path d="M28 30c0-8 4-12 8-12s8 4 8 12z"/><path d="M33 10l3-7 4 6z"/>` +
+    [120, 175, 230].map(x => `<g transform="translate(${x} 0)"><ellipse cx="0" cy="34" rx="15" ry="7"/><path d="M10 31l8-12 5 2-6 12z"/><ellipse cx="22" cy="18" rx="6" ry="4"/><path d="M-10 39l-5 12M-4 40l-2 13M6 40l5 12M11 38l9 11" stroke="#f6d469" stroke-width="2.6" stroke-linecap="round"/><path d="M20 14l-3-9M20 10l-6-3M23 14l3-9M25 9l5-3" stroke="#f6d469" stroke-width="1.8" stroke-linecap="round" fill="none"/></g>`).join('') +
+    `<path d="M70 28C90 26 100 30 106 32" stroke="#f6d469" stroke-width="1.4" fill="none"/></g>` +
+    `<g class="ltz-trail" fill="#fff">${[[2, 34, 2.2], [-12, 30, 1.6], [-26, 36, 1.8], [-40, 31, 1.2], [-54, 35, 1.4]].map(([x, y, rr]) => `<circle cx="${x}" cy="${y}" r="${rr}"/>`).join('')}</g></svg>`;
+  /** Guirnalda de pino con esferas y moño entre secciones. viewBox 1200x90. */
+  const NV3_SWAG = `<svg class="ltz-swag" viewBox="0 0 1200 90" preserveAspectRatio="none" aria-hidden="true">` +
+    `<path d="M-10 8Q300 78 600 8Q900 78 1210 8" fill="none" stroke="#145a2e" stroke-width="22" stroke-linecap="round"/>` +
+    `<path d="M-10 8Q300 78 600 8Q900 78 1210 8" fill="none" stroke="#1f7a3f" stroke-width="16" stroke-dasharray="2 5" stroke-linecap="round"/>` +
+    `<path d="M-10 8Q300 78 600 8Q900 78 1210 8" fill="none" stroke="#3aa35d" stroke-width="9" stroke-dasharray="1 7" stroke-linecap="round"/></svg>`;
+  const NV3_SWAGDECO = `<div class="ltz-swagd" aria-hidden="true"><i class="ltz-sb r" style="left:25%"></i><i class="ltz-sb g" style="left:75%"></i><i class="ltz-sb s" style="left:12%"></i><i class="ltz-sb s" style="left:88%"></i>` +
+    `<svg class="ltz-sbow" viewBox="0 0 120 72"><defs><linearGradient id="ltzBw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff5361"/><stop offset=".6" stop-color="#d4172a"/><stop offset="1" stop-color="#8f0915"/></linearGradient></defs><path d="M54 38 42 70l9-4 4 6 9-32zM66 38l12 32-9-4-4 6-9-32z" fill="#a50d1d"/><path d="M60 34C36 0 2 6 8 28c5 16 32 12 52 6Z" fill="url(#ltzBw)"/><path d="M60 34C84 0 118 6 112 28c-5 16-32 12-52 6Z" fill="url(#ltzBw)"/><rect x="50" y="24" width="20" height="20" rx="6" fill="#e2313b" stroke="#7d0714" stroke-width="1.4"/></svg></div>`;
+  const NV3_HAT = '<svg class="ltz-hat" viewBox="0 0 40 34" aria-hidden="true"><path d="M5 26C8 12 18 4 30 6c-4 4-6 10-6 18z" fill="#d4172a"/><path d="M30 6c4 1 6 4 6 8" stroke="#d4172a" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="36" cy="16" r="4" fill="#fff"/><rect x="2" y="23" width="26" height="8" rx="4" fill="#fff"/></svg>';
+  const NV3_FLAKE = '<svg viewBox="-12 -12 24 24"><path d="M0-11V11M-9.5-5.5L9.5 5.5M-9.5 5.5L9.5-5.5M0-7l-3-3M0-7l3-3M0 7l-3 3M0 7l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+  /** Nieve suave sobre toda la página (copos SVG; posición, tamaño y ritmo fijos). */
+  const NV3_PAGESNOW = (() => {
+    let seed = 9; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    return `<div class="ltz-psnow" aria-hidden="true">${Array.from({ length: 16 }, (_, k) => { const sz = 10 + rnd() * 12, t = 12 + rnd() * 12; return `<i style="left:${((k + rnd()) / 16 * 100).toFixed(1)}%;--s:${sz.toFixed(0)}px;--t:${t.toFixed(1)}s;--d:${(-rnd() * t).toFixed(1)}s;--w:${(14 + rnd() * 30).toFixed(0)}px">${NV3_FLAKE}</i>`; }).join('')}</div>`;
+  })();
   const nv3Head = (title, sub) => `<div class="ltz-hd" data-rv><h2 class="ltb-h2">${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
   function nv3Price(ctx, price, old, period, path, cls = 'ltz-pill') {
     const m = ctx.money(price), o = ctx.money(old);
@@ -1253,7 +1276,68 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @keyframes ltz-float{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-10px) rotate(2deg)}}
 @keyframes ltz-beat{0%,70%,100%{transform:scale(1)}80%{transform:scale(1.04)}90%{transform:scale(.99)}}
 @media (hover:hover){.lt-navidad3:not(.lt-static) .ltz-plan{transition:transform .3s cubic-bezier(.3,1.6,.5,1),box-shadow .3s}.lt-navidad3:not(.lt-static) .ltz-plan:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(40,10,14,.13)}.lt-navidad3:not(.lt-static) .ltz-soc a:hover{transform:translateY(-3px)}}
+/* trineo */
+.lt-navidad3 .ltz-sleigh{position:absolute;z-index:2;top:30%;left:0;width:clamp(150px,20vw,240px);height:auto;opacity:0;pointer-events:none;filter:drop-shadow(0 0 6px rgba(246,212,105,.6))}
+.lt-navidad3 .ltz-trail circle{opacity:.8}
+/* guirnaldas entre secciones */
+.lt-navidad3 .ltz-hasswag{padding-top:104px}
+.lt-navidad3 .ltz-swag{position:absolute;left:0;right:0;top:0;width:100%;height:70px;filter:drop-shadow(0 6px 6px rgba(20,60,30,.18))}
+.lt-navidad3 .ltz-swagd{position:absolute;left:0;right:0;top:0;height:110px;pointer-events:none}
+.lt-navidad3 .ltz-sb{position:absolute;top:42px;width:2px;height:16px;margin-left:-1px;background:#c9a24a;transform-origin:50% 0}
+.lt-navidad3 .ltz-sb::after{content:"";position:absolute;left:50%;top:14px;width:24px;height:24px;margin-left:-12px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#fff 0,var(--c1) 22%,var(--c2) 72%,#2a0204)}
+.lt-navidad3 .ltz-sb.r{--c1:#ff5361;--c2:#a50b17}.lt-navidad3 .ltz-sb.g{--c1:#ffe08a;--c2:#b97f12}
+.lt-navidad3 .ltz-sb.s{top:31px;height:12px;--c1:#ffffff;--c2:#9aa3b1}.lt-navidad3 .ltz-sb.s::after{width:18px;height:18px;margin-left:-9px;top:12px}
+.lt-navidad3 .ltz-sbow{position:absolute;left:50%;top:-14px;width:90px;height:54px;margin-left:-45px;filter:drop-shadow(0 4px 4px rgba(60,0,8,.3))}
+@media (max-width:640px){.lt-navidad3 .ltz-swag{height:50px}.lt-navidad3 .ltz-hasswag{padding-top:84px}.lt-navidad3 .ltz-sb{top:28px}.lt-navidad3 .ltz-sb.s{display:none}.lt-navidad3 .ltz-sbow{width:70px;height:42px;margin-left:-35px;top:-10px}}
+/* luces suaves del bloque principal */
+.lt-navidad3 .ltz-bokeh{position:absolute;inset:0;pointer-events:none;z-index:0}
+.lt-navidad3 .ltz-bokeh i{position:absolute;width:var(--z);height:var(--z);margin:calc(var(--z) / -2) 0 0 calc(var(--z) / -2);border-radius:50%;background:radial-gradient(circle,var(--c),transparent 68%);opacity:.18}
+.lt-navidad3 .ltz-main>:is(h1,p,a,button,span,div.ltz-count){position:relative;z-index:1}
+/* nieve sobre el botón principal */
+.lt-navidad3 .ltz-cta{overflow:hidden}
+.lt-navidad3 .ltz-ccap{position:absolute;left:14px;right:14px;top:0;height:9px;background:radial-gradient(circle at 8px 0,#fff 7px,transparent 7.5px) 0 0/18px 9px repeat-x;opacity:.9;pointer-events:none}
+/* cuenta regresiva */
+.lt-navidad3 .ltz-count{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin:18px auto 0;font-size:14px;font-weight:600;color:var(--z-mut)}
+.lt-navidad3 .ltz-count>span:not(.ltz-cl){display:grid;place-items:center;min-width:56px;padding:7px 6px 6px;border-radius:12px;background:#fff;box-shadow:0 6px 14px rgba(40,10,14,.08);border-top:3px solid var(--z-red)}
+.lt-navidad3 .ltz-count b{font-size:22px;font-weight:800;color:var(--z-red);line-height:1}
+.lt-navidad3 .ltz-count small{font-size:10.5px;color:var(--z-mut);margin-top:3px}
+.lt-navidad3 .ltz-cmsg{font-family:"Great Vibes",cursive;font-size:38px;color:var(--z-red)}
+/* gorro de Papá Noel en las reseñas */
+.lt-navidad3 .ltz-rav{position:relative;overflow:visible}
+.lt-navidad3 .ltz-hat{position:absolute;top:-17px;right:-10px;width:38px;height:32px;transform:rotate(18deg);filter:drop-shadow(0 2px 2px rgba(0,0,0,.2))}
+/* nieve sobre la página */
+.lt-navidad3 .ltz-psnow{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden}
+.lt-navidad3.ltb-preview .ltz-psnow{position:absolute}
+.lt-navidad3 .ltz-psnow i{position:absolute;top:-30px;width:var(--s);height:var(--s);color:#fff;filter:drop-shadow(0 0 1px rgba(120,130,150,.9));opacity:.85}
+.lt-navidad3 .ltz-psnow svg{display:block;width:100%;height:100%}
+/* copos y estrellitas al tocar */
+.ltz-burst{position:fixed;z-index:70;width:0;height:0;pointer-events:none}
+.ltz-burst i{position:absolute;left:-7px;top:-7px;width:14px;height:14px;color:#fff;filter:drop-shadow(0 0 1px rgba(120,130,150,.9));animation:ltz-burst .85s cubic-bezier(.2,.7,.3,1) forwards}
+.ltz-burst i.st{background:#f3c94f;clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);filter:none}
+.ltz-burst svg{display:block;width:100%;height:100%}
+@keyframes ltz-burst{0%{opacity:1;transform:translate(0,0) scale(.3) rotate(0)}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(1.1) rotate(var(--r))}}
 /* ANIM extra (solo VIP) */
+.lt-navidad3:not(.lt-static) .ltz-sleigh{animation:ltz-fly 16s 2.5s linear infinite}
+@keyframes ltz-fly{0%{opacity:0;transform:translate(-30vw,30px) rotate(-6deg)}4%{opacity:1}36%{opacity:1;transform:translate(110vw,-20px) rotate(-10deg)}38%,100%{opacity:0;transform:translate(115vw,-24px) rotate(-10deg)}}
+.lt-navidad3:not(.lt-static) .ltz-trail circle{animation:ltz-tr .6s ease-in-out infinite alternate}
+.lt-navidad3:not(.lt-static) .ltz-trail circle:nth-child(2n){animation-delay:-.3s}
+@keyframes ltz-tr{from{opacity:.2}to{opacity:1}}
+.lt-navidad3:not(.lt-static) .ltz-sb{animation:ltz-swing 3.2s ease-in-out infinite alternate}
+.lt-navidad3:not(.lt-static) .ltz-sb:nth-of-type(2n){animation-duration:3.8s;animation-delay:-1.2s}
+.lt-navidad3:not(.lt-static) .ltz-bokeh i{animation:ltz-bk calc(7s + var(--k) * 1.3s) calc(var(--k) * -1.7s) ease-in-out infinite alternate}
+@keyframes ltz-bk{from{opacity:.1;transform:translate(0,0) scale(.9)}to{opacity:.28;transform:translate(14px,-18px) scale(1.08)}}
+.lt-navidad3:not(.lt-static) .ltz-regalo{animation:ltz-gin .9s .2s cubic-bezier(.3,1.6,.5,1) both,ltz-shake 6s 2s ease-in-out infinite}
+@keyframes ltz-gin{from{opacity:0;transform:translateY(-40px) scale(.7) rotate(-8deg)}to{opacity:1;transform:none}}
+@keyframes ltz-shake{0%,82%,100%{transform:rotate(0) translateY(0)}85%{transform:rotate(-5deg) translateY(-6px)}88%{transform:rotate(5deg) translateY(-8px)}91%{transform:rotate(-3deg) translateY(-4px)}94%{transform:rotate(2deg) translateY(0)}}
+.lt-navidad3:not(.lt-static) .ltz-count b{animation:ltz-pop .5s .9s cubic-bezier(.3,1.6,.5,1) both}
+.lt-navidad3:not(.lt-static) .ltz-hat{animation:ltz-hat 2.4s ease-in-out infinite alternate}
+@keyframes ltz-hat{from{transform:rotate(14deg)}to{transform:rotate(24deg)}}
+.lt-navidad3:not(.lt-static) .ltz-psnow i{animation:ltz-pfall var(--t) var(--d) linear infinite}
+.lt-navidad3:not(.lt-static) .ltz-psnow svg{animation:ltz-psway calc(var(--t) / 3) var(--d) ease-in-out infinite alternate}
+@keyframes ltz-pfall{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,110vh,0)}}
+@keyframes ltz-psway{from{transform:translateX(calc(var(--w) * -.5)) rotate(-40deg)}to{transform:translateX(calc(var(--w) * .5)) rotate(40deg)}}
+.lt-navidad3.ltb-preview:not(.lt-static) .ltz-psnow i{animation-name:ltz-pfallp}
+@keyframes ltz-pfallp{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,900px,0)}}
 .lt-navidad3:not(.lt-static) .ltz-snow2{animation:ltz-snow2 24s linear infinite}
 @keyframes ltz-snow2{to{transform:translate3d(0,300px,0)}}
 .lt-navidad3:not(.lt-static) .ltz-bulb{animation:ltz-bulb 1.8s calc(var(--k) * -.3s) ease-in-out infinite alternate}
@@ -1285,7 +1369,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad3:not(.lt-static) .ltz-fsnow{animation:ltz-snow 18s linear infinite}
 .lt-navidad3:not(.lt-static) .ltz-fl span{animation:ltz-glowtxt 2.8s ease-in-out infinite alternate}
 @keyframes ltz-glowtxt{from{text-shadow:0 0 0 rgba(246,212,105,0)}to{text-shadow:0 0 14px rgba(246,212,105,.65)}}
-${'.lt-navidad3'} .ltb-off :is(.ltz-snow,.ltz-ball,.ltz-regalo,.ltz-cta,.ltz-bulb,.ltz-glow,.ltz-sparks i,.ltz-rama,.ltz-rama2),${'.lt-navidad3'} .ltb-off .ltz-t2::after{animation-play-state:paused!important}
+${'.lt-navidad3'} .ltb-off :is(.ltz-sleigh,.ltz-sb,.ltz-bokeh i,.ltz-snow,.ltz-ball,.ltz-regalo,.ltz-cta,.ltz-bulb,.ltz-glow,.ltz-sparks i,.ltz-rama,.ltz-rama2),${'.lt-navidad3'} .ltb-off .ltz-t2::after{animation-play-state:paused!important}
 `;
 
   function renderNavidad3(root, d, ctx) {
@@ -1307,27 +1391,58 @@ ${'.lt-navidad3'} .ltb-off :is(.ltz-snow,.ltz-ball,.ltz-regalo,.ltz-cta,.ltz-bul
       `<header class="ltz-ban${cover}" data-lt-hero><div class="ltz-snow" aria-hidden="true"></div><div class="ltz-snow ltz-snow2" aria-hidden="true"></div>${NV3_LIGHTS('ltz-lights')}` +
       NV3_SPARKS([[8, 38, 14, 0], [24, 70, 10, 1], [33, 22, 8, 2], [70, 30, 12, 3], [80, 66, 9, 4], [92, 42, 13, 5], [52, 80, 8, 2], [4, 74, 9, 4]]) +
       `<img class="ltz-rama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async"><img class="ltz-rama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async">` +
-      `<span class="ltz-ball a" aria-hidden="true"></span><span class="ltz-ball b" aria-hidden="true"></span><span class="ltz-ball c" aria-hidden="true"></span>` +
+      `<span class="ltz-ball a" aria-hidden="true"></span><span class="ltz-ball b" aria-hidden="true"></span><span class="ltz-ball c" aria-hidden="true"></span>${NV3_SLEIGH}` +
       (d.coverUrl ? `<figure class="ltz-cov"><span class="ltz-shine" aria-hidden="true"></span><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>` :
       `<div class="ltz-ban-in"><p class="ltz-t1">Tu Navidad</p><p class="ltz-t2">en modo premium</p><p class="ltz-t3">Este diciembre disfruta de todas tus películas y series desde casa.</p><div class="ltz-orn" aria-hidden="true"><i></i>${nv3i('star')}<i></i></div></div>`) +
       `${NV3_WAVE('ltz-wave', false)}</header>` +
       `<div class="ltz-prof"><span class="ltz-av">${av}</span><div class="ltz-pi"><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div>` +
       `${wa ? `<a class="ltz-wa" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>Atención por WhatsApp</span></a>` : ''}</div>` +
       promo(ctx) +
-      `<section class="ltz-main">${NV3_SPARKS([[18, 12, 12, 1], [84, 70, 10, 3], [10, 78, 8, 5], [90, 18, 9, 0]])}<img class="ltz-regalo" src="${NV3_IMG}nv-regalo.webp" alt="" width="640" height="421" decoding="async"><img class="ltz-rama2" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async">` +
+      `<section class="ltz-main"><div class="ltz-bokeh" aria-hidden="true">${[[8, 20, 140, '#ff4d5e'], [86, 14, 180, '#f6d469'], [70, 78, 120, '#ff4d5e'], [20, 82, 160, '#f6d469'], [50, 40, 220, '#ffd0d4']].map(([x, y, z, c], k) => `<i style="left:${x}%;top:${y}%;--z:${z}px;--c:${c};--k:${k}"></i>`).join('')}</div>${NV3_SPARKS([[18, 12, 12, 1], [84, 70, 10, 3], [10, 78, 8, 5], [90, 18, 9, 0]])}<img class="ltz-regalo" src="${NV3_IMG}nv-regalo.webp" alt="" width="640" height="421" decoding="async"><img class="ltz-rama2" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async">` +
       `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
-      (wa ? `<a class="ltz-cta" data-lt-btn="main" href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span${ed(ctx, 'ctaText')}>${ctx.esc(d.ctaText)}</span></a>` : `<button type="button" class="ltz-cta" data-goto="plans">Ver planes</button>`) +
-      (ctx.minPrice ? `<span class="ltz-from">Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span>` : '') + `</section>` +
+      (wa ? `<a class="ltz-cta" data-lt-btn="main" href="${ctx.esc(wa)}" target="_blank" rel="noopener"><span class="ltz-ccap" aria-hidden="true"></span>${ctx.linkIcon('whatsapp')}<span${ed(ctx, 'ctaText')}>${ctx.esc(d.ctaText)}</span></a>` : `<button type="button" class="ltz-cta" data-goto="plans">Ver planes</button>`) +
+      (ctx.minPrice ? `<span class="ltz-from">Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span>` : '') + nv3Count() + `</section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans"><div class="ltb-wrap">${nv3Head('Elige tu plataforma favorita', 'Cuentas originales, estables y al mejor precio.')}<div class="ltz-plans">${plans.map((p, i) => nv3Plan(ctx, p, i)).join('')}</div></div></section>` : '') +
-      (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${nv3Head('Combos navideños')}<div class="ltz-combos">${combos.map((c, i) => nv3Combo(ctx, c, i)).join('')}</div></div></section>` : '') +
+      (combos.length ? `<section class="ltb-sec ltb-sec-combos ltz-hasswag">${NV3_SWAG}${NV3_SWAGDECO}<div class="ltb-wrap">${nv3Head('Combos navideños')}<div class="ltz-combos">${combos.map((c, i) => nv3Combo(ctx, c, i)).join('')}</div></div></section>` : '') +
       (d.benefits.length ? `<section class="ltb-sec ltb-sec-benefits"><div class="ltb-wrap">${nv3Head(`¿Por qué elegir ${ctx.esc(d.name)}?`)}<ul class="ltz-bens" data-rv>${d.benefits.map((b, i) => `<li>${nv3i(benIco[i % 4])}<span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul></div></section>` : '') +
-      (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews"><div class="ltb-wrap">${nv3Head('Lo que dicen nuestros clientes')}<div class="ltz-revs" data-rv>${d.reviews.map((r, i) => { const nm = r.name || 'Cliente'; return `<figure class="ltz-rev"><span class="ltz-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b>${stars(r.stars)}<p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></figure>`; }).join('')}</div></div></section>` : '') +
+      (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews ltz-hasswag">${NV3_SWAG}${NV3_SWAGDECO}<div class="ltb-wrap">${nv3Head('Lo que dicen nuestros clientes')}<div class="ltz-revs" data-rv>${d.reviews.map((r, i) => { const nm = r.name || 'Cliente'; return `<figure class="ltz-rev"><span class="ltz-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}${NV3_HAT}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b>${stars(r.stars)}<p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></figure>`; }).join('')}</div></div></section>` : '') +
       payFaq +
       (d.links.length ? `<section class="ltb-sec ltb-sec-links"><div class="ltb-wrap"><div class="ltz-soc" data-rv><b>Síguenos en nuestras redes</b><div>${d.links.map(l => `<a href="${ctx.esc(l.url)}" target="_blank" rel="noopener" aria-label="${ctx.esc(ctx.linkLabel(l))}">${ctx.linkIcon(l.type)}</a>`).join('')}</div></div></div></section>` : '') +
-      `<footer class="ltz-foot ltb-foot" data-lt-foot>${NV3_WAVE('ltz-fwave', true)}<div class="ltz-fsw" aria-hidden="true"><div class="ltz-snow ltz-fsnow"></div></div><img class="ltz-frama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><img class="ltz-frama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><div class="ltz-fl"><b>${ctx.esc(d.name)}</b><span>¡Feliz Navidad!</span></div><p>Gracias por confiar en nosotros. Que esta Navidad esté llena de buenas historias y el mejor entretenimiento.</p><p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p>${ctx.showBrand === false ? '' : '<p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p>'}</footer>` +
-      fab(ctx, wa);
+      `<footer class="ltz-foot ltb-foot" data-lt-foot>${NV3_WAVE('ltz-fwave', true)}<div class="ltz-fsw" aria-hidden="true"><div class="ltz-snow ltz-fsnow"></div></div>${NV3_SPARKS([[12, 30, 12, 0], [30, 70, 9, 2], [68, 22, 11, 4], [88, 60, 10, 1], [50, 12, 8, 3]])}<img class="ltz-frama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><img class="ltz-frama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><div class="ltz-fl"><b>${ctx.esc(d.name)}</b><span>¡Feliz Navidad!</span></div><p>Gracias por confiar en nosotros. Que esta Navidad esté llena de buenas historias y el mejor entretenimiento.</p><p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p>${ctx.showBrand === false ? '' : '<p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p>'}</footer>` +
+      fab(ctx, wa) + (ctx.noMotion || ctx.reducedMotion ? '' : NV3_PAGESNOW);
     root.innerHTML = html;
+    const cbox = root.querySelector('.ltz-count');
+    if (cbox) { const t = G.setInterval(() => { const c = nvCountdown(new Date()); if (!c.hide && !c.msg) cbox.querySelectorAll('[data-u]').forEach(e => { const v = e.dataset.u === 'd' ? c.d : e.dataset.u === 'h' ? c.h : c.mi; e.textContent = String(v).padStart(2, '0'); }); }, 30000); cl.push(() => G.clearInterval(t)); }
+    nv3Burst(root, ctx, cl);
     motionKit(root, ctx, cl);
+  }
+  /** Cuenta regresiva para Navidad / Año Nuevo (se oculta fuera de temporada). */
+  function nv3Count() {
+    const c = nvCountdown(new Date());
+    if (c.hide) return '';
+    if (c.msg) return `<p class="ltz-count ltz-cmsg">${c.msg}</p>`;
+    const b = (u, v, l) => `<span><b data-u="${u}">${String(v).padStart(2, '0')}</b><small>${l}</small></span>`;
+    return `<div class="ltz-count" role="timer" aria-live="off"><span class="ltz-cl">Faltan</span>${b('d', c.d, c.d === 1 ? 'día' : 'días')}${b('h', c.h, 'horas')}${b('m', c.mi, 'min')}<span class="ltz-cl">${c.label}</span></div>`;
+  }
+  /** Al tocar un botón (VIP): copos y estrellitas doradas salen del dedo. Solo transform/opacity. */
+  function nv3Burst(root, ctx, cl) {
+    if (ctx.preview || ctx.reducedMotion || ctx.noMotion) return;
+    const down = e => {
+      const b = e.target && e.target.closest ? e.target.closest('[data-lt-btn],.ltb-btn') : null;
+      if (!b || !root.contains(b)) return;
+      const layer = root.ownerDocument.createElement('div');
+      layer.className = 'ltz-burst'; layer.setAttribute('aria-hidden', 'true');
+      layer.style.cssText = `left:${e.clientX}px;top:${e.clientY}px`;
+      let h = '';
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2 + Math.random() * .4, dist = 44 + Math.random() * 48;
+        h += `<i class="${k % 2 ? 'st' : 'fl'}" style="--x:${(Math.cos(a) * dist).toFixed(0)}px;--y:${(Math.sin(a) * dist - 22).toFixed(0)}px;--r:${(Math.random() * 360).toFixed(0)}deg">${k % 2 ? '' : NV3_FLAKE}</i>`;
+      }
+      layer.innerHTML = h; root.appendChild(layer);
+      G.setTimeout(() => layer.remove(), 900);
+    };
+    root.addEventListener('pointerdown', down, { passive: true });
+    cl.push(() => root.removeEventListener('pointerdown', down));
   }
 
   LC.registerTemplate({
