@@ -541,8 +541,13 @@ async function serveTienda(req, res, rawSlug, url, opts = {}) {
     res.writeHead(301, { Location: `/${lower}`, 'Cache-Control': 'no-cache' }); res.end(); return true;
   }
   let html;
-  try { html = await fs.promises.readFile(path.join(__dirname, 'public', opts.dev ? 'dev' : '', 'tienda.html'), 'utf8'); }
-  catch { res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Tienda no disponible'); return true; }
+  // Si falta public/tienda.html (producción aún sin la tienda), se usa la de /dev/ con sus scripts de /dev/js/.
+  let useDev = !!opts.dev;
+  try { html = await fs.promises.readFile(path.join(__dirname, 'public', useDev ? 'dev' : '', 'tienda.html'), 'utf8'); }
+  catch {
+    try { if (useDev) throw 0; html = await fs.promises.readFile(path.join(__dirname, 'public', 'dev', 'tienda.html'), 'utf8'); useDev = true; }
+    catch { res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Tienda no disponible'); return true; }
+  }
   let status = 200;
   const origin = opts.host ? `https://${opts.host}` : tiendaOrigin();
   if (!TIENDA_SLUG_RE.test(slug)) status = 404;
@@ -577,7 +582,7 @@ async function serveTienda(req, res, rawSlug, url, opts = {}) {
   }
   html = html.replace('<!--TIENDA_DATA-->', '');
   // Dominio propio servido con la tienda de /dev/: sus scripts están en /dev/js/.
-  if (opts.host && opts.dev) html = html.replace('<head>', () => '<head><script>window.__TIENDA_BASE__="/dev/"</script>');
+  if (useDev && !opts.dev || opts.host && opts.dev) html = html.replace('<head>', () => '<head><script>window.__TIENDA_BASE__="/dev/"</script>');
   // Dominio propio: el mismo URL da otra página según X-Tienda-Host → que ninguna caché compartida la guarde.
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': opts.host ? 'private, no-cache' : 'no-cache', 'X-Content-Type-Options': 'nosniff' });
   res.end(req.method === 'HEAD' ? undefined : html);
