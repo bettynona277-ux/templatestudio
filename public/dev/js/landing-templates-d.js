@@ -1,4 +1,4 @@
-/* Diseños Streaming · Plantilla de landing de temporada: Navidad
+/* Diseños Streaming · Plantillas de landing de temporada: Navidad (roja) y Navidad Regalo (navidad2)
  * Requiere js/landing-core.js (window.LandingCore). Sin dependencias.
  * CSS prefijado con .lt-navidad; clases internas ltb- (comunes) y ltn- (navidad).
  */
@@ -732,5 +732,607 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     // Plantilla de temporada exclusiva VIP (sin VIP vigente se pinta 'fallback'). El editor la agrupa en "De temporada · VIP".
     seasonal: true, vipOnly: true, fallback: 'pop',
     tags: ['festiva', 'navidad', 'animada'], preview: { bg: '#b80f1f', fg: '#ffffff', accent: '#f2c75a' }, render: renderNavidad
+  });
+  // =====================================================================
+  // NAVIDAD REGALO (id navidad2) — "caja de regalo": gris niebla, papel blanco y cinta de raso roja.
+  // La portada es un regalo atado con cinta y moño; cada plan es un regalito con su cinta.
+  // Un solo momento orquestado al cargar (la cinta se ata y el moño aparece) + respuesta al tocar.
+  // Tipografía Outfit. Íconos de Lucide (lucide.dev, licencia ISC).
+  // =====================================================================
+  const LUC = {
+    gift: '<path d="M12 7v14"/><path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5"/><rect x="3" y="7" width="18" height="4" rx="1"/>',
+    zap: '<path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z"/>',
+    shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    headphones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
+    sparkles: '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/>',
+    card: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/><path d="M6 14h2"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>'
+  };
+  const luc = (k, cls = 'ltg-ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUC[k]}</svg>`;
+  /** Moño de raso (viewBox 120x70). */
+  const GF_BOW = cls => `<svg class="${cls}" viewBox="0 0 120 72" aria-hidden="true"><defs><linearGradient id="ltgBw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F0525A"/><stop offset=".55" stop-color="#E0242F"/><stop offset="1" stop-color="#A80F19"/></linearGradient></defs>` +
+    `<path class="ltg-tail" d="M54 38 42 70l9-4 4 6 9-32zM66 38l12 32-9-4-4 6-9-32z" fill="#B5121C"/>` +
+    `<path d="M60 34C36 0 2 6 8 28c5 16 32 12 52 6Z" fill="url(#ltgBw)"/><path d="M60 34C84 0 118 6 112 28c-5 16-32 12-52 6Z" fill="url(#ltgBw)"/>` +
+    `<path d="M20 16c10-2 24 4 34 14M100 16c-10-2-24 4-34 14" stroke="#FF9AA0" stroke-width="2.2" fill="none" stroke-linecap="round" opacity=".75"/>` +
+    `<rect x="50" y="24" width="20" height="20" rx="6" fill="#E0242F" stroke="#A80F19" stroke-width="1.4"/></svg>`;
+  function gfPlanCard(ctx, p, i) {
+    const inf = ctx.platformInfo(p.platform);
+    const feats = p.features.length ? `<ul class="ltb-feats">${p.features.map((f, k) => `<li>${luc('check')}<span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span></li>`).join('')}</ul>` : '';
+    return `<article class="ltb-card ltg-gift" data-rv data-lt-card${itm(ctx, 'p', p.id)} style="--i:${i % 8}">` +
+      `<div class="ltg-lid">${p.badge ? `<span class="ltg-tag">${ctx.esc(p.badge)}</span>` : ''}<span class="ltg-lg">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}</span></div>` +
+      `<div class="ltg-body"><h3 class="ltb-title"${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(p.title || inf.name)}</h3><span class="ltb-type">${ctx.esc(ctx.typeLabel(p))}</span>` +
+      `${priceHtml(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}${feats}${btn(ctx, planBuy(ctx, p), ctx.money(p.price) ? 'Pedir' : 'Consultar', 'ltb-buy', true)}</div></article>`;
+  }
+  function gfComboCard(ctx, c, i) {
+    const names = c.platforms.map(x => ctx.platformInfo(x).name);
+    return `<article class="ltb-card ltg-combo${c.imageUrl ? ' has-ph' : ''}" data-rv data-lt-card${itm(ctx, 'c', c.id)} style="--i:${i % 8}">` +
+      `<span class="ltg-cr" aria-hidden="true"></span>${c.badge ? `<span class="ltg-tag">${ctx.esc(c.badge)}</span>` : ''}` +
+      comboPhoto(ctx, c) +
+      `<h3 class="ltb-title"${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3>` +
+      (c.imageUrl ? '' : `<div class="ltb-logos">${c.platforms.map(x => logoHtml(ctx, x, 'ltb-logo')).join('')}</div>`) +
+      `<p class="ltb-incl">${ctx.esc(names.join(' + '))}</p>` +
+      `<div class="ltg-cbuy">${priceHtml(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`)}${btn(ctx, comboBuy(ctx, c), ctx.money(c.price) ? 'Pedir combo' : 'Consultar', 'ltb-buy', true)}</div></article>`;
+  }
+  const gfSec = (kind, title, body) => `<section class="ltb-sec ltb-sec-${kind}"><div class="ltb-wrap"><h2 class="ltb-h2" data-rv>${title}</h2>${body}</div></section>`;
+
+  const GF_RIB = 'linear-gradient(90deg,#B5121C,#E0242F 38%,#F0525A 50%,#E0242F 62%,#B5121C)';
+  const GF_RIBH = 'linear-gradient(180deg,#B5121C,#E0242F 38%,#F0525A 50%,#E0242F 62%,#B5121C)';
+  const CSS_NAVIDAD2 = `@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap');` + baseCss('navidad2') + `
+.lt-navidad2{--g-mist:#ECEDEF;--g-paper:#fff;--g-ink:#16181C;--g-mut:#5E636C;--g-line:#DCDEE2;--g-red:#E0242F;--g-red2:#B5121C;--g-sh:0 18px 40px rgba(60,64,74,.13);background:var(--g-mist);color:var(--g-ink);font-family:Outfit,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.lt-navidad2 .ltb-wrap{max-width:1080px}
+.lt-navidad2 .ltb-h1,.lt-navidad2 .ltb-h2,.lt-navidad2 .ltb-title{font-weight:800;letter-spacing:-.03em}
+/* cabecera propia */
+.lt-navidad2 .ltg-top .ltb-head{padding:16px 18px}
+.lt-navidad2 .ltb-brand img,.lt-navidad2 .ltb-mono{border-radius:12px}
+.lt-navidad2 .ltb-mono{background:var(--g-ink);color:#fff;font-size:19px}
+.lt-navidad2 .ltb-brand b{font-weight:800;letter-spacing:-.02em}
+.lt-navidad2 .ltb-headcta{display:inline-flex;align-items:center;gap:6px;color:var(--g-red);font-weight:600;font-size:15px;text-decoration:none;padding:8px 4px}
+.lt-navidad2 .ltb-headcta svg{width:19px;height:19px}
+/* portada: la caja de regalo */
+.lt-navidad2 .ltg-hero{padding:6px 0 34px}
+.lt-navidad2 .ltg-hero .ltb-wrap{padding:0 14px}
+.lt-navidad2 .ltg-box{position:relative;overflow:hidden;background:var(--g-paper);border-radius:24px;box-shadow:var(--g-sh);padding:30px 22px 26px;display:grid;gap:26px}
+@media (min-width:880px){.lt-navidad2 .ltg-box{grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);align-items:center;padding:56px 56px 52px}}
+.lt-navidad2 .ltg-rv,.lt-navidad2 .ltg-rh{position:absolute;z-index:1;pointer-events:none}
+.lt-navidad2 .ltg-rv{top:0;bottom:0;right:20px;width:22px;background:${GF_RIB};transform-origin:50% 0}
+.lt-navidad2 .ltg-rh{left:0;right:0;top:106px;height:22px;background:${GF_RIBH};transform-origin:0 50%}
+@media (min-width:880px){.lt-navidad2 .ltg-rv{right:32%;width:30px}.lt-navidad2 .ltg-rh{top:118px;height:30px}}
+.lt-navidad2 .ltg-bow{position:absolute;z-index:3;width:100px;height:60px;right:-19px;top:82px}
+@media (min-width:880px){.lt-navidad2 .ltg-bow{right:calc(32% + 15px - 70px);top:86px;width:140px;height:84px}}
+.lt-navidad2 .ltg-txt{position:relative;z-index:2;min-width:0}
+.lt-navidad2 .ltg-label{display:inline-block;margin:0 0 70px;padding:6px 12px;border-radius:8px;background:var(--g-ink);color:#fff;font-size:13px;font-weight:600;transform:rotate(-3deg)}
+@media (min-width:880px){.lt-navidad2 .ltg-label{margin-bottom:84px}}
+.lt-navidad2 .ltb-h1{font-size:clamp(30px,8.2vw,64px);line-height:1.02;margin:0 0 14px;padding-right:40px;overflow-wrap:break-word;hyphens:manual}
+@media (min-width:880px){.lt-navidad2 .ltb-h1{padding-right:0;max-width:12ch}}
+.lt-navidad2 .ltb-sub{font-size:16px;line-height:1.5;color:var(--g-mut);margin:0 0 24px;max-width:32ch;padding-right:40px}
+@media (min-width:880px){.lt-navidad2 .ltb-sub{padding-right:0;font-size:18px}}
+.lt-navidad2 .ltg-ctabar{position:relative;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;padding:14px 18px;border-radius:14px;background:var(--g-ink);color:#fff;text-decoration:none;font-weight:600;font-size:16.5px;box-shadow:0 10px 22px rgba(22,24,28,.22);transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+.lt-navidad2 .ltg-ctabar:active{transform:scale(.98)}
+.lt-navidad2 .ltg-ctabar .ltg-cl{display:inline-flex;align-items:center;gap:9px;min-width:0}
+.lt-navidad2 .ltg-ctabar svg{width:20px;height:20px;flex:none}
+.lt-navidad2 .ltg-ctabar small{flex:none;font-size:14px;font-weight:600;color:#C9CCD2}
+.lt-navidad2 .ltg-ctabar small b{color:#FF6B72;font-size:17px;font-weight:800}
+.lt-navidad2 .ltg-more{display:inline-block;margin:14px 0 0;padding:6px 2px;background:none;border:0;color:var(--g-ink);font-weight:600;font-size:15px;text-decoration:underline;text-decoration-color:var(--g-red);text-decoration-thickness:2px;text-underline-offset:5px;cursor:pointer}
+.lt-navidad2 .ltg-count{margin:16px 0 0;font-size:14px;color:var(--g-mut)}
+.lt-navidad2 .ltg-count b{color:var(--g-ink)}
+/* tarjetita colgante de regalo (logos) */
+.lt-navidad2 .ltg-gtag{position:relative;z-index:2;justify-self:center;width:min(300px,100%);margin-top:4px;padding:22px 20px 20px;border-radius:16px;background:#F5F6F8;border:1px solid var(--g-line);transform:rotate(2.5deg);transform-origin:50% 0}
+.lt-navidad2 .ltg-gtag::before{content:"";position:absolute;top:10px;left:50%;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--g-mist);box-shadow:inset 0 1px 2px rgba(0,0,0,.18)}
+.lt-navidad2 .ltg-gtag p{margin:10px 0 12px;font-size:14px;color:var(--g-mut);text-align:center}
+.lt-navidad2 .ltg-gtag p b{color:var(--g-ink)}
+.lt-navidad2 .ltg-glogos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.lt-navidad2 .ltg-glogos .ltb-logo{width:100%;height:auto;aspect-ratio:1;border-radius:14px;font-size:22px;box-shadow:0 4px 10px rgba(60,64,74,.12)}
+@media (max-width:879px){.lt-navidad2 .ltg-gtag{display:none}}
+.lt-navidad2 .ltg-strip{display:flex;align-items:center;gap:10px;margin:16px 4px 0;font-size:14px;color:var(--g-mut)}
+.lt-navidad2 .ltg-strip span{display:flex}
+.lt-navidad2 .ltg-strip .ltb-logo{width:34px;height:34px;border-radius:50%;border:2px solid var(--g-mist);font-size:13px}
+.lt-navidad2 .ltg-strip .ltb-logo+.ltb-logo{margin-left:-10px}
+@media (min-width:880px){.lt-navidad2 .ltg-strip{display:none}}
+/* el único momento orquestado: la cinta se ata y aparece el moño (solo VIP) */
+.lt-navidad2:not(.lt-static) .ltg-rv{animation:ltg-tieV .7s .15s cubic-bezier(.65,0,.35,1) both}
+.lt-navidad2:not(.lt-static) .ltg-rh{animation:ltg-tieH .7s .35s cubic-bezier(.65,0,.35,1) both}
+.lt-navidad2:not(.lt-static) .ltg-bow{animation:ltg-bow .8s 1s cubic-bezier(.3,1.7,.45,1) both}
+.lt-navidad2:not(.lt-static) .ltg-label{animation:ltg-drop .6s .05s cubic-bezier(.3,1.5,.5,1) both}
+.lt-navidad2:not(.lt-static) .ltg-gtag{animation:ltg-swing 1.4s 1.25s cubic-bezier(.3,1.4,.5,1) both}
+@keyframes ltg-tieV{from{transform:scaleY(0)}to{transform:none}}
+@keyframes ltg-tieH{from{transform:scaleX(0)}to{transform:none}}
+@keyframes ltg-bow{from{opacity:0;transform:scale(.2) rotate(-20deg)}to{opacity:1;transform:none}}
+@keyframes ltg-drop{from{opacity:0;transform:translateY(-14px) rotate(-12deg)}to{opacity:1;transform:rotate(-3deg)}}
+@keyframes ltg-swing{0%{opacity:0;transform:rotate(-14deg)}40%{opacity:1;transform:rotate(7deg)}70%{transform:rotate(1deg)}100%{opacity:1;transform:rotate(2.5deg)}}
+/* secciones */
+.lt-navidad2 .ltb-sec{padding:34px 0}
+.lt-navidad2 .ltb-sec .ltb-wrap{padding:0 14px}
+.lt-navidad2 .ltb-h2{font-size:clamp(28px,6vw,40px);line-height:1.05;margin:0 0 18px;padding:0 4px}
+/* planes: regalitos */
+.lt-navidad2 .ltg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (min-width:700px){.lt-navidad2 .ltg-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}}
+@media (min-width:1000px){.lt-navidad2 .ltg-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.lt-navidad2 .ltg-gift{gap:0;background:var(--g-paper);border-radius:18px;overflow:hidden;box-shadow:0 8px 20px rgba(60,64,74,.08)}
+.lt-navidad2 .ltg-lid{position:relative;display:grid;place-items:center;height:104px;background:linear-gradient(#fff,#fff) padding-box}
+.lt-navidad2 .ltg-lid::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:12px;margin-left:-6px;background:${GF_RIB}}
+.lt-navidad2 .ltg-lid::after{content:"";position:absolute;left:0;right:0;top:50%;height:12px;margin-top:-6px;background:${GF_RIBH}}
+.lt-navidad2 .ltg-lg{position:relative;z-index:1;border-radius:16px;box-shadow:0 0 0 5px #fff,0 8px 16px rgba(60,64,74,.18);transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.lt-navidad2 .ltg-lg .ltb-logo{width:56px;height:56px;border-radius:16px}
+.lt-navidad2 .ltg-body{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;padding:6px 14px 14px;flex:1;min-width:0}
+.lt-navidad2 .ltg-body .ltb-title{font-size:17px}
+.lt-navidad2 .ltb-type{font-size:12.5px;font-weight:600;color:var(--g-mut);text-transform:none;letter-spacing:0}
+.lt-navidad2 .ltb-price{justify-content:center;margin:6px 0 2px}
+.lt-navidad2 .ltb-price strong{font-size:28px;letter-spacing:-.03em;font-weight:800}
+.lt-navidad2 .ltb-price strong.ltb-ask{font-size:16px}
+.lt-navidad2 .ltb-old{color:#9AA0A9}
+.lt-navidad2 .ltb-per{font-size:13px;color:var(--g-mut)}
+.lt-navidad2 .ltb-feats{gap:4px;font-size:13px;color:var(--g-mut);margin:4px 0 6px;text-align:left}
+.lt-navidad2 .ltb-feats li{gap:6px;align-items:center}
+.lt-navidad2 .ltb-feats .ltg-ic{width:14px;height:14px;flex:none;color:var(--g-red)}
+.lt-navidad2 .ltb-btn{border-radius:12px;font-weight:600;font-size:15px;border:0;background:var(--g-ink);color:#fff;transition:transform .2s cubic-bezier(.3,1.6,.5,1),background .2s}
+.lt-navidad2 .ltb-btn:active{transform:scale(.97)}
+.lt-navidad2 .ltg-gift .ltb-btn{min-height:44px;padding:10px 12px;margin-top:auto}
+.lt-navidad2 .ltg-gift .ltb-btn svg{width:17px;height:17px}
+.lt-navidad2 .ltg-tag{position:absolute;z-index:2;top:10px;left:10px;max-width:calc(100% - 20px);padding:4px 9px;border-radius:7px;background:var(--g-ink);color:#fff;font-size:11.5px;font-weight:600;transform:rotate(-4deg);overflow-wrap:anywhere;line-height:1.25}
+/* abrir el regalo: la cinta se desata (respuesta al pasar el mouse o tocar) */
+.lt-navidad2 .ltg-lid::before,.lt-navidad2 .ltg-lid::after{transition:transform .45s cubic-bezier(.65,0,.35,1)}
+@media (hover:hover){.lt-navidad2:not(.lt-static) .ltg-gift:hover .ltg-lid::before{transform:translateY(-104%)}.lt-navidad2:not(.lt-static) .ltg-gift:hover .ltg-lid::after{transform:translateX(104%)}.lt-navidad2:not(.lt-static) .ltg-gift:hover .ltg-lg{transform:translateY(-4px) scale(1.06)}}
+/* combos */
+.lt-navidad2 .ltg-crow{display:grid;gap:14px}
+@media (min-width:760px){.lt-navidad2 .ltg-crow{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
+.lt-navidad2 .ltg-combo{gap:10px;background:var(--g-paper);border-radius:18px;padding:20px 18px 18px 46px;box-shadow:0 8px 20px rgba(60,64,74,.08);overflow:hidden}
+.lt-navidad2 .ltg-cr{position:absolute;top:0;bottom:0;left:16px;width:14px;background:${GF_RIB}}
+.lt-navidad2 .ltg-combo .ltg-tag{position:relative;top:auto;left:auto;align-self:flex-start}
+.lt-navidad2 .ltg-combo .ltb-title{font-size:21px}
+.lt-navidad2 .ltg-combo .ltb-logos{gap:0}
+.lt-navidad2 .ltg-combo .ltb-logos .ltb-logo{width:40px;height:40px;border-radius:50%;border:3px solid #fff;margin-right:-10px;box-shadow:0 3px 8px rgba(60,64,74,.15)}
+.lt-navidad2 .ltg-combo .ltb-incl{color:var(--g-mut);font-size:14px}
+.lt-navidad2 .ltg-cbuy{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:auto;padding-top:6px}
+.lt-navidad2 .ltg-cbuy .ltb-price{margin:0;justify-content:flex-start}
+.lt-navidad2 .ltg-cbuy .ltb-btn{width:auto;margin-top:0;flex:1 1 140px;min-height:46px}
+.lt-navidad2 .ltb-cph{border-radius:12px}
+/* reseñas, beneficios, pagos, preguntas, enlaces */
+.lt-navidad2 .ltb-rev{background:var(--g-paper);border-radius:18px;box-shadow:0 8px 20px rgba(60,64,74,.08)}
+.lt-navidad2 .ltb-stars i.on{color:var(--g-red)}
+.lt-navidad2 .ltb-rav{background:var(--g-ink);color:#fff}
+.lt-navidad2 .ltg-bens{list-style:none;margin:0;padding:6px 18px;background:var(--g-paper);border-radius:18px;box-shadow:0 8px 20px rgba(60,64,74,.08)}
+.lt-navidad2 .ltg-bens li{display:flex;align-items:center;gap:14px;padding:15px 0;font-weight:600;font-size:16px;overflow-wrap:anywhere}
+.lt-navidad2 .ltg-bens li+li{border-top:1px solid var(--g-line)}
+.lt-navidad2 .ltg-bens .ltg-ic{flex:none;width:22px;height:22px;color:var(--g-red)}
+.lt-navidad2 .ltb-pays li{padding:10px 18px;border-radius:12px;background:var(--g-paper);font-weight:600;box-shadow:0 4px 12px rgba(60,64,74,.07)}
+.lt-navidad2 .ltb-faq details{background:var(--g-paper);border-radius:16px}
+.lt-navidad2 .ltb-faq summary::after{color:var(--g-red)}
+.lt-navidad2 .ltb-faq p{color:var(--g-mut)}
+.lt-navidad2 .ltb-links{justify-content:flex-start}
+.lt-navidad2 .ltb-link{background:var(--g-paper);border-radius:12px;box-shadow:0 4px 12px rgba(60,64,74,.07)}
+/* pie: cinta con moño */
+.lt-navidad2 .ltb-foot{position:relative;margin-top:30px;padding-top:70px;background:var(--g-paper);color:var(--g-mut)}
+.lt-navidad2 .ltb-foot::before{content:"";position:absolute;left:0;right:0;top:0;height:18px;background:${GF_RIBH}}
+.lt-navidad2 .ltg-fbow{position:absolute;left:50%;top:-22px;width:96px;height:58px;margin-left:-48px}
+.lt-navidad2 .ltg-felices{margin:0 0 6px!important;font-size:28px;font-weight:800;letter-spacing:-.03em;color:var(--g-ink)}
+.lt-navidad2 .ltb-made a{color:var(--g-ink);font-weight:600}
+/* cabecera tipo perfil */
+.lt-navidad2 .ltp{color:var(--g-ink)}
+.lt-navidad2 .ltp-ring{background:var(--g-red)}
+.lt-navidad2 .ltp-avatar-in{border-color:#fff}
+.lt-navidad2 .ltp-tag,.lt-navidad2 .ltp-meta{color:var(--g-mut);opacity:1}
+.lt-navidad2 .ltp-social{background:#fff;border:1px solid var(--g-line);color:var(--g-ink)}
+.lt-navidad2.ltb-pm .ltg-hero{padding-top:18px}
+/* oferta con cuenta regresiva */
+.lt-navidad2 .lt-promo-in{background:var(--g-ink);color:#fff;border-radius:16px}
+.lt-navidad2 .lt-promo-tag{background:var(--g-red);color:#fff}
+.lt-navidad2 .lt-promo-u{background:#fff;color:var(--g-ink)}
+.lt-navidad2 .lt-promo-btn{background:var(--g-red);color:#fff}
+/* confeti de cinta al tocar (VIP) */
+.ltg-burst{position:fixed;z-index:60;width:0;height:0;pointer-events:none}
+.ltg-burst i{position:absolute;left:-3px;top:-6px;width:6px;height:12px;border-radius:2px;background:#E0242F;animation:ltg-burst .8s cubic-bezier(.2,.7,.3,1) forwards}
+.ltg-burst i:nth-child(3n){background:#C9CCD2}
+.ltg-burst i:nth-child(4n){background:#16181C}
+@keyframes ltg-burst{0%{opacity:1;transform:translate(0,0) rotate(0) scale(.4)}100%{opacity:0;transform:translate(var(--x),var(--y)) rotate(var(--r)) scale(1)}}
+@media (max-width:360px){.lt-navidad2 .ltg-ctabar small{display:none}.lt-navidad2 .ltg-ctabar{justify-content:center}}
+@media (max-width:420px){.lt-navidad2 .ltb-headcta span{display:none}.lt-navidad2 .ltg-ctabar{font-size:15.5px;padding:14px 14px}.lt-navidad2 .ltg-ctabar small{font-size:13px}}
+`;
+
+  function renderNavidad2(root, d, ctx) {
+    LC.injectCss('navidad2', CSS_NAVIDAD2);
+    const cl = setup(root, ctx, d, 'navidad2');
+    const pm = !!(ctx.profileMode || d.coverUrl || d.logoUrl) && typeof ctx.profileHeader === 'function';
+    if (pm) { root.classList.add('ltb-pm'); root.classList.add('lt-light-profile'); }
+    const { plans, combos } = visible(d, ctx);
+    const wa = d.whatsapp ? ctx.buy('tus planes') : '';
+    const ids = ctx.platformIds || platformIds(plans, combos);
+    const from = ctx.minPrice ? `<small>desde <b>${ctx.esc(ctx.minPrice)}</b></small>` : '';
+    const cta = wa
+      ? `<a class="ltg-ctabar" data-lt-btn="main" href="${ctx.esc(wa)}" target="_blank" rel="noopener"><span class="ltg-cl">${ctx.linkIcon('whatsapp')}<span${ed(ctx, 'ctaText')}>${ctx.esc(d.ctaText)}</span></span>${from}</a>`
+      : `<button type="button" class="ltg-ctabar" data-goto="plans"><span class="ltg-cl">Ver planes</span>${from}</button>`;
+    const cd = nvCountdown(new Date());
+    const countTxt = cd.hide ? '' : cd.msg ? `<p class="ltg-count"><b>${cd.msg}</b></p>` : `<p class="ltg-count" role="timer">Faltan <b>${cd.d} ${cd.d === 1 ? 'día' : 'días'}</b> ${cd.label}</p>`;
+    const six = ids.slice(0, 6);
+    const gtag = six.length ? `<div class="ltg-gtag" aria-hidden="true"><div class="ltg-glogos">${six.map(p => logoHtml(ctx, p, 'ltb-logo')).join('')}</div><p>${ids.length > 6 ? `y ${ids.length - 6} más` : 'Para ver todo el año'}${ctx.minPrice ? `, desde <b>${ctx.esc(ctx.minPrice)}</b>` : ''}</p></div>` : '';
+    const strip = ids.length ? `<div class="ltg-strip"><span>${ids.slice(0, 5).map(p => logoHtml(ctx, p, 'ltb-logo')).join('')}</span>${ids.length} ${ids.length === 1 ? 'plataforma' : 'plataformas'}</div>` : '';
+    const html =
+      (pm ? ctx.profileHeader() : `<div class="ltg-top">${header(ctx, d, wa)}</div>`) + promo(ctx) +
+      `<section class="ltg-hero" data-lt-hero><div class="ltb-wrap"><div class="ltg-box">` +
+      `<span class="ltg-rv" aria-hidden="true"></span><span class="ltg-rh" aria-hidden="true"></span>${GF_BOW('ltg-bow')}` +
+      `<div class="ltg-txt"><span class="ltg-label">Edición Navidad</span>` +
+      `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      cta + (plans.length && wa ? '<button type="button" class="ltg-more" data-goto="plans">Ver precios</button>' : '') + countTxt +
+      `</div>${gtag}</div>${strip}</div></section>` +
+      (plans.length ? gfSec('plans', 'Elige tu regalo', `<div class="ltg-grid">${plans.map((p, i) => gfPlanCard(ctx, p, i)).join('')}</div>`) : '') +
+      (combos.length ? gfSec('combos', 'Combos para regalar', `<div class="ltg-crow">${combos.map((c, i) => gfComboCard(ctx, c, i)).join('')}</div>`) : '') +
+      (d.reviews && d.reviews.length ? gfSec('reviews', 'Lo que dicen nuestros clientes', reviewsHtml(ctx, d, false)) : '') +
+      (d.benefits.length ? gfSec('benefits', '¿Por qué elegirnos?', `<ul class="ltg-bens" data-rv>${d.benefits.map((b, i) => `<li>${luc('gift')}<span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul>`) : '') +
+      (d.paymentMethods.length ? gfSec('pays', 'Paga como quieras', `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
+      (d.faq.length ? gfSec('faq', 'Preguntas frecuentes', `<div class="ltb-faq">${d.faq.map((f, i) => `<details data-rv style="--i:${i}"><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div>`) : '') +
+      (d.links.length ? gfSec('links', 'Síguenos', `<div class="ltb-links" data-rv>${d.links.map(l => `<a class="ltb-link" href="${ctx.esc(l.url)}" target="_blank" rel="noopener">${ctx.linkIcon(l.type)}<span>${ctx.esc(ctx.linkLabel(l))}</span></a>`).join('')}</div>`) : '') +
+      footer(ctx, d, `${GF_BOW('ltg-fbow')}<p class="ltg-felices">Felices fiestas</p>`) + fab(ctx, wa);
+    root.innerHTML = html;
+    gfBurst(root, ctx, cl);
+    motionKit(root, ctx, cl);
+  }
+  /** Respuesta al tocar un botón de compra (VIP): saltan tiritas de cinta desde el dedo. Solo transform/opacity. */
+  function gfBurst(root, ctx, cl) {
+    if (ctx.preview || ctx.reducedMotion || ctx.noMotion) return;
+    const down = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.ltb-btn,.ltg-ctabar,.ltb-headcta') : null;
+      if (!b || !root.contains(b) || b.classList.contains('is-off')) return;
+      const layer = root.ownerDocument.createElement('div');
+      layer.className = 'ltg-burst'; layer.setAttribute('aria-hidden', 'true');
+      layer.style.cssText = `left:${e.clientX}px;top:${e.clientY}px`;
+      let h = '';
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2 + Math.random() * .4, dist = 40 + Math.random() * 50;
+        h += `<i style="--x:${(Math.cos(a) * dist).toFixed(0)}px;--y:${(Math.sin(a) * dist - 24).toFixed(0)}px;--r:${(Math.random() * 540 - 270).toFixed(0)}deg"></i>`;
+      }
+      layer.innerHTML = h; root.appendChild(layer);
+      G.setTimeout(() => layer.remove(), 850);
+    };
+    root.addEventListener('pointerdown', down, { passive: true });
+    cl.push(() => root.removeEventListener('pointerdown', down));
+  }
+
+  LC.registerTemplate({
+    id: 'navidad2', name: 'Navidad Regalo', description: 'Blanca y gris con cinta roja: tu página es una caja de regalo y cada plan, un regalito',
+    seasonal: true, vipOnly: true, fallback: 'pop',
+    tags: ['festiva', 'navidad', 'animada', 'clara'], preview: { bg: '#ECEDEF', fg: '#16181C', accent: '#E0242F' }, render: renderNavidad2
+  });
+  // =====================================================================
+  // NAVIDAD PREMIUM (id navidad3) — basada en el diseño de referencia de Rafa:
+  // cabecera roja con borde ondulado dorado, ramas de pino, tarjeta de perfil, regalo,
+  // planes en tarjetas blancas con precio en píldora, combos rojos, pie rojo con onda dorada.
+  // Imágenes propias (rama y regalo, webp con transparencia) junto a este archivo en js/img/.
+  // =====================================================================
+  const NV3_IMG = (() => {
+    try { const s = G.document && G.document.currentScript && G.document.currentScript.src; if (s) return new URL('img/', s).href; } catch (_) {}
+    return '/js/img/';
+  })();
+  const NV3_GOLD = 'linear-gradient(180deg,#fff1b8 0%,#f3c94f 45%,#c9901f 100%)';
+  const NV3_ICO = {
+    shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    zap: '<path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z"/>',
+    tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+    headphones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
+    gift: '<path d="M12 7v14"/><path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5"/><rect x="3" y="7" width="18" height="4" rx="1"/>',
+    card: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+    help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+    star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>'
+  };
+  const nv3i = (k, cls = 'ltz-ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NV3_ICO[k]}</svg>`;
+  /** Onda con filo dorado (como la cinta del banner de referencia). top=true: la onda va arriba (pie). */
+  const NV3_WAVE = (cls, top) => {
+    const d = top ? 'M0 40C140 6 260 4 380 26S620 44 800 30 1060 0 1200 30V80H0Z' : 'M0 0H1200V40C1060 70 940 76 800 56S560 36 400 54 140 76 0 44Z';
+    const edge = top ? 'M0 40C140 6 260 4 380 26S620 44 800 30 1060 0 1200 30' : 'M0 44C140 76 300 72 400 54S620 36 800 56 1060 70 1200 40';
+    return `<svg class="${cls}" viewBox="0 0 1200 80" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="ltzGd${top ? 't' : 'b'}" x1="0" x2="1"><stop offset="0" stop-color="#c9901f"/><stop offset=".3" stop-color="#f6d469"/><stop offset=".55" stop-color="#d9a52c"/><stop offset=".8" stop-color="#f6d469"/><stop offset="1" stop-color="#c9901f"/></linearGradient></defs>` +
+      (top ? `<path d="${d}" fill="#b40d1c"/>` : `<path d="${d}" fill="#fff"/>`) +
+      `<path d="${edge}" fill="none" stroke="url(#ltzGd${top ? 't' : 'b'})" stroke-width="7" vector-effect="non-scaling-stroke"/></svg>`;
+  };
+  /** Guirnalda de luces navideñas (cable ondulado con focos que titilan). viewBox 1200x60. */
+  const NV3_LIGHTS = (cls) => {
+    const cols = ['#ff3b4a', '#ffd34d', '#3fd17a', '#ffffff', '#ff8a3d'];
+    const n = 22, b = [];
+    for (let i = 0; i < n; i++) {
+      const x = 20 + i * (1160 / (n - 1)), y = 14 + Math.sin(i / (n - 1) * Math.PI * 4) * 10 + 8, c = cols[i % cols.length];
+      b.push(`<g class="ltz-bulb" style="--k:${i % 6};--c:${c}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${((i % 2 ? 1 : -1) * 12)})"><circle class="ltz-glow" cx="0" cy="13" r="12" fill="${c}"/><rect x="-3.5" y="0" width="7" height="6" rx="1.5" fill="#3b3f46"/><ellipse cx="0" cy="13" rx="5.5" ry="8.5" fill="${c}"/><ellipse cx="-1.8" cy="10" rx="1.6" ry="3" fill="#fff" opacity=".7"/></g>`);
+    }
+    let w = 'M0 14'; for (let i = 0; i <= 24; i++) { const x = i * 50, y = 14 + Math.sin(i / 24 * Math.PI * 4) * 10 + 8; w += `L${x} ${y.toFixed(1)}`; }
+    return `<svg class="${cls}" viewBox="0 0 1200 60" preserveAspectRatio="xMidYMin slice" aria-hidden="true"><path d="${w}" fill="none" stroke="#2f3238" stroke-width="2"/>${b.join('')}</svg>`;
+  };
+  /** Destellos dorados de 4 puntas repartidos (x%, y%, tamaño px, retraso). */
+  const NV3_SPARKS = list => `<div class="ltz-sparks" aria-hidden="true">${list.map(([x, y, z, k]) => `<i style="left:${x}%;top:${y}%;--z:${z}px;--k:${k}"></i>`).join('')}</div>`;
+  const nv3Head = (title, sub) => `<div class="ltz-hd" data-rv><h2 class="ltb-h2">${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
+  function nv3Price(ctx, price, old, period, path, cls = 'ltz-pill') {
+    const m = ctx.money(price), o = ctx.money(old);
+    if (!m) return `<span class="${cls} is-ask"><strong${ed(ctx, path)}>Precio a consultar</strong></span>`;
+    return `<span class="${cls}">${o ? `<s><span class="ltb-sr">Antes </span>${ctx.esc(o)}</s>` : ''}<strong${ed(ctx, path)}>${ctx.esc(m)}</strong>${period ? `<small>/ ${ctx.esc(period)}</small>` : ''}</span>`;
+  }
+  function nv3Plan(ctx, p, i) {
+    const inf = ctx.platformInfo(p.platform);
+    const desc = p.features.length ? p.features.map((f, k) => `<span${ed(ctx, `plans.${p.id}.features.${k}`)}>${ctx.esc(f)}</span>`).join('<i aria-hidden="true">·</i>') : `<span>${ctx.esc(ctx.typeLabel(p))}</span>`;
+    const url = planBuy(ctx, p);
+    return `<article class="ltz-plan" data-rv data-lt-card${itm(ctx, 'p', p.id)} style="--i:${i % 8}">` +
+      `${p.badge ? `<span class="ltz-badge">${ctx.esc(p.badge)}</span>` : ''}` +
+      `<div class="ltz-pl-a">${logoHtml(ctx, p.platform, 'ltb-logo', p.imageUrl, ctx.planTitle(p))}<h3${ed(ctx, `plans.${p.id}.title`)}>${ctx.esc(p.title || inf.name)}</h3></div>` +
+      `<div class="ltz-pl-b"><p class="ltz-desc">${desc}</p><div class="ltz-buy">${nv3Price(ctx, p.price, p.oldPrice, p.period, `plans.${p.id}.price`)}` +
+      `${url ? `<a class="ltz-go" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener" aria-label="Pedir ${ctx.esc(p.title || inf.name)} por WhatsApp">${ctx.linkIcon('whatsapp')}<span>${ctx.money(p.price) ? 'Pedir' : 'Consultar'}</span></a>` : ''}</div></div></article>`;
+  }
+  function nv3Combo(ctx, c, i) {
+    const names = c.platforms.map(x => ctx.platformInfo(x).name);
+    const url = comboBuy(ctx, c);
+    return `<article class="ltz-combo${c.imageUrl ? ' has-ph' : ''}" data-rv data-lt-card${itm(ctx, 'c', c.id)} style="--i:${i % 8}"><span class="ltz-cap" aria-hidden="true"></span><span class="ltz-csh" aria-hidden="true"></span>` +
+      (c.imageUrl ? `<img class="ltz-cph" src="${ctx.esc(c.imageUrl)}" alt="" width="96" height="96" loading="lazy" decoding="async">` : `<span class="ltz-gift">${nv3i('gift')}</span>`) +
+      `<div class="ltz-cm">${c.badge ? `<span class="ltz-cbadge">${ctx.esc(c.badge)}</span>` : ''}<h3${ed(ctx, `combos.${c.id}.name`)}>${ctx.esc(c.name)}</h3><p>${ctx.esc(names.join(' + '))}</p>` +
+      `<div class="ltz-cbuy">${nv3Price(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`, 'ltz-pill ltz-gp')}` +
+      `${url ? `<a class="ltz-cgo" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener">${ctx.money(c.price) ? 'Pedir combo' : 'Consultar'}</a>` : ''}</div></div></article>`;
+  }
+
+  const CSS_NAVIDAD3 = `@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Poppins:wght@400;500;600;700;800&family=Great+Vibes&display=swap');` + baseCss('navidad3') + `
+.lt-navidad3{--z-red:#c8101f;--z-red2:#8f0915;--z-ink:#1c1d22;--z-mut:#5d6068;--z-line:#ececef;--z-bg:#f7f7f8;--z-green:#1f9d4b;--z-green2:#147a37;--z-sh:0 10px 28px rgba(40,10,14,.08);background:var(--z-bg);color:var(--z-ink);font-family:Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.lt-navidad3 .ltb-wrap{max-width:1060px}
+/* banner rojo */
+.lt-navidad3 .ltz-ban{position:relative;overflow:hidden;padding:44px 18px 92px;text-align:center;color:#fff;background:radial-gradient(ellipse 80% 90% at 50% 20%,#e01d2c 0%,#b40d1c 55%,#7d0712 100%)}
+.lt-navidad3 .ltz-ban.has-cover{padding:20px 14px clamp(76px,9vw,104px)}
+.lt-navidad3 .ltz-cov{position:relative;z-index:2;display:block;width:100%;max-width:920px;margin:0 auto;aspect-ratio:851/315;border-radius:18px;overflow:hidden;background:#7d0712;box-shadow:0 0 0 3px rgba(246,212,105,.85),0 18px 36px rgba(40,0,6,.45)}
+.lt-navidad3 .ltz-cov img{width:100%;height:100%;object-fit:cover}
+.lt-navidad3 .ltz-ban.has-cover .ltz-rama{width:clamp(120px,20vw,230px);top:-30px}
+.lt-navidad3 .ltz-ban.has-cover .ltz-rama.l{left:-40px}.lt-navidad3 .ltz-ban.has-cover .ltz-rama.r{right:-40px}
+.lt-navidad3 .ltz-ban.has-cover .ltz-ball{display:none}
+@media (max-width:640px){.lt-navidad3 .ltz-ban.has-cover{padding:12px 10px 64px}.lt-navidad3 .ltz-cov{border-radius:14px}.lt-navidad3 .ltz-ban.has-cover .ltz-rama{width:110px;top:-26px}.lt-navidad3 .ltz-ban.has-cover .ltz-rama.l{left:-34px}.lt-navidad3 .ltz-ban.has-cover .ltz-rama.r{right:-34px}}
+.lt-navidad3:not(.lt-static) .ltz-cov{animation:ltz-in .8s .05s cubic-bezier(.16,1,.3,1) both}
+.lt-navidad3 .ltz-wave{position:absolute;left:0;right:0;bottom:-1px;width:100%;height:clamp(46px,7vw,80px);z-index:3}
+.lt-navidad3 .ltz-ban-in{position:relative;z-index:4;max-width:640px;margin:0 auto}
+.lt-navidad3 .ltz-t1{margin:0;font-family:Cinzel,Georgia,serif;font-weight:900;font-size:clamp(40px,10vw,74px);line-height:1;letter-spacing:.02em;text-shadow:0 4px 18px rgba(60,0,6,.45)}
+.lt-navidad3 .ltz-t2{display:inline-block;margin:10px 0 14px;padding:6px 22px 8px;border-radius:999px;background:${NV3_GOLD};color:#7a0a12;font-family:Cinzel,Georgia,serif;font-weight:900;font-size:clamp(18px,4.6vw,32px);line-height:1.1;letter-spacing:.03em;box-shadow:0 6px 16px rgba(60,0,6,.35),inset 0 1px 0 rgba(255,255,255,.7)}
+.lt-navidad3 .ltz-t3{margin:0 auto;max-width:34ch;font-size:clamp(15px,3.8vw,18px);line-height:1.45;color:#ffe3e5}
+.lt-navidad3 .ltz-orn{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;color:#f3c94f}
+.lt-navidad3 .ltz-orn i{width:46px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,#f3c94f)}
+.lt-navidad3 .ltz-orn i:last-child{background:linear-gradient(90deg,#f3c94f,transparent)}
+.lt-navidad3 .ltz-orn .ltz-ic{width:16px;height:16px;fill:currentColor;stroke:none}
+.lt-navidad3 .ltz-rama{position:absolute;z-index:2;width:clamp(150px,28vw,300px);height:auto;pointer-events:none;filter:drop-shadow(0 8px 10px rgba(40,0,6,.35))}
+.lt-navidad3 .ltz-rama.l{left:-6%;top:-22px;transform:scaleX(-1) rotate(8deg)}
+.lt-navidad3 .ltz-rama.r{right:-6%;top:-22px;transform:rotate(8deg)}
+.lt-navidad3 .ltz-ball{position:absolute;z-index:3;top:0;width:2px;background:rgba(255,230,170,.7);transform-origin:50% 0}
+.lt-navidad3 .ltz-ball::after{content:"";position:absolute;left:50%;bottom:-26px;width:30px;height:30px;margin-left:-15px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#fff 0,var(--c1) 22%,var(--c2) 70%,#3d0206)}
+.lt-navidad3 .ltz-ball.a{left:15%;height:96px;--c1:#ff5361;--c2:#a50b17}
+.lt-navidad3 .ltz-ball.b{right:14%;height:70px;--c1:#ffe08a;--c2:#b97f12}
+.lt-navidad3 .ltz-ball.c{right:24%;height:44px;--c1:#ffffff;--c2:#9aa3b1}
+.lt-navidad3 .ltz-ball.c::after{width:22px;height:22px;margin-left:-11px;bottom:-19px}
+.lt-navidad3 .ltz-ban.has-cover .ltz-ball{display:block}
+.lt-navidad3 .ltz-ban.has-cover .ltz-ball.a{left:5%}.lt-navidad3 .ltz-ban.has-cover .ltz-ball.b{right:4%}.lt-navidad3 .ltz-ban.has-cover .ltz-ball.c{display:none}
+@media (max-width:1100px){.lt-navidad3 .ltz-ban.has-cover .ltz-ball{display:none}}
+/* luces */
+.lt-navidad3 .ltz-lights{position:absolute;left:0;right:0;top:-4px;width:100%;height:clamp(40px,5vw,60px);z-index:5;pointer-events:none;overflow:visible}
+.lt-navidad3 .ltz-glow{opacity:.35;filter:blur(5px)}
+.lt-navidad3 .ltz-ban{padding-top:62px}
+.lt-navidad3 .ltz-ban.has-cover{padding-top:50px}
+@media (max-width:640px){.lt-navidad3 .ltz-ban{padding-top:52px}.lt-navidad3 .ltz-ban.has-cover{padding-top:40px}}
+/* destellos */
+.lt-navidad3 .ltz-sparks{position:absolute;inset:0;z-index:3;pointer-events:none}
+.lt-navidad3 .ltz-sparks i{position:absolute;width:var(--z);height:var(--z);background:#ffe08a;clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);filter:drop-shadow(0 0 4px rgba(255,224,138,.9));opacity:.85}
+.lt-navidad3 .ltz-main .ltz-sparks i{background:#e6b53a;filter:none;opacity:.7}
+/* portada: brillo que la cruza una vez */
+.lt-navidad3 .ltz-shine{position:absolute;z-index:2;top:0;bottom:0;left:-40%;width:30%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-18deg);pointer-events:none;opacity:0}
+/* combos: nieve acumulada + brillo */
+.lt-navidad3 .ltz-cap{position:absolute;left:0;right:0;top:0;height:12px;z-index:1;background:radial-gradient(circle at 10px 0,#fff 9px,transparent 9.5px) 0 0/22px 12px repeat-x,radial-gradient(circle at 5px 0,#fff 6px,transparent 6.5px) 9px 0/29px 9px repeat-x;opacity:.95;pointer-events:none}
+.lt-navidad3 .ltz-combo{padding-top:24px}
+.lt-navidad3 .ltz-csh{position:absolute;z-index:0;top:0;bottom:0;left:-60%;width:40%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.22),transparent);transform:skewX(-18deg);pointer-events:none}
+/* pie */
+.lt-navidad3 .ltz-foot{overflow:visible}
+.lt-navidad3 .ltz-fsw{position:absolute!important;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.lt-navidad3 .ltz-fsnow{opacity:.45}
+.lt-navidad3 .ltz-frama{position:absolute;bottom:0;width:clamp(120px,18vw,220px);height:auto;pointer-events:none;opacity:.95}
+.lt-navidad3 .ltz-frama.l{left:-30px;transform:scaleX(-1) rotate(-14deg)}
+.lt-navidad3 .ltz-frama.r{right:-30px;transform:rotate(-14deg)}
+@media (max-width:640px){.lt-navidad3 .ltz-frama{width:110px}.lt-navidad3 .ltz-frama.l{left:-40px}.lt-navidad3 .ltz-frama.r{right:-40px}}
+/* aro del logo */
+.lt-navidad3 .ltz-av{position:relative;background:none;isolation:isolate}
+.lt-navidad3 .ltz-av::before{content:"";position:absolute;inset:0;border-radius:50%;z-index:-1;background:conic-gradient(#c9901f,#fff1b8,#f3c94f,#c9901f,#fff1b8,#c9901f)}
+@media (max-width:640px){.lt-navidad3 .ltz-ball{display:none}.lt-navidad3 .ltz-rama.l{left:-22%}.lt-navidad3 .ltz-rama.r{right:-22%}.lt-navidad3 .ltz-ban{padding-top:38px}}
+.lt-navidad3 .ltz-snow.ltz-snow2{background-image:radial-gradient(4px 4px at 60px 80px,rgba(255,255,255,.9) 50%,transparent 56%),radial-gradient(3.4px 3.4px at 220px 200px,rgba(255,255,255,.8) 50%,transparent 56%);background-size:300px 300px;top:-300px;opacity:.6}
+.lt-navidad3 .ltz-snow{position:absolute;left:0;right:0;top:-260px;bottom:0;z-index:1;pointer-events:none;background-image:radial-gradient(2.2px 2.2px at 20px 30px,#fff 50%,transparent 55%),radial-gradient(1.8px 1.8px at 110px 140px,rgba(255,255,255,.85) 50%,transparent 55%),radial-gradient(2.6px 2.6px at 180px 70px,rgba(255,255,255,.8) 50%,transparent 55%),radial-gradient(1.6px 1.6px at 70px 210px,#fff 50%,transparent 55%);background-size:240px 260px;opacity:.75}
+/* tarjeta de perfil */
+.lt-navidad3 .ltz-prof{position:relative;z-index:5;display:flex;align-items:center;gap:16px;margin:-58px auto 0;max-width:1000px;padding:16px 18px;background:#fff;border-radius:22px;box-shadow:0 18px 40px rgba(60,10,16,.14)}
+.lt-navidad3 .ltz-av{flex:none;width:clamp(76px,16vw,112px);aspect-ratio:1;border-radius:50%;padding:4px;background:${NV3_GOLD};margin-top:-46px;box-shadow:0 10px 22px rgba(60,10,16,.25)}
+.lt-navidad3 .ltz-av>*{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;object-fit:cover;background:var(--z-red);color:#fff;font-weight:800;font-size:clamp(30px,6vw,44px);border:3px solid #fff}
+.lt-navidad3 .ltz-pi{flex:1;min-width:0;padding-left:16px;border-left:2px solid var(--z-red)}
+.lt-navidad3 .ltz-pi b{display:block;font-size:clamp(20px,4.6vw,30px);font-weight:800;line-height:1.1;letter-spacing:-.02em;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-pi small{display:block;margin-top:3px;font-size:14px;color:var(--z-mut);overflow-wrap:anywhere}
+.lt-navidad3 .ltz-wa{flex:none;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:999px;background:linear-gradient(180deg,#26b45a,var(--z-green2));color:#fff;font-weight:700;font-size:15px;text-decoration:none;box-shadow:0 6px 14px rgba(20,122,55,.3)}
+.lt-navidad3 .ltz-wa svg{width:22px;height:22px}
+@media (max-width:700px){.lt-navidad3 .ltz-prof{flex-wrap:wrap;margin:-50px 14px 0;gap:12px}.lt-navidad3 .ltz-wa{width:100%;justify-content:center}.lt-navidad3 .ltz-pi{padding-left:12px}}
+/* bloque principal */
+.lt-navidad3 .ltz-main{position:relative;overflow:hidden;padding:44px 18px 40px;text-align:center}
+.lt-navidad3 .ltz-gift{display:none}
+.lt-navidad3 .ltz-regalo{position:absolute;left:-30px;top:30px;width:clamp(150px,22vw,250px);height:auto;pointer-events:none;filter:drop-shadow(0 14px 16px rgba(40,10,14,.18))}
+.lt-navidad3 .ltz-rama2{position:absolute;right:-50px;top:60px;width:clamp(150px,22vw,250px);height:auto;pointer-events:none;transform:rotate(-12deg)}
+@media (max-width:760px){.lt-navidad3 .ltz-regalo{position:relative;left:auto;top:auto;display:block;margin:0 auto 6px;width:170px}.lt-navidad3 .ltz-rama2{width:140px;right:-58px;top:6px}}
+.lt-navidad3 .ltz-main .ltb-h1{position:relative;margin:0 auto 12px;max-width:16ch;font-size:clamp(30px,6.4vw,50px);line-height:1.08;font-weight:800;letter-spacing:-.03em;overflow-wrap:break-word}
+.lt-navidad3 .ltz-main .ltb-sub{position:relative;margin:0 auto 24px;max-width:44ch;font-size:clamp(15px,3.8vw,18px);line-height:1.5;color:var(--z-mut)}
+.lt-navidad3 .ltz-cta{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:60px;padding:14px 34px;border-radius:999px;background:linear-gradient(180deg,#27b85c,var(--z-green2));color:#fff;font-weight:700;font-size:clamp(17px,4.4vw,21px);text-decoration:none;box-shadow:0 6px 0 #0e5c29,0 14px 26px rgba(20,122,55,.3);transition:transform .2s cubic-bezier(.3,1.6,.5,1),box-shadow .2s}
+.lt-navidad3 .ltz-cta svg{width:28px;height:28px;flex:none}
+.lt-navidad3 .ltz-cta:active{transform:translateY(4px);box-shadow:0 2px 0 #0e5c29}
+.lt-navidad3 .ltz-from{display:block;margin-top:14px;font-size:14px;color:var(--z-mut)}
+.lt-navidad3 .ltz-from b{color:var(--z-red)}
+/* títulos de sección */
+.lt-navidad3 .ltb-sec{padding:34px 0}
+.lt-navidad3 .ltz-hd{text-align:center;margin:0 0 22px}
+.lt-navidad3 .ltb-h2{display:flex;align-items:center;justify-content:center;gap:16px;margin:0;font-size:clamp(22px,5vw,32px);font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.lt-navidad3 .ltb-h2::before,.lt-navidad3 .ltb-h2::after{content:"";flex:0 1 80px;min-width:22px;height:2px;border-radius:2px;background:var(--z-red)}
+.lt-navidad3 .ltz-hd p{margin:6px 0 0;font-size:14.5px;color:var(--z-mut)}
+/* planes */
+.lt-navidad3 .ltz-plans{display:grid;gap:14px}
+@media (min-width:760px){.lt-navidad3 .ltz-plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
+.lt-navidad3 .ltz-plan{position:relative;display:flex;align-items:center;gap:16px;padding:16px 18px;background:#fff;border-radius:18px;box-shadow:var(--z-sh);min-width:0}
+.lt-navidad3 .ltz-pl-a{flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;width:96px;padding-right:16px;border-right:1px solid var(--z-line);text-align:center}
+.lt-navidad3 .ltz-pl-a .ltb-logo{width:58px;height:58px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,.12)}
+.lt-navidad3 .ltz-pl-a h3{margin:0;font-size:14.5px;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-pl-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.lt-navidad3 .ltz-desc{margin:0;font-size:14px;line-height:1.4;color:var(--z-mut);overflow-wrap:anywhere}
+.lt-navidad3 .ltz-desc i{font-style:normal;margin:0 6px;color:#c4c6cc}
+.lt-navidad3 .ltz-buy{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.lt-navidad3 .ltz-pill{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:4px 6px;padding:6px 14px;border-radius:999px;background:#fde8ea;color:var(--z-red)}
+.lt-navidad3 .ltz-pill strong{font-size:18px;font-weight:800;letter-spacing:-.01em}
+.lt-navidad3 .ltz-pill small{font-size:12px;font-weight:600;opacity:.8}
+.lt-navidad3 .ltz-pill s{font-size:12.5px;opacity:.6}
+.lt-navidad3 .ltz-pill.is-ask strong{font-size:14px}
+.lt-navidad3 .ltz-go{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;background:var(--z-green);color:#fff;font-weight:700;font-size:14px;text-decoration:none;transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+.lt-navidad3 .ltz-go svg{width:17px;height:17px}
+.lt-navidad3 .ltz-go:active,.lt-navidad3 .ltz-cgo:active{transform:scale(.95)}
+.lt-navidad3 .ltz-badge{position:absolute;top:-9px;right:16px;padding:3px 12px;border-radius:999px;background:var(--z-red);color:#fff;font-size:11.5px;font-weight:700;box-shadow:0 4px 10px rgba(200,16,31,.3)}
+/* combos */
+.lt-navidad3 .ltz-combos{display:grid;gap:14px}
+@media (min-width:760px){.lt-navidad3 .ltz-combos{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
+.lt-navidad3 .ltz-combo{position:relative;display:flex;align-items:center;gap:16px;padding:18px 20px;border-radius:18px;color:#fff;background:linear-gradient(135deg,#e01d2c,#a90b18 60%,#7d0712);box-shadow:0 12px 26px rgba(140,8,20,.28);overflow:hidden}
+.lt-navidad3 .ltz-combo::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 100% 0,rgba(255,255,255,.14),transparent 60%);pointer-events:none}
+.lt-navidad3 .ltz-combo .ltz-gift{display:grid;place-items:center;flex:none;width:64px;height:64px;border-radius:16px;background:rgba(255,255,255,.12);color:#f6d469}
+.lt-navidad3 .ltz-combo .ltz-gift .ltz-ic{width:38px;height:38px;stroke-width:1.8}
+.lt-navidad3 .ltz-cph{flex:none;width:72px;height:72px;border-radius:14px;object-fit:cover;border:2px solid rgba(255,255,255,.6)}
+.lt-navidad3 .ltz-cm{position:relative;flex:1;min-width:0}
+.lt-navidad3 .ltz-cm h3{margin:0;font-size:20px;font-weight:800;line-height:1.15;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-cm p{margin:3px 0 10px;font-size:13.5px;color:#ffd6d9;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-cbadge{display:inline-block;margin-bottom:6px;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.18);font-size:11.5px;font-weight:700}
+.lt-navidad3 .ltz-cbuy{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lt-navidad3 .ltz-gp{background:${NV3_GOLD};color:#6d0710}
+.lt-navidad3 .ltz-cgo{display:inline-flex;align-items:center;padding:8px 16px;border-radius:999px;background:#fff;color:var(--z-red);font-weight:700;font-size:14px;text-decoration:none;transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+/* beneficios */
+.lt-navidad3 .ltz-bens{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 14px}
+@media (min-width:760px){.lt-navidad3 .ltz-bens{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.lt-navidad3 .ltz-bens li+li{border-left:1px solid var(--z-line)}}
+.lt-navidad3 .ltz-bens li{display:flex;align-items:center;gap:12px;padding:4px 14px;font-size:15px;font-weight:500;line-height:1.3;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-bens .ltz-ic{flex:none;width:36px;height:36px;color:var(--z-red);stroke-width:1.8}
+/* reseñas */
+.lt-navidad3 .ltz-revs{display:grid;grid-auto-flow:column;grid-auto-columns:min(86%,330px);gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 2px 14px;scrollbar-width:thin}
+@media (min-width:860px){.lt-navidad3 .ltz-revs{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible}}
+.lt-navidad3 .ltz-rev{margin:0;scroll-snap-align:start;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:start;padding:18px;background:#fff;border-radius:18px;box-shadow:var(--z-sh)}
+.lt-navidad3 .ltz-rav{grid-row:span 3;display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#e01d2c,#8f0915);color:#fff;font-weight:800;font-size:20px}
+.lt-navidad3 .ltz-rev b{font-size:15.5px;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-st{display:flex;gap:2px;color:#f2b51d}
+.lt-navidad3 .ltz-st .ltz-ic{width:16px;height:16px;fill:currentColor;stroke:none}
+.lt-navidad3 .ltz-st .off{color:#dcdde1}
+.lt-navidad3 .ltz-rev p{margin:2px 0 0;font-size:14px;line-height:1.45;color:var(--z-mut);overflow-wrap:anywhere}
+/* pagos + preguntas */
+.lt-navidad3 .ltz-two{display:grid;gap:30px}
+@media (min-width:860px){.lt-navidad3 .ltz-two{grid-template-columns:1fr 1fr;gap:0}.lt-navidad3 .ltz-two>*+*{border-left:1px solid #e3c9cc;padding-left:34px}.lt-navidad3 .ltz-two>:first-child{padding-right:34px}}
+.lt-navidad3 .ltz-h3{display:flex;align-items:center;gap:10px;margin:0 0 4px;font-size:21px;font-weight:800}
+.lt-navidad3 .ltz-h3 .ltz-ic{width:26px;height:26px;color:var(--z-red)}
+.lt-navidad3 .ltz-two p.ltz-note{margin:0 0 14px;font-size:14px;color:var(--z-mut)}
+.lt-navidad3 .ltz-pays{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:10px}
+.lt-navidad3 .ltz-pays li{min-width:92px;padding:14px 16px;border-radius:14px;background:#fff;box-shadow:var(--z-sh);text-align:center;font-weight:700;font-size:14.5px;overflow-wrap:anywhere}
+.lt-navidad3 .ltb-faq{gap:8px;max-width:none}
+.lt-navidad3 .ltb-faq details{background:#fff;border-radius:12px;box-shadow:0 4px 12px rgba(40,10,14,.05)}
+.lt-navidad3 .ltb-faq summary{padding:13px 44px 13px 16px;font-weight:500;font-size:15px}
+.lt-navidad3 .ltb-faq summary::after{content:"";width:9px;height:9px;border-right:2px solid var(--z-ink);border-bottom:2px solid var(--z-ink);transform:translateY(-70%) rotate(45deg)}
+.lt-navidad3 .ltb-faq details[open] summary::after{transform:translateY(-30%) rotate(-135deg)}
+.lt-navidad3 .ltb-faq p{padding:0 16px 14px;font-size:14px;color:var(--z-mut)}
+/* redes */
+.lt-navidad3 .ltz-soc{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:14px 18px}
+.lt-navidad3 .ltz-soc>b{font-size:16px}
+.lt-navidad3 .ltz-soc div{display:flex;gap:10px}
+.lt-navidad3 .ltz-soc a{display:grid;place-items:center;width:46px;height:46px;border-radius:12px;background:#fff;box-shadow:var(--z-sh);color:var(--z-red);transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+.lt-navidad3 .ltz-soc a svg{width:24px;height:24px}
+/* pie rojo con onda dorada */
+.lt-navidad3 .ltz-foot{position:relative;margin-top:60px;padding:40px 18px 104px;text-align:center;color:#ffe3e5;background:linear-gradient(180deg,#b40d1c 0%,#930915 70%,#7d0712 100%)}
+.lt-navidad3 .ltz-foot .ltz-fwave{position:absolute;left:0;right:0;top:-79px;width:100%;height:80px}
+.lt-navidad3 .ltz-fl{position:relative;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 22px;margin:0 0 10px}
+.lt-navidad3 .ltz-fl b{font-size:clamp(22px,5vw,30px);font-weight:800;color:#fff;letter-spacing:-.02em;overflow-wrap:anywhere}
+.lt-navidad3 .ltz-fl span{font-family:"Great Vibes",cursive;font-size:clamp(30px,7vw,40px);color:#f6d469;line-height:1}
+@media (min-width:600px){.lt-navidad3 .ltz-fl span{padding-left:22px;border-left:1px solid rgba(255,255,255,.4)}}
+.lt-navidad3 .ltz-foot p{position:relative;margin:4px auto;max-width:56ch;font-size:14px}
+.lt-navidad3 .ltz-foot .ltb-made a{color:#fff;font-weight:600}
+@media (max-width:560px){.lt-navidad3 .ltz-plan{gap:12px;padding:14px}.lt-navidad3 .ltz-pl-a{width:76px;padding-right:12px}.lt-navidad3 .ltz-pl-a .ltb-logo{width:50px;height:50px;border-radius:14px}.lt-navidad3 .ltz-pl-a h3{font-size:13px}.lt-navidad3 .ltz-buy{gap:8px}.lt-navidad3 .ltz-pill{padding:5px 11px}.lt-navidad3 .ltz-pill strong{font-size:16px}.lt-navidad3 .ltz-go{margin-left:auto;padding:8px 12px}.lt-navidad3 .ltz-bens{grid-template-columns:1fr;gap:14px}.lt-navidad3 .ltz-bens li{padding:0 4px}.lt-navidad3 .ltb-h2{font-size:22px;gap:12px}.lt-navidad3 .ltb-h2::before,.lt-navidad3 .ltb-h2::after{flex:0 0 26px}.lt-navidad3 .ltz-combo{align-items:flex-start;padding:16px}.lt-navidad3 .ltz-combo .ltz-gift{width:52px;height:52px}.lt-navidad3 .ltz-combo .ltz-gift .ltz-ic{width:30px;height:30px}}
+/* oferta con cuenta regresiva */
+.lt-navidad3 .lt-promo{margin:0 14px}
+.lt-navidad3 .lt-promo-in{background:#1c1d22;color:#fff;border-radius:16px}
+.lt-navidad3 .lt-promo-tag,.lt-navidad3 .lt-promo-btn{background:${NV3_GOLD};color:#6d0710}
+/* movimiento (solo VIP) */
+.lt-navidad3:not(.lt-static) .ltz-snow{animation:ltz-snow 16s linear infinite}
+@keyframes ltz-snow{to{transform:translate3d(0,260px,0)}}
+.lt-navidad3:not(.lt-static) .ltz-ball{animation:ltz-swing 3.6s ease-in-out infinite alternate}
+.lt-navidad3:not(.lt-static) .ltz-ball.b{animation-duration:4.2s;animation-delay:-1.4s}
+@keyframes ltz-swing{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}
+.lt-navidad3:not(.lt-static) .ltz-t1{animation:ltz-in .8s .05s cubic-bezier(.16,1,.3,1) both}
+.lt-navidad3:not(.lt-static) .ltz-t2{animation:ltz-pop .7s .3s cubic-bezier(.3,1.6,.5,1) both}
+.lt-navidad3:not(.lt-static) .ltz-t3,.lt-navidad3:not(.lt-static) .ltz-orn{animation:ltz-in .7s .45s cubic-bezier(.16,1,.3,1) both}
+.lt-navidad3:not(.lt-static) .ltz-regalo{animation:ltz-float 4.5s ease-in-out infinite alternate}
+.lt-navidad3:not(.lt-static) .ltz-cta{animation:ltz-beat 2.6s 1.5s ease-in-out infinite}
+@keyframes ltz-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes ltz-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes ltz-float{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-10px) rotate(2deg)}}
+@keyframes ltz-beat{0%,70%,100%{transform:scale(1)}80%{transform:scale(1.04)}90%{transform:scale(.99)}}
+@media (hover:hover){.lt-navidad3:not(.lt-static) .ltz-plan{transition:transform .3s cubic-bezier(.3,1.6,.5,1),box-shadow .3s}.lt-navidad3:not(.lt-static) .ltz-plan:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(40,10,14,.13)}.lt-navidad3:not(.lt-static) .ltz-soc a:hover{transform:translateY(-3px)}}
+/* ANIM extra (solo VIP) */
+.lt-navidad3:not(.lt-static) .ltz-snow2{animation:ltz-snow2 24s linear infinite}
+@keyframes ltz-snow2{to{transform:translate3d(0,300px,0)}}
+.lt-navidad3:not(.lt-static) .ltz-bulb{animation:ltz-bulb 1.8s calc(var(--k) * -.3s) ease-in-out infinite alternate}
+.lt-navidad3:not(.lt-static) .ltz-bulb .ltz-glow{animation:ltz-glow 1.8s calc(var(--k) * -.3s) ease-in-out infinite alternate}
+@keyframes ltz-bulb{from{opacity:.55}to{opacity:1}}
+@keyframes ltz-glow{from{opacity:.1}to{opacity:.7}}
+.lt-navidad3:not(.lt-static) .ltz-sparks i{animation:ltz-tw 2.6s calc(var(--k) * -.45s) ease-in-out infinite}
+@keyframes ltz-tw{0%,100%{opacity:0;transform:scale(.2) rotate(0)}50%{opacity:1;transform:scale(1) rotate(45deg)}}
+.lt-navidad3:not(.lt-static) .ltz-rama.l{animation:ltz-swl 5s ease-in-out infinite alternate;transform-origin:50% 0}
+.lt-navidad3:not(.lt-static) .ltz-rama.r{animation:ltz-swr 5.6s ease-in-out infinite alternate;transform-origin:50% 0}
+@keyframes ltz-swl{from{transform:scaleX(-1) rotate(8deg)}to{transform:scaleX(-1) rotate(3deg)}}
+@keyframes ltz-swr{from{transform:rotate(8deg)}to{transform:rotate(3deg)}}
+.lt-navidad3:not(.lt-static) .ltz-rama2{animation:ltz-sw2 6s ease-in-out infinite alternate;transform-origin:100% 50%}
+@keyframes ltz-sw2{from{transform:rotate(-12deg)}to{transform:rotate(-6deg)}}
+.lt-navidad3:not(.lt-static) .ltz-ball.c{animation-duration:3s;animation-delay:-.6s}
+.lt-navidad3:not(.lt-static) .ltz-shine{animation:ltz-shine 1.4s .9s ease-in-out both}
+@keyframes ltz-shine{0%{opacity:1;left:-40%}100%{opacity:1;left:130%}}
+.lt-navidad3:not(.lt-static) .ltz-av::before{animation:ltz-spin 6s linear infinite}
+@keyframes ltz-spin{to{transform:rotate(360deg)}}
+.lt-navidad3:not(.lt-static) .ltz-gp,.lt-navidad3:not(.lt-static) .ltz-t2{background-size:100% 100%,200% 100%}
+.lt-navidad3:not(.lt-static) .ltz-t2::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.6) 50%,transparent 70%) -150% 0/60% 100% no-repeat;animation:ltz-sweep 3.5s 1.2s ease-in-out infinite}
+.lt-navidad3 .ltz-t2{position:relative;overflow:hidden}
+@keyframes ltz-sweep{0%,60%{background-position:-150% 0}100%{background-position:250% 0}}
+.lt-navidad3:not(.lt-static).ltb-rv .ltz-combo.is-in .ltz-csh{animation:ltz-csh 1.2s calc(var(--rvd,0ms) + .5s) ease-in-out both}
+@keyframes ltz-csh{from{left:-60%}to{left:130%}}
+.lt-navidad3:not(.lt-static).ltb-rv .ltz-combo.is-in .ltz-gift{animation:ltz-wig 1s calc(var(--rvd,0ms) + .7s) ease-in-out both}
+@keyframes ltz-wig{0%,100%{transform:rotate(0)}20%{transform:rotate(-12deg) scale(1.08)}40%{transform:rotate(10deg)}60%{transform:rotate(-6deg)}80%{transform:rotate(3deg)}}
+.lt-navidad3:not(.lt-static).ltb-rv .ltz-plan.is-in .ltz-pill{animation:ltz-pop .5s calc(var(--rvd,0ms) + .35s) cubic-bezier(.3,1.6,.5,1) both}
+.lt-navidad3:not(.lt-static) .ltz-fsnow{animation:ltz-snow 18s linear infinite}
+.lt-navidad3:not(.lt-static) .ltz-fl span{animation:ltz-glowtxt 2.8s ease-in-out infinite alternate}
+@keyframes ltz-glowtxt{from{text-shadow:0 0 0 rgba(246,212,105,0)}to{text-shadow:0 0 14px rgba(246,212,105,.65)}}
+${'.lt-navidad3'} .ltb-off :is(.ltz-snow,.ltz-ball,.ltz-regalo,.ltz-cta,.ltz-bulb,.ltz-glow,.ltz-sparks i,.ltz-rama,.ltz-rama2),${'.lt-navidad3'} .ltb-off .ltz-t2::after{animation-play-state:paused!important}
+`;
+
+  function renderNavidad3(root, d, ctx) {
+    LC.injectCss('navidad3', CSS_NAVIDAD3);
+    const cl = setup(root, ctx, d, 'navidad3');
+    const { plans, combos } = visible(d, ctx);
+    const wa = d.whatsapp ? ctx.buy('tus planes') : '';
+    const ini = ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase());
+    const av = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="112" height="112" decoding="async">` : `<span aria-hidden="true">${ini}</span>`;
+    // Con portada: la portada del cliente es la cabecera (enmarcada en rojo y dorado). Sin portada: "Tu Navidad en modo premium".
+    const cover = d.coverUrl ? ' has-cover' : '';
+    const stars = n => { const s = Math.min(5, Math.max(1, Math.round(Number(n)) || 5)); return `<span class="ltz-st" role="img" aria-label="${s} de 5 estrellas">${[1, 2, 3, 4, 5].map(k => nv3i('star', 'ltz-ic' + (k <= s ? '' : ' off'))).join('')}</span>`; };
+    const benIco = ['shield', 'zap', 'tag', 'headphones'];
+    const payFaq = (d.paymentMethods.length || d.faq.length) ? `<section class="ltb-sec ltb-sec-pays"><div class="ltb-wrap"><div class="ltz-two">` +
+      (d.paymentMethods.length ? `<div data-rv><h2 class="ltz-h3">${nv3i('card')}Métodos de pago</h2><p class="ltz-note">Paga fácil y seguro desde donde estés.</p><ul class="ltz-pays">${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul></div>` : '') +
+      (d.faq.length ? `<div class="ltb-sec-faq" data-rv><h2 class="ltz-h3">${nv3i('help')}Preguntas frecuentes</h2><div class="ltb-faq">${d.faq.map((f, i) => `<details><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div></div>` : '') +
+      `</div></div></section>` : '';
+    const html =
+      `<header class="ltz-ban${cover}" data-lt-hero><div class="ltz-snow" aria-hidden="true"></div><div class="ltz-snow ltz-snow2" aria-hidden="true"></div>${NV3_LIGHTS('ltz-lights')}` +
+      NV3_SPARKS([[8, 38, 14, 0], [24, 70, 10, 1], [33, 22, 8, 2], [70, 30, 12, 3], [80, 66, 9, 4], [92, 42, 13, 5], [52, 80, 8, 2], [4, 74, 9, 4]]) +
+      `<img class="ltz-rama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async"><img class="ltz-rama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async">` +
+      `<span class="ltz-ball a" aria-hidden="true"></span><span class="ltz-ball b" aria-hidden="true"></span><span class="ltz-ball c" aria-hidden="true"></span>` +
+      (d.coverUrl ? `<figure class="ltz-cov"><span class="ltz-shine" aria-hidden="true"></span><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>` :
+      `<div class="ltz-ban-in"><p class="ltz-t1">Tu Navidad</p><p class="ltz-t2">en modo premium</p><p class="ltz-t3">Este diciembre disfruta de todas tus películas y series desde casa.</p><div class="ltz-orn" aria-hidden="true"><i></i>${nv3i('star')}<i></i></div></div>`) +
+      `${NV3_WAVE('ltz-wave', false)}</header>` +
+      `<div class="ltz-prof"><span class="ltz-av">${av}</span><div class="ltz-pi"><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div>` +
+      `${wa ? `<a class="ltz-wa" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>Atención por WhatsApp</span></a>` : ''}</div>` +
+      promo(ctx) +
+      `<section class="ltz-main">${NV3_SPARKS([[18, 12, 12, 1], [84, 70, 10, 3], [10, 78, 8, 5], [90, 18, 9, 0]])}<img class="ltz-regalo" src="${NV3_IMG}nv-regalo.webp" alt="" width="640" height="421" decoding="async"><img class="ltz-rama2" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async">` +
+      `<h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${ctx.esc(d.heroTitle || LC.DEFAULTS.heroTitle)}</h1><p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
+      (wa ? `<a class="ltz-cta" data-lt-btn="main" href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span${ed(ctx, 'ctaText')}>${ctx.esc(d.ctaText)}</span></a>` : `<button type="button" class="ltz-cta" data-goto="plans">Ver planes</button>`) +
+      (ctx.minPrice ? `<span class="ltz-from">Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span>` : '') + `</section>` +
+      (plans.length ? `<section class="ltb-sec ltb-sec-plans"><div class="ltb-wrap">${nv3Head('Elige tu plataforma favorita', 'Cuentas originales, estables y al mejor precio.')}<div class="ltz-plans">${plans.map((p, i) => nv3Plan(ctx, p, i)).join('')}</div></div></section>` : '') +
+      (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${nv3Head('Combos navideños')}<div class="ltz-combos">${combos.map((c, i) => nv3Combo(ctx, c, i)).join('')}</div></div></section>` : '') +
+      (d.benefits.length ? `<section class="ltb-sec ltb-sec-benefits"><div class="ltb-wrap">${nv3Head(`¿Por qué elegir ${ctx.esc(d.name)}?`)}<ul class="ltz-bens" data-rv>${d.benefits.map((b, i) => `<li>${nv3i(benIco[i % 4])}<span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`).join('')}</ul></div></section>` : '') +
+      (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews"><div class="ltb-wrap">${nv3Head('Lo que dicen nuestros clientes')}<div class="ltz-revs" data-rv>${d.reviews.map((r, i) => { const nm = r.name || 'Cliente'; return `<figure class="ltz-rev"><span class="ltz-rav" aria-hidden="true">${ctx.esc((nm.trim().charAt(0) || 'C').toUpperCase())}</span><b${r.name ? ed(ctx, `reviews.${i}.name`) : ''}>${ctx.esc(nm)}</b>${stars(r.stars)}<p${ed(ctx, `reviews.${i}.text`)}>${ctx.esc(r.text)}</p></figure>`; }).join('')}</div></div></section>` : '') +
+      payFaq +
+      (d.links.length ? `<section class="ltb-sec ltb-sec-links"><div class="ltb-wrap"><div class="ltz-soc" data-rv><b>Síguenos en nuestras redes</b><div>${d.links.map(l => `<a href="${ctx.esc(l.url)}" target="_blank" rel="noopener" aria-label="${ctx.esc(ctx.linkLabel(l))}">${ctx.linkIcon(l.type)}</a>`).join('')}</div></div></div></section>` : '') +
+      `<footer class="ltz-foot ltb-foot" data-lt-foot>${NV3_WAVE('ltz-fwave', true)}<div class="ltz-fsw" aria-hidden="true"><div class="ltz-snow ltz-fsnow"></div></div><img class="ltz-frama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><img class="ltz-frama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async"><div class="ltz-fl"><b>${ctx.esc(d.name)}</b><span>¡Feliz Navidad!</span></div><p>Gracias por confiar en nosotros. Que esta Navidad esté llena de buenas historias y el mejor entretenimiento.</p><p>© ${new Date().getFullYear()} ${ctx.esc(d.name)}</p>${ctx.showBrand === false ? '' : '<p class="ltb-made">Hecho con <a href="https://disenosstreaming.com" target="_blank" rel="noopener">Diseños Streaming</a></p>'}</footer>` +
+      fab(ctx, wa);
+    root.innerHTML = html;
+    motionKit(root, ctx, cl);
+  }
+
+  LC.registerTemplate({
+    id: 'navidad3', name: 'Navidad Premium', description: 'Cabecera roja con onda dorada, ramas de pino y regalo; planes en tarjetas blancas y combos rojos',
+    seasonal: true, vipOnly: true, fallback: 'pop',
+    tags: ['festiva', 'navidad', 'animada'], preview: { bg: '#c8101f', fg: '#ffffff', accent: '#f3c94f' }, render: renderNavidad3
   });
 })(typeof window !== 'undefined' ? window : globalThis);
