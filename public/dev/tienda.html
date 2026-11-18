@@ -12,8 +12,12 @@
 <!--TIENDA_OG-->
 <link rel="icon" href="/icons/icon-192.png" id="tiendaFavicon">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" id="tiendaTouchIcon">
+<!-- Conexiones tempranas: Firestore (fetch CORS → crossorigin), imágenes de Firebase Storage (<img> sin CORS → sin crossorigin).
+     Cloudinary solo para portadas antiguas: dns-prefetch (barato) en vez de preconnect. -->
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+<link rel="preconnect" href="https://firebasestorage.googleapis.com">
+<link rel="dns-prefetch" href="https://res.cloudinary.com">
+<!--TIENDA_DATA-->
 <style>
   html,body{margin:0;padding:0;min-height:100%;background:#0b0b12;color:#f5f5fa;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;-webkit-text-size-adjust:100%}
@@ -42,6 +46,7 @@
   .ts-skel-pulse i{width:8px;height:8px;border-radius:50%;background:#8b5cf6;opacity:.35;animation:ts-dot 1.1s ease-in-out infinite}
   .ts-skel-pulse i:nth-child(2){animation-delay:.15s}.ts-skel-pulse i:nth-child(3){animation-delay:.3s}
   @keyframes ts-dot{50%{opacity:1;transform:translateY(-4px)}}
+  .ts-skel-txt{position:fixed;left:0;right:0;bottom:44px;margin:0;text-align:center;font-size:.8rem;color:#8a8aa3}
 
   /* ---------- Mensajes (404, pausa, error) ---------- */
   .ts-msg{display:flex;align-items:center;justify-content:center;padding:24px;
@@ -72,14 +77,23 @@
   }
 </style>
 <script>
-window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5"><\/script>');
-</script>
-<script>
-/* Arranca la lectura de Firestore cuanto antes (en paralelo con las plantillas). */
+/* Arranque de la tienda (sin document.write: el esqueleto se pinta al instante).
+ * En paralelo y desde el primer milisegundo: lectura de Firestore, núcleo y plantilla.
+ * Datos iniciales, por orden: JSON inyectado por el servidor (window.__TIENDA__) → copia local de la última
+ * visita (stale-while-revalidate) → red. */
 (function () {
   'use strict';
+  var W = window, D = document, HEAD = D.head;
+  var BASE = W.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
+  // Versiones de caché (?v=): súbelas al cambiar el archivo.
+  var V = { core: 10, b: 10, d: 10 };
+  // Plantilla → archivo (b: pop/premium, d: navidad). Las retiradas pasan a pop/premium en normalize() → 'b'.
+  var FILES = { pop: 'b', premium: 'b', navidad: 'd' };
+  // Igual que LandingCore.FIREBASE / COLLECTION (aquí para no esperar al núcleo antes de pedir los datos).
+  var FS = { projectId: 'plantillas-bfaeb', apiKey: 'AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY', collection: 'public_catalogs' };
+  var FONT_NAVIDAD = 'https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap';
   var SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+
   function readSlug() {
     // Enlace corto disenosstreaming.com/<slug>, enlace antiguo /s/<slug> o ?s=<slug> (zona /dev/).
     var m = location.pathname.match(/^\/(?:s\/)?([^/.]+)\/?$/);
@@ -124,16 +138,16 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
     return out;
   }
 
-  /* Resultado: {status:'ok',data} | {status:'notfound'} | {status:'error',error} */
-  function loadCatalog(slug) {
+  /* Resultado: {status:'ok',data} | {status:'notfound'} | {status:'error',error}.
+   * El tiempo límite crece con cada intento (12 s, 20 s, 30 s) para no fallar siempre en redes muy lentas. */
+  function loadCatalog(slug, attempt) {
     if (!slug) return Promise.resolve({ status: 'notfound' });
-    var core = window.LandingCore;
-    if (!core || !core.FIREBASE) return Promise.resolve({ status: 'error', error: new Error('core') });
-    var url = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(core.FIREBASE.projectId) +
-      '/databases/(default)/documents/' + core.COLLECTION + '/' + encodeURIComponent(slug) +
-      '?key=' + encodeURIComponent(core.FIREBASE.apiKey);
+    var url = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(FS.projectId) +
+      '/databases/(default)/documents/' + FS.collection + '/' + encodeURIComponent(slug) +
+      '?key=' + encodeURIComponent(FS.apiKey);
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 12000) : 0;
+    var ms = [12000, 20000, 30000][Math.min(attempt || 0, 2)];
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, ms) : 0;
     return fetch(url, { cache: 'no-store', credentials: 'omit', signal: ctrl ? ctrl.signal : undefined })
       .then(function (res) {
         if (res.status === 404 || res.status === 403) return { status: 'notfound' };
@@ -147,10 +161,104 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
       .then(function (r) { clearTimeout(timer); return r; });
   }
 
+  /* ---------- copia local (localStorage) del último JSON de cada tienda ---------- */
+  var CK = 'ds-tienda:', CACHE_MAX_AGE = 30 * 864e5, CACHE_KEEP = 6;
+  function cacheGet(slug) {
+    try {
+      var o = JSON.parse(localStorage.getItem(CK + slug) || 'null');
+      if (o && o.d && typeof o.d === 'object' && Date.now() - o.t < CACHE_MAX_AGE) return o;
+    } catch (_) {}
+    return null;
+  }
+  function cachePut(slug, data) {
+    try {
+      localStorage.setItem(CK + slug, JSON.stringify({ t: Date.now(), d: data }));
+      // Solo las últimas tiendas visitadas (no llenar el almacenamiento del celular).
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(CK) === 0) keys.push(k); }
+      if (keys.length > CACHE_KEEP) {
+        keys.map(function (k) { var t = 0; try { t = JSON.parse(localStorage.getItem(k)).t || 0; } catch (_) {} return [t, k]; })
+          .sort(function (a, b) { return a[0] - b[0]; }).slice(0, keys.length - CACHE_KEEP)
+          .forEach(function (x) { localStorage.removeItem(x[1]); });
+      }
+    } catch (_) {}
+  }
+  function cacheDel(slug) { try { localStorage.removeItem(CK + slug); } catch (_) {} }
+
+  /* ---------- carga de recursos ---------- */
+  function addLink(rel, href, attrs) {
+    var l = D.createElement('link');
+    l.rel = rel; l.href = href;
+    Object.keys(attrs || {}).forEach(function (k) { l.setAttribute(k, attrs[k]); });
+    HEAD.appendChild(l);
+    return l;
+  }
+  var scripts = {};
+  /* async=false: se descargan en paralelo pero se ejecutan en orden de inserción (núcleo antes que plantilla)
+   * sin bloquear el pintado. Si falla, se puede volver a pedir. */
+  function loadScript(src) {
+    if (!scripts[src]) {
+      scripts[src] = new Promise(function (resolve, reject) {
+        var s = D.createElement('script');
+        s.src = src; s.async = false;
+        s.onload = function () { resolve(); };
+        s.onerror = function () { delete scripts[src]; s.remove(); reject(new Error('no cargó ' + src)); };
+        HEAD.appendChild(s);
+      });
+    }
+    return scripts[src];
+  }
+  var coreSrc = BASE + 'js/landing-core.js?v=' + V.core;
+  var tplFile = function (id) { return FILES[id] || 'b'; };
+  var tplSrc = function (file) { return BASE + 'js/landing-templates-' + file + '.js?v=' + V[file]; };
+  var hinted = {};
+  /* Con los datos (de donde vengan) ya se sabe qué plantilla y qué portada hacen falta: pedirlas ya,
+   * antes de que el núcleo termine de llegar. */
+  function hint(raw) {
+    if (!raw || typeof raw !== 'object' || raw.enabled === false) return;
+    var file = tplFile(String(raw.template || ''));
+    if (!hinted[file]) {
+      hinted[file] = 1;
+      loadScript(tplSrc(file)).catch(function () {});
+      if (file === 'd') { // Navidad: fuente Great Vibes sin esperar al @import de la plantilla (misma URL → una sola descarga).
+        addLink('preconnect', 'https://fonts.gstatic.com', { crossorigin: '' });
+        addLink('stylesheet', FONT_NAVIDAD);
+      }
+    }
+    // Portada (casi siempre el LCP): misma regla que el núcleo (≤820 px → versión ligera de 800 px).
+    var cover = (W.innerWidth <= 820 && raw.coverSmUrl) || raw.coverUrl;
+    if (typeof cover === 'string' && /^https:\/\//i.test(cover) && !hinted[cover]) {
+      try { cover = new URL(cover).href; } catch (_) { return; }
+      hinted[cover] = 1;
+      addLink('preload', cover, { as: 'image', fetchpriority: 'high' });
+    }
+  }
+
   var slug = readSlug();
-  window.TiendaPublica = {
+  var core = loadScript(coreSrc);
+  core.catch(function () {});
+
+  // Datos inyectados por el servidor (opcional; ver docs/REVISION-PERF.md): {slug, t, doc:{fields}} o {slug, t, notFound:true}.
+  var initial = null, inj = W.__TIENDA__, fresh = false;
+  if (slug && inj && inj.slug === slug) {
+    if (inj.notFound) initial = { status: 'notfound', source: 'server' };
+    else if (inj.doc && inj.doc.fields) initial = { status: 'ok', data: fromRestFields(inj.doc.fields), source: 'server' };
+    fresh = !!initial && Date.now() - (Number(inj.t) || 0) < 60000;
+  }
+  var cached = slug ? cacheGet(slug) : null;
+  if (!initial && cached) initial = { status: 'ok', data: cached.d, source: 'cache' };
+  if (initial && initial.status === 'ok') hint(initial.data);
+  // Plantilla desconocida (primera visita sin datos del servidor): se adelanta la descarga de la más usada
+  // (pop/premium) solo como preload; no se ejecuta si al final la tienda es de navidad.
+  if (slug && !initial) addLink('preload', tplSrc('b'), { as: 'script' });
+
+  var first = (!slug || fresh) ? Promise.resolve(initial || { status: 'notfound' }) : loadCatalog(slug, 0);
+  first.then(function (r) { if (r.status === 'ok') hint(r.data); });
+
+  W.TiendaPublica = {
     slug: slug, fromRestValue: fromRestValue, fromRestFields: fromRestFields, loadCatalog: loadCatalog,
-    first: loadCatalog(slug)
+    first: first, initial: initial, core: core, loadScript: loadScript, tplFile: tplFile, tplSrc: tplSrc, hint: hint,
+    cachePut: cachePut, cacheDel: cacheDel, versions: V, coreSrc: coreSrc, files: FILES
   };
 })();
 </script>
@@ -170,6 +278,7 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
     </div>
   </div>
   <div class="ts-skel-pulse" aria-hidden="true"><i></i><i></i><i></i></div>
+  <p class="ts-skel-txt">Cargando tienda…</p>
 </section>
 
 <section id="tsMessage" class="ts-state ts-msg" hidden>
@@ -193,7 +302,10 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
     paused: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>',
     error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><path d="M12 20h.01"/></svg>'
   };
-  var retryTimer = 0, countdownTimer = 0, attempt = 0, rendered = false;
+  var retryTimer = 0, countdownTimer = 0, attempt = 0;
+  var shownKey = '';    // JSON de los datos que están pintados ('' = nada pintado aún)
+  var pendingKey = '';  // JSON de los datos que se están pintando (esperando núcleo/plantilla)
+  var paintSeq = 0;     // descarta pintados viejos si llegan datos nuevos mientras se descarga la plantilla
   var params = new URLSearchParams(location.search);
   var NO_REDIRECT = params.has('r');
   if (NO_REDIRECT && history.replaceState) {
@@ -201,6 +313,7 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
     try { history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash); } catch (_) {}
   }
   var MAX_AUTO = 6;
+  var digits = function (v) { return String(v == null ? '' : v).replace(/\D+/g, '').slice(0, 16); };
 
   function setMeta(name, value, attr) {
     attr = attr || 'name';
@@ -216,7 +329,10 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
 
   function message(kind, title, text, actions, small) {
     clearTimers();
-    $('app').innerHTML = ''; $('app').className = '';
+    paintSeq++; shownKey = pendingKey = '';
+    var app = $('app');
+    if (typeof app.__ltCleanup === 'function') { try { app.__ltCleanup(); } catch (_) {} app.__ltCleanup = null; }
+    app.innerHTML = ''; app.className = ''; app.removeAttribute('style');
     $('tsIcon').innerHTML = ICONS[kind] || ICONS.error;
     $('tsTitle').textContent = title;
     $('tsText').textContent = text;
@@ -242,8 +358,8 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
   function showPaused(data) {
     var name = (data && typeof data.name === 'string' && data.name.trim()) ? data.name.trim().slice(0, 80) : '';
     var acts = [];
-    var phone = data && window.LandingCore ? LandingCore.phoneDigits(data.whatsapp) : '';
-    if (phone) acts.push({ label: 'Escribir por WhatsApp', href: LandingCore.whatsappUrl(phone, 'Hola, vi tu tienda' + (name ? ' ' + name : '') + ' y quiero información.') });
+    var phone = data ? digits(data.whatsapp) : '';
+    if (phone) acts.push({ label: 'Escribir por WhatsApp', href: 'https://wa.me/' + phone + '?text=' + encodeURIComponent('Hola, vi tu tienda' + (name ? ' ' + name : '') + ' y quiero información.') });
     acts.push({ label: 'Ir a Diseños Streaming', href: HOME.href, ghost: acts.length > 0 });
     message('paused', 'Esta tienda está en pausa',
       (name ? name + ' pausó su tienda por un momento. ' : 'El dueño pausó su tienda por un momento. ') + 'Vuelve a intentarlo más tarde.', acts);
@@ -281,57 +397,66 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
       $('tiendaFavicon').href = d.logoUrl;
       $('tiendaTouchIcon').href = d.logoUrl;
     }
-    document.documentElement.style.colorScheme = d.theme.mode === 'light' ? 'light' : 'dark';
-    if (d.theme.mode === 'light') document.documentElement.style.background = document.body.style.background = '#ffffff';
+    var light = d.theme.mode === 'light';
+    document.documentElement.style.colorScheme = light ? 'light' : 'dark';
+    document.documentElement.style.background = document.body.style.background = light ? '#ffffff' : '';
   }
 
-  /* Solo se descarga el archivo de la plantilla que usa la tienda (b: pop/premium, d: navidad). Las tiendas con plantillas retiradas pasan a pop/premium en normalize(). */
-  var TEMPLATE_FILES = { pop: 'b', premium: 'b', navidad: 'd' };
-  var loadingFiles = {};
+  /* Núcleo y plantilla: un reintento automático si falla la descarga (datos móviles inestables). */
+  function retryOnce(fn) {
+    return fn().catch(function () { return new Promise(function (r) { setTimeout(r, 1200); }).then(fn); });
+  }
+  function ensureCore() {
+    return retryOnce(function () {
+      return window.LandingCore ? Promise.resolve() : T.loadScript(T.coreSrc);
+    }).then(function () {
+      if (!window.LandingCore || typeof window.LandingCore.render !== 'function') throw new Error('sin núcleo');
+      return window.LandingCore;
+    });
+  }
   function hasTemplate(id) {
     var core = window.LandingCore;
     return !!(core && core.listTemplates().some(function (t) { return t.id === id; }));
   }
+  /* Solo se descarga el archivo de la plantilla que usa la tienda (b: pop/premium, d: navidad). */
   function loadTemplate(id) {
     if (hasTemplate(id)) return Promise.resolve(id);
-    var file = TEMPLATE_FILES[id] || 'b';
-    if (!loadingFiles[file]) {
-      loadingFiles[file] = new Promise(function (resolve, reject) {
-        var s = document.createElement('script');
-        s.src = window.LANDING_BASE + 'js/landing-templates-' + file + '.js?v=6';
-        s.async = true;
-        s.onload = function () { resolve(); };
-        s.onerror = function () { delete loadingFiles[file]; s.remove(); reject(new Error('plantilla ' + file)); };
-        document.head.appendChild(s);
-      });
-    }
-    return loadingFiles[file].then(function () {
+    var file = T.tplFile(id), extra = 0;
+    var once = function () {
+      // Si el archivo se ejecutó antes que el núcleo (núcleo reintentado), se vuelve a pedir con otra URL.
+      var src = T.tplSrc(file) + (extra ? '&r=' + extra : '');
+      return T.loadScript(src).then(function () { if (!hasTemplate(id) && !window.LandingCore.listTemplates().length) { extra++; throw new Error('plantilla sin registrar'); } });
+    };
+    return retryOnce(once).then(function () {
       if (hasTemplate(id)) return id;
       if (window.LandingCore.listTemplates().length) return window.LandingCore.listTemplates()[0].id;
       throw new Error('sin plantillas');
     });
   }
 
-  function renderStore(raw) {
-    var core = window.LandingCore;
-    if (!core || typeof core.render !== 'function') { showTemplatesError(); return; }
-    if (raw.enabled === false) { showPaused(raw); return; }
-    var d = core.normalize(raw, raw.ownerUid);
-    var want = TEMPLATE_FILES[d.template] ? d.template : core.DEFAULTS.template;
-    rendered = true; // evita pintar dos veces mientras llega la plantilla
-    loadTemplate(want).then(function (id) { paint(core, d, id); }, function (err) {
-      console.error('[tienda] no se pudo cargar la plantilla', err);
-      rendered = false;
+  function renderStore(raw, key) {
+    var seq = ++paintSeq;
+    pendingKey = key;
+    ensureCore().then(function (core) {
+      var d = core.normalize(raw, raw.ownerUid);
+      var want = T.files[d.template] ? d.template : core.DEFAULTS.template;
+      return loadTemplate(want).then(function (id) { if (seq === paintSeq) paint(core, d, id, key); });
+    }).catch(function (err) {
+      if (seq !== paintSeq) return;
+      console.error('[tienda] no se pudo cargar el diseño', err);
       showTemplatesError();
     });
   }
-  function paint(core, d, id) {
+  function paint(core, d, id, key) {
     try {
       clearTimers();
+      // Si ya había una versión pintada (copia local) y llegó otra distinta, se conserva la posición de lectura.
+      var y = shownKey ? window.scrollY : 0;
       show('none');
       core.render($('app'), d, { template: id });
-      rendered = true;
+      shownKey = key; pendingKey = '';
       applyHead(d);
+      if (y) window.scrollTo(0, y);
     } catch (err) {
       console.error('[tienda] error al pintar', err);
       showTemplatesError();
@@ -341,36 +466,51 @@ document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=5">
   // Enlace viejo: el editor deja el doc anterior con redirectTo (normalize lo descarta: se lee del JSON crudo).
   // Un solo salto: con ?r=1 no se vuelve a redirigir.
   function redirectTarget(raw) {
-    var core = window.LandingCore, to = raw && raw.redirectTo;
-    if (!core || typeof to !== 'string' || NO_REDIRECT) return '';
+    var to = raw && raw.redirectTo;
+    if (typeof to !== 'string' || NO_REDIRECT) return '';
     to = to.trim().toLowerCase();
-    return (!core.slugError(to) && to !== T.slug) ? to : '';
+    var bad = window.LandingCore ? window.LandingCore.slugError(to) : !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(to);
+    return (!bad && to !== T.slug) ? to : '';
   }
+  /* result.source: 'server' (inyectado) | 'cache' (copia local) | 'network'. */
   function handle(result) {
-    if (rendered) return;
+    var net = result.source === 'network';
     if (result.status === 'ok') {
+      if (result.source !== 'cache') T.cachePut(T.slug, result.data);
       var to = redirectTarget(result.data);
-      if (to) { rendered = true; location.replace(window.LANDING_BASE === '/dev/' ? '/dev/tienda.html?s=' + encodeURIComponent(to) + '&r=1' : '/' + to + '?r=1'); return; }
-      renderStore(result.data);
+      if (to) { paintSeq++; location.replace(window.LANDING_BASE === '/dev/' ? '/dev/tienda.html?s=' + encodeURIComponent(to) + '&r=1' : '/' + to + '?r=1'); return; }
+      if (result.data.enabled === false) { showPaused(result.data); return; }
+      var key = '';
+      try { key = JSON.stringify(result.data); } catch (_) { key = String(Date.now()); }
+      if (key === shownKey || key === pendingKey) return; // la red confirmó la copia local: nada que repintar
+      renderStore(result.data, key);
+    } else if (result.status === 'notfound') {
+      if (net) T.cacheDel(T.slug);
+      showNotFound();
+    } else {
+      console.warn('[tienda] error de red', result.error);
+      if (shownKey || pendingKey) return; // se queda la copia local ya pintada (o en camino)
+      if (attempt === 0) { attempt++; retryTimer = setTimeout(load, 600); return; } // 1.er fallo: reintento silencioso
+      showError(true);
     }
-    else if (result.status === 'notfound') showNotFound();
-    else { console.warn('[tienda] error de red', result.error); showError(true); }
   }
+  function fromNet(p) { return p.then(function (r) { r.source = r.source || 'network'; return r; }); }
 
   function load() {
     clearTimers();
-    show('loading');
-    T.loadCatalog(T.slug).then(handle);
+    if (!shownKey) show('loading');
+    fromNet(T.loadCatalog(T.slug, attempt)).then(handle);
   }
 
   function start() {
     if (!T) { showTemplatesError(); return; }
     if (!T.slug) { showNotFound(); return; }
-    T.first.then(handle);
+    if (T.initial) handle(T.initial);
+    // Red (si los datos del servidor no eran recientes, T.first es la lectura de Firestore ya en curso).
+    T.first.then(function (r) { if (r !== T.initial) { r.source = r.source || 'network'; handle(r); } });
     // Si estaba sin internet, reintenta en cuanto vuelva la conexión.
-    window.addEventListener('online', function () { if (!rendered && !$('tsMessage').hidden && $('tsMessage').getAttribute('data-kind') === 'error' && T.slug) { attempt = 0; load(); } });
+    window.addEventListener('online', function () { if (!shownKey && !$('tsMessage').hidden && $('tsMessage').getAttribute('data-kind') === 'error' && T.slug) { attempt = 0; load(); } });
   }
-  // La plantilla se descarga después de leer Firestore (ver loadTemplate).
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
