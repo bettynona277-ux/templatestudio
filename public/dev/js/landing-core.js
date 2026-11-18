@@ -56,6 +56,26 @@
     if (!n) return '';
     return `https://wa.me/${n}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
   }
+  // ---------- plan VIP (lo activa el admin en users/{uid}; el editor lo copia a public_catalogs) ----------
+  /** Dominio propio normalizado ("https://www.Bertha.com/" → "berthastreaming.com"); '' si no es válido. */
+  function normDomain(v) {
+    let h = String(v ?? '').trim().toLowerCase();
+    h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').replace(/\.+$/, '').replace(/^www\./, '');
+    if (h.length < 4 || h.length > 253) return '';
+    return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(h) && !/(^|\.)disenosstreaming\.com$/.test(h) ? h : '';
+  }
+  // null/ausente = sin vencimiento; un valor que no sea un número positivo → 0 (vencido: falla cerrado, igual que server.js).
+  const vipUntilNum = v => { if (v === null || v === undefined || v === '') return null; const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+  /** 'active' (VIP vigente) | 'expired' (VIP vencido) | 'none' (cliente normal). d = datos crudos o normalizados. */
+  function vipState(d, now = Date.now()) {
+    if (!d || d.vip !== true) return 'none';
+    const until = vipUntilNum(d.vipUntil);
+    return until !== null && until <= now ? 'expired' : 'active';
+  }
+  const vipActive = (d, now) => vipState(d, now) === 'active';
+  /** Plantillas exclusivas del plan VIP (sin VIP se pintan con la indicada). */
+  const VIP_TEMPLATES = Object.freeze({ navidad: 'pop' });
+
   // Tipos de enlaces personalizados. icon = nombre corto usado por las plantillas.
   const LINK_TYPES = [
     { id: 'whatsapp', label: 'WhatsApp' }, { id: 'instagram', label: 'Instagram' },
@@ -217,6 +237,8 @@
       // Nivel de animación: 'calm' (tranquilo), 'normal' (animado), 'max' (espectacular).
       motion: ['calm', 'normal', 'max'].includes(d.motion) ? d.motion : 'normal',
       enabled: d.enabled !== false,
+      // Plan VIP: solo los copia el editor desde users/{uid} (las reglas de Firestore lo verifican).
+      vip: d.vip === true, vipUntil: vipUntilNum(d.vipUntil), customDomain: normDomain(d.customDomain),
       // Compatibilidad con la regla existente de Firestore (lista obligatoria, <= 50).
       platforms: [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))].slice(0, 50),
       updatedAt: Date.now()
@@ -266,7 +288,11 @@
   }
 
   function buildContext(data, opts = {}) {
-    const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Sin VIP vigente la página se pinta quieta (noMotion): se trata como "reducir movimiento" y además sin
+    // aparición al hacer scroll ni fundidos (todo visible desde el inicio).
+    const vip = vipActive(data);
+    const noMotion = !vip;
+    const reducedMotion = noMotion || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const vis = visibleInfo(data);
     return {
       /** Solo planes/combos con visible !== false. Úsalos SIEMPRE (también en murales, marquesinas y contadores). */
@@ -276,6 +302,10 @@
       /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
       minPrice: vis.minPrice, minPriceValue: vis.minPriceValue,
       preview: !!opts.preview, reducedMotion,
+      /** true si la tienda tiene VIP vigente (animaciones y plantillas exclusivas). */
+      vip,
+      /** true sin VIP: sin animaciones, bucles, partículas ni apariciones al hacer scroll (todo visible y quieto). */
+      noMotion,
       /** Edición directa en la vista previa del editor: devuelve ' data-lt-edit="<path>"' solo si preview es true
        *  (en la tienda pública devuelve ''). Paths: name, tagline, heroTitle, heroSubtitle, ctaText,
        *  plans.<id>.title|price|features.<k>, combos.<id>.name|price, benefits.<i>, faq.<i>.q|a,
@@ -410,6 +440,9 @@
   .lt-root .lt-bb.is-solo .lt-bb-c{margin:0;flex:1}
   .lt-root .lt-bb.is-solo{padding-left:7px}
   @media (max-width:340px){.lt-root .lt-bb-c{padding:0 12px;font-size:14px}}
+  /* --- sin VIP (lt-static): página quieta, todo visible desde el inicio, sin pérdida de diseño --- */
+  .lt-root.lt-static *,.lt-root.lt-static *::before,.lt-root.lt-static *::after{animation:none!important;transition:none!important}
+  .lt-root.lt-static .lt-particles{display:none!important}
   /* --- reducir movimiento: sin bucles, desplazamientos ni partículas; solo un fundido corto una vez --- */
   @keyframes lt-fade{from{opacity:0}to{opacity:1}}
   @media (prefers-reduced-motion: reduce){
@@ -422,9 +455,10 @@
 
   /** Efectos comunes según data.motion. Se aplica DESPUÉS de la plantilla. Devuelve función de limpieza. */
   function applyMotion(root, d, ctx) {
-    root.dataset.ltMotion = ctx.motion;
+    root.dataset.ltMotion = ctx.noMotion ? 'none' : ctx.motion;
     root.classList.toggle('lt-in-preview', !!ctx.preview);
-    if (ctx.motion !== 'max') return null;
+    root.classList.toggle('lt-static', !!ctx.noMotion);
+    if (ctx.noMotion || ctx.motion !== 'max') return null;
     const cleanups = [];
     // Partículas de colores de marca subiendo suavemente (12 en móvil, 20 en PC).
     const layer = document.createElement('div');
@@ -535,7 +569,10 @@
 
   function render(root, data, opts = {}) {
     const d = normalize(data, data?.ownerUid);
-    const tpl = getTemplate(opts.template || d.template);
+    // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
+    let tid = opts.template || d.template;
+    if (VIP_TEMPLATES[tid] && !vipActive(d)) tid = VIP_TEMPLATES[tid];
+    const tpl = getTemplate(tid);
     if (!tpl) { root.textContent = 'No hay plantillas cargadas.'; return; }
     // Repintado del mismo root con la misma plantilla (editor o datos nuevos en la tienda): ctx.rerender = true.
     const rerender = root.__ltTpl === tpl.id && root.childElementCount > 0;
@@ -558,7 +595,7 @@
     const motionCleanup = applyMotion(root, view, ctx);
     const barCleanup = applyBuyBar(root, view, ctx);
     const holdCleanup = holdLazyImages(root, ctx);
-    const profCleanup = pauseProfileOffscreen(root);
+    const profCleanup = ctx.noMotion ? null : pauseProfileOffscreen(root);
     const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup].filter(Boolean);
     if (extra.length) root.__ltCleanup = () => {
       try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
@@ -569,6 +606,7 @@
     FIREBASE, CLOUDINARY, STORAGE, COLLECTION, DEFAULTS, PLATFORMS, LINK_TYPES, LINK_ICONS, CURRENCIES,
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
-    profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice
+    profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
+    normDomain, vipState, vipActive, VIP_TEMPLATES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

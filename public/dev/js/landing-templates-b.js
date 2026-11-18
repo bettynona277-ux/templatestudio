@@ -166,7 +166,8 @@
    *  (40 planes en un panel) también aparecen. */
   function reveal(root, ctx, cleanups) {
     const els = [...root.querySelectorAll('[data-rv]')];
-    if (cleanups.still || typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
+    // Sin VIP (ctx.noMotion): todo visible desde el inicio, sin aparición al hacer scroll.
+    if (cleanups.still || ctx.noMotion || typeof G.IntersectionObserver !== 'function') { els.forEach(e => e.classList.add('is-in')); return; }
     root.classList.add('ltb-rv');
     let fired = false;
     const io = new G.IntersectionObserver(entries => {
@@ -185,8 +186,8 @@
   }
   /** ANIM: pausa los bucles (formas, auras, nieve, brillos, partículas propias) de las secciones que no están en
    *  pantalla: clase ltb-off → animation-play-state:paused. Ahorra CPU/GPU y batería en celulares. */
-  function pauseOffscreen(root, cleanups) {
-    if (typeof G.IntersectionObserver !== 'function') return;
+  function pauseOffscreen(root, cleanups, ctx) {
+    if ((ctx && ctx.noMotion) || typeof G.IntersectionObserver !== 'function') return;
     const els = root.querySelectorAll('[data-lt-hero],[data-lt-profile],.ltb-sec');
     const io = new G.IntersectionObserver(entries => {
       entries.forEach(en => en.target.classList.toggle('ltb-off', !en.isIntersecting));
@@ -254,7 +255,7 @@
   /** ANIM: todo el movimiento común tras pintar. */
   function motionKit(root, ctx, cleanups) {
     reveal(root, ctx, cleanups);
-    pauseOffscreen(root, cleanups);
+    pauseOffscreen(root, cleanups, ctx);
     tapRipple(root, ctx, cleanups);
     reviewsMotion(root, ctx, cleanups);
   }
