@@ -84,17 +84,37 @@
 (function () {
   'use strict';
   var W = window, D = document, HEAD = D.head;
-  var BASE = W.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
+  var BASE = W.LANDING_BASE = W.__TIENDA_BASE__ === '/dev/' || location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   // Versiones de caché (?v=): súbelas al cambiar el archivo.
-  var V = { core: 10, b: 10, d: 10 };
+  var V = { core: 11, b: 11, d: 11 };
   // Plantilla → archivo (b: pop/premium, d: navidad). Las retiradas pasan a pop/premium en normalize() → 'b'.
   var FILES = { pop: 'b', premium: 'b', navidad: 'd' };
   // Igual que LandingCore.FIREBASE / COLLECTION (aquí para no esperar al núcleo antes de pedir los datos).
   var FS = { projectId: 'plantillas-bfaeb', apiKey: 'AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY', collection: 'public_catalogs' };
   var FONT_NAVIDAD = 'https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap';
   var SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+  // Dominio propio (plan VIP): el servidor sirve la tienda en https://<dominio>/ e inyecta el slug
+  // (window.__TIENDA__ = {slug, host, …} o window.__TIENDA_SLUG__). Ahí la ruta no dice qué tienda es.
+  var INJ = W.__TIENDA__ && typeof W.__TIENDA__ === 'object' ? W.__TIENDA__ : null;
+  var HOSTED = !!(INJ && typeof INJ.host === 'string' && INJ.host);
+
+  /* Plan VIP (igual que LandingCore.vipState): 'active' | 'expired' | 'none'. */
+  function vipState(raw, now) {
+    if (!raw || raw.vip !== true) return 'none';
+    var u = raw.vipUntil, n = Number(u);
+    if (u === null || u === '' || u === undefined) return 'active';
+    // Fecha que no es un número positivo: vencido (falla cerrado, igual que el núcleo y server.js).
+    return (!(isFinite(n) && n > 0) || n <= (now || Date.now())) ? 'expired' : 'active';
+  }
+  /* Plantilla que de verdad se pinta: Navidad es solo para VIP vigente (si no, Pop). */
+  function effTemplate(raw) {
+    var t = String((raw && raw.template) || '');
+    return (t === 'navidad' && vipState(raw) !== 'active') ? 'pop' : t;
+  }
 
   function readSlug() {
+    var forced = HOSTED ? INJ.slug : W.__TIENDA_SLUG__;
+    if (typeof forced === 'string' && SLUG_RE.test(forced)) return forced;
     // Enlace corto disenosstreaming.com/<slug>, enlace antiguo /s/<slug> o ?s=<slug> (zona /dev/).
     var m = location.pathname.match(/^\/(?:s\/)?([^/.]+)\/?$/);
     var raw = m ? m[1] : (new URLSearchParams(location.search).get('s') || '');
@@ -215,8 +235,8 @@
   /* Con los datos (de donde vengan) ya se sabe qué plantilla y qué portada hacen falta: pedirlas ya,
    * antes de que el núcleo termine de llegar. */
   function hint(raw) {
-    if (!raw || typeof raw !== 'object' || raw.enabled === false) return;
-    var file = tplFile(String(raw.template || ''));
+    if (!raw || typeof raw !== 'object' || raw.enabled === false || vipState(raw) === 'expired') return;
+    var file = tplFile(effTemplate(raw));
     if (!hinted[file]) {
       hinted[file] = 1;
       loadScript(tplSrc(file)).catch(function () {});
@@ -242,6 +262,7 @@
   var initial = null, inj = W.__TIENDA__, fresh = false;
   if (slug && inj && inj.slug === slug) {
     if (inj.notFound) initial = { status: 'notfound', source: 'server' };
+    else if (inj.unavailable) initial = { status: 'unavailable', source: 'server' };
     else if (inj.doc && inj.doc.fields) initial = { status: 'ok', data: fromRestFields(inj.doc.fields), source: 'server' };
     fresh = !!initial && Date.now() - (Number(inj.t) || 0) < 60000;
   }
@@ -258,7 +279,8 @@
   W.TiendaPublica = {
     slug: slug, fromRestValue: fromRestValue, fromRestFields: fromRestFields, loadCatalog: loadCatalog,
     first: first, initial: initial, core: core, loadScript: loadScript, tplFile: tplFile, tplSrc: tplSrc, hint: hint,
-    cachePut: cachePut, cacheDel: cacheDel, versions: V, coreSrc: coreSrc, files: FILES
+    cachePut: cachePut, cacheDel: cacheDel, versions: V, coreSrc: coreSrc, files: FILES,
+    hosted: HOSTED, host: HOSTED ? INJ.host : '', vipState: vipState, effTemplate: effTemplate
   };
 })();
 </script>
@@ -350,17 +372,26 @@
     show('message');
   }
   var HOME = { label: 'Ir a Diseños Streaming', href: 'https://disenosstreaming.com/' };
+  // En un dominio propio no se manda al visitante fuera de ese dominio.
+  var HOMES = T && T.hosted ? [] : [HOME];
 
   function showNotFound() {
     message('notfound', 'Esta tienda no existe o cambió de enlace',
-      'Revisa que el enlace esté bien escrito o pide a tu vendedor su enlace actualizado.', [HOME]);
+      'Revisa que el enlace esté bien escrito o pide a tu vendedor su enlace actualizado.', HOMES);
+  }
+  /* VIP vencido: la tienda no se muestra y no se enseña ningún dato del revendedor. */
+  function showUnavailable() {
+    message('paused', 'Esta tienda no está disponible por el momento', 'Vuelve a intentarlo más tarde.', HOMES);
+    $('tiendaFavicon').href = '/icons/icon-192.png';
+    $('tiendaTouchIcon').href = '/icons/apple-touch-icon.png';
+    setMeta('description', 'Cuentas y perfiles de streaming con atención por WhatsApp.');
   }
   function showPaused(data) {
     var name = (data && typeof data.name === 'string' && data.name.trim()) ? data.name.trim().slice(0, 80) : '';
     var acts = [];
     var phone = data ? digits(data.whatsapp) : '';
     if (phone) acts.push({ label: 'Escribir por WhatsApp', href: 'https://wa.me/' + phone + '?text=' + encodeURIComponent('Hola, vi tu tienda' + (name ? ' ' + name : '') + ' y quiero información.') });
-    acts.push({ label: 'Ir a Diseños Streaming', href: HOME.href, ghost: acts.length > 0 });
+    if (!T.hosted) acts.push({ label: 'Ir a Diseños Streaming', href: HOME.href, ghost: acts.length > 0 });
     message('paused', 'Esta tienda está en pausa',
       (name ? name + ' pausó su tienda por un momento. ' : 'El dueño pausó su tienda por un momento. ') + 'Vuelve a intentarlo más tarde.', acts);
   }
@@ -439,7 +470,9 @@
     pendingKey = key;
     ensureCore().then(function (core) {
       var d = core.normalize(raw, raw.ownerUid);
-      var want = T.files[d.template] ? d.template : core.DEFAULTS.template;
+      // Sin VIP vigente, Navidad se pinta como Pop (el núcleo hace lo mismo en render()).
+      var eff = T.effTemplate(d);
+      var want = T.files[eff] ? eff : core.DEFAULTS.template;
       return loadTemplate(want).then(function (id) { if (seq === paintSeq) paint(core, d, id, key); });
     }).catch(function (err) {
       if (seq !== paintSeq) return;
@@ -478,18 +511,30 @@
     if (result.status === 'ok') {
       if (result.source !== 'cache') T.cachePut(T.slug, result.data);
       var to = redirectTarget(result.data);
+      if (to && T.hosted) {
+        // Dominio propio: no se sale del dominio; se carga la tienda nueva aquí mismo (un solo salto).
+        NO_REDIRECT = true; T.followed = true; T.slug = to; attempt = 0; paintSeq++; load(); return;
+      }
       if (to) { paintSeq++; location.replace(window.LANDING_BASE === '/dev/' ? '/dev/tienda.html?s=' + encodeURIComponent(to) + '&r=1' : '/' + to + '?r=1'); return; }
+      // VIP vencido o cuenta inhabilitada por el admin: "no disponible" sin datos (también desde la copia local).
+      if (T.vipState(result.data) === 'expired' || (result.data.enabled === false && result.data.pausedByAdmin === true)) { T.cacheDel(T.slug); showUnavailable(); return; }
       if (result.data.enabled === false) { showPaused(result.data); return; }
       var key = '';
       try { key = JSON.stringify(result.data); } catch (_) { key = String(Date.now()); }
       if (key === shownKey || key === pendingKey) return; // la red confirmó la copia local: nada que repintar
       renderStore(result.data, key);
+    } else if (result.status === 'unavailable') {
+      T.cacheDel(T.slug);
+      showUnavailable();
     } else if (result.status === 'notfound') {
       if (net) T.cacheDel(T.slug);
       showNotFound();
     } else {
       console.warn('[tienda] error de red', result.error);
       if (shownKey || pendingKey) return; // se queda la copia local ya pintada (o en camino)
+      // Ya se decidió con datos (copia local o servidor): no disponible / en pausa / no existe → no se cambia por "sin conexión".
+      var kind = $('tsMessage').hidden ? '' : $('tsMessage').getAttribute('data-kind');
+      if (kind === 'paused' || kind === 'notfound') return;
       if (attempt === 0) { attempt++; retryTimer = setTimeout(load, 600); return; } // 1.er fallo: reintento silencioso
       showError(true);
     }
@@ -507,7 +552,7 @@
     if (!T.slug) { showNotFound(); return; }
     if (T.initial) handle(T.initial);
     // Red (si los datos del servidor no eran recientes, T.first es la lectura de Firestore ya en curso).
-    T.first.then(function (r) { if (r !== T.initial) { r.source = r.source || 'network'; handle(r); } });
+    T.first.then(function (r) { if (r !== T.initial && !T.followed) { r.source = r.source || 'network'; handle(r); } });
     // Si estaba sin internet, reintenta en cuanto vuelva la conexión.
     window.addEventListener('online', function () { if (!shownKey && !$('tsMessage').hidden && $('tsMessage').getAttribute('data-kind') === 'error' && T.slug) { attempt = 0; load(); } });
   }
