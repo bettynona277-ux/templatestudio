@@ -575,8 +575,11 @@
   .lt-root [data-lt-card]:active{transform:translateY(-3px)}
   /* --- barra de compra fija (móvil) --- */
   .lt-root .lt-bbw{display:none}
+  /* Pie: solo el espacio justo para el botón flotante de WhatsApp (antes ~190px vacíos al final). */
+  .lt-root [data-lt-foot]{padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
   @media (max-width:720px){
-    .lt-root.lt-has-bb{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+    /* Con la barra de compra fija, el espacio va DENTRO del pie (mismo color) y no como franja vacía debajo. */
+    .lt-root.lt-has-bb [data-lt-foot]{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))!important}
     .lt-root.lt-has-bb [data-lt-fab]{display:none!important}
     .lt-root .lt-bbw{display:block;position:fixed;left:0;right:0;bottom:0;z-index:60;pointer-events:none;padding:0 10px calc(10px + env(safe-area-inset-bottom,0px))}
     .lt-root.lt-in-preview .lt-bbw{position:sticky;height:0;padding:0}
