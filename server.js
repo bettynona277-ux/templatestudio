@@ -493,7 +493,12 @@ function tiendaInjectData(html, slug, result, extra = {}) {
 function tiendaInjectOg(html, data, slug, origin, pageUrlIn) {
   const name = tiendaText(data.name, 80) || 'Tienda de streaming';
   const desc = tiendaText(data.tagline, 120) || tiendaText(data.heroSubtitle, 200) || `Planes de streaming de ${name}. Pide por WhatsApp.`;
-  const image = tiendaImage(data.coverUrl, 'cover') || tiendaImage(data.logoUrl, 'logo') || `${origin}/icons/icon-512.png`;
+  // Vista previa del enlace (WhatsApp/Facebook): mejor JPG/PNG que webp (algunas versiones de WhatsApp no muestran webp).
+  // La portada ligera (coverSmUrl) se sube en JPG desde el editor; las portadas viejas en webp se usan si no hay otra.
+  const isJpgPng = u => /\.(jpe?g|png)(?:$|[?#])/i.test(decodeURIComponent(String(u || '')));
+  const image = [[data.coverSmUrl, 'cover'], [data.coverUrl, 'cover'], [data.logoUrl, 'logo']].map(([u, k]) => tiendaImage(u, k)).filter(Boolean)
+    .sort((a, b) => (isJpgPng(b) || /res\.cloudinary\.com/.test(b)) - (isJpgPng(a) || /res\.cloudinary\.com/.test(a)))[0] || `${origin}/icons/icon-512.png`;
+  const imgType = /res\.cloudinary\.com|\.jpe?g(?:$|[?#])/i.test(decodeURIComponent(image)) ? 'image/jpeg' : /\.png(?:$|[?#])/i.test(image) ? 'image/png' : /\.webp(?:$|[?#])/i.test(decodeURIComponent(image)) ? 'image/webp' : '';
   const color = /^#[0-9a-f]{6}$/i.test(String(data.theme && data.theme.primary || '')) ? data.theme.primary : '';
   const pageUrl = pageUrlIn || `${origin}/${slug}`;
   const tags = [
@@ -504,8 +509,13 @@ function tiendaInjectOg(html, data, slug, origin, pageUrlIn) {
     `<meta property="og:url" content="${tiendaEsc(pageUrl)}">`,
     `<meta property="og:image" content="${tiendaEsc(image)}">`,
     `<meta property="og:image:alt" content="${tiendaEsc(name)}">`,
+    `<meta property="og:image:secure_url" content="${tiendaEsc(image)}">`,
+    ...(imgType ? [`<meta property="og:image:type" content="${imgType}">`] : []),
     `<meta property="og:locale" content="es_LA">`,
-    `<meta name="twitter:card" content="${data.coverUrl ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:card" content="${data.coverUrl || data.coverSmUrl ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${tiendaEsc(name)}">`,
+    `<meta name="twitter:description" content="${tiendaEsc(desc)}">`,
+    `<meta name="twitter:image" content="${tiendaEsc(image)}">`,
     `<link rel="canonical" href="${tiendaEsc(pageUrl)}">`
   ].join('\n');
   // Reemplazos con función: evita que "$&", "$'"… del texto del usuario se interpreten.
