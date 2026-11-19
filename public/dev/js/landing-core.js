@@ -70,7 +70,9 @@
   function vipState(d, now = Date.now()) {
     if (!d || d.vip !== true) return 'none';
     const until = vipUntilNum(d.vipUntil);
-    return until !== null && until <= now ? 'expired' : 'active';
+    // Prueba VIP gratis (vipTrial) vencida: la tienda vuelve a ser normal (sigue visible), no "VIP vencido".
+    if (until !== null && until <= now) return d.vipTrial === true ? 'none' : 'expired';
+    return 'active';
   }
   const vipActive = (d, now) => vipState(d, now) === 'active';
   /** Plantillas exclusivas del plan VIP (sin VIP se pintan con la indicada). */
@@ -285,7 +287,7 @@
       motion: ['calm', 'normal', 'max'].includes(d.motion) ? d.motion : 'normal',
       enabled: d.enabled !== false,
       // Plan VIP: solo los copia el editor desde users/{uid} (las reglas de Firestore lo verifican).
-      vip: d.vip === true, vipUntil: vipUntilNum(d.vipUntil), customDomain: normDomain(d.customDomain),
+      vip: d.vip === true, vipTrial: d.vip === true && d.vipTrial === true, vipUntil: vipUntilNum(d.vipUntil), customDomain: normDomain(d.customDomain),
       // Compatibilidad con la regla existente de Firestore (lista obligatoria, <= 50).
       platforms: [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))].slice(0, 50),
       updatedAt: Date.now()
