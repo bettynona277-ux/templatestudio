@@ -378,6 +378,18 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
   .top:has(#vipBadge:not([hidden])) .status span{overflow:hidden;text-overflow:ellipsis}}
 @media(max-width:374px){.vipb small{display:none}}
 .status i{flex:none}
+.trybar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border-radius:14px;background:linear-gradient(110deg,rgba(245,158,11,.16),rgba(124,58,237,.18));border:1px solid rgba(253,230,138,.4);color:#FDE68A}
+.trybar>svg{flex:none;width:22px;height:22px}
+.trybar>div{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.trybar b{font-size:14px;color:#FEF3C7}
+.trybar span{font-size:12.5px;color:#E9D5FF;line-height:1.35}
+.trybar .btn{flex:none}
+.ov .trybar{margin:8px 10px 0;border-radius:12px}
+.tpl .vtry{display:none;position:absolute;top:14px;left:14px;z-index:1;align-items:center;gap:4px;padding:4px 9px;border-radius:99px;background:#F59E0B;color:#1a1204;font-size:11.5px;font-weight:800}
+.tpl.trying{outline:2px solid #F59E0B;outline-offset:2px}
+.tpl.trying .vtry{display:inline-flex}
+.tpl.trying .vlock{display:none}
+@media(max-width:700px){.trybar{gap:8px;padding:9px 10px}.trybar>div{flex-basis:100%}.trybar span{font-size:12px}.trybar .btn{flex:1}}
 .tpl .vlock{position:absolute;top:14px;left:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:99px;background:rgba(10,8,18,.88);color:#FDE68A;font-size:11.5px;font-weight:800;border:1px solid rgba(253,230,138,.45);box-shadow:0 4px 12px rgba(0,0,0,.35)}
 .tpl .vlock svg{width:13px;height:13px}
 .tpl.locked .thumb{filter:saturate(.75)}
@@ -606,7 +618,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=17', 'js/landing-templates-b.js?v=14', 'js/landing-templates-d.js?v=22'].forEach(function (f) {
+['js/landing-core.js?v=17', 'js/landing-templates-b.js?v=14', 'js/landing-templates-d.js?v=22', 'js/landing-templates-e.js?v=2'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -746,6 +758,8 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     backend: null, uid: '', data: null, publishedSlug: '', publishedSig: '',
     open: 'planes', openPlan: null, openCombo: null, addPlat: false,
     saving: false, pvMode: 'phone', wa: { cc: '51', num: '' }, wz: null, up: {},
+    // Prueba de una plantilla VIP sin tener VIP: solo cambia la vista previa (S.data.template no se toca, no se publica).
+    tryTpl: null,
     localPrev: {}, mine: new Set(), keep: new Set(), pubImgs: [],
     // Demo (sin subida real): URL https ficticia → blob: local, para ver las imágenes en el editor y la vista previa.
     localMap: {}, stats: null, statsRange: 7, upImg: {},
@@ -1056,7 +1070,38 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   }
   let pvFrame = null, ovFrame = null;
   // La vista previa se pinta igual que la tienda: sin VIP, quieta y sin plantillas exclusivas.
-  function previewData() { return { ...prepared(S.data), ...vipFields() }; }
+  function previewData() {
+    const d = { ...prepared(S.data), ...vipFields() };
+    // Probando una plantilla VIP: se ve completa y animada, como la verían sus clientes con VIP.
+    if (S.tryTpl && vipLocked(S.tryTpl)) return { ...d, template: S.tryTpl, vip: true, vipUntil: null };
+    return d;
+  }
+  /** Barra que avisa que es una vista previa de una plantilla VIP (PC: sobre la vista previa; celular: en la vista a pantalla completa). */
+  function tryBarHtml() {
+    const t = tplList().find(x => x.id === S.tryTpl), cur = tplList().find(x => x.id === S.data.template);
+    return `<div class="trybar" role="status">${I('crown')}<div><b>Vista previa VIP: ${esc(t ? t.name : 'plantilla VIP')}</b><span>Así se vería tu página, con animaciones. Para publicarla necesitas VIP (tu página sigue con ${esc(cur ? cur.name : 'tu plantilla')}).</span></div>` +
+      `<button type="button" class="btn sm pri" data-act="vipInfo" data-arg="${esc(S.tryTpl || 'navidad')}">Quiero VIP</button><button type="button" class="btn sm" data-act="endTry">Quitar</button></div>`;
+  }
+  function paintTryBar() {
+    $$('.trybar').forEach(b => b.remove());
+    if (!S.tryTpl) return;
+    const pane = $('#pane .pv-bar'); if (pane) pane.insertAdjacentHTML('afterend', tryBarHtml());
+    const ov = $('#pvOverlay .ov-h'); if (ov) ov.insertAdjacentHTML('afterend', tryBarHtml());
+  }
+  function startTry(id) {
+    S.tryTpl = id;
+    $$('.tpl[data-locked]').forEach(b => b.classList.toggle('trying', b.dataset.arg === id));
+    paintTryBar();
+    if (isDesktop()) { if (pvFrame) renderFrame(pvFrame, previewData()); }
+    else if ($('#pvOverlay').hidden) openOverlay(); else if (ovFrame) renderFrame(ovFrame, previewData());
+  }
+  function endTry(repaint = true) {
+    if (!S.tryTpl) return;
+    S.tryTpl = null;
+    $$('.tpl.trying').forEach(b => b.classList.remove('trying'));
+    paintTryBar();
+    if (repaint) { if (pvFrame) renderFrame(pvFrame, previewData()); if (ovFrame && !$('#pvOverlay').hidden) renderFrame(ovFrame, previewData()); }
+  }
   function buildStage() {
     const st = $('#stage'); if (!st) return;
     disposeFrames(st); st.innerHTML = '';
@@ -1096,6 +1141,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     ovFrame = makeFrame('Vista previa de tu página'); wireEdit(ovFrame); setOvHint(''); ovFrame.style.cssText = 'flex:1;width:100%;border:0;background:#0b0b10';
     host.appendChild(ovFrame);
     $('#pvOverlay').hidden = false; document.body.style.overflow = 'hidden';
+    paintTryBar();
     renderFrame(ovFrame, previewData());
     $('#ovClose').focus();
     // Botón "atrás" del celular: cierra la vista previa en vez de salir del editor.
@@ -1374,9 +1420,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!list.length) return '<div class="empty">Las plantillas se están cargando… Si no aparecen, recarga la página.</div>';
     // Plantillas de temporada (seasonal:true, VIP): en su propio grupo "De temporada · VIP" debajo de las normales.
     const grid = arr => `<div class="tpl-grid" role="list">${arr.map(t => { const lk = vipLocked(t.id); return `
-      <button type="button" class="tpl${lk ? ' locked' : ''}" role="listitem" data-act="pickTpl" data-arg="${esc(t.id)}"${lk ? ' data-locked="1"' : ''} aria-pressed="${t.id === current}" aria-label="Plantilla ${esc(t.name)}${lk ? ' (exclusiva VIP)' : ''}">
+      <button type="button" class="tpl${lk ? ' locked' : ''}${lk && S.tryTpl === t.id ? ' trying' : ''}" role="listitem" data-act="pickTpl" data-arg="${esc(t.id)}"${lk ? ' data-locked="1"' : ''} aria-pressed="${t.id === current}" aria-label="Plantilla ${esc(t.name)}${lk ? ' (exclusiva VIP)' : ''}">
         <span class="thumb" data-thumb="${esc(t.id)}"></span>
-        ${lk ? `<span class="vlock">${I('lock')}Exclusiva VIP</span>` : ''}
+        ${lk ? `<span class="vlock">${I('lock')}Probar · VIP</span><span class="vtry">${I('eye', 'sm')}Probando</span>` : ''}
         <span class="ck">${I('check', 'sm')}</span>
         <b>${esc(t.name)}</b><small>${esc(t.description || '')}</small>
       </button>`; }).join('')}</div>`;
@@ -2121,7 +2167,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
 
   const ACTS = {
     toggleSec(id) { openSection(S.open === id ? null : id); },
-    pickTpl(id, btn) { if (vipLocked(id)) return openVipSheet(id); S.data.template = id; markTpl(btn.closest('.tpl-grid') || document, id); changed(); },
+    // Sin VIP, una plantilla VIP se puede PROBAR en la vista previa (animada), pero no aplicar ni publicar.
+    pickTpl(id, btn) { if (vipLocked(id)) return startTry(id); endTry(false); S.data.template = id; markTpl(btn.closest('.tpl-grid') || document, id); changed(); },
+    endTry() { endTry(); },
     vipInfo(reason) { openVipSheet(reason); },
     color(arg) { const [k, c] = arg.split('|'); S.data.theme[k] = c; markSwatches(); changed(); },
     fixWa() { S.data.whatsapp = waFull(); const h = $('#waHint'); if (h) h.innerHTML = waHint(); changed(); toast('Número actualizado con el código de país.', 'ok'); },
@@ -2832,6 +2880,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!S.vip.active) { toast('Tu cuenta está inhabilitada: no se puede publicar. Escríbele a Rafa para reactivarla.', 'error'); return; }
     if (vipState() === 'expired') { openVipSheet('renew'); return; }
     if (vipLocked(S.data.template)) S.data.template = vipFallbackOf(S.data.template);
+    if (S.tryTpl) { const cur = tplList().find(x => x.id === S.data.template); endTry(); toast(`Se publica con tu plantilla ${cur ? cur.name : ''}. Las de Navidad son del plan VIP.`, 'info'); }
     const v = validate();
     if (v) { toast(v.msg, 'error'); goTo(v.sec, v.focus); return; }
     const slug = S.data.slug;
