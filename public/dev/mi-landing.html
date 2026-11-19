@@ -2284,8 +2284,10 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const toBlob = (c, type, q) => new Promise(res => c.toBlob(b => res(b), type, q));
   const MAX_BYTES = (LC.STORAGE && LC.STORAGE.maxBytes) || 1024 * 1024;
   /** Codifica el canvas en webp (o jpg/png si no hay webp) y baja la calidad hasta que pese menos de 1 MB. */
-  async function encodeCanvas(c, q, alpha, jpegBg) {
-    let blob = await toBlob(c, 'image/webp', q);
+  async function encodeCanvas(c, q, alpha, jpegBg, jpegOnly) {
+    // jpegOnly: la portada ligera va en JPG para que WhatsApp/Facebook la muestren en la vista previa del enlace
+    // (algunas versiones de WhatsApp no muestran imágenes webp).
+    let blob = jpegOnly ? null : await toBlob(c, 'image/webp', q);
     const webp = !!blob && blob.type === 'image/webp';
     if (!webp && jpegBg) {
       // Sin webp (navegadores viejos): jpeg sobre un fondo liso (logos de apps sobre blanco).
@@ -2311,7 +2313,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const CROP = {
     coverUrl: { ratio: 851 / 315, zoom: false, alpha: false,
       // Dos archivos del mismo recorte: grande para PC y ligero para celulares (el núcleo elige).
-      out: [{ key: 'coverUrl', kind: 'cover', w: 1600, q: 0.8 }, { key: 'coverSmUrl', kind: 'cover-sm', w: 800, q: 0.78 }], title: 'Encuadra tu portada', hint: 'Arrastra la imagen para elegir qué parte se ve. Luego toca Listo.' },
+      out: [{ key: 'coverUrl', kind: 'cover', w: 1600, q: 0.8 }, { key: 'coverSmUrl', kind: 'cover-sm', w: 1200, q: 0.8, jpeg: true }], title: 'Encuadra tu portada', hint: 'Arrastra la imagen para elegir qué parte se ve. Luego toca Listo.' },
     logoUrl: { ratio: 1, zoom: true, alpha: true, out: [{ key: 'logoUrl', kind: 'logo', w: 400, q: 0.85 }], title: 'Encuadra tu logo', hint: 'Arrastra para centrarlo y usa la barra para acercar. Luego toca Listo.' },
     // Ronda 6: logo de una app (propia o reemplazo del catálogo): cuadrado 256 px webp; si no hay webp, jpeg sobre blanco.
     appLogo: { ratio: 1, zoom: true, alpha: true, jpegBg: '#ffffff', out: [{ key: 'imageUrl', kind: 'app', w: 256, q: 0.85 }], title: 'Encuadra el logo de la app', hint: 'Arrastra para centrarlo y usa la barra para acercar. Luego toca Listo.' }
@@ -2388,7 +2390,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       if (!o.alpha) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, ow, oh); }
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, ow, oh);
-      out.push({ key: t.key, kind: t.kind, blob: await encodeCanvas(c, t.q, o.alpha, o.jpegBg) });
+      out.push({ key: t.key, kind: t.kind, blob: await encodeCanvas(c, t.q, o.alpha, o.jpegBg, !!t.jpeg) });
       c.width = c.height = 0;
     }
     return out;
