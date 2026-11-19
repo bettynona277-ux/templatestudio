@@ -594,6 +594,21 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .lt-promo-btn{background:var(--nv-gold);color:#5c050c}
 .lt-navidad .ltb-cph{border-radius:14px;border:3px solid #fff;box-shadow:0 8px 18px rgba(90,5,12,.15)}
 @media (min-width:760px){.lt-navidad .ltn-combo.has-ph .ltb-cph{grid-column:1}}
+/* PC entre 880 y 1100 px (hero en 2 columnas): el guión "Feliz Navidad" ya no se parte en 2 líneas y "Ver precios"
+   cabe al lado del botón principal (columna de texto más ancha) */
+@media (min-width:880px){.lt-navidad .ltn-script{font-size:clamp(56px,6.6vw,84px)}}
+@media (min-width:880px) and (max-width:1099px){.lt-navidad .ltn-hero-in{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:32px}}
+/* tarjetas de plan: precio arriba y botón a todo el ancho en TODAS (antes unas en fila y otras apiladas según el largo del precio) */
+.lt-navidad .ltn-buyrow .ltb-btn{flex-basis:100%}
+/* panel con título centrado → tarjetas y beneficios centrados: la fila incompleta queda al medio (antes 3 + 1 pegado a la izquierda) */
+.lt-navidad .ltb-grid{display:flex;flex-wrap:wrap;justify-content:center}
+.lt-navidad .ltb-grid>*{flex:0 0 100%;max-width:100%}
+@media (min-width:640px){.lt-navidad .ltb-grid>*{flex-basis:calc((100% - 22px) / 2);max-width:calc((100% - 22px) / 2)}}
+@media (min-width:904px){.lt-navidad .ltb-grid>*{flex-basis:calc((100% - 44px) / 3);max-width:calc((100% - 44px) / 3)}}
+.lt-navidad .ltb-bens{display:flex;flex-wrap:wrap;justify-content:center}
+.lt-navidad .ltb-bens li{flex:0 0 100%;max-width:100%}
+@media (min-width:560px){.lt-navidad .ltb-bens li{flex-basis:calc((100% - 14px) / 2);max-width:calc((100% - 14px) / 2)}}
+@media (min-width:1100px){.lt-navidad .ltb-bens li{flex-basis:calc((100% - 42px) / 4);max-width:calc((100% - 42px) / 4)}}
 `;
 
   // ---------- dibujos ----------
@@ -928,6 +943,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @keyframes ltg-burst{0%{opacity:1;transform:translate(0,0) rotate(0) scale(.4)}100%{opacity:0;transform:translate(var(--x),var(--y)) rotate(var(--r)) scale(1)}}
 @media (max-width:360px){.lt-navidad2 .ltg-ctabar small{display:none}.lt-navidad2 .ltg-ctabar{justify-content:center}}
 @media (max-width:420px){.lt-navidad2 .ltb-headcta span{display:none}.lt-navidad2 .ltg-ctabar{font-size:15.5px;padding:14px 14px}.lt-navidad2 .ltg-ctabar small{font-size:13px}}
+/* PC: con la caja en 2 columnas (880 px o más) el título baja con el ancho: "entretenimiento" ya no se parte entre 880 y ~1180 px */
+@media (min-width:880px){.lt-navidad2 .ltb-h1{font-size:clamp(40px,5.4vw,64px)}}
 `;
 
   function renderNavidad2(root, d, ctx) {
@@ -1156,6 +1173,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad3 .ltz-pi small{display:block;margin-top:3px;font-size:14px;color:var(--z-mut);overflow-wrap:anywhere}
 .lt-navidad3 .ltz-wa{flex:none;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:999px;background:linear-gradient(180deg,#26b45a,var(--z-green2));color:#fff;font-weight:700;font-size:15px;text-decoration:none;box-shadow:0 6px 14px rgba(20,122,55,.3)}
 .lt-navidad3 .ltz-wa svg{width:22px;height:22px}
+/* PC intermedio (701–1060 px): la tarjeta de perfil ya no toca los bordes de la pantalla; con portada, mismo ancho que la portada */
+@media (min-width:701px){.lt-navidad3 .ltz-prof{width:calc(100% - 28px)}.lt-navidad3 .ltz-ban.has-cover+.ltz-prof{max-width:920px}}
 @media (max-width:700px){.lt-navidad3 .ltz-prof{flex-wrap:wrap;margin:-50px 14px 0;gap:12px}.lt-navidad3 .ltz-wa{width:100%;justify-content:center}.lt-navidad3 .ltz-pi{padding-left:12px}}
 /* bloque principal */
 .lt-navidad3 .ltz-main{position:relative;overflow:hidden;padding:44px 18px 40px;text-align:center}

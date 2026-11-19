@@ -383,7 +383,10 @@
     // aparición al hacer scroll ni fundidos (todo visible desde el inicio).
     const vip = vipActive(data);
     const noMotion = !vip;
-    const reducedMotion = noMotion || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // forceMotion (solo vista previa del editor): el dueño ve las animaciones que eligió aunque su equipo tenga
+    // "reducir movimiento"; la tienda pública (sin preview) siempre respeta esa preferencia del visitante.
+    const forceMotion = !!(opts.preview && opts.forceMotion);
+    const reducedMotion = noMotion || (!forceMotion && typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const vis = visibleInfo(data);
     const pInfo = platformInfoWith(appOverrides(data));
     const promo = activePromo(data, vis);
@@ -397,6 +400,8 @@
       /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
       minPrice: vis.minPrice, minPriceValue: vis.minPriceValue,
       preview: !!opts.preview, reducedMotion,
+      /** true en la vista previa del editor: se ignora "reducir movimiento" del equipo del dueño (no del visitante). */
+      forceMotion,
       /** true si la tienda tiene VIP vigente (animaciones y plantillas exclusivas). */
       vip,
       /** true sin VIP: sin animaciones, bucles, partículas ni apariciones al hacer scroll (todo visible y quieto). */
@@ -634,6 +639,7 @@
   function applyMotion(root, d, ctx) {
     root.dataset.ltMotion = ctx.noMotion ? 'none' : ctx.motion;
     root.classList.toggle('lt-in-preview', !!ctx.preview);
+    root.classList.toggle('lt-force-motion', !!ctx.forceMotion && !ctx.noMotion);
     root.classList.toggle('lt-static', !!ctx.noMotion);
     if (ctx.noMotion || ctx.motion !== 'max') return null;
     const cleanups = [];
@@ -782,12 +788,20 @@
     };
   }
 
+  /** Copia de CSS para un documento de vista previa con forceMotion: anula las reglas
+   *  @media (prefers-reduced-motion: reduce) (núcleo y plantillas) para que se vean las animaciones elegidas.
+   *  Solo para iframes del editor; la tienda pública nunca la usa. */
+  const RM_QUERY = /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g;
+  function cssIgnoringReducedMotion(css) {
+    return String(css || '').replace(RM_QUERY, '(prefers-reduced-motion: reduce) and (prefers-reduced-motion: no-preference)');
+  }
+
   root.LandingCore = Object.freeze({
     FIREBASE, CLOUDINARY, STORAGE, COLLECTION, DEFAULTS, PLATFORMS, LINK_TYPES, LINK_ICONS, CURRENCIES,
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
     normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
-    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft
+    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion
   });
 })(typeof window !== 'undefined' ? window : globalThis);
