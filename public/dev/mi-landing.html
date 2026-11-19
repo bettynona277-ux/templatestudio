@@ -399,6 +399,13 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 .viplock b{display:block;font-size:14px}
 .viplock small{display:block;font-size:12px;color:var(--tx3);margin-top:2px;line-height:1.35}
 .viplock .go{margin-left:auto;font-size:12.5px;font-weight:700;color:#FCD34D;white-space:nowrap}
+.vipnote.trial{background:linear-gradient(110deg,rgba(245,158,11,.14),rgba(124,58,237,.18));border-color:rgba(253,230,138,.45);color:#FEF3C7}
+.vipnote.trial p{flex:1 1 260px;margin:0;line-height:1.45}
+.vipnote.trial .tn-ic{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:rgba(245,158,11,.2);color:#FCD34D}
+.vipnote.trial .tn-ic svg{width:20px;height:20px}
+.vipsheet .vprice{display:inline-block;margin:10px 0 4px;padding:6px 14px;border-radius:99px;background:rgba(245,158,11,.16);color:#FCD34D;font-weight:800;font-size:15px}
+.trialgift{display:flex;gap:10px;align-items:flex-start;margin:12px 0 0;padding:12px 14px;border-radius:14px;background:linear-gradient(110deg,rgba(245,158,11,.16),rgba(124,58,237,.2));border:1px solid rgba(253,230,138,.4);color:#FEF3C7;font-size:13.5px;line-height:1.45;text-align:left}
+.trialgift svg{flex:none;color:#FCD34D;margin-top:2px}
 .vipnote{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:12px 14px;margin:0 0 14px;border-radius:14px;background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.35);color:#FECDD3;font-size:13.5px}
 .vipnote b{color:#fff}
 .vipnote p{margin:0;flex:1 1 220px}
@@ -618,7 +625,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=19', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=24', 'js/landing-templates-e.js?v=3'].forEach(function (f) {
+['js/landing-core.js?v=20', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=24', 'js/landing-templates-e.js?v=3'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -764,7 +771,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     // Demo (sin subida real): URL https ficticia → blob: local, para ver las imágenes en el editor y la vista previa.
     localMap: {}, stats: null, statsRange: 7, upImg: {},
     // Plan VIP (users/{uid}: landingVip, landingVipUntil, customDomain; solo lo cambia el admin). active=false: cuenta inhabilitada.
-    vip: { on: false, until: null, domain: '', active: true }
+    vip: { on: false, until: null, domain: '', active: true, trial: false, trialUsed: false, trialUntil: null, paid: false, exists: false }
   };
 
   // ---------- helpers de datos ----------
@@ -886,7 +893,41 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const vipState = () => !S.vip.on ? 'none' : (S.vip.until && S.vip.until <= Date.now() ? 'expired' : 'active');
   const isVip = () => vipState() === 'active';
   /** Lo que se guarda en public_catalogs: SIEMPRE copiado de users/{uid}, nunca de algo editable por el usuario. */
-  const vipFields = () => ({ vip: S.vip.on === true, vipUntil: S.vip.on ? (S.vip.until || null) : null, customDomain: S.vip.domain || '' });
+  const vipFields = () => ({ vip: S.vip.on === true, vipTrial: S.vip.on === true && S.vip.trial === true, vipUntil: S.vip.on ? (S.vip.until || null) : null, customDomain: S.vip.domain || '' });
+  // Precio del plan VIP (lo ve el cliente en la hoja VIP y en los avisos de la prueba).
+  const VIP_PRICE = 'S/ 7 al mes (o US$ 2)';
+  const TRIAL_DAYS = 7;
+  /** Puede activar la prueba gratis: nunca tuvo VIP del admin, nunca usó la prueba y su usuario existe. */
+  const trialEligible = () => !!(S.vip.loaded !== false && S.vip.exists && !S.vip.paid && !S.vip.trialUsed && S.vip.active && S.backend && typeof S.backend.startTrial === 'function');
+  const daysLeft = ms => Math.max(0, Math.ceil((ms - Date.now()) / 864e5));
+  /** Activa la prueba VIP gratis (users/{uid}: landingTrialUsed, landingTrialUntil). quiet: sin ventana de bienvenida. */
+  async function startTrial(quiet) {
+    if (!trialEligible()) return false;
+    const until = Date.now() + TRIAL_DAYS * 864e5 - 60000;
+    try { await withTimeout(S.backend.startTrial(until), 15000); }
+    catch (e) { console.warn('[mi-landing] prueba VIP', e); if (!quiet) toast('No pudimos activar tu prueba. Revisa tu conexión e inténtalo de nuevo.', 'error'); return false; }
+    S.vip = { ...S.vip, on: true, trial: true, trialUsed: true, trialUntil: until, until };
+    renderVip(); buildAccordion(); updateStatus();
+    if (pvFrame) renderFrame(pvFrame, previewData());
+    if (!quiet) openTrialWelcome();
+    return true;
+  }
+  function openTrialWelcome() {
+    openModal(`<div class="vipsheet"><div class="crown" aria-hidden="true">${I('crown')}</div>
+      <h2 id="modalTitle">¡Tienes ${TRIAL_DAYS} días de VIP gratis!</h2>
+      <p>Desde ahora y hasta el <b>${esc(shortDate(S.vip.trialUntil))}</b> tu página tiene todo lo del plan VIP: plantillas de Navidad, animaciones, tu enlace <b>${esc((S.data && S.data.slug) || 'tunegocio')}.${SUB_BASE}</b>, estadísticas y sin marca.</p>
+      <p style="margin-top:8px">Al terminar, tu página <b>sigue funcionando</b> en versión Normal. Si te gustó, sigue con VIP por <b>${VIP_PRICE}</b>.</p>
+      <div class="acts"><button class="btn pri block" type="button" data-act="closeModal" data-autofocus>¡Genial, a probar!</button></div></div>`);
+  }
+  /** Resumen de la prueba (visitas y clics a WhatsApp) para el aviso del final. */
+  async function trialResults() {
+    if (!S.publishedSlug || !S.vip.trialUntil || !S.backend || typeof S.backend.loadStats !== 'function') return null;
+    try {
+      const rows = await withTimeout(S.backend.loadStats(S.publishedSlug, dayStr(S.vip.trialUntil - TRIAL_DAYS * 864e5)), 15000);
+      let views = 0, wa = 0; (rows || []).forEach(r => { views += Number(r.views) || 0; wa += Number(r.wa) || 0; });
+      return { views, wa };
+    } catch (_) { return null; }
+  }
   // Enlace VIP: dominio propio si lo tiene; si no, subdominio gratis <slug>.planesvip.com (lo resuelve server.js).
   const SUB_BASE = 'planesvip.com';
   const vipHost = slug => S.vip.domain || (isVip() && slug && !LC.slugError(slug) ? `${slug}.${SUB_BASE}` : '');
@@ -903,9 +944,14 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   function setUserInfo(u) {
     const loaded = !(u && u.__err);
     u = (loaded && u) || {};
-    const until = Number(u.landingVipUntil);
-    S.vip = { on: u.landingVip === true, until: Number.isFinite(until) && until > 0 ? Math.round(until) : null,
-      domain: LC.normDomain ? LC.normDomain(u.customDomain) : '', active: u.active !== false, loaded };
+    const until = Number(u.landingVipUntil), tUntil = Number(u.landingTrialUntil);
+    const paid = u.landingVip === true;
+    const trialUntil = Number.isFinite(tUntil) && tUntil > 0 ? Math.round(tUntil) : null;
+    // Prueba VIP gratis (7 días, una vez): mientras dure, funciona igual que VIP. Al vencer, vuelve a Normal (la página sigue visible).
+    const trial = !paid && !!trialUntil && trialUntil > Date.now();
+    S.vip = { on: paid || trial, until: paid ? (Number.isFinite(until) && until > 0 ? Math.round(until) : null) : trial ? trialUntil : null,
+      domain: paid && LC.normDomain ? LC.normDomain(u.customDomain) : '', active: u.active !== false, loaded,
+      paid, trial, trialUsed: u.landingTrialUsed === true || !!trialUntil, trialUntil, exists: loaded && !!u && Object.keys(u).length > 0 };
   }
   /** Antes de publicar: si users/{uid} no se pudo leer al entrar, se reintenta (sin esto un VIP guardaría vip:false). */
   async function ensureUserInfo() {
@@ -929,7 +975,8 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       : reason === 'brand' ? 'Con VIP tu página no muestra “Hecho con Diseños Streaming”.'
       : renew ? 'Renueva tu plan VIP para que tu página vuelva a mostrarse.' : 'Haz que tu página destaque.';
     openModal(`<div class="vipsheet"><div class="crown" aria-hidden="true">${I('crown')}</div>
-      <h2 id="modalTitle">${mine ? 'Tu plan VIP' : renew ? 'Renueva tu plan VIP' : 'Plan VIP'}</h2><p>${esc(lead)}</p>
+      <h2 id="modalTitle">${mine ? (S.vip.trial ? 'Tu prueba VIP' : 'Tu plan VIP') : renew ? 'Renueva tu plan VIP' : 'Plan VIP'}</h2><p>${esc(mine && S.vip.trial ? `Tu prueba VIP gratis termina el ${shortDate(S.vip.until)}.` : lead)}</p>
+      <p class="vprice">${VIP_PRICE}</p>
       <ul>
         <li>${I('spark')}<span><b>Plantilla de Navidad</b><small>Diseño de temporada con nieve, luces y guirnaldas.</small></span></li>
         <li>${I('wave')}<span><b>Animaciones</b><small>Movimiento, brillos y partículas: Tranquila, Animada o Espectacular.</small></span></li>
@@ -940,7 +987,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
         <li>${I('qr')}<span><b>QR con tu logo</b><small>Tarjeta para estados de WhatsApp y para imprimir.</small></span></li>
         <li>${I('badge')}<span><b>Sin marca</b><small>Tu página sin “Hecho con Diseños Streaming”.</small></span></li>
       </ul>
-      <div class="acts"><a class="btn wa block" href="${esc(vipWaUrl(renew))}" target="_blank" rel="noopener"${mine ? '' : ' data-autofocus'}>${I('chat', 'sm')}${renew ? 'Renovar VIP por WhatsApp' : 'Pedir VIP por WhatsApp'}</a>
+      <div class="acts">${trialEligible() ? `<button class="btn pri block" type="button" data-act="startTrial" data-autofocus>Probar VIP gratis ${TRIAL_DAYS} días</button>` : ''}<a class="btn wa block" href="${esc(vipWaUrl(renew))}" target="_blank" rel="noopener"${mine || trialEligible() ? '' : ' data-autofocus'}>${I('chat', 'sm')}${renew ? 'Renovar VIP por WhatsApp' : mine && S.vip.trial ? 'Seguir con VIP por WhatsApp' : 'Pedir VIP por WhatsApp'}</a>
         <button class="btn ghost block" type="button" data-act="closeModal"${mine ? ' data-autofocus' : ''}>${mine ? 'Listo' : 'Ahora no'}</button></div></div>`);
   }
   /** Insignia de la barra superior y aviso de VIP vencido / cuenta inhabilitada. */
@@ -948,13 +995,25 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     const st = vipState(), b = $('#vipBadge'), n = $('#vipNotice');
     if (b) {
       b.hidden = st !== 'active';
-      if (st === 'active') b.innerHTML = `${I('crown')}VIP${S.vip.until ? `<small>· <span class="vh">hasta </span>${esc(shortDate(S.vip.until))}</small>` : ''}`;
+      if (st === 'active') b.innerHTML = S.vip.trial
+        ? `${I('crown')}VIP prueba<small>· <span class="vh">quedan </span>${daysLeft(S.vip.until)} ${daysLeft(S.vip.until) === 1 ? 'día' : 'días'}</small>`
+        : `${I('crown')}VIP${S.vip.until ? `<small>· <span class="vh">hasta </span>${esc(shortDate(S.vip.until))}</small>` : ''}`;
     }
     if (n) {
       if (!S.vip.active) n.innerHTML = `<div class="vipnote" role="alert"><p><b>Tu cuenta está inhabilitada.</b> Tu página no se muestra. Escríbele a Rafa para reactivarla.</p>
         <a class="btn wa sm" href="https://wa.me/${VIP_WA}?text=${encodeURIComponent('Hola Rafa, quiero reactivar mi cuenta')}" target="_blank" rel="noopener">${I('chat', 'sm')}Escribir a Rafa</a></div>`;
       else if (st === 'expired') n.innerHTML = `<div class="vipnote" role="alert"><p><b>Tu VIP venció el ${esc(shortDate(S.vip.until))}.</b> Tu página no se muestra hasta renovar.</p>
         <a class="btn wa sm" href="${esc(vipWaUrl(true))}" target="_blank" rel="noopener">${I('chat', 'sm')}Renovar por WhatsApp</a></div>`;
+      else if (trialEligible()) n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('crown')}</span><p><b>Prueba VIP gratis por ${TRIAL_DAYS} días.</b> Plantillas de Navidad, animaciones, tu enlace .${SUB_BASE}, estadísticas y sin marca. Sin pagar nada; al terminar tu página sigue en versión Normal.</p>
+        <button class="btn pri sm" type="button" data-act="startTrial">Activar mi prueba gratis</button></div>`;
+      else if (st === 'active' && S.vip.trial && daysLeft(S.vip.until) <= 2) n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('clock')}</span><p><b>Tu prueba VIP termina ${daysLeft(S.vip.until) <= 1 ? 'mañana' : 'el ' + esc(shortDate(S.vip.until))}.</b> Después tu página pasa a versión Normal (sin animaciones ni plantillas VIP). Sigue con VIP por <b>${VIP_PRICE}</b>.</p>
+        <a class="btn wa sm" href="${esc(vipWaUrl(false))}" target="_blank" rel="noopener">${I('chat', 'sm')}Seguir con VIP</a></div>`;
+      else if (st === 'none' && S.vip.trialUsed && !S.vip.paid) {
+        n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('crown')}</span><p><b>Tu prueba VIP terminó.</b> <span id="trialRes"></span>Tu página sigue funcionando en versión Normal. Vuelve a VIP por <b>${VIP_PRICE}</b> y recupera tus animaciones, tu enlace .${SUB_BASE} y tus estadísticas.</p>
+          <a class="btn wa sm" href="${esc(vipWaUrl(false))}" target="_blank" rel="noopener">${I('chat', 'sm')}Volver a VIP</a></div>`;
+        if (!S.trialRes) { S.trialRes = 1; trialResults().then(x => { S.trialRes = x || 1; const e = $('#trialRes'); if (e && x && (x.views || x.wa)) e.innerHTML = `Durante tu prueba tu página tuvo <b>${x.views}</b> visitas y <b>${x.wa}</b> clics a WhatsApp. `; }); }
+        else if (S.trialRes.views || S.trialRes.wa) { const e = $('#trialRes'); if (e) e.innerHTML = `Durante tu prueba tu página tuvo <b>${S.trialRes.views}</b> visitas y <b>${S.trialRes.wa}</b> clics a WhatsApp. `; }
+      }
       else n.innerHTML = '';
     }
   }
@@ -2317,6 +2376,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     faqSuggest() { S.data.faq = FAQ_SUGGEST.map(f => ({ ...f })); renderSection('extras'); changed(); },
     useSlug(s) { S.data.slug = s; const el = $('#f-slug'); if (el) { el.value = s; el.dispatchEvent(new Event('input', { bubbles: true })); el.focus(); } else changed(); },
     publish() { publish(); },
+    startTrial() { closeModal(); startTrial(false); },
     copy(url) { copyText(url); },
     dlQr(url) { downloadQr(url); },
     printQr(url) { printQr(url); },
@@ -2884,6 +2944,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!(await ensureUserInfo())) { toast('No pudimos comprobar tu plan. Revisa tu conexión e inténtalo de nuevo.', 'error'); return; }
     if (!S.vip.active) { toast('Tu cuenta está inhabilitada: no se puede publicar. Escríbele a Rafa para reactivarla.', 'error'); return; }
     if (vipState() === 'expired') { openVipSheet('renew'); return; }
+    // Primera publicación de un usuario que nunca tuvo VIP: se le regala la prueba VIP de 7 días (una vez).
+    let trialNew = false;
+    if (!S.publishedSlug && trialEligible()) trialNew = await startTrial(true);
     if (vipLocked(S.data.template)) S.data.template = vipFallbackOf(S.data.template);
     if (S.tryTpl) { const cur = tplList().find(x => x.id === S.data.template); endTry(); toast(`Se publica con tu plantilla ${cur ? cur.name : ''}. Las de Navidad son del plan VIP.`, 'info'); }
     const v = validate();
@@ -2916,7 +2979,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       try { cleanupStorage(doc, prevPub); } catch (e) { console.warn('[mi-landing] limpiar', e); }
       saveDraftNow(); updateStatus(); updateSums();
       if (S.open === 'enlace') renderSection('enlace');
-      showPublished(slug, !old);
+      showPublished(slug, !old, trialNew);
     } catch (e) {
       console.warn('[mi-landing] publicar', e);
       if (!e.userMsg && /permission/i.test(String((e && (e.code || e.message)) || ''))) e.userMsg = 'No se pudo publicar: tu plan cambió. Recarga la página e inténtalo otra vez.';
@@ -2924,9 +2987,10 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       if (e.sec) goTo(e.sec, '#f-slug');
     } finally { S.saving = false; setPublishing(false); }
   }
-  function showPublished(slug, first) {
+  function showPublished(slug, first, trialNew) {
     openModal(`<div class="party" aria-hidden="true">🎉</div><h2 id="modalTitle">${first ? '¡Tu página ya está en línea!' : '¡Cambios publicados!'}</h2>
       <p>${S.data.enabled ? 'Comparte tu enlace con tus clientes.' : 'Ojo: tu página está oculta. Actívala en “Mi enlace” para que la vean.'}</p>
+      ${trialNew ? `<p class="trialgift">${I('crown', 'sm')}<span><b>¡Regalo de bienvenida: ${TRIAL_DAYS} días de VIP gratis!</b> Hasta el ${esc(shortDate(S.vip.trialUntil))} tienes plantillas de Navidad, animaciones, tu enlace .${SUB_BASE} y estadísticas. Luego tu página sigue en versión Normal.</span></p>` : ''}
       ${shareHtml(slug, true)}
       <div class="acts" style="margin-top:16px"><button class="btn ghost" type="button" data-act="closeModal" data-autofocus>Seguir editando</button></div>`);
   }
@@ -3191,8 +3255,12 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
         if (params.get('userfail') === '1' && !this.__uf) { this.__uf = 1; throw Object.assign(new Error('red'), { code: 'unavailable' }); }
         const v = params.get('vip'), u = params.get('vipUntil');
         const until = v === 'expired' ? Date.now() - 3 * 864e5 : v === 'forever' ? null : u ? Date.parse(u + 'T23:59:59') : Date.now() + 27 * 864e5;
-        return { landingVip: !!v && v !== '0', landingVipUntil: v ? until : null, customDomain: params.get('domain') || '', active: params.get('inactive') !== '1' };
+        // Prueba VIP: ?trial=new (puede activarla), ?trial=on (le quedan 2 días), ?trial=ended (ya terminó). Sin trial: ya la usó.
+        const t = params.get('trial');
+        const trial = t === 'on' ? { landingTrialUsed: true, landingTrialUntil: Date.now() + 1.5 * 864e5 } : t === 'ended' ? { landingTrialUsed: true, landingTrialUntil: Date.now() - 2 * 864e5 } : t === 'new' ? {} : { landingTrialUsed: true };
+        return { landingVip: !!v && v !== '0', landingVipUntil: v ? until : null, customDomain: params.get('domain') || '', active: params.get('inactive') !== '1', ...trial };
       },
+      async startTrial(until) { await wait(300); return true; },
       /** Estadísticas simuladas (solo demo con VIP): 30 días con visitas, clics y productos de sampleData. ?stats=0 → vacías. */
       async loadStats(slug, from) {
         await wait(300);
@@ -3237,7 +3305,7 @@ if (ML && !DEMO) {
     const app = appM.getApps().length ? appM.getApp() : appM.initializeApp(LC.FIREBASE);
     const auth = authM.getAuth(app);
     const db = fsM.getFirestore(app);
-    const { collection, query, where, limit, getDocs, getDoc, doc, setDoc, deleteDoc, documentId } = fsM;
+    const { collection, query, where, limit, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, documentId } = fsM;
     const COL = LC.COLLECTION;
     const STO = LC.STORAGE || { bucket: 'plantillas-bfaeb.firebasestorage.app', folder: 'landings' };
     const FOLDER = STO.folder || 'landings';
@@ -3279,6 +3347,8 @@ if (ML && !DEMO) {
         async getBySlug(slug) { const s = await getDoc(doc(db, COL, slug)); return s.exists() ? s.data() : null; },
         /** users/{uid}: plan VIP (landingVip, landingVipUntil), dominio propio (customDomain) y si la cuenta está activa. */
         async loadUser() { const s = await getDoc(doc(db, 'users', uid)); return s.exists() ? s.data() : null; },
+        /** Prueba VIP gratis: solo agrega landingTrialUsed y landingTrialUntil (las reglas permiten hacerlo una vez, máx. 7 días). */
+        async startTrial(until) { await updateDoc(doc(db, 'users', uid), { landingTrialUsed: true, landingTrialUntil: Math.round(until) }); return true; },
         /** Estadísticas (VIP): landing_stats/{slug}/days/{AAAA-MM-DD} desde el día "from" (lectura: solo el dueño o el admin). */
         async loadStats(slug, from) {
           const snap = await getDocs(query(collection(db, 'landing_stats', slug, 'days'), where(documentId(), '>=', from)));
