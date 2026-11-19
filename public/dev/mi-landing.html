@@ -618,7 +618,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=17', 'js/landing-templates-b.js?v=14', 'js/landing-templates-d.js?v=22', 'js/landing-templates-e.js?v=2'].forEach(function (f) {
+['js/landing-core.js?v=18', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=23', 'js/landing-templates-e.js?v=3'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -1034,9 +1034,12 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     f.srcdoc = FRAME_HTML;
     return f;
   }
-  function syncCss(doc) {
+  // Vista previa (no miniaturas): las animaciones se ven según la opción elegida aunque el equipo del dueño
+  // tenga "reducir movimiento" (se anulan esas reglas @media solo dentro de este iframe; la tienda las respeta).
+  const forceCss = css => typeof LC.cssIgnoringReducedMotion === 'function' ? LC.cssIgnoringReducedMotion(css) : css;
+  function syncCss(doc, force) {
     $$('style[id^="lt-css-"]').forEach(s => {
-      if (!doc.getElementById(s.id)) { const c = doc.createElement('style'); c.id = s.id; c.textContent = s.textContent; doc.head.appendChild(c); }
+      if (!doc.getElementById(s.id)) { const c = doc.createElement('style'); c.id = s.id; c.textContent = force ? forceCss(s.textContent) : s.textContent; doc.head.appendChild(c); }
     });
   }
   async function renderFrame(f, data) {
@@ -1046,13 +1049,13 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!root) { root = doc.createElement('div'); root.id = 'lt'; doc.body.appendChild(root); }
     const win = f.contentWindow, y = win ? win.scrollY : 0;
     try {
-      LC.render(root, data, { preview: true });
+      LC.render(root, data, { preview: true, forceMotion: !f._thumb });
       // Demo: imágenes que no se subieron (URL ficticia) → se ven con la copia local.
       if (Object.keys(S.localMap).length) $$('img', root).forEach(im => { const l = S.localMap[im.getAttribute('src')]; if (l) im.setAttribute('src', l); });
       if (f._openFaq && f._openFaq.size) $$('details', root).forEach(d => { if (f._openFaq.has(faqKey(d))) d.open = true; });
     }
     catch (err) { console.error('[mi-landing] plantilla', err); root.innerHTML = '<div style="padding:32px 20px;font:15px system-ui;color:#ddd">No se pudo mostrar esta plantilla.</div>'; }
-    syncCss(doc);
+    syncCss(doc, !f._thumb);
     if (win && y) try { win.scrollTo(0, y); } catch (_) {}
   }
   /** Llama la limpieza (__ltCleanup) de las plantillas pintadas en los iframes de scope antes de destruirlos. */
@@ -1449,7 +1452,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (thumbIO) { thumbIO.disconnect(); thumbIO = null; }
     const mount = el => {
       if (el.firstChild) return;
-      const f = makeFrame('Miniatura'); f.tabIndex = -1; f.setAttribute('aria-hidden', 'true');
+      const f = makeFrame('Miniatura'); f._thumb = true; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true');
       el.appendChild(f); paintThumb(f, el.dataset.thumb);
     };
     const els = $$('[data-thumb]', scope);
@@ -1462,7 +1465,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   /** Vuelve a pintar las miniaturas ya montadas (p. ej. al cambiar el estilo de cabecera). */
   const refreshThumbs = debounce(() => { $$('[data-thumb] iframe').forEach(f => paintThumb(f, f.parentNode.dataset.thumb)); }, 300);
   function fitThumbs(scope = document) { $$('[data-thumb]', scope).forEach(el => { const w = el.clientWidth; if (w) el.style.setProperty('--s', (w / 390).toFixed(4)); }); }
-  function markTpl(scope, id) { $$('.tpl', scope).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === id))); }
+  /** Marca como elegida SOLO la plantilla id en todas las galerías (normales y "De temporada" son grillas
+   *  distintas: marcar solo una grilla dejaba dos plantillas con check). */
+  function markTpl(id) { $$('.tpl[data-arg]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === id))); }
 
   // ---------- comprobación de enlace ----------
   const slugCache = new Map();
@@ -1786,7 +1791,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     const rm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     return `<div class="field" style="margin:18px 0 0"><span class="lbl" id="mvLbl">Animaciones</span>
       <div class="opts rows" role="radiogroup" aria-labelledby="mvLbl">${MOTIONS.map(m => optHtml('mv', 'motion', m.id, S.data.motion, `<span class="oi">${I(m.icon)}</span>`, m.name, m.desc, m.tag)).join('')}</div>
-      ${rm ? '<p class="hint">Tu celular tiene activado “reducir movimiento”, así que tú verás la versión Tranquila. Tus clientes verán la que elijas.</p>' : ''}</div>`;
+      ${rm ? '<p class="hint">Tu equipo tiene activado “reducir movimiento”. En la vista previa igual verás las animaciones para que elijas; tus clientes que tengan esa opción verán la versión Tranquila.</p>' : ''}</div>`;
   }
   function headerOptsHtml() {
     return `<div class="field" style="margin:18px 0 0"><span class="lbl" id="hsLbl">Estilo de cabecera</span>
@@ -2168,7 +2173,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const ACTS = {
     toggleSec(id) { openSection(S.open === id ? null : id); },
     // Sin VIP, una plantilla VIP se puede PROBAR en la vista previa (animada), pero no aplicar ni publicar.
-    pickTpl(id, btn) { if (vipLocked(id)) return startTry(id); endTry(false); S.data.template = id; markTpl(btn.closest('.tpl-grid') || document, id); changed(); },
+    pickTpl(id, btn) { if (vipLocked(id)) return startTry(id); endTry(false); S.data.template = id; markTpl(id); changed(); },
     endTry() { endTry(); },
     vipInfo(reason) { openVipSheet(reason); },
     color(arg) { const [k, c] = arg.split('|'); S.data.theme[k] = c; markSwatches(); changed(); },
@@ -3085,7 +3090,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     });
     $('#scWizard').addEventListener('click', ev => {
       const b = ev.target.closest('[data-act="pickTpl"]'); if (!b) return;
-      ev.stopPropagation(); if (vipLocked(b.dataset.arg)) { openVipSheet(b.dataset.arg); return; } S.data.template = b.dataset.arg; markTpl($('#wzBody'), b.dataset.arg);
+      ev.stopPropagation(); if (vipLocked(b.dataset.arg)) { openVipSheet(b.dataset.arg); return; } S.data.template = b.dataset.arg; markTpl(b.dataset.arg);
     }, true);
     $('#logoutBtn').addEventListener('click', async () => {
       if (S.data && isDirty() && S.publishedSlug && !(await confirmBox('¿Salir?', 'Tus cambios sin publicar quedan guardados en este dispositivo.', 'Salir'))) return;
