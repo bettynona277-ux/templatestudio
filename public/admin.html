@@ -757,7 +757,7 @@ let _catalogTemplates = [];
 let _catalogTemplateFilter = 'all';
 let _currentFilter = 'all';
 let ratasTemplateAccess = new Set();
-const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v1';
+const ADMIN_TEMPLATES_CACHE_KEY = 'ds_admin_templates_cache_v4'; // filas compactas (sin el diseño completo)
 const ADMIN_TEMPLATE_ACCESS_CACHE_KEY = 'ds_admin_template_access_cache_v1';
 const ADMIN_CATALOG_TEMPLATES_CACHE_KEY = 'ds_admin_catalog_templates_cache_v1';
 const ADMIN_USERS_CACHE_KEY = 'ds_admin_users_cache_v2';
@@ -850,16 +850,53 @@ function compactTemplateCatalogItems(items) {
     .sort((a,b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
 }
 
+// Cada plantilla guarda su diseño completo (capas): ~80 KB cada una y casi 1000 plantillas = ~75 MB.
+// El admin NUNCA descarga eso para la lista: usa el catálogo compacto public_catalog/templates (1 lectura)
+// + solo los borradores, y guarda en el navegador filas pequeñas (id, nombre, miniatura, categoría, estado, fechas).
+let adminTemplateCatalogVersion = 0;
+function compactAdminTemplateItems(items) {
+  return (items || []).map(t => ({
+    id:String(t?.id || ''),
+    name:String(t?.name || 'Plantilla').slice(0, 140),
+    thumb:String(t?.thumb || '').slice(0, 800),
+    ...templateCategoryInfo(t),
+    status:t?.status === 'draft' ? 'draft' : 'published',
+    createdAt:Number(t?.createdAt || 0),
+    updatedAt:Number(t?.updatedAt || t?.createdAt || 0)
+  })).filter(t => t.id).sort((a,b) => b.updatedAt - a.updatedAt);
+}
+function readAdminTemplateCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(ADMIN_TEMPLATES_CACHE_KEY) || 'null');
+    if(!c || !Array.isArray(c.rows) || Date.now() - Number(c.at || 0) >= ADMIN_COLLECTION_CACHE_TTL) return null;
+    return { rows:c.rows, catalogUpdatedAt:Number(c.catalogUpdatedAt || 0) };
+  } catch(_) { return null; }
+}
+function writeAdminTemplateCache(rows, catalogUpdatedAt) {
+  try { localStorage.setItem(ADMIN_TEMPLATES_CACHE_KEY, JSON.stringify({ at:Date.now(), catalogUpdatedAt:Number(catalogUpdatedAt || 0), rows:compactAdminTemplateItems(rows) })); } catch(_) {}
+}
+async function loadAdminPublishedTemplateCatalog() {
+  try {
+    const snap = await fbDb.collection('public_catalog').doc('templates').get();
+    const d = snap.exists ? (snap.data() || {}) : null;
+    if(!d || d.complete !== true || !Array.isArray(d.items)) return null;
+    return { items:d.items.map(it => ({ ...it, status:'published' })), updatedAt:Number(d.updatedAt || 0) };
+  } catch(e) { console.warn('Catalogo de plantillas no disponible:', e.message || e); return null; }
+}
+
 async function publishTemplateCatalog() {
   if(!fbConnected || !fbDb) return;
   const items = compactTemplateCatalogItems(_allTemplates);
+  const updatedAt = Date.now();
   try {
     await fbDb.collection('public_catalog').doc('templates').set({
       complete:true,
       total:items.length,
-      updatedAt:Date.now(),
+      updatedAt,
       items
     }, { merge:false });
+    adminTemplateCatalogVersion = updatedAt;
+    writeAdminTemplateCache(_allTemplates, updatedAt);
   } catch(e) {
     console.warn('No se pudo publicar catalogo compacto:', e);
   }
@@ -869,11 +906,16 @@ async function loadTemplates(force=false) {
   if(!fbConnected) return;
   const grid = document.getElementById('templates-grid');
   const cachedAccess = force ? null : readAdminCollectionCache(ADMIN_TEMPLATE_ACCESS_CACHE_KEY);
-  const cachedTpl = force ? null : readAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY);
-  if(!(cachedAccess && cachedTpl)) grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
+  const cached = force ? null : readAdminTemplateCache();
+  // 1) Lo guardado se pinta al instante.
+  if(cached && cachedAccess) {
+    ratasTemplateAccess = new Set(cachedAccess);
+    _allTemplates = compactAdminTemplateItems(cached.rows);
+    adminTemplateCatalogVersion = cached.catalogUpdatedAt;
+    updateTemplateCounts(); renderTemplates();
+  } else grid.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:10px 0;">Cargando plantillas...</p>';
   try {
-    if(cachedAccess) ratasTemplateAccess = new Set(cachedAccess);
-    else try{
+    if(!cachedAccess) try{
       const accessSnap = await fbDb.collection('template_link_access').get();
       ratasTemplateAccess = new Set(accessSnap.docs.filter(doc => (doc.data()?.allowedGroups || []).includes('Ratas')).map(doc => doc.id));
       writeAdminCollectionCache(ADMIN_TEMPLATE_ACCESS_CACHE_KEY, [...ratasTemplateAccess]);
@@ -881,20 +923,28 @@ async function loadTemplates(force=false) {
       ratasTemplateAccess = new Set();
       console.warn('No se pudo cargar la lista de plantillas permitidas para Ratas:', e);
     }
-    const cached = cachedTpl;
-    if(cached) {
-      _allTemplates = cached;
+    // 2) Comprobar si el catálogo cambió (1 lectura). Si es la misma versión, no se descarga nada más.
+    const published = await loadAdminPublishedTemplateCatalog();
+    if(cached && published && published.updatedAt === cached.catalogUpdatedAt) {
+      if(!cachedAccess) { _allTemplates = compactAdminTemplateItems(cached.rows); updateTemplateCounts(); renderTemplates(); }
+      return;
+    }
+    if(published) {
+      // Catálogo publicado + solo los borradores (pocos).
+      const draftsSnap = await fbDb.collection('templates').where('status', '==', 'draft').get();
+      _allTemplates = compactAdminTemplateItems([...published.items, ...draftsSnap.docs.map(doc => ({ id:doc.id, ...doc.data() }))]);
+      adminTemplateCatalogVersion = published.updatedAt;
+      writeAdminTemplateCache(_allTemplates, published.updatedAt);
     } else {
+      // Sin catálogo (primera vez): lectura completa una sola vez y se publica el catálogo compacto.
       const snap = await fbDb.collection('templates').orderBy('updatedAt','desc').get();
-      _allTemplates = [];
-      snap.forEach(doc => { _allTemplates.push({ id: doc.id, ...doc.data() }); });
-      writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
-      publishTemplateCatalog();
+      _allTemplates = compactAdminTemplateItems(snap.docs.map(doc => ({ id:doc.id, ...doc.data() })));
+      await publishTemplateCatalog();
     }
     updateTemplateCounts();
     renderTemplates();
   } catch(e) {
-    grid.innerHTML = '<p style="color:var(--accent2);">Error al cargar plantillas.</p>';
+    if(!cached) grid.innerHTML = '<p style="color:var(--accent2);">Error al cargar plantillas.</p>';
     console.error(e);
   }
 }
@@ -913,11 +963,15 @@ function updateTemplateCounts() {
 
 function filterTemplates(filter, btn) {
   _currentFilter = filter;
+  adminTemplateVisible = ADMIN_TEMPLATE_PAGE;
   document.querySelectorAll('.tpl-tab').forEach(b => b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   renderTemplates();
 }
 
+// Se muestran de a 120 tarjetas (con ~1000 plantillas, pintar todas de golpe congela la pestaña un momento).
+const ADMIN_TEMPLATE_PAGE = 120;
+let adminTemplateVisible = ADMIN_TEMPLATE_PAGE;
 function renderTemplates() {
   const grid = document.getElementById('templates-grid');
   grid.innerHTML = '';
@@ -936,6 +990,8 @@ function renderTemplates() {
     return;
   }
 
+  const total = list.length;
+  list = list.slice(0, adminTemplateVisible);
   list.forEach(d => {
     const isDraft = d.status === 'draft';
     const card = document.createElement('div');
@@ -963,6 +1019,12 @@ function renderTemplates() {
     info.appendChild(actions);card.appendChild(info);
     grid.appendChild(card);
   });
+  if(total > list.length){
+    const more=document.createElement('button');more.type='button';more.className='btn btn-ghost';more.style.cssText='grid-column:1/-1;justify-self:center;margin:8px 0;';
+    more.textContent=`Ver más plantillas (${list.length} de ${total})`;
+    more.addEventListener('click',()=>{adminTemplateVisible+=ADMIN_TEMPLATE_PAGE;renderTemplates();});
+    grid.appendChild(more);
+  }
   observeLazyImages(grid);
 }
 
@@ -983,7 +1045,7 @@ function editTemplate(id) { window.open('editor.html?tpl=' + encodeURIComponent(
 
 function refreshTemplateCacheAndRender() {
   updateTemplateCounts();
-  writeAdminCollectionCache(ADMIN_TEMPLATES_CACHE_KEY, _allTemplates);
+  writeAdminTemplateCache(_allTemplates, adminTemplateCatalogVersion);
   publishTemplateCatalog();
   renderTemplates();
 }
