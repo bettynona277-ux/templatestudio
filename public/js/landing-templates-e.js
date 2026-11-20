@@ -536,6 +536,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-brand small{display:block;margin-top:3px;font-size:11px;color:var(--n-mut);font-weight:600}
 .lt-lima .lts-hwa{flex:none;display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;border:1.5px solid rgba(184,255,44,.55);color:var(--n-lime);font-weight:700;font-size:13.5px;text-decoration:none;background:rgba(184,255,44,.06)}
 .lt-lima .lts-hwa svg{width:18px;height:18px}
+.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .lts-htx{padding-top:26px}
+@media (min-width:860px){.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off){grid-template-columns:1fr;min-height:0}.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .lts-htx{text-align:center;padding-top:56px}.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-lima .lts-hin{position:relative;z-index:3;display:grid;align-items:end;gap:10px;margin-top:10px}
 @media (min-width:860px){.lt-lima .lts-hin{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:clamp(28px,4vw,56px);min-height:500px;align-items:center}.lt-lima .lts-htx .ltb-h1{font-size:clamp(34px,4.3vw,58px)}}
 @media (max-width:859px){.lt-lima .lts-htx{text-align:center}.lt-lima .lts-htx .ltb-sub{margin-left:auto;margin-right:auto}}
@@ -678,9 +680,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-wtx .lts-btn{margin-top:10px}
 .lt-lima .lts-wart.has-img{aspect-ratio:760/1000;margin:24px 0 0}
 .lt-lima .lts-wart.has-img::before,.lt-lima .lts-wart.has-img::after{content:none}
-.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:20%;bottom:6%;-webkit-mask:linear-gradient(180deg,transparent 0,rgba(0,0,0,.35) 9%,#000 26%);mask:linear-gradient(180deg,transparent 0,rgba(0,0,0,.35) 9%,#000 26%);border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
+.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:20%;bottom:6%;-webkit-mask:linear-gradient(180deg,transparent 0,transparent 22%,#000 46%);mask:linear-gradient(180deg,transparent 0,transparent 22%,#000 46%);border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
 .lt-lima .lts-wstage i{position:absolute;top:0;bottom:0;left:-40%;width:34%;background:linear-gradient(100deg,transparent,rgba(214,255,122,.12),transparent);transform:skewX(-18deg)}
-.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:drop-shadow(0 0 1.5px rgba(214,255,122,.55)) drop-shadow(-8px 0 22px rgba(150,255,0,.2));}
+.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:none}
 .lt-lima .lts-wfloor{position:absolute;z-index:2;left:3%;right:3%;bottom:6%;height:22%;border-radius:0 0 22px 22px;background:linear-gradient(180deg,transparent,rgba(10,13,7,.85) 70%,#0a0d07);pointer-events:none}
 .lt-lima .lts-wfloor::after{content:"";position:absolute;left:10%;right:10%;bottom:-2px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--n-lime),transparent);box-shadow:0 0 18px var(--n-lime)}
 .lt-lima .lts-wsp{position:absolute;inset:0;z-index:3;pointer-events:none}
@@ -863,7 +865,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
+    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge,.lts-media.is-mark', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
     tags: ['oscura', 'moderna', 'animada'], preview: { bg: '#060805', fg: '#f1f5ea', accent: NE_LIME }, render: renderNeon
   });
 })(typeof window !== 'undefined' ? window : globalThis);
