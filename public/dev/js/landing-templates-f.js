@@ -410,7 +410,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   })();
   const RS_ART = {
     hero: 'rs-mabel2.webp', // personaje de la portada (PNG sin fondo, vertical ~900×1100)
-    card1: '', card2: '', card3: '',   // fotos de las 3 tarjetas "Para ti que…" (verticales ~600×760)
+    card1: 'rs-c1.webp', card2: 'rs-c2.webp', card3: 'rs-c3.webp', // personajes de las 3 tarjetas de ventajas (PNG sin fondo)
     about: 'rs-duo.webp',              // imagen de la sección con el nombre de la tienda (PNG sin fondo, horizontal)
     deco: ''           // decoración flotante opcional (PNG sin fondo: billetes, corazones, palomitas…)
   };
@@ -558,11 +558,38 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa .ltr-hd p{margin:10px auto 0;max-width:52ch;color:var(--r-mut);font-size:15px}
 /* "¿Por qué comprar con nosotros?": 3 tarjetas-foto */
 .lt-rosa .ltr-pics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(12px,3vw,26px)}
-@media (max-width:640px){.lt-rosa .ltr-pics{grid-template-columns:1fr;max-width:340px;margin:0 auto}}
+@media (max-width:640px){.lt-rosa .ltr-pics{grid-template-columns:1fr;max-width:300px;margin:0 auto}.lt-rosa .ltr-pic .ltr-frame.has-img{aspect-ratio:1/1}}
 .lt-rosa .ltr-pic{margin:0;text-align:center}
 .lt-rosa .ltr-pic .ltr-frame{aspect-ratio:4/5;border-radius:22px;overflow:hidden;box-shadow:0 18px 40px rgba(10,0,6,.45);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
 .lt-rosa .ltr-pic .ltr-frame .ltr-slot{border-radius:22px}
-.lt-rosa .ltr-pic figcaption{margin:14px auto 0;max-width:24ch;font-size:14.5px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.lt-rosa .ltr-pic .ltr-frame.has-img{background:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.lt-rosa .ltr-pic .ltr-frame.has-img::after{content:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img::before{content:"";position:absolute;inset:-6% -8% -2%;z-index:0;pointer-events:none;background:radial-gradient(ellipse 52% 50% at 50% 56%,rgba(255,170,210,.42),rgba(232,35,122,.18) 46%,transparent 72%);filter:blur(6px)}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-art{position:absolute;left:2%;right:2%;bottom:3%;top:6%;width:96%;height:91%;object-fit:contain;object-position:bottom;filter:drop-shadow(0 10px 18px rgba(20,0,10,.45))}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo{--hw:92%;--hb:4%}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo::before{opacity:.75}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo i:first-child{display:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo i+i{border-color:rgba(255,190,220,.28)}
+@media (hover:hover){.lt-rosa .ltr-pic:hover .ltr-frame.has-img{box-shadow:none}}
+.lt-rosa .ltr-pic figcaption{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px auto 0;max-width:26ch;text-align:center}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption{margin-top:clamp(-40px,-8%,-24px)}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption .ltr-capi{display:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption .ltr-capt{font-size:clamp(19px,2vw,23px);font-weight:900;letter-spacing:-.005em;-webkit-text-stroke:.5px rgba(255,255,255,.55);
+  filter:drop-shadow(2px 0 0 #6b0a3c) drop-shadow(-2px 0 0 #6b0a3c) drop-shadow(0 2px 0 #6b0a3c) drop-shadow(0 -2px 0 #6b0a3c) drop-shadow(0 4px 0 #e8237a) drop-shadow(0 6px 14px rgba(20,0,10,.75)) drop-shadow(0 0 18px rgba(255,61,143,.55))}
+.lt-rosa .ltr-capi{display:grid;place-items:center;color:#ff8cc0;filter:drop-shadow(0 0 8px rgba(255,95,162,.8))}
+.lt-rosa .ltr-capi .ltr-ic{width:24px;height:24px;stroke-width:2.2}
+.lt-rosa .ltr-capt{position:relative;padding-bottom:10px;font-size:clamp(18px,1.9vw,21px);font-weight:800;line-height:1.2;letter-spacing:-.015em;overflow-wrap:anywhere;background:linear-gradient(100deg,#fff 0%,#fff 30%,#ffc2dd 45%,#ff6aa8 55%,#fff 70%,#fff 100%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 14px rgba(255,61,143,.45))}
+.lt-rosa .ltr-capt::after{content:"";position:absolute;left:50%;bottom:0;width:44px;height:3px;border-radius:3px;transform:translateX(-50%);background:linear-gradient(90deg,transparent,#ff5fa2,#ffc2dd,#ff5fa2,transparent);box-shadow:0 0 12px rgba(255,95,162,.8)}
+@media (hover:hover){.lt-rosa .ltr-pic:hover .ltr-capt::after{width:90%}}
+.lt-rosa .ltr-capt::after{transition:width .5s cubic-bezier(.2,.8,.2,1)}
+.lt-rosa:not(.lt-static).ltb-rv .ltr-pic.is-in figcaption{animation:ltr-pop .7s calc(var(--rvd,0ms) + .35s + var(--i,0) * .12s) cubic-bezier(.3,1.5,.5,1) both}
+.lt-rosa:not(.lt-static) .ltr-capt{animation:ltr-sheen 4.5s calc(1s + var(--i,0) * .8s) ease-in-out infinite}
+@keyframes ltr-sheen{0%,40%{background-position:100% 0}100%{background-position:-50% 0}}
+.lt-rosa:not(.lt-static) .ltr-capi{animation:ltr-capg 2.4s calc(var(--i,0) * .5s) ease-in-out infinite alternate}
+@keyframes ltr-capg{from{transform:translateY(0) scale(1);filter:drop-shadow(0 0 6px rgba(255,95,162,.6))}to{transform:translateY(-3px) scale(1.12);filter:drop-shadow(0 0 14px rgba(255,95,162,1))}}
+.lt-rosa:not(.lt-static).ltb-rv .ltr-pic.is-in .ltr-capt::after{animation:ltr-line .8s calc(var(--rvd,0ms) + .7s + var(--i,0) * .12s) cubic-bezier(.2,.8,.2,1) both}
+@keyframes ltr-line{from{width:0}to{width:44px}}
+.lt-rosa .ltb-off :is(.ltr-capt,.ltr-capi){animation-play-state:paused!important}
 .lt-rosa .ltr-frame{position:relative}
 .lt-rosa .ltr-frame::after,.lt-rosa .ltr-aart :is(.ltr-p1,.ltr-p2)::after{content:"";position:absolute;top:0;bottom:0;left:-70%;width:45%;z-index:2;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-18deg);pointer-events:none;opacity:0}
 .lt-rosa .ltr-frame img,.lt-rosa .ltr-aart img{transition:transform .6s cubic-bezier(.2,.8,.2,1)}
@@ -764,7 +791,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<section class="ltr-band ltr-fx">${parts(4, 7, 260, 'pink')}<div class="ltb-wrap" data-rv><h2>Todas tus plataformas favoritas en un solo lugar, <b>con atención de verdad</b></h2>` +
       `<div class="ltr-stats"><span class="ltr-slabel">Aquí <br>tienes:</span>${stats.slice(0, 4).map(([n, l, c, lg], k) => `<span class="ltr-stat${lg ? ' is-long' : ''}" style="--k:${k}"><b${c ? ' data-rs-num' : ''}>${ctx.esc(n)}</b><small>${ctx.esc(l)}</small></span>`).join('')}</div></div></section>` +
       `<section class="ltb-sec ltb-sec-benefits ltr-dark ltr-fx">${parts(7, 5, 900)}<div class="ltb-wrap">${rsHead(`¿Por qué comprar <span class="ltr-hl">con nosotros?</span>`)}` +
-      `<div class="ltr-pics">${bens.map((b, i) => `<figure class="ltr-pic" data-rv style="--i:${i}"><div class="ltr-frame">${rsArt('card' + (i + 1), '', 'Foto ' + (i + 1))}</div><figcaption${i < d.benefits.length ? ed(ctx, `benefits.${i}`) : ''}>${ctx.esc(b)}</figcaption></figure>`).join('')}</div></div></section>` +
+      `<div class="ltr-pics">${bens.map((b, i) => `<figure class="ltr-pic" data-rv style="--i:${i}"><div class="ltr-frame${RS_ART['card' + (i + 1)] ? ' has-img' : ''}">${RS_ART['card' + (i + 1)] ? '<span class="ltr-halo" aria-hidden="true"><i></i><i></i></span>' : ''}${rsArt('card' + (i + 1), '', 'Foto ' + (i + 1))}</div><figcaption><span class="ltr-capi" aria-hidden="true">${rsi(['zap', 'headset', 'shield'][i % 3])}</span><span class="ltr-capt"${i < d.benefits.length ? ed(ctx, `benefits.${i}`) : ''}>${ctx.esc(b)}</span></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans ltr-dark ltr-fx">${parts(8, 6, 1100)}<div class="ltb-wrap">${rsHead(`Elige tu <span class="ltr-hl">plataforma favorita</span>`, 'Cuentas originales, estables y al mejor precio.')}<div class="ltr-grid">${plans.map((p, i) => rsPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos ltr-pinksec ltr-fx">${parts(7, 6, 800, 'pink')}<div class="ltb-wrap">${rsHead('Combos para ahorrar más')}<div class="ltr-combos">${combos.map((c, i) => rsCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
       `<section class="ltb-sec ltb-sec-who ltr-fx ${combos.length ? 'ltr-dark' : 'ltr-pinksec'}">${parts(7, 5, 800, combos.length ? 'dark' : 'pink')}<div class="ltb-wrap"><div class="ltr-about"><div class="ltr-atx" data-rv><h2>${ctx.esc(d.name)}</h2>${aboutTxt}${cta('Escríbenos ahora')}</div>` +
