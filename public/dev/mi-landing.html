@@ -918,7 +918,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const TRIAL_DAYS = 7;
   /** Puede activar la prueba gratis: nunca tuvo VIP del admin, nunca usó la prueba y su usuario existe. */
   const trialEligible = () => !!(S.vip.loaded !== false && S.vip.exists && !S.vip.paid && !S.vip.trialUsed && S.vip.active && S.backend && typeof S.backend.startTrial === 'function');
-  const daysLeft = ms => Math.max(0, Math.ceil((ms - Date.now()) / 864e5));
+  /** Días de calendario que faltan hasta ms (hoy = 0, mañana = 1). Así baja uno cada medianoche: activada el 19, termina el 26 → el 20 dice 6. */
+  const daysLeft = ms => { const now = Date.now(); if (!(ms > now)) return 0; const a = new Date(now), b = new Date(ms); a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0); return Math.round((b - a) / 864e5); };
+  const daysLeftTxt = ms => { const d = daysLeft(ms); return d <= 0 ? 'termina hoy' : d === 1 ? '<span class="vh">queda </span>1 día' : `<span class="vh">quedan </span>${d} días`; };
   /** Activa la prueba VIP gratis (users/{uid}: landingTrialUsed, landingTrialUntil). quiet: sin ventana de bienvenida. */
   async function startTrial(quiet) {
     if (!trialEligible()) return false;
@@ -1010,12 +1012,14 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
         <button class="btn ghost block" type="button" data-act="closeModal"${mine ? ' data-autofocus' : ''}>${mine ? 'Listo' : 'Ahora no'}</button></div></div>`);
   }
   /** Insignia de la barra superior y aviso de VIP vencido / cuenta inhabilitada. */
+  // Con el editor abierto: la cuenta de días se actualiza sola y, si la prueba vence, pasa a normal sin recargar.
+  setInterval(() => { if (!S.vip || !S.vip.trial) return; if (!(S.vip.trialUntil > Date.now())) { S.vip = { ...S.vip, on: false, trial: false, until: null }; try { buildAccordion(); updateStatus(); } catch (_) {} } renderVip(); }, 60000);
   function renderVip() {
     const st = vipState(), b = $('#vipBadge'), n = $('#vipNotice');
     if (b) {
       b.hidden = st !== 'active';
       if (st === 'active') b.innerHTML = S.vip.trial
-        ? `${I('crown')}VIP prueba<small>· <span class="vh">quedan </span>${daysLeft(S.vip.until)} ${daysLeft(S.vip.until) === 1 ? 'día' : 'días'}</small>`
+        ? `${I('crown')}VIP prueba<small>· ${daysLeftTxt(S.vip.until)}</small>`
         : `${I('crown')}VIP${S.vip.until ? `<small>· <span class="vh">hasta </span>${esc(shortDate(S.vip.until))}</small>` : ''}`;
     }
     if (n) {
@@ -1025,7 +1029,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
         <a class="btn wa sm" href="${esc(vipWaUrl(true))}" target="_blank" rel="noopener">${I('chat', 'sm')}Renovar por WhatsApp</a></div>`;
       else if (trialEligible()) n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('crown')}</span><p><b>Prueba VIP gratis por ${TRIAL_DAYS} días.</b> Plantillas de Navidad, animaciones, tu enlace .${SUB_BASE}, estadísticas y sin marca. Sin pagar nada; al terminar tu página sigue en versión Normal.</p>
         <button class="btn pri sm" type="button" data-act="startTrial">Activar mi prueba gratis</button></div>`;
-      else if (st === 'active' && S.vip.trial && daysLeft(S.vip.until) <= 2) n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('clock')}</span><p><b>Tu prueba VIP termina ${daysLeft(S.vip.until) <= 1 ? 'mañana' : 'el ' + esc(shortDate(S.vip.until))}.</b> Después tu página pasa a versión Normal (sin animaciones ni plantillas VIP). Sigue con VIP por <b>${VIP_PRICE}</b>.</p>
+      else if (st === 'active' && S.vip.trial && daysLeft(S.vip.until) <= 2) n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('clock')}</span><p><b>Tu prueba VIP termina ${daysLeft(S.vip.until) <= 0 ? 'hoy' : daysLeft(S.vip.until) === 1 ? 'mañana' : 'el ' + esc(shortDate(S.vip.until))}.</b> Después tu página pasa a versión Normal (sin animaciones ni plantillas VIP). Sigue con VIP por <b>${VIP_PRICE}</b>.</p>
         <a class="btn wa sm" href="${esc(vipWaUrl(false))}" target="_blank" rel="noopener">${I('chat', 'sm')}Seguir con VIP</a></div>`;
       else if (st === 'none' && S.vip.trialUsed && !S.vip.paid) {
         n.innerHTML = `<div class="vipnote trial"><span class="tn-ic" aria-hidden="true">${I('crown')}</span><p><b>Tu prueba VIP terminó.</b> <span id="trialRes"></span>Tu página sigue funcionando en versión Normal. Vuelve a VIP por <b>${VIP_PRICE}</b> y recupera tus animaciones, tu enlace .${SUB_BASE} y tus estadísticas.</p>
