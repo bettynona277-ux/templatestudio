@@ -180,6 +180,22 @@ h1,h2,h3{margin:0;letter-spacing:-.02em}
 .acc-h .t small{display:block;color:var(--tx3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acc-h .t small.warn{color:#FCD34D}
 .acc-h .chev{transition:transform .2s;color:var(--tx3)}
+.acc-g{margin:18px 4px 8px;font-size:12.5px;font-weight:700;color:var(--tx3);letter-spacing:.02em}
+.acc-g:first-of-type{margin-top:6px}
+.acc-h .ic.num{position:relative;border-radius:50%;background:var(--priBg);font-weight:800;font-size:16px}
+.acc-h .ic.num svg{display:none;width:20px;height:20px}
+.acc-h .ic.num.ok{background:#16a34a;color:#fff}
+.acc-h .ic.num.ok i{display:none}.acc-h .ic.num.ok svg{display:block}
+.acc-h .ic.num i{font-style:normal}
+.steps-top{margin:4px 0 10px;padding:12px 14px;border-radius:var(--r2);background:var(--priBg);border:1px solid rgba(139,92,246,.25)}
+.steps-top .st-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:14px}
+.steps-top .st-row span{color:var(--tx2);font-size:13px}
+.steps-top .st-go{display:inline-flex;align-items:center;gap:2px;border:0;background:none;color:var(--pri3);font:inherit;font-weight:700;font-size:13.5px;cursor:pointer;padding:4px 0}
+.steps-top .st-go svg{transform:rotate(-90deg)}
+.steps-top .st-bar{height:6px;border-radius:6px;background:rgba(255,255,255,.08);margin-top:8px;overflow:hidden}
+.steps-top .st-bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#8b5cf6,#22c55e);transition:width .4s}
+.hint .more-t[hidden]{display:none}
+.hint .more-b{border:0;background:none;padding:0 2px;color:var(--pri3);font:inherit;font-weight:700;cursor:pointer}
 .acc.open .acc-h .chev{transform:rotate(180deg)}
 .acc-b{padding:4px 14px 16px}
 .sub-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:18px 0 10px}
@@ -1589,22 +1605,25 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     <input type="checkbox" role="switch" aria-checked="${!!checked}" data-bind="${path}" ${checked ? 'checked' : ''}><span class="tg" aria-hidden="true"></span></label>`;
 
   // ---------- secciones ----------
+  // Orden pensado para alguien nuevo: primero los 4 pasos básicos (numerados, con ✓ al completarlos),
+  // luego lo opcional para vender más y al final lo de la cuenta. Ninguna función se quita: solo se ordena.
   const SECTIONS = [
-    { id: 'stats', title: 'Estadísticas', icon: 'chart', sum: statsSum },
-    { id: 'planes', title: 'Planes y precios', icon: 'tag', sum: plansSum, warn: () => !S.data.plans.some(p => p.visible) },
-    { id: 'combos', title: 'Combos', icon: 'stack', sum: combosSum },
-    { id: 'promo', title: 'Oferta con cuenta regresiva', icon: 'clock', sum: promoSum },
-    { id: 'marca', title: 'Marca', icon: 'brand', sum: () => S.data.name ? [S.data.name, S.data.logoUrl && 'con logo', HEADER_NAME[S.data.headerStyle]].filter(Boolean).join(' · ') : 'Nombre, logo, portada y colores', warn: () => !S.data.name.trim() },
-    { id: 'plantilla', title: 'Plantilla', icon: 'layout', sum: () => { const t = tplList().find(x => x.id === S.data.template); return `${t ? `Diseño: ${t.name}` : 'Elige el diseño de tu página'} · ${isVip() ? `Animación: ${MOTION_NAME[S.data.motion] || 'Animada'}` : 'Sin animación (VIP)'}`; } },
-    { id: 'contacto', title: 'Contacto y redes', icon: 'chat', sum: () => digits(S.data.whatsapp).length < 8 ? 'Falta tu WhatsApp' : waBad() ? 'Revisa el código de país' : `WhatsApp +${S.data.whatsapp}${S.data.links.length ? ` · ${S.data.links.length} enlace(s)` : ''}`, warn: () => digits(S.data.whatsapp).length < 8 || waBad() },
-    { id: 'portada', title: 'Textos de inicio', icon: 'hero', sum: () => S.data.heroTitle || 'Título, frase y botón' },
-    { id: 'resenas', title: 'Reseñas de clientes', icon: 'quote', sum: () => {
+    { id: 'marca', group: 'basic', step: 1, title: 'Tu nombre y logo', icon: 'brand', sum: () => S.data.name ? [S.data.name, S.data.logoUrl && 'con logo', HEADER_NAME[S.data.headerStyle]].filter(Boolean).join(' · ') : 'Escribe el nombre de tu negocio', warn: () => !S.data.name.trim(), done: () => !!S.data.name.trim() },
+    { id: 'planes', group: 'basic', step: 2, title: 'Tus apps y precios', icon: 'tag', sum: plansSum, warn: () => !S.data.plans.some(p => p.visible), done: () => S.data.plans.some(p => p.visible && priceOk(p.price)) },
+    { id: 'contacto', group: 'basic', step: 3, title: 'Tu WhatsApp y redes', icon: 'chat', sum: () => digits(S.data.whatsapp).length < 8 ? 'Falta tu WhatsApp' : waBad() ? 'Revisa el código de país' : `WhatsApp +${S.data.whatsapp}${S.data.links.length ? ` · ${S.data.links.length} red${S.data.links.length > 1 ? 'es' : ''}` : ''}`, warn: () => digits(S.data.whatsapp).length < 8 || waBad(), done: () => digits(S.data.whatsapp).length >= 8 && !waBad() },
+    { id: 'plantilla', group: 'basic', step: 4, title: 'El diseño de tu página', icon: 'layout', sum: () => { const t = tplList().find(x => x.id === S.data.template); return `${t ? `Diseño ${t.name}` : 'Elige un diseño'} · ${isVip() ? `${MOTION_NAME[S.data.motion] || 'Animada'}` : 'Sin animación (VIP)'}`; }, done: () => !!S.data.template },
+    { id: 'combos', group: 'more', title: 'Combos', icon: 'stack', sum: combosSum },
+    { id: 'promo', group: 'more', title: 'Oferta con tiempo límite', icon: 'clock', sum: promoSum },
+    { id: 'portada', group: 'more', title: 'Textos de arriba', icon: 'hero', sum: () => S.data.heroTitle || 'Título, frase y botón' },
+    { id: 'resenas', group: 'more', title: 'Opiniones de clientes', icon: 'quote', sum: () => {
       const n = S.data.reviews.filter(r => r.text.trim()).length;
-      return n ? `${n} reseña${n > 1 ? 's' : ''} en tu página` : 'Opiniones de tus clientes (opcional)';
+      return n ? `${n} opinión${n > 1 ? 'es' : ''} en tu página` : 'Opcional';
     } },
-    { id: 'extras', title: 'Extras', icon: 'star', sum: () => 'Beneficios, métodos de pago y preguntas' },
-    { id: 'enlace', title: 'Mi enlace', icon: 'link', sum: () => `Tu dirección: ${vipHost(S.data.slug) || shownUrl(S.data.slug || '…')}`, warn: () => !!LC.slugError(S.data.slug) }
+    { id: 'extras', group: 'more', title: 'Beneficios, pagos y preguntas', icon: 'star', sum: () => 'Lo que ganas, cómo te pagan y dudas frecuentes' },
+    { id: 'enlace', group: 'acct', title: 'Tu enlace', icon: 'link', sum: () => vipHost(S.data.slug) || shownUrl(S.data.slug || '…'), warn: () => !!LC.slugError(S.data.slug) },
+    { id: 'stats', group: 'acct', title: 'Estadísticas', icon: 'chart', sum: statsSum }
   ];
+  const GROUPS = { basic: 'Lo básico', more: 'Para vender más (opcional)', acct: 'Tu cuenta' };
   function plansSum() {
     const n = S.data.plans.length; if (!n) return 'Añade tus plataformas y precios';
     const miss = S.data.plans.filter(p => !priceOk(p.price)).length;
@@ -1653,10 +1672,11 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     });
   }
   function buildAccordion() {
-    $('#accs').innerHTML = SECTIONS.map(s => `
-      <section class="acc glass" id="acc-${s.id}">
+    let g = '';
+    $('#accs').innerHTML = SECTIONS.map(s => `${s.group !== g ? `${(g = s.group) === 'basic' ? '<div class="steps-top" data-steps></div>' : ''}<h3 class="acc-g">${esc(GROUPS[s.group])}</h3>` : ''}
+      <section class="acc glass${s.step ? ' is-step' : ''}" id="acc-${s.id}">
         <h2 style="margin:0;font-size:inherit"><button class="acc-h" type="button" data-act="toggleSec" data-arg="${s.id}" aria-expanded="false" aria-controls="accb-${s.id}">
-          <span class="ic">${I(s.icon)}</span><span class="t"><b>${esc(s.title)}</b><small data-sum="${s.id}"></small></span>${I('chev', 'chev')}
+          ${s.step ? `<span class="ic num" data-step="${s.id}" aria-hidden="true"><i>${s.step}</i>${I('check')}</span>` : `<span class="ic">${I(s.icon)}</span>`}<span class="t"><b>${s.step ? `<span class="sr-only">Paso ${s.step}: </span>` : ''}${esc(s.title)}</b><small data-sum="${s.id}"></small></span>${I('chev', 'chev')}
         </button></h2>
         <div class="acc-b" id="accb-${s.id}" role="region" aria-label="${esc(s.title)}" hidden></div>
       </section>`).join('');
@@ -1667,7 +1687,17 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     SECTIONS.forEach(s => {
       const el = $(`[data-sum="${s.id}"]`); if (!el) return;
       el.textContent = s.sum(); el.classList.toggle('warn', !!(s.warn && s.warn()));
+      const n = $(`[data-step="${s.id}"]`); if (n) n.classList.toggle('ok', !!(s.done && s.done()));
     });
+    // barra "Te faltan N pasos" sobre los pasos básicos
+    const top = $('[data-steps]');
+    if (top) {
+      const steps = SECTIONS.filter(s => s.step), ok = steps.filter(s => s.done && s.done()).length, next = steps.find(s => !(s.done && s.done()));
+      const html = ok === steps.length
+        ? `<div class="st-row"><b>¡Todo listo!</b><span>Toca <b>Publicar</b> para guardar tu página.</span></div><div class="st-bar"><i style="width:100%"></i></div>`
+        : `<div class="st-row"><b>Paso ${next.step} de ${steps.length}</b><button type="button" class="st-go" data-act="toggleSec" data-arg="${next.id}">${esc(next.title)} ${I('chev', 'sm')}</button></div><div class="st-bar"><i style="width:${Math.round(ok / steps.length * 100)}%"></i></div>`;
+      if (top.innerHTML !== html) top.innerHTML = html;
+    }
   }
   function openSection(id, scroll = true) {
     SECTIONS.forEach(s => {
@@ -1686,8 +1716,26 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     const b = $('#accb-' + id); if (!b || b.hidden) return;
     disposeFrames(b);
     b.innerHTML = BODIES[id]();
+    shortHints(b);
     if (id === 'plantilla') mountThumbs(b);
     if (id === 'enlace') wireSlug($('#f-slug', b), $('#slugMsg', b));
+  }
+  /** Ayudas largas: se ve la primera frase y el resto con "Ver más" (no se quita nada, solo se acorta lo que se ve). */
+  function shortHints(box) {
+    box.querySelectorAll('p.hint').forEach(p => {
+      if (p.dataset.short || p.children.length > 2) return;
+      const t = p.textContent.trim();
+      if (t.length < 90 || p.querySelector('a,button,input,b')) return;
+      const m = t.match(/^(.{20,}?[.!?:])\s+(.+)$/);
+      if (!m) return;
+      p.dataset.short = '1';
+      p.textContent = m[1] + ' ';
+      const rest = document.createElement('span'); rest.className = 'more-t'; rest.hidden = true; rest.textContent = m[2] + ' ';
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'more-b'; btn.textContent = 'Ver más';
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', ev => { ev.stopPropagation(); const open = rest.hidden; rest.hidden = !open; btn.textContent = open ? 'Ver menos' : 'Ver más'; btn.setAttribute('aria-expanded', String(open)); });
+      p.append(rest, btn);
+    });
   }
   function goTo(id, focusSel) {
     openSection(id);
@@ -1981,7 +2029,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     return [...new Set(LC.CATEGORIES.filter(c => c !== 'Otros').concat(used))];
   }
   function planSub(p) {
-    const bits = [p.type === 'full' ? 'Cuenta completa' : 'Perfil', p.period];
+    const bits = [LC.planCategory(p), p.type === 'full' ? 'Cuenta completa' : 'Perfil', p.period];
     if (!p.visible) bits.unshift('Oculto');
     const miss = !priceOk(p.price);
     return miss ? `${missTag(p.price, true)} · ${esc(bits.join(' · '))}` : esc(bits.join(' · '));
