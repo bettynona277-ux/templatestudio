@@ -531,7 +531,7 @@ function tiendaInjectOg(html, data, slug, origin, pageUrlIn) {
 // Plan VIP vencido (vip === true y vipUntil ya pasó): la tienda no se muestra.
 // vipUntil null/ausente = sin vencimiento; un valor que no sea un número positivo cuenta como vencido (falla cerrado).
 function tiendaVipExpired(data, now = Date.now()) {
-  if (!data || data.vip !== true) return false;
+  if (!data || data.vip !== true || data.vipTrial === true) return false; // prueba gratis vencida = tienda normal (sigue visible)
   const u = data.vipUntil;
   if (u === null || u === undefined || u === '') return false;
   const n = Number(u);
@@ -579,6 +579,8 @@ async function serveTienda(req, res, rawSlug, url, opts = {}) {
       res.writeHead(301, { Location: `/${target}?r=1`, 'Cache-Control': 'no-cache' }); res.end(); return true;
     }
     // Subdominio VIP: solo para tiendas VIP; las demás van a su enlace normal en disenosstreaming.com.
+    // Prueba VIP vencida: se trata como tienda normal (sin subdominio, plantilla normal).
+    if (data && data.vip === true && data.vipTrial === true && data.vipUntil != null && !(Number(data.vipUntil) > Date.now())) data = { ...data, vip: false };
     if (opts.sub && result && result.found && data.vip !== true) { redirectExternal(res, `${TIENDA_ORIGIN}/${encodeURIComponent(slug)}`); return true; }
     const pageUrl = opts.host ? `${origin}/` : undefined;
     const expired = !!(result && result.found && tiendaUnavailable(data));
@@ -917,6 +919,24 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500); res.end(JSON.stringify({ error: err.message }));
     }
     return;
+  }
+
+  // Enlaces limpios (sin .html): /mi-landing y /dev/mi-landing sirven el editor; el enlace viejo con .html redirige
+  // al limpio conservando ?parámetros. Solo para estas páginas (el gestor y la tienda siguen igual: usan service worker
+  // o leen la ruta para sacar el slug).
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const CLEAN = { '/mi-landing': 'mi-landing.html', '/dev/mi-landing': 'dev/mi-landing.html' };
+    const p = url.pathname.replace(/\/+$/, '') || '/';
+    const old = p.match(/^(\/(?:dev\/)?mi-landing)\.html$/i);
+    if (old) { res.writeHead(301, { Location: old[1] + url.search, 'Cache-Control': 'no-cache' }); res.end(); return; }
+    if (CLEAN[p] && url.pathname !== p) { res.writeHead(301, { Location: p + url.search, 'Cache-Control': 'no-cache' }); res.end(); return; }
+    if (CLEAN[p]) {
+      try {
+        const data = await fs.promises.readFile(path.join(__dirname, 'public', CLEAN[p]));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(req.method === 'HEAD' ? undefined : data); return;
+      } catch {}
+    }
   }
 
   // Zona de pruebas: /dev/tienda.html?s=<slug> también recibe los datos inyectados por el servidor.
