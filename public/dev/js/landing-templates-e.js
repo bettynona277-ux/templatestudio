@@ -536,6 +536,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-brand small{display:block;margin-top:3px;font-size:11px;color:var(--n-mut);font-weight:600}
 .lt-lima .lts-hwa{flex:none;display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;border:1.5px solid rgba(184,255,44,.55);color:var(--n-lime);font-weight:700;font-size:13.5px;text-decoration:none;background:rgba(184,255,44,.06)}
 .lt-lima .lts-hwa svg{width:18px;height:18px}
+.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .lts-htx{padding-top:26px}
+@media (min-width:860px){.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off){grid-template-columns:1fr;min-height:0}.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .lts-htx{text-align:center;padding-top:56px}.lt-lima .lts-hin:has(>.lts-media.is-mark.lt-part-off) .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-lima .lts-hin{position:relative;z-index:3;display:grid;align-items:end;gap:10px;margin-top:10px}
 @media (min-width:860px){.lt-lima .lts-hin{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:clamp(28px,4vw,56px);min-height:500px;align-items:center}.lt-lima .lts-htx .ltb-h1{font-size:clamp(34px,4.3vw,58px)}}
 @media (max-width:859px){.lt-lima .lts-htx{text-align:center}.lt-lima .lts-htx .ltb-sub{margin-left:auto;margin-right:auto}}
@@ -863,7 +865,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
+    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge,.lts-media.is-mark', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
     tags: ['oscura', 'moderna', 'animada'], preview: { bg: '#060805', fg: '#f1f5ea', accent: NE_LIME }, render: renderNeon
   });
 })(typeof window !== 'undefined' ? window : globalThis);
