@@ -180,6 +180,8 @@ h1,h2,h3{margin:0;letter-spacing:-.02em}
 .acc-h .t small{display:block;color:var(--tx3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acc-h .t small.warn{color:#FCD34D}
 .acc-h .chev{transition:transform .2s;color:var(--tx3)}
+.chip.part{display:inline-flex;align-items:center;gap:6px}
+.chip.part.off{opacity:.6;text-decoration:line-through}
 .acc-g{margin:18px 4px 8px;font-size:12.5px;font-weight:700;color:var(--tx3);letter-spacing:.02em}
 .acc-g:first-of-type{margin-top:6px}
 .acc-h .ic.num{position:relative;border-radius:50%;background:var(--priBg);font-weight:800;font-size:16px}
@@ -641,7 +643,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=23', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=26', 'js/landing-templates-e.js?v=5', 'js/landing-templates-f.js?v=9'].forEach(function (f) {
+['js/landing-core.js?v=24', 'js/landing-templates-b.js?v=16', 'js/landing-templates-d.js?v=28', 'js/landing-templates-e.js?v=7', 'js/landing-templates-f.js?v=11'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -802,7 +804,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       slug: str(r.slug), template: str(r.template) || defaultTpl(), name: str(r.name), tagline: str(r.tagline, D.tagline),
       heroTitle: str(r.heroTitle, D.heroTitle), heroSubtitle: str(r.heroSubtitle, D.heroSubtitle), ctaText: str(r.ctaText, D.ctaText),
       whatsapp: digits(r.whatsapp), whatsappMessage: str(r.whatsappMessage, D.whatsappMessage), hours: str(r.hours, D.hours || '24/7'), currency: LC.CURRENCIES[r.currency] ? r.currency : 'PEN',
-      logoUrl: str(r.logoUrl), coverUrl: str(r.coverUrl), coverSmUrl: str(r.coverSmUrl),
+      logoUrl: str(r.logoUrl), coverUrl: str(r.coverUrl), coverSmUrl: str(r.coverSmUrl), hidden: arr(r.hidden).map(String).slice(0, 40),
       theme: { primary: (r.theme && r.theme.primary) || D.theme.primary, accent: (r.theme && r.theme.accent) || D.theme.accent, mode: r.theme && r.theme.mode === 'light' ? 'light' : 'dark' },
       plans: arr(r.plans).map(p => ({ id: str(p.id) || nid('p'), platform: str(p.platform) || 'other', title: str(p.title), price: str(p.price), oldPrice: str(p.oldPrice),
         period: str(p.period) || '1 mes', type: p.type === 'full' ? 'full' : 'profile', features: pad3(p.features), badge: str(p.badge), imageUrl: str(p.imageUrl), color: /^#[0-9a-f]{6}$/i.test(str(p.color)) ? str(p.color) : '', visible: p.visible !== false, category: str(p.category).slice(0, 24) })),
@@ -1118,6 +1120,26 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       if (!doc.getElementById(s.id)) { const c = doc.createElement('style'); c.id = s.id; c.textContent = force ? forceCss(s.textContent) : s.textContent; doc.head.appendChild(c); }
     });
   }
+  /** X de la vista previa (y la lista del editor): oculta o vuelve a mostrar una parte de la página. */
+  function togglePart(k, hide) {
+    const set = new Set(S.data.hidden || []);
+    if (hide) set.add(k); else set.delete(k);
+    S.data.hidden = [...set];
+    changed();
+    const box = $('#partsBox'); if (box) box.outerHTML = partsHtml();
+    toast(hide ? `Ocultaste: ${partLabel(k)}.` : `Se muestra de nuevo: ${partLabel(k)}.`, 'info', hide ? { label: 'Deshacer', fn: () => togglePart(k, false) } : undefined);
+  }
+  const partLabel = k => { const p = LC.partsFor(S.data.template).find(x => x.k === k); return p ? p.label : k; };
+  /** Lista "Partes de tu página": cada parte se puede ocultar o mostrar (también con la X en la vista previa). */
+  function partsHtml() {
+    const d = S.data, hid = new Set(d.hidden || []);
+    const has = { cover: !!(d.coverUrl || d.coverSmUrl), benefits: d.benefits.length, reviews: d.reviews.some(r => r.text.trim()), pays: d.paymentMethods.length, faq: d.faq.length, links: d.links.length };
+    const list = LC.partsFor(d.template).filter(p => !(p.k in has) || has[p.k] || hid.has(p.k));
+    if (!list.length) return '<div id="partsBox"></div>';
+    return `<div class="field" id="partsBox" style="margin:18px 0 0"><span class="lbl">Partes de tu página</span>
+      <p class="hint">Toca para ocultar o mostrar. También puedes tocar la <b>×</b> en la vista previa.</p>
+      <div class="chips" style="margin-top:8px">${list.map(p => `<button class="chip part${hid.has(p.k) ? ' off' : ''}" type="button" data-act="partSet" data-arg="${esc(p.k)}" aria-pressed="${!hid.has(p.k)}">${I(hid.has(p.k) ? 'eyeOff' : 'check', 'sm')}${esc(p.label)}</button>`).join('')}</div></div>`;
+  }
   async function renderFrame(f, data) {
     await f._ready;
     const doc = f.contentDocument; if (!doc || !doc.body) return;
@@ -1125,7 +1147,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!root) { root = doc.createElement('div'); root.id = 'lt'; doc.body.appendChild(root); }
     const win = f.contentWindow, y = win ? win.scrollY : 0;
     try {
-      LC.render(root, data, { preview: true, forceMotion: !f._thumb });
+      LC.render(root, data, f._thumb ? { preview: true } : { preview: true, forceMotion: true, onPart: togglePart });
       // Demo: imágenes que no se subieron (URL ficticia) → se ven con la copia local.
       if (Object.keys(S.localMap).length) $$('img', root).forEach(im => { const l = S.localMap[im.getAttribute('src')]; if (l) im.setAttribute('src', l); });
       if (f._openFaq && f._openFaq.size) $$('details', root).forEach(d => { if (f._openFaq.has(faqKey(d))) d.open = true; });
@@ -1543,7 +1565,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   function fitThumbs(scope = document) { $$('[data-thumb]', scope).forEach(el => { const w = el.clientWidth; if (w) el.style.setProperty('--s', (w / 390).toFixed(4)); }); }
   /** Marca como elegida SOLO la plantilla id en todas las galerías (normales y "De temporada" son grillas
    *  distintas: marcar solo una grilla dejaba dos plantillas con check). */
-  function markTpl(id) { $$('.tpl[data-arg]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === id))); }
+  function markTpl(id) { $$('.tpl[data-arg]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === id))); const pb = $('#partsBox'); if (pb) pb.outerHTML = partsHtml(); }
 
   // ---------- comprobación de enlace ----------
   const slugCache = new Map();
@@ -1744,7 +1766,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
 
   const BODIES = {
     plantilla() {
-      return `<p class="hint" style="margin:0 0 12px">Toca un diseño para usarlo. Tus datos se mantienen.</p>${galleryHtml(S.data.template)}${headerOptsHtml()}${motionHtml()}`;
+      return `<p class="hint" style="margin:0 0 12px">Toca un diseño para usarlo. Tus datos se mantienen.</p>${galleryHtml(S.data.template)}${headerOptsHtml()}${partsHtml()}${motionHtml()}`;
     },
     marca() {
       const d = S.data;
@@ -2329,6 +2351,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     togglePlan(id) { S.openPlan = S.openPlan === id ? null : id; renderSection('planes'); const card = $$('[data-plan]').find(x => x.dataset.plan === id); const b = card && card.querySelector('.more'); b && b.focus(); },
     movePlan(arg) { move(S.data.plans, arg); renderSection('planes'); changed(); },
     async rmPlan(i) { const p = S.data.plans[+i]; if (!(await confirmBox('¿Eliminar este plan?', `Se quitará ${planName(p)} de tu página.`, 'Eliminar', true))) return; S.data.plans.splice(+i, 1); renderSection('planes'); changed(); },
+    partSet(k) { togglePart(k, !(S.data.hidden || []).includes(k)); },
     planCat(arg) {
       const k = arg.indexOf('|'), i = +arg.slice(0, k), c = arg.slice(k + 1), p = S.data.plans[i]; if (!p) return;
       // elegir la categoría automática la deja vacía (sigue a la app); tocar la elegida la quita
@@ -2765,6 +2788,8 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       urls.forEach(u => { if (!LC.safeImage(u)) throw Object.assign(new Error('bad-url'), { code: 'bad-url' }); });
       files.forEach((f, i) => { S.data[f.key] = urls[i]; S.mine.add(urls[i]); });
       if (field === 'coverUrl' && !files.some(f => f.key === 'coverSmUrl')) S.data.coverSmUrl = '';
+      // subir una portada nueva la vuelve a mostrar si estaba oculta con la X
+      if (field === 'coverUrl' && (S.data.hidden || []).includes('cover')) S.data.hidden = S.data.hidden.filter(k => k !== 'cover');
       if (S.localPrev[field]) { URL.revokeObjectURL(S.localPrev[field]); delete S.localPrev[field]; }
       changed();
       announce(field === 'logoUrl' ? 'Logo listo.' : 'Portada lista.');
