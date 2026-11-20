@@ -409,7 +409,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   })();
   // Personajes (PNG/webp con fondo transparente). Vacíos = se muestra el cuadro con X para reemplazar.
   const NE_PERSON = '';       // portada (a la derecha del título)
-  const NE_PERSON2 = '';      // sección "¿Quién te atiende?" (se ve en blanco y negro)
+  const NE_PERSON2 = 'ne-duo2.webp'; // sección "¿Quién te atiende?" (a color, sobre un escenario lima)
   const NE_I = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
@@ -494,6 +494,18 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `${nePrice(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`, true)}` +
       `${url ? `<a class="lts-btn lts-pbtn" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener"><span>${ctx.money(c.price) ? 'Quiero aprovechar la promoción' : 'Consultar precio'}</span></a>` : ''}` +
       `<ul class="lts-trust"><li>${nei('shield')}<span>Pago<br>seguro</span></li><li>${nei('zap')}<span>Activación<br>inmediata</span></li><li>${nei('headset')}<span>${ctx.hours247 === false ? `Atención<br>${ctx.esc(ctx.hours)}` : 'Soporte<br>24/7'}</span></li></ul></article>`;
+  }
+  /** Imagen de "¿Quién te atiende?": escenario lima con rejilla, las cabezas salen del marco, luz de borde,
+   *  chispas y dos etiquetas flotantes. Sin imagen = cuadro con X. */
+  function neWho() {
+    if (!NE_PERSON2) return `<div class="lts-wart" data-rv>${neSlot('', '', 'Foto (PNG sin fondo)')}</div>`;
+    const sp = [[8, 30, 0], [88, 22, 1.2], [14, 70, 2.1], [92, 62, .6], [50, 8, 1.7], [76, 88, 2.6]];
+    return `<div class="lts-wart has-img" data-rv><div class="lts-wstage" aria-hidden="true"><i></i></div>` +
+      `<img class="lts-person" src="${NE_IMG}${NE_PERSON2}" alt="" width="760" height="979" loading="lazy" decoding="async">` +
+      `<span class="lts-wfloor" aria-hidden="true"></span>` +
+      `<span class="lts-wsp" aria-hidden="true">${sp.map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;--d:${d}s"></i>`).join('')}</span>` +
+      `<span class="lts-wchip a" aria-hidden="true">${nei('zap')}Activación en minutos</span>` +
+      `<span class="lts-wchip b" aria-hidden="true">${nei('headset')}Te atendemos por WhatsApp</span></div>`;
   }
   const neHead = (html, sub) => `<div class="lts-hd" data-rv><h2 class="ltb-h2">${html}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
 
@@ -664,6 +676,29 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-wtx h2{margin:0 0 14px}
 .lt-lima .lts-wtx p{margin:0 0 12px;color:var(--n-mut);line-height:1.6;font-size:15px}
 .lt-lima .lts-wtx .lts-btn{margin-top:10px}
+.lt-lima .lts-wart.has-img{aspect-ratio:760/1000;margin:24px 0 0}
+.lt-lima .lts-wart.has-img::before,.lt-lima .lts-wart.has-img::after{content:none}
+.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:24%;bottom:6%;border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
+.lt-lima .lts-wstage i{position:absolute;top:0;bottom:0;left:-40%;width:34%;background:linear-gradient(100deg,transparent,rgba(214,255,122,.12),transparent);transform:skewX(-18deg)}
+.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:saturate(1.05) contrast(1.04) drop-shadow(0 0 1.5px rgba(214,255,122,.55)) drop-shadow(-10px 0 28px rgba(150,255,0,.22)) drop-shadow(0 26px 30px rgba(0,0,0,.55));-webkit-mask:linear-gradient(180deg,#000 82%,transparent 99%);mask:linear-gradient(180deg,#000 82%,transparent 99%)}
+.lt-lima .lts-wfloor{position:absolute;z-index:2;left:3%;right:3%;bottom:6%;height:22%;border-radius:0 0 22px 22px;background:linear-gradient(180deg,transparent,rgba(10,13,7,.85) 70%,#0a0d07);pointer-events:none}
+.lt-lima .lts-wfloor::after{content:"";position:absolute;left:10%;right:10%;bottom:-2px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--n-lime),transparent);box-shadow:0 0 18px var(--n-lime)}
+.lt-lima .lts-wsp{position:absolute;inset:0;z-index:3;pointer-events:none}
+.lt-lima .lts-wsp i{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--n-lime3);box-shadow:0 0 10px var(--n-lime),0 0 20px rgba(150,255,0,.5);opacity:.75}
+.lt-lima .lts-wchip{position:absolute;z-index:4;display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:12px;font-size:12.5px;font-weight:800;white-space:nowrap;color:var(--n-tx);background:rgba(16,20,12,.88);border:1px solid rgba(184,255,44,.45);box-shadow:0 12px 30px rgba(0,0,0,.55),0 0 22px rgba(150,255,0,.15);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.lt-lima .lts-wchip .lts-ic{width:16px;height:16px;padding:4px;box-sizing:content-box;border-radius:8px;background:var(--n-lime);color:var(--n-ink)}
+.lt-lima .lts-wchip.a{left:-6%;top:44%}
+.lt-lima .lts-wchip.b{right:-6%;bottom:16%}
+@media (max-width:819px){.lt-lima .lts-wchip{font-size:11.5px;padding:7px 10px}.lt-lima .lts-wchip.a{left:-4%}.lt-lima .lts-wchip.b{right:-4%}}
+.lt-lima:not(.lt-static) .lts-wstage i{animation:lts-wsh 5.5s ease-in-out infinite}
+@keyframes lts-wsh{0%,55%{left:-40%}100%{left:120%}}
+.lt-lima:not(.lt-static) .lts-wsp i{animation:lts-tw 2.8s var(--d) ease-in-out infinite}
+@keyframes lts-tw{0%,100%{opacity:.15;transform:scale(.5)}50%{opacity:1;transform:scale(1.15)}}
+.lt-lima:not(.lt-static) .lts-wchip.a{animation:lts-fl 4.2s ease-in-out infinite}
+.lt-lima:not(.lt-static) .lts-wchip.b{animation:lts-fl 4.8s 1.1s ease-in-out infinite}
+@keyframes lts-fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.lt-lima:not(.lt-static) .lts-wfloor::after{animation:lts-glow 3s ease-in-out infinite alternate}
+.lt-lima .ltb-off :is(.lts-wstage i,.lts-wsp i,.lts-wchip),.lt-lima .ltb-off .lts-wfloor::after{animation-play-state:paused!important}
 @media (max-width:819px){.lt-lima .lts-wtx{text-align:center}.lt-lima .lts-wtx p{max-width:56ch;margin-left:auto;margin-right:auto}.lt-lima .lts-wart{margin-right:0;width:min(320px,78%)}}
 .lt-lima :is(.ltb-sec-pays,.ltb-sec-faq,.ltb-sec-links) .ltb-h2{text-align:center;margin-bottom:clamp(22px,3.5vw,30px)}
 .lt-lima .ltb-pays,.lt-lima .ltb-links{justify-content:center}
@@ -763,7 +798,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       (plans.length ? `<section class="ltb-sec ltb-sec-plans"><div class="ltb-wrap">${neHead(`Elige tu <span class="lts-hl">plataforma favorita</span>`)}<div class="lts-grid">${plans.map((p, i) => nePlan(ctx, p, i)).join('')}</div>${wa ? `<div class="lts-cta-row" data-rv>${mainCta('Quiero mi cuenta ahora')}</div>` : ''}</div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="lts-dots" aria-hidden="true"></div><div class="ltb-wrap">${neHead(`No pierdas esta oportunidad,<br>asegura hoy <span class="lts-hl">tu combo!</span>`)}<div class="lts-plans">${combos.map((c, i) => neCombo(ctx, c, i, d)).join('')}</div></div></section>` : '') +
       (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews"><div class="ltb-wrap">${neHead(`Lo que dicen <span class="lts-hl">nuestros clientes</span>`)}${reviewsHtml(ctx, d)}</div></section>` : '') +
-      `<section class="ltb-sec ltb-sec-who"><div class="ltb-wrap"><div class="lts-who"><div class="lts-wart" data-rv>${neSlot(NE_PERSON2, '', 'Foto en blanco y negro (PNG sin fondo)')}</div>` +
+      `<section class="ltb-sec ltb-sec-who"><div class="ltb-wrap"><div class="lts-who">${neWho()}` +
       `<div class="lts-wtx" data-rv><p class="lts-wname">${ctx.esc(d.name)}</p><h2>¿Quién te va a <span class="lts-hl">atender?</span></h2>` +
       `<p>Somos un equipo que te ayuda a disfrutar tus plataformas favoritas sin complicaciones: te activamos la cuenta en minutos y te acompañamos por WhatsApp todo el mes.</p>` +
       `${d.tagline ? `<p>${ctx.esc(d.tagline)}.</p>` : ''}${mainCta('Escríbenos ahora')}</div></div></div></section>` +
