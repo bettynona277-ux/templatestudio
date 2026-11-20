@@ -409,7 +409,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   })();
   // Personajes (PNG/webp con fondo transparente). Vacíos = se muestra el cuadro con X para reemplazar.
   const NE_PERSON = '';       // portada (a la derecha del título)
-  const NE_PERSON2 = '';      // sección "¿Quién te atiende?" (se ve en blanco y negro)
+  const NE_PERSON2 = 'ne-duo3.webp'; // sección "¿Quién te atiende?" (a color, sobre un escenario lima)
   const NE_I = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
@@ -433,26 +433,39 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   const neSlot = (src, cls, label) => src
     ? `<img class="lts-person ${cls}" src="${NE_IMG}${src}" alt="" width="900" height="1100" decoding="async">`
     : `<div class="lts-slot ${cls}" role="img" aria-label="${label}"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 0L100 100M100 0L0 100" stroke="currentColor" stroke-width=".6" vector-effect="non-scaling-stroke"/></svg><span>${label}</span></div>`;
+  /** Texto del aro que gira: nombre corto (cortado en una palabra, máx. ~18 letras) para que las letras no se
+   *  aprieten con nombres largos ("Inversiones Streaming Premium del Norte" → "INVERSIONES STREAMING"). */
+  function neRingText(d, min) {
+    const w = String(d.name || 'Streaming').trim().toUpperCase().split(/\s+/);
+    let n = w[0].slice(0, 18);
+    for (let k = 1; k < w.length && (n + ' ' + w[k]).length <= 18; k++) n += ' ' + w[k];
+    const txt = `${n} · ${/^24\s*\/\s*7$/.test(String(d.hours || '24/7').trim()) ? 'STREAMING 24/7' : 'STREAMING'} · `;
+    return txt.length < min ? txt + txt : txt;
+  }
   /** Insignia circular con texto que gira (como el sello de la referencia). */
+  const NE_PLAY = '<svg class="lts-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.6v12.8a.9.9 0 0 0 1.37.77l10.2-6.4a.9.9 0 0 0 0-1.54l-10.2-6.4A.9.9 0 0 0 8.5 5.6z"/></svg>';
   function neBadge(ctx, d) {
-    const txt = `${String(d.name || 'Streaming').toUpperCase()} · STREAMING 24/7 · `;
-    const rep = txt.length < 30 ? txt + txt : txt;
-    const mark = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="64" height="64" decoding="async">` : `<b>${ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase())}</b>`;
+    const rep = neRingText(d, 30);
+    // En el sello va un "play" (no el logo): el logo ya está en la barra o en la foto de perfil, así no se repite.
+    const mark = NE_PLAY;
     return `<div class="lts-badge" aria-hidden="true"><svg class="lts-ring" viewBox="0 0 200 200"><defs><path id="ltsCirc" d="M100 100m-74 0a74 74 0 1 1 148 0a74 74 0 1 1-148 0"/></defs><text><textPath href="#ltsCirc" textLength="462">${ctx.esc(rep.slice(0, 64))}</textPath></text></svg><span class="lts-bc">${mark}</span></div>`;
   }
   /** Lado derecho de la portada:
-   *  - "Portada grande" (headerStyle cover) con portada subida: portada enmarcada en lima + foto de perfil redonda encima.
-   *  - "Perfil tipo Facebook" (profile) o sin portada: solo la foto de perfil grande con aro lima y el sello que gira alrededor. */
+   *  - "Portada tipo Facebook" (profile) = portada (o un degradado neón si no hay) + foto de perfil redonda encima + sello.
+   *  - "Portada normal" (cover) = solo la portada con el sello; sin portada, el sello grande que gira con un "play" al centro
+   *    (el logo ya va en la barra de arriba, no se repite ni aparece una foto de perfil grande). */
   function neMedia(ctx, d) {
     const ini = ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase());
     const av = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="Logo de ${ctx.esc(d.name)}" width="320" height="320" decoding="async" fetchpriority="high">` : `<b aria-hidden="true">${ini}</b>`;
-    const txt = `${String(d.name || 'Streaming').toUpperCase()} · STREAMING 24/7 · `;
-    const ring = `<svg class="lts-ring" viewBox="0 0 200 200" aria-hidden="true"><defs><path id="ltsCirc" d="M100 100m-86 0a86 86 0 1 1 172 0a86 86 0 1 1-172 0"/></defs><text><textPath href="#ltsCirc" textLength="536">${ctx.esc((txt.length < 34 ? txt + txt : txt).slice(0, 70))}</textPath></text></svg>`;
-    if (!ctx.profileMode && d.coverUrl) {
-      return `<div class="lts-media is-cover"><figure class="lts-cov"><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>` +
-        `<span class="lts-av">${av}</span>${neBadge(ctx, d)}</div>`;
+    const ring = `<svg class="lts-ring" viewBox="0 0 200 200" aria-hidden="true"><defs><path id="ltsCircP" d="M100 100m-86 0a86 86 0 1 1 172 0a86 86 0 1 1-172 0"/></defs><text><textPath href="#ltsCircP" textLength="536">${ctx.esc(neRingText(d, 34).slice(0, 70))}</textPath></text></svg>`;
+    // "Portada tipo Facebook": portada + foto de perfil redonda encima. "Portada normal": solo la portada (con el sello).
+    if (d.coverUrl || ctx.profileMode) {
+      const cov = d.coverUrl ? `<figure class="lts-cov"><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>`
+        : `<figure class="lts-cov is-fx" aria-hidden="true"><i></i><i></i></figure>`;
+      return `<div class="lts-media is-cover${ctx.profileMode ? '' : ' is-norm'}">${cov}` +
+        `${ctx.profileMode ? `<span class="lts-av">${av}</span>` : ''}${neBadge(ctx, d)}</div>`;
     }
-    return `<div class="lts-media is-prof"><div class="lts-pf">${ring}<span class="lts-av">${av}</span></div></div>`;
+    return `<div class="lts-media is-prof is-mark"><div class="lts-pf">${ring}<span class="lts-av">${NE_PLAY}</span></div></div>`;
   }
   function nePrice(ctx, price, old, period, path, big) {
     const m = ctx.money(price), o = ctx.money(old);
@@ -480,7 +493,19 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="lts-bonus">${c.badge ? ctx.esc(c.badge) : 'Activación inmediata y garantía.'}</p>` +
       `${nePrice(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`, true)}` +
       `${url ? `<a class="lts-btn lts-pbtn" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener"><span>${ctx.money(c.price) ? 'Quiero aprovechar la promoción' : 'Consultar precio'}</span></a>` : ''}` +
-      `<ul class="lts-trust"><li>${nei('shield')}<span>Pago<br>seguro</span></li><li>${nei('zap')}<span>Activación<br>inmediata</span></li><li>${nei('headset')}<span>Soporte<br>24/7</span></li></ul></article>`;
+      `<ul class="lts-trust"><li>${nei('shield')}<span>Pago<br>seguro</span></li><li>${nei('zap')}<span>Activación<br>inmediata</span></li><li>${nei('headset')}<span>${ctx.hours247 === false ? `Atención<br>${ctx.esc(ctx.hours)}` : 'Soporte<br>24/7'}</span></li></ul></article>`;
+  }
+  /** Imagen de "¿Quién te atiende?": escenario lima con rejilla, las cabezas salen del marco, luz de borde,
+   *  chispas y dos etiquetas flotantes. Sin imagen = cuadro con X. */
+  function neWho() {
+    if (!NE_PERSON2) return `<div class="lts-wart" data-rv>${neSlot('', '', 'Foto (PNG sin fondo)')}</div>`;
+    const sp = [[6, 46, 0], [94, 34, 1.2], [12, 74, 2.1], [92, 64, .6], [70, 90, 2.6]];
+    return `<div class="lts-wart has-img" data-rv><div class="lts-wstage" aria-hidden="true"><i></i></div>` +
+      `<img class="lts-person" src="${NE_IMG}${NE_PERSON2}" alt="" width="760" height="969" loading="lazy" decoding="async">` +
+      `<span class="lts-wfloor" aria-hidden="true"></span>` +
+      `<span class="lts-wsp" aria-hidden="true">${sp.map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;--d:${d}s"></i>`).join('')}</span>` +
+      `<span class="lts-wchip a" aria-hidden="true">${nei('zap')}Activación en minutos</span>` +
+      `<span class="lts-wchip b" aria-hidden="true">${nei('headset')}Te atendemos por WhatsApp</span></div>`;
   }
   const neHead = (html, sub) => `<div class="lts-hd" data-rv><h2 class="ltb-h2">${html}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
 
@@ -507,14 +532,15 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-brand{display:flex;align-items:center;gap:10px;min-width:0}
 .lt-lima .lts-brand img,.lt-lima .lts-brand .lts-mono{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none}
 .lt-lima .lts-mono{display:grid;place-items:center;background:var(--n-lime);color:var(--n-ink);font-weight:900;font-size:20px}
-.lt-lima .lts-brand b{display:block;font-size:20px;font-weight:900;letter-spacing:.02em;text-transform:uppercase;color:var(--n-lime);line-height:1;overflow-wrap:anywhere}
+.lt-lima .lts-brand b{display:block;font-size:clamp(15px,4.4vw,20px);font-weight:900;letter-spacing:.02em;text-transform:uppercase;color:var(--n-lime);line-height:1;overflow-wrap:anywhere}
 .lt-lima .lts-brand small{display:block;margin-top:3px;font-size:11px;color:var(--n-mut);font-weight:600}
 .lt-lima .lts-hwa{flex:none;display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;border:1.5px solid rgba(184,255,44,.55);color:var(--n-lime);font-weight:700;font-size:13.5px;text-decoration:none;background:rgba(184,255,44,.06)}
 .lt-lima .lts-hwa svg{width:18px;height:18px}
 .lt-lima .lts-hin{position:relative;z-index:3;display:grid;align-items:end;gap:10px;margin-top:10px}
-@media (min-width:860px){.lt-lima .lts-hin{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;min-height:500px;align-items:center}}
+@media (min-width:860px){.lt-lima .lts-hin{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:clamp(28px,4vw,56px);min-height:500px;align-items:center}.lt-lima .lts-htx .ltb-h1{font-size:clamp(34px,4.3vw,58px)}}
+@media (max-width:859px){.lt-lima .lts-htx{text-align:center}.lt-lima .lts-htx .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-lima .lts-htx{padding:28px 0 56px;min-width:0;align-self:center}
-.lt-lima .ltb-h1{margin:0 0 18px;font-size:clamp(32px,7.4vw,56px);line-height:1.04;overflow-wrap:break-word}
+.lt-lima .ltb-h1{margin:0 0 18px;font-size:clamp(30px,7.4vw,56px);line-height:1.04;overflow-wrap:break-word;text-wrap:balance}
 .lt-lima .ltb-sub{margin:0 0 28px;max-width:38ch;font-size:clamp(15px,3.8vw,18px);line-height:1.5;color:#d7dccf}
 .lt-lima .lts-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:56px;padding:15px 30px;border-radius:12px;border:0;cursor:pointer;overflow:hidden;color:var(--n-ink);font-weight:800;font-size:clamp(15.5px,4vw,17px);text-decoration:none;background:linear-gradient(180deg,#d4ff6a 0%,${NE_LIME} 45%,#93e400 100%);box-shadow:0 0 0 1px rgba(214,255,122,.6) inset,0 10px 30px rgba(150,255,0,.32),0 0 60px rgba(150,255,0,.18);transition:transform .2s cubic-bezier(.3,1.6,.5,1),box-shadow .2s}
 .lt-lima .lts-btn svg{width:20px;height:20px;flex:none}
@@ -536,17 +562,21 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-bc{position:absolute;inset:27%;display:grid;place-items:center;border-radius:50%;background:var(--n-lime);color:var(--n-ink);overflow:hidden;box-shadow:0 0 18px rgba(184,255,44,.6)}
 .lt-lima .lts-bc img{width:100%;height:100%;object-fit:cover}
 .lt-lima .lts-bc b{font-weight:900;font-size:clamp(20px,5vw,30px)}
+.lt-lima .lts-play{width:46%;height:46%;fill:currentColor;margin-left:6%}
+.lt-lima .lts-cov.is-fx{background:radial-gradient(ellipse 60% 90% at 18% 10%,rgba(184,255,44,.55),transparent 60%),radial-gradient(ellipse 50% 80% at 88% 100%,rgba(120,255,0,.35),transparent 65%),linear-gradient(135deg,#1a2a08,#0b1006 55%,#16240a)}
+.lt-lima .lts-cov.is-fx i{position:absolute;inset:0;background:linear-gradient(rgba(184,255,44,.07) 1px,transparent 1px) 0 0/22px 22px,linear-gradient(90deg,rgba(184,255,44,.07) 1px,transparent 1px) 0 0/22px 22px}
+.lt-lima .lts-cov.is-fx i+i{background:linear-gradient(100deg,transparent 30%,rgba(214,255,122,.16) 48%,transparent 66%)}
 /* portada + foto de perfil */
-.lt-lima .lts-media{position:relative;justify-self:center;align-self:center;width:100%;max-width:500px;margin:10px 0 40px}
+.lt-lima .lts-media{position:relative;justify-self:center;align-self:center;width:100%;max-width:520px;margin:10px 0 40px}
 .lt-lima .lts-media::before{content:"";position:absolute;left:5%;right:5%;top:15%;bottom:0;border-radius:50%;background:radial-gradient(circle,rgba(170,255,40,.42),transparent 66%);filter:blur(22px);pointer-events:none}
 .lt-lima .lts-cov{position:relative;margin:0;aspect-ratio:851/315;border-radius:18px;overflow:hidden;background:#11160c;border:1.5px solid rgba(184,255,44,.55);box-shadow:0 0 0 6px rgba(184,255,44,.06),0 24px 50px rgba(0,0,0,.6),0 0 50px rgba(150,255,0,.2)}
 .lt-lima .lts-cov img{width:100%;height:100%;object-fit:cover}
 .lt-lima .lts-cov::after{content:"";position:absolute;top:0;bottom:0;left:-50%;width:30%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-18deg);opacity:0;pointer-events:none}
 .lt-lima .lts-av{position:relative;display:grid;place-items:center;border-radius:50%;overflow:hidden;background:var(--n-lime);color:var(--n-ink);font-weight:900}
 .lt-lima .lts-av img{width:100%;height:100%;object-fit:cover}
-.lt-lima .is-cover .lts-av{position:absolute;left:7%;bottom:-38px;z-index:2;width:clamp(84px,22vw,118px);aspect-ratio:1;border:4px solid #0a0d07;box-shadow:0 0 0 2.5px var(--n-lime),0 0 26px rgba(150,255,0,.5),0 12px 24px rgba(0,0,0,.5);font-size:clamp(34px,8vw,48px)}
-.lt-lima .is-cover .lts-badge{right:3%;bottom:-54px;top:auto;width:clamp(86px,20vw,116px)}
-@media (max-width:600px){.lt-lima .is-cover .lts-badge{width:84px;bottom:-44px;right:2%}.lt-lima .is-cover .lts-badge .lts-ring text{font-size:16px}}
+.lt-lima .is-cover .lts-av{position:absolute;left:7%;bottom:-38px;z-index:2;width:clamp(76px,24%,118px);aspect-ratio:1;border:4px solid #0a0d07;box-shadow:0 0 0 2.5px var(--n-lime),0 0 26px rgba(150,255,0,.5),0 12px 24px rgba(0,0,0,.5);font-size:clamp(34px,8vw,48px)}
+.lt-lima .is-cover .lts-badge{right:3%;bottom:-42px;top:auto;width:clamp(78px,23%,116px)}
+@media (max-width:600px){.lt-lima .is-cover .lts-badge{right:2%}.lt-lima .is-cover .lts-badge .lts-ring text{font-size:16px}}
 .lt-lima .lts-pf{position:relative;width:min(360px,78%);aspect-ratio:1;margin:0 auto}
 .lt-lima .lts-pf .lts-ring{inset:0}
 .lt-lima .lts-pf .lts-ring text{font-size:12.5px;letter-spacing:3px}
@@ -560,27 +590,37 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-chev svg{width:18px;height:18px}
 .lt-lima .lts-bandw{position:relative}
 /* secciones */
-.lt-lima .ltb-sec{padding:64px 0;background:var(--n-bg)}
-.lt-lima .lts-hd{text-align:center;margin:0 0 30px}
-.lt-lima .ltb-h2{margin:0;font-size:clamp(26px,6vw,42px);line-height:1.12;font-weight:600}
+.lt-lima .ltb-sec{padding:clamp(52px,8vw,76px) 0;background:var(--n-bg)}
+.lt-lima .ltb-sec-benefits{padding-top:clamp(64px,9vw,84px)}
+.lt-lima :is(.ltb-sec-pays,.ltb-sec-faq,.ltb-sec-links){padding:clamp(36px,5vw,48px) 0}
+.lt-lima .ltb-sec-pays{padding-top:clamp(52px,8vw,76px)}
+.lt-lima .ltb-sec-links{padding-bottom:clamp(52px,8vw,76px)}
+.lt-lima .lts-hd{text-align:center;margin:0 0 clamp(26px,4vw,38px)}
+.lt-lima .ltb-h2,.lt-lima .lts-ideal h2,.lt-lima .lts-wtx h2{margin:0;font-size:clamp(27px,5.6vw,42px);line-height:1.1;font-weight:600;text-wrap:balance}
 .lt-lima .ltb-h2 .lts-hl{font-weight:800}
 .lt-lima .lts-hd p{margin:10px auto 0;max-width:52ch;color:var(--n-mut);font-size:15px}
 /* ideal para */
 .lt-lima .lts-ideal{display:grid;gap:26px;align-items:center}
 @media (min-width:820px){.lt-lima .lts-ideal{grid-template-columns:1fr 1fr;gap:40px}}
-.lt-lima .lts-ideal h2{margin:0 0 14px;font-size:clamp(28px,6vw,40px);line-height:1.08;font-weight:600}
+.lt-lima .lts-ideal h2{margin:0 0 14px;overflow-wrap:anywhere}
 .lt-lima .lts-ideal h2 .lts-hl{font-weight:900;text-transform:uppercase}
 .lt-lima .lts-ideal p{margin:0;color:var(--n-mut);font-size:15px;line-height:1.6}
-.lt-lima .lts-ilist{list-style:none;margin:0;padding:4px 0 4px 22px;border-left:2px solid var(--n-lime);display:grid;gap:16px;box-shadow:-12px 0 24px -18px rgba(184,255,44,.8)}
+.lt-lima .lts-ilist{list-style:none;margin:0;padding:4px 0 4px 22px;border-left:2px solid var(--n-lime);display:grid;gap:16px;position:relative}
+.lt-lima .lts-ilist::before{content:"";position:absolute;left:-2px;top:0;bottom:0;width:2px;box-shadow:0 0 14px 1px rgba(184,255,44,.6);pointer-events:none}
 .lt-lima .lts-ilist li{display:flex;gap:12px;align-items:flex-start;font-size:15.5px;line-height:1.45;overflow-wrap:anywhere}
 .lt-lima .lts-ilist .lts-ic{flex:none;width:20px;height:20px;margin-top:2px;color:var(--n-lime)}
 /* planes */
-.lt-lima .lts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:16px}
+.lt-lima .lts-grid{--cols:4;--gap:16px;display:flex;flex-wrap:wrap;justify-content:center;gap:22px var(--gap)}
+.lt-lima .lts-grid>.lts-card{flex:0 0 calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));min-width:0}
+@media (max-width:1023px){.lt-lima .lts-grid{--cols:3}}
+@media (max-width:719px){.lt-lima .lts-grid{--cols:2;--gap:12px}}
+.lt-lima .lts-card .lts-price{margin-top:auto;padding-top:4px}
 .lt-lima .lts-card{gap:10px;align-items:center;text-align:center;padding:26px 18px 20px;border-radius:14px;background:linear-gradient(180deg,#22251f 0%,#151813 100%);border:1px solid var(--n-line);box-shadow:0 12px 30px rgba(0,0,0,.35);transition:transform .3s cubic-bezier(.3,1.6,.5,1),border-color .3s,box-shadow .3s}
 .lt-lima .lts-card:hover{transform:translateY(-5px);border-color:rgba(184,255,44,.55);box-shadow:0 16px 40px rgba(0,0,0,.45),0 0 30px rgba(150,255,0,.15)}
 .lt-lima .lts-icon{display:grid;place-items:center;width:72px;height:72px;margin-bottom:6px;border-radius:18px;border:1.5px solid rgba(184,255,44,.55);background:radial-gradient(circle,rgba(184,255,44,.14),transparent 70%);box-shadow:0 0 22px rgba(150,255,0,.18)}
 .lt-lima .lts-icon .ltb-logo{width:48px;height:48px;border-radius:12px}
 .lt-lima .lts-card .ltb-title{font-size:18px;color:#fff}
+@media (max-width:719px){.lt-lima .lts-card{padding:24px 10px 16px;gap:8px}.lt-lima .lts-icon{width:60px;height:60px;border-radius:16px}.lt-lima .lts-icon .ltb-logo{width:40px;height:40px;border-radius:10px}.lt-lima .lts-card .ltb-title{font-size:15.5px}.lt-lima .lts-card .lts-feats,.lt-lima .lts-card .lts-type{font-size:12.5px}.lt-lima .lts-card .lts-price strong{font-size:24px}}
 .lt-lima .lts-type,.lt-lima .lts-feats{margin:0;padding:0;list-style:none;color:var(--n-mut);font-size:13.5px;line-height:1.5}
 .lt-lima .lts-feats li{overflow-wrap:anywhere}
 .lt-lima .lts-price{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:4px}
@@ -591,27 +631,30 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-old s{color:#d7dccf}
 .lt-lima .lts-mini{display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:var(--n-lime);font-weight:700;font-size:13.5px;text-decoration:none;border-bottom:1px solid rgba(184,255,44,.4);padding-bottom:2px}
 .lt-lima .lts-ar{width:15px;height:15px;transform:rotate(-90deg)}
-.lt-lima .lts-tag{position:absolute;top:12px;right:12px;padding:3px 10px;border-radius:6px;background:var(--n-lime);color:var(--n-ink);font-size:11px;font-weight:800;max-width:calc(100% - 24px);overflow-wrap:anywhere}
+.lt-lima .lts-tag{position:absolute;z-index:1;top:-11px;left:50%;transform:translateX(-50%);padding:3px 11px;border-radius:999px;background:var(--n-lime);color:var(--n-ink);font-size:11px;font-weight:800;line-height:1.4;white-space:nowrap;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis;box-shadow:0 0 16px rgba(184,255,44,.45)}
 .lt-lima .lts-cta-row{display:flex;justify-content:center;margin-top:34px}
 /* combos: tarjeta de precio */
-.lt-lima .lts-plans{display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch;gap:22px}
-.lt-lima .lts-plans>.lts-plan{flex:0 1 360px;min-width:min(100%,300px)}
-.lt-lima .lts-plan{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;padding:30px 24px 22px;border-radius:16px;text-align:center;background:radial-gradient(ellipse 80% 40% at 50% 0%,rgba(184,255,44,.10),transparent 70%),linear-gradient(180deg,#1d211a,#121510);border:1.5px solid rgba(184,255,44,.35);box-shadow:0 20px 50px rgba(0,0,0,.5),0 0 40px rgba(150,255,0,.10);isolation:isolate}
+.lt-lima .lts-plans{display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch;gap:24px 22px}
+.lt-lima .lts-plans>.lts-plan{flex:0 0 min(100%,330px);min-width:0}
+.lt-lima .lts-plan{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;padding:30px 20px 22px;border-radius:16px;text-align:center;background:radial-gradient(ellipse 80% 40% at 50% 0%,rgba(184,255,44,.10),transparent 70%),linear-gradient(180deg,#1d211a,#121510);border:1.5px solid rgba(184,255,44,.35);box-shadow:0 20px 50px rgba(0,0,0,.5),0 0 40px rgba(150,255,0,.10);isolation:isolate}
 .lt-lima .lts-plan.is-top{border-color:transparent;background:radial-gradient(ellipse 80% 40% at 50% 0%,rgba(184,255,44,.14),transparent 70%) padding-box,linear-gradient(180deg,#1d211a,#121510) padding-box,conic-gradient(from var(--lts-a,0deg),#b8ff2c,#2a3a12 25%,#d8ff7c 50%,#2a3a12 75%,#b8ff2c) border-box;box-shadow:0 20px 60px rgba(0,0,0,.55),0 0 60px rgba(150,255,0,.22)}
 @property --lts-a{syntax:'<angle>';inherits:false;initial-value:0deg}
-.lt-lima .lts-pbrand{display:flex;align-items:center;gap:8px;color:var(--n-lime);font-weight:900;letter-spacing:.04em;text-transform:uppercase;font-size:15px}
+.lt-lima .lts-pbrand{display:flex;align-items:center;justify-content:center;gap:8px;max-width:100%;color:var(--n-lime);font-weight:900;letter-spacing:.04em;text-transform:uppercase;font-size:15px;line-height:1.2;text-align:left;overflow-wrap:anywhere}
+.lt-lima .lts-pbrand img{flex:none}
 .lt-lima .lts-pbrand img{width:28px;height:28px;border-radius:7px;object-fit:cover}
 .lt-lima .lts-plogos{display:flex;justify-content:center;margin:4px 0}
 .lt-lima .lts-plogos .ltb-logo{width:42px;height:42px;border-radius:50%;border:3px solid #171a14;margin:0 -6px;box-shadow:0 0 0 1px rgba(184,255,44,.35)}
 .lt-lima .lts-plan h3{margin:2px 0 0;font-size:21px;color:#fff;overflow-wrap:anywhere}
 .lt-lima .lts-incl{list-style:none;margin:0;padding:0;display:grid;gap:7px;color:#d7dccf;font-size:14.5px}
 .lt-lima .lts-bonus{margin:4px 0 0;color:var(--n-lime);font-weight:700;font-size:14.5px}
-.lt-lima .lts-price.is-big{margin-top:10px}
+.lt-lima .lts-price.is-big{margin-top:auto;padding-top:10px}
 .lt-lima .lts-price.is-big strong{font-size:clamp(46px,12vw,64px);text-shadow:0 0 28px rgba(184,255,44,.45)}
 .lt-lima .lts-price.is-big .lts-old{font-size:17px;font-weight:700;color:#fff}
-.lt-lima .lts-pbtn{width:100%;margin-top:10px;min-height:52px;padding:13px 18px;font-size:15.5px}
+.lt-lima .lts-pbtn{width:100%;margin-top:10px;min-height:52px;padding:13px 14px;font-size:15px}
+.lt-lima .lts-pbtn span{line-height:1.25;text-wrap:balance}
 .lt-lima .lts-trust{list-style:none;margin:12px 0 0;padding:14px 0 0;width:100%;display:flex;justify-content:space-around;gap:6px;border-top:1px solid var(--n-line)}
 .lt-lima .lts-trust li{display:flex;align-items:center;gap:6px;text-align:left;font-size:10.5px;line-height:1.2;color:var(--n-mut)}
+.lt-lima .lts-trust span{max-width:14ch;overflow-wrap:anywhere}
 .lt-lima .lts-trust .lts-ic{width:18px;height:18px;color:var(--n-lime);flex:none}
 .lt-lima .ltb-cph{border-radius:12px;width:100%}
 /* reseñas */
@@ -623,15 +666,41 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* quién te atiende */
 .lt-lima .lts-who{display:grid;gap:26px;align-items:center}
 @media (min-width:820px){.lt-lima .lts-who{grid-template-columns:.9fr 1.1fr;gap:40px}}
-.lt-lima .lts-wart{position:relative;justify-self:center;width:min(380px,86%);aspect-ratio:9/10}
-.lt-lima .lts-wart::before{content:"";position:absolute;right:-4%;top:10%;width:46%;height:86%;background:linear-gradient(180deg,#f2f5ee,#cfd6c4);clip-path:polygon(28% 0,100% 0,100% 100%,0 100%);opacity:.9}
+.lt-lima .lts-wart{position:relative;justify-self:center;width:min(380px,84%);aspect-ratio:9/10;margin-right:5%}
+.lt-lima .lts-wart::before{content:"";position:absolute;right:-11%;top:11%;width:46%;height:80%;border-radius:0 14px 14px 0;background:linear-gradient(180deg,#f2f5ee,#cfd6c4);clip-path:polygon(30% 0,100% 0,100% 100%,0 100%);opacity:.9}
+.lt-lima .lts-wart::after{content:"";position:absolute;left:10%;right:10%;bottom:-6%;height:30%;border-radius:50%;background:radial-gradient(closest-side,rgba(150,255,0,.35),transparent);filter:blur(14px);pointer-events:none}
 .lt-lima .lts-wart .lts-person{filter:grayscale(1) contrast(1.05) drop-shadow(0 20px 40px rgba(0,0,0,.6))}
-.lt-lima .lts-wart .lts-slot{border-radius:16px}
+.lt-lima .lts-wart .lts-slot{z-index:1;border-radius:16px;border:1.5px solid rgba(184,255,44,.55);color:rgba(184,255,44,.22);background:radial-gradient(ellipse 70% 55% at 50% 100%,rgba(150,255,0,.16),transparent 70%),linear-gradient(rgba(184,255,44,.05) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(90deg,rgba(184,255,44,.05) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(180deg,#12170d,#0a0d07);box-shadow:0 0 0 6px rgba(184,255,44,.05),0 24px 50px rgba(0,0,0,.55),0 0 40px rgba(150,255,0,.12);overflow:hidden}
+.lt-lima .lts-wart .lts-slot span{border:1px solid rgba(184,255,44,.45);border-radius:12px;line-height:1.35;padding:7px 14px;max-width:86%;box-shadow:0 0 18px rgba(0,0,0,.6)}
 .lt-lima .lts-wtx .lts-wname{display:inline-flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--n-lime);font-weight:900;text-transform:uppercase;letter-spacing:.06em;font-size:14px}
-.lt-lima .lts-wtx h2{margin:0 0 14px;font-size:clamp(28px,6vw,40px);line-height:1.08;font-weight:600}
+.lt-lima .lts-wtx h2{margin:0 0 14px}
 .lt-lima .lts-wtx p{margin:0 0 12px;color:var(--n-mut);line-height:1.6;font-size:15px}
 .lt-lima .lts-wtx .lts-btn{margin-top:10px}
-.lt-lima :is(.ltb-sec-pays,.ltb-sec-faq,.ltb-sec-links) .ltb-h2{text-align:center;margin-bottom:24px}
+.lt-lima .lts-wart.has-img{aspect-ratio:760/1000;margin:24px 0 0}
+.lt-lima .lts-wart.has-img::before,.lt-lima .lts-wart.has-img::after{content:none}
+.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:20%;bottom:6%;-webkit-mask:linear-gradient(180deg,transparent 0,rgba(0,0,0,.35) 9%,#000 26%);mask:linear-gradient(180deg,transparent 0,rgba(0,0,0,.35) 9%,#000 26%);border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
+.lt-lima .lts-wstage i{position:absolute;top:0;bottom:0;left:-40%;width:34%;background:linear-gradient(100deg,transparent,rgba(214,255,122,.12),transparent);transform:skewX(-18deg)}
+.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:drop-shadow(0 0 1.5px rgba(214,255,122,.55)) drop-shadow(-8px 0 22px rgba(150,255,0,.2));}
+.lt-lima .lts-wfloor{position:absolute;z-index:2;left:3%;right:3%;bottom:6%;height:22%;border-radius:0 0 22px 22px;background:linear-gradient(180deg,transparent,rgba(10,13,7,.85) 70%,#0a0d07);pointer-events:none}
+.lt-lima .lts-wfloor::after{content:"";position:absolute;left:10%;right:10%;bottom:-2px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--n-lime),transparent);box-shadow:0 0 18px var(--n-lime)}
+.lt-lima .lts-wsp{position:absolute;inset:0;z-index:3;pointer-events:none}
+.lt-lima .lts-wsp i{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--n-lime3);box-shadow:0 0 10px var(--n-lime),0 0 20px rgba(150,255,0,.5);opacity:.75}
+.lt-lima .lts-wchip{position:absolute;z-index:4;display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:12px;font-size:12.5px;font-weight:800;white-space:nowrap;color:var(--n-tx);background:rgba(16,20,12,.88);border:1px solid rgba(184,255,44,.45);box-shadow:0 12px 30px rgba(0,0,0,.55),0 0 22px rgba(150,255,0,.15);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.lt-lima .lts-wchip .lts-ic{width:16px;height:16px;padding:4px;box-sizing:content-box;border-radius:8px;background:var(--n-lime);color:var(--n-ink)}
+.lt-lima .lts-wchip.a{left:-6%;top:44%}
+.lt-lima .lts-wchip.b{right:-6%;bottom:16%}
+@media (max-width:819px){.lt-lima .lts-wchip{font-size:11.5px;padding:7px 10px}.lt-lima .lts-wchip.a{left:-4%}.lt-lima .lts-wchip.b{right:-4%}}
+.lt-lima:not(.lt-static) .lts-wstage i{animation:lts-wsh 5.5s ease-in-out infinite}
+@keyframes lts-wsh{0%,55%{left:-40%}100%{left:120%}}
+.lt-lima:not(.lt-static) .lts-wsp i{animation:lts-tw 2.8s var(--d) ease-in-out infinite}
+@keyframes lts-tw{0%,100%{opacity:.15;transform:scale(.5)}50%{opacity:1;transform:scale(1.15)}}
+.lt-lima:not(.lt-static) .lts-wchip.a{animation:lts-fl 4.2s ease-in-out infinite}
+.lt-lima:not(.lt-static) .lts-wchip.b{animation:lts-fl 4.8s 1.1s ease-in-out infinite}
+@keyframes lts-fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.lt-lima:not(.lt-static) .lts-wfloor::after{animation:lts-glow 3s ease-in-out infinite alternate}
+.lt-lima .ltb-off :is(.lts-wstage i,.lts-wsp i,.lts-wchip),.lt-lima .ltb-off .lts-wfloor::after{animation-play-state:paused!important}
+@media (max-width:819px){.lt-lima .lts-wtx{text-align:center}.lt-lima .lts-wtx p{max-width:56ch;margin-left:auto;margin-right:auto}.lt-lima .lts-wart{margin-right:0;width:min(320px,78%)}}
+.lt-lima :is(.ltb-sec-pays,.ltb-sec-faq,.ltb-sec-links) .ltb-h2{text-align:center;margin-bottom:clamp(22px,3.5vw,30px)}
 .lt-lima .ltb-pays,.lt-lima .ltb-links{justify-content:center}
 .lt-lima .ltb-faq{max-width:720px;margin:0 auto}
 /* pagos, preguntas, enlaces */
@@ -642,7 +711,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .ltb-link{background:#151813;border:1px solid rgba(184,255,44,.3);border-radius:10px}
 .lt-lima .ltb-link svg{color:var(--n-lime)}
 /* pie */
-.lt-lima .ltb-foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;padding:22px 18px 100px;border-top:1px solid var(--n-line);background:#050604;color:#7d8474;font-size:12.5px}
+.lt-lima .ltb-foot{display:flex;flex-wrap:wrap;justify-content:center;text-align:center;gap:6px 22px;padding:26px 18px 100px;border-top:1px solid var(--n-line);background:#050604;color:#7d8474;font-size:12.5px}
 .lt-lima .ltb-foot p{margin:0}
 .lt-lima .ltb-made a{color:var(--n-lime)}
 .lt-lima .ltb-fab{background:var(--n-lime)!important;color:var(--n-ink)!important;box-shadow:0 0 30px rgba(150,255,0,.45)!important}
@@ -695,10 +764,12 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima:not(.lt-static).ltb-rv .lts-card.is-in .lts-icon{animation:lts-ic 1s calc(var(--rvd,0ms) + .2s) ease-out both}
 @keyframes lts-ic{0%{box-shadow:0 0 0 rgba(150,255,0,0)}40%{box-shadow:0 0 34px rgba(150,255,0,.55)}100%{box-shadow:0 0 22px rgba(150,255,0,.18)}}
 .lt-lima:not(.lt-static) .lts-plan.is-top{animation:lts-rot 5s linear infinite}
+.lt-lima:not(.lt-static).ltb-rv .lts-plan.is-top.is-in{animation:ltb-up-lima .65s var(--rvd,0ms) cubic-bezier(.16,1,.3,1) both,lts-rot 5s linear infinite}
 @keyframes lts-rot{to{--lts-a:360deg}}
 .lt-lima:not(.lt-static).ltb-rv .lts-wart.is-in::before{animation:lts-slide .9s .1s cubic-bezier(.16,1,.3,1) both}
 @keyframes lts-slide{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:.9}}
-.lt-lima .ltb-off :is(.lts-av,.lts-media,.lts-pf,.lts-beam,.lts-hart,.lts-ring,.lts-motes i,.lts-btn,.lts-band,.lts-chev,.lts-plan),.lt-lima .ltb-off :is(.lts-media,.lts-pf,.lts-hart,.lts-btn,.lts-band)::before,.lt-lima .ltb-off :is(.lts-pf,.lts-hart,.lts-btn,.lts-band)::after{animation-play-state:paused!important}
+.lt-lima .ltb-off :is(.lts-av,.lts-media,.lts-pf,.lts-beam,.lts-hart,.lts-ring,.lts-motes i,.lts-btn,.lts-band,.lts-chev,.lts-plan.is-top.is-in),.lt-lima .ltb-off :is(.lts-media,.lts-pf,.lts-hart,.lts-btn,.lts-band)::before,.lt-lima .ltb-off :is(.lts-pf,.lts-hart,.lts-btn,.lts-band)::after{animation-play-state:paused!important}
+@media (max-width:420px){.lt-lima .lts-plan{padding:28px 16px 20px}.lt-lima .lts-pbtn{font-size:14.5px;padding:13px 10px}.lt-lima .lts-pbrand{font-size:13px}}
 @media (max-width:520px){.lt-lima .lts-hwa span{display:none}.lt-lima .lts-hwa{padding:9px}.lt-lima .lts-trust li{font-size:10px}}
 `;
 
@@ -710,11 +781,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const mark = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="40" height="40" decoding="async">` : `<span class="lts-mono" aria-hidden="true">${ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase())}</span>`;
     const mainCta = (label, path) => wa ? `<a class="lts-btn" data-lt-btn="main" href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span${path ? ed(ctx, path) : ''}>${ctx.esc(label)}</span></a>` : `<button type="button" class="lts-btn" data-goto="plans">Ver planes</button>`;
     let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const motes = ctx.noMotion ? '' : `<div class="lts-motes" aria-hidden="true">${Array.from({ length: 14 }, () => `<i style="--x:${(rnd() * 100).toFixed(1)}%;--s:${(2 + rnd() * 3).toFixed(1)}px;--t:${(7 + rnd() * 7).toFixed(1)}s;--d:${(-rnd() * 12).toFixed(1)}s;--dx:${(rnd() * 80 - 40).toFixed(0)}px"></i>`).join('')}</div>`;
+    const motes = (ctx.noMotion || ctx.reducedMotion) ? '' : `<div class="lts-motes" aria-hidden="true">${Array.from({ length: 14 }, () => `<i style="--x:${(rnd() * 100).toFixed(1)}%;--s:${(2 + rnd() * 3).toFixed(1)}px;--t:${(7 + rnd() * 7).toFixed(1)}s;--d:${(-rnd() * 12).toFixed(1)}s;--dx:${(rnd() * 80 - 40).toFixed(0)}px"></i>`).join('')}</div>`;
     const bens = d.benefits.slice(0, 5);
     const html =
       `<section class="lts-hero" data-lt-hero><div class="lts-stadium" aria-hidden="true"></div><span class="lts-beam a" aria-hidden="true"></span><span class="lts-beam b" aria-hidden="true"></span>${motes}` +
-      `<div class="ltb-wrap"><div class="lts-top"><div class="lts-brand">${mark}<div><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div></div>` +
+      `<div class="ltb-wrap"><div class="lts-top"><div class="lts-brand">${ctx.profileMode ? '' : mark}<div><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div></div>` +
       `${wa ? `<a class="lts-hwa" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>WhatsApp</span></a>` : ''}</div>` +
       `<div class="lts-hin"><div class="lts-htx"><h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${neAccent(ctx, d.heroTitle || LC.DEFAULTS.heroTitle, 3)}</h1>` +
       `<p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>${mainCta(d.ctaText, 'ctaText')}` +
@@ -727,39 +798,51 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       (plans.length ? `<section class="ltb-sec ltb-sec-plans"><div class="ltb-wrap">${neHead(`Elige tu <span class="lts-hl">plataforma favorita</span>`)}<div class="lts-grid">${plans.map((p, i) => nePlan(ctx, p, i)).join('')}</div>${wa ? `<div class="lts-cta-row" data-rv>${mainCta('Quiero mi cuenta ahora')}</div>` : ''}</div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="lts-dots" aria-hidden="true"></div><div class="ltb-wrap">${neHead(`No pierdas esta oportunidad,<br>asegura hoy <span class="lts-hl">tu combo!</span>`)}<div class="lts-plans">${combos.map((c, i) => neCombo(ctx, c, i, d)).join('')}</div></div></section>` : '') +
       (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews"><div class="ltb-wrap">${neHead(`Lo que dicen <span class="lts-hl">nuestros clientes</span>`)}${reviewsHtml(ctx, d)}</div></section>` : '') +
-      `<section class="ltb-sec ltb-sec-who"><div class="ltb-wrap"><div class="lts-who"><div class="lts-wart" data-rv>${neSlot(NE_PERSON2, '', 'Foto en blanco y negro (PNG sin fondo)')}</div>` +
+      `<section class="ltb-sec ltb-sec-who"><div class="ltb-wrap"><div class="lts-who">${neWho()}` +
       `<div class="lts-wtx" data-rv><p class="lts-wname">${ctx.esc(d.name)}</p><h2>¿Quién te va a <span class="lts-hl">atender?</span></h2>` +
       `<p>Somos un equipo que te ayuda a disfrutar tus plataformas favoritas sin complicaciones: te activamos la cuenta en minutos y te acompañamos por WhatsApp todo el mes.</p>` +
       `${d.tagline ? `<p>${ctx.esc(d.tagline)}.</p>` : ''}${mainCta('Escríbenos ahora')}</div></div></div></section>` +
       (d.paymentMethods.length ? sec('pays', `Paga <span class="lts-hl">como quieras</span>`, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
       faqSec(ctx, d, `Preguntas <span class="lts-hl">frecuentes</span>`) +
-      linksSec(ctx, d, `Síguenos`) +
+      linksSec(ctx, d, `Síguenos en <span class="lts-hl">redes</span>`) +
       footer(ctx, d) + fab(ctx, wa);
     root.innerHTML = html;
     neCount(root, ctx, cl);
     neBurst(root, ctx, cl);
     motionKit(root, ctx, cl);
   }
-  /** ANIM (VIP): el precio grande cuenta desde 0 al aparecer (respeta el formato "S/ 28,85"). */
+  /** ANIM (VIP): el precio grande cuenta desde 0 al aparecer (respeta el formato "S/ 28,85" o "S/ 9.90").
+   *  Solo con un número simple (entero o con 1-2 decimales): "S/ 1,250.50" u otros formatos se dejan quietos.
+   *  Si el editor empieza a editar el precio (contenteditable / data-lt-editing) se detiene y devuelve el texto. */
   function neCount(root, ctx, cl) {
-    if (ctx.noMotion || ctx.reducedMotion || cl.still || typeof G.IntersectionObserver !== 'function') return;
+    if (ctx.noMotion || ctx.reducedMotion || cl.still || typeof G.IntersectionObserver !== 'function' || typeof G.requestAnimationFrame !== 'function') return;
     const els = [...root.querySelectorAll('.lts-price.is-big [data-lts-num]')];
     if (!els.length) return;
+    const editing = el => el.isContentEditable || el.hasAttribute('data-lt-editing') || !!el.closest('[contenteditable],[data-lt-editing]');
+    const running = new Map();
     const io = new G.IntersectionObserver(entries => entries.forEach(en => {
       if (!en.isIntersecting) return; io.unobserve(en.target);
-      const el = en.target, txt = el.textContent, m = txt.match(/(\d+(?:[.,]\d+)?)/);
-      if (!m || el.querySelector('[contenteditable]')) return;
-      const dec = (m[1].split(/[.,]/)[1] || '').length, sep = m[1].includes(',') ? ',' : '.', target = parseFloat(m[1].replace(',', '.'));
+      const el = en.target, txt = el.textContent, m = txt.match(/\d[\d.,]*/);
+      if (!m || !/^\d+(?:[.,]\d{1,2})?$/.test(m[0]) || editing(el)) return;
+      const num = m[0], dec = (num.split(/[.,]/)[1] || '').length, sep = num.includes(',') ? ',' : '.', target = parseFloat(num.replace(',', '.'));
+      if (!(target > 0)) return;
       const t0 = G.performance ? G.performance.now() : Date.now(), dur = 900;
       const step = now => {
-        const k = Math.min(1, (now - t0) / dur), v = target * (1 - Math.pow(1 - k, 3));
-        el.textContent = txt.replace(m[1], v.toFixed(dec).replace('.', sep));
-        if (k < 1) G.requestAnimationFrame(step); else el.textContent = txt;
+        if (!el.isConnected) return running.delete(el);
+        if (editing(el)) { if (el.textContent !== txt) el.textContent = txt; return running.delete(el); }
+        const k = Math.min(1, Math.max(0, (now - t0) / dur)), v = target * (1 - Math.pow(1 - k, 3));
+        el.textContent = k < 1 ? txt.replace(num, v.toFixed(dec).replace('.', sep)) : txt;
+        if (k < 1) running.set(el, G.requestAnimationFrame(step)); else running.delete(el);
       };
-      G.requestAnimationFrame(step);
+      el.__ltsTxt = txt;
+      running.set(el, G.requestAnimationFrame(step));
     }), { threshold: .4 });
     els.forEach(e => io.observe(e));
-    cl.push(() => io.disconnect());
+    // Toque/foco (p. ej. el editor va a editar el precio): termina la cuenta al instante con el texto real.
+    const finish = () => { running.forEach((id, el) => { G.cancelAnimationFrame(id); if (el.__ltsTxt != null) el.textContent = el.__ltsTxt; }); running.clear(); };
+    root.addEventListener('pointerdown', finish, true);
+    root.addEventListener('focusin', finish, true);
+    cl.push(() => { io.disconnect(); finish(); root.removeEventListener('pointerdown', finish, true); root.removeEventListener('focusin', finish, true); });
   }
   /** ANIM (VIP): chispas lima desde el dedo al tocar un botón. */
   function neBurst(root, ctx, cl) {
@@ -780,7 +863,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'lima', name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
+    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
     tags: ['oscura', 'moderna', 'animada'], preview: { bg: '#060805', fg: '#f1f5ea', accent: NE_LIME }, render: renderNeon
   });
 })(typeof window !== 'undefined' ? window : globalThis);
