@@ -409,7 +409,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   })();
   // Personajes (PNG/webp con fondo transparente). Vacíos = se muestra el cuadro con X para reemplazar.
   const NE_PERSON = '';       // portada (a la derecha del título)
-  const NE_PERSON2 = 'ne-duo2.webp'; // sección "¿Quién te atiende?" (a color, sobre un escenario lima)
+  const NE_PERSON2 = 'ne-duo3.webp'; // sección "¿Quién te atiende?" (a color, sobre un escenario lima)
   const NE_I = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
@@ -499,9 +499,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
    *  chispas y dos etiquetas flotantes. Sin imagen = cuadro con X. */
   function neWho() {
     if (!NE_PERSON2) return `<div class="lts-wart" data-rv>${neSlot('', '', 'Foto (PNG sin fondo)')}</div>`;
-    const sp = [[8, 30, 0], [88, 22, 1.2], [14, 70, 2.1], [92, 62, .6], [50, 8, 1.7], [76, 88, 2.6]];
+    const sp = [[6, 46, 0], [94, 34, 1.2], [12, 74, 2.1], [92, 64, .6], [70, 90, 2.6]];
     return `<div class="lts-wart has-img" data-rv><div class="lts-wstage" aria-hidden="true"><i></i></div>` +
-      `<img class="lts-person" src="${NE_IMG}${NE_PERSON2}" alt="" width="760" height="979" loading="lazy" decoding="async">` +
+      `<img class="lts-person" src="${NE_IMG}${NE_PERSON2}" alt="" width="760" height="969" loading="lazy" decoding="async">` +
       `<span class="lts-wfloor" aria-hidden="true"></span>` +
       `<span class="lts-wsp" aria-hidden="true">${sp.map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;--d:${d}s"></i>`).join('')}</span>` +
       `<span class="lts-wchip a" aria-hidden="true">${nei('zap')}Activación en minutos</span>` +
@@ -678,9 +678,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-wtx .lts-btn{margin-top:10px}
 .lt-lima .lts-wart.has-img{aspect-ratio:760/1000;margin:24px 0 0}
 .lt-lima .lts-wart.has-img::before,.lt-lima .lts-wart.has-img::after{content:none}
-.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:24%;bottom:6%;border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
+.lt-lima .lts-wstage{position:absolute;left:3%;right:3%;top:20%;bottom:6%;-webkit-mask:linear-gradient(180deg,transparent 0,transparent 22%,#000 46%);mask:linear-gradient(180deg,transparent 0,transparent 22%,#000 46%);border-radius:22px;overflow:hidden;border:1.5px solid rgba(184,255,44,.5);background:radial-gradient(ellipse 80% 60% at 50% 105%,rgba(150,255,0,.32),transparent 70%),radial-gradient(ellipse 60% 50% at 50% 0%,rgba(184,255,44,.14),transparent 70%),linear-gradient(rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(90deg,rgba(184,255,44,.06) 1px,transparent 1px) 0 0/26px 26px,linear-gradient(180deg,#141b0d,#0a0d07);box-shadow:0 0 0 7px rgba(184,255,44,.05),0 30px 60px rgba(0,0,0,.6),0 0 60px rgba(150,255,0,.16)}
 .lt-lima .lts-wstage i{position:absolute;top:0;bottom:0;left:-40%;width:34%;background:linear-gradient(100deg,transparent,rgba(214,255,122,.12),transparent);transform:skewX(-18deg)}
-.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:saturate(1.05) contrast(1.04) drop-shadow(0 0 1.5px rgba(214,255,122,.55)) drop-shadow(-10px 0 28px rgba(150,255,0,.22)) drop-shadow(0 26px 30px rgba(0,0,0,.55));-webkit-mask:linear-gradient(180deg,#000 82%,transparent 99%);mask:linear-gradient(180deg,#000 82%,transparent 99%)}
+.lt-lima .lts-wart.has-img .lts-person{position:absolute;z-index:1;left:0;right:0;bottom:6%;width:100%;height:auto;max-height:none;filter:none}
 .lt-lima .lts-wfloor{position:absolute;z-index:2;left:3%;right:3%;bottom:6%;height:22%;border-radius:0 0 22px 22px;background:linear-gradient(180deg,transparent,rgba(10,13,7,.85) 70%,#0a0d07);pointer-events:none}
 .lt-lima .lts-wfloor::after{content:"";position:absolute;left:10%;right:10%;bottom:-2px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--n-lime),transparent);box-shadow:0 0 18px var(--n-lime)}
 .lt-lima .lts-wsp{position:absolute;inset:0;z-index:3;pointer-events:none}
