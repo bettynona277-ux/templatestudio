@@ -625,7 +625,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=21', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=26', 'js/landing-templates-e.js?v=5', 'js/landing-templates-f.js?v=8'].forEach(function (f) {
+['js/landing-core.js?v=23', 'js/landing-templates-b.js?v=15', 'js/landing-templates-d.js?v=26', 'js/landing-templates-e.js?v=5', 'js/landing-templates-f.js?v=9'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -789,7 +789,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       logoUrl: str(r.logoUrl), coverUrl: str(r.coverUrl), coverSmUrl: str(r.coverSmUrl),
       theme: { primary: (r.theme && r.theme.primary) || D.theme.primary, accent: (r.theme && r.theme.accent) || D.theme.accent, mode: r.theme && r.theme.mode === 'light' ? 'light' : 'dark' },
       plans: arr(r.plans).map(p => ({ id: str(p.id) || nid('p'), platform: str(p.platform) || 'other', title: str(p.title), price: str(p.price), oldPrice: str(p.oldPrice),
-        period: str(p.period) || '1 mes', type: p.type === 'full' ? 'full' : 'profile', features: pad3(p.features), badge: str(p.badge), imageUrl: str(p.imageUrl), color: /^#[0-9a-f]{6}$/i.test(str(p.color)) ? str(p.color) : '', visible: p.visible !== false })),
+        period: str(p.period) || '1 mes', type: p.type === 'full' ? 'full' : 'profile', features: pad3(p.features), badge: str(p.badge), imageUrl: str(p.imageUrl), color: /^#[0-9a-f]{6}$/i.test(str(p.color)) ? str(p.color) : '', visible: p.visible !== false, category: str(p.category).slice(0, 24) })),
       combos: arr(r.combos).map(c => ({ id: str(c.id) || nid('c'), name: str(c.name), platforms: arr(c.platforms).map(String), price: str(c.price), oldPrice: str(c.oldPrice),
         period: str(c.period) || '1 mes', badge: str(c.badge), imageUrl: str(c.imageUrl), visible: c.visible !== false })),
       links: arr(r.links).map(l => ({ type: str(l.type) || 'other', label: str(l.label), url: str(l.url) })),
@@ -1942,6 +1942,9 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
         <div class="field" style="margin-top:8px"><span class="lbl">Tipo</span><div class="seg" role="radiogroup" aria-label="Tipo de plan">
           <label><input type="radio" name="pt-${esc(p.id)}" value="profile" data-bind="plans.${i}.type" data-after="item" ${p.type === 'profile' ? 'checked' : ''}><span>Perfil</span></label>
           <label><input type="radio" name="pt-${esc(p.id)}" value="full" data-bind="plans.${i}.type" data-after="item" ${p.type === 'full' ? 'checked' : ''}><span>Cuenta completa</span></label></div></div>
+        <div class="field"><label for="${fid(`plans.${i}.category`)}">Categoría</label>${inp(`plans.${i}.category`, p.category || '', { max: 24, ph: `${autoCat(p)} (automática)`, after: 'cat' })}
+          <div class="chips" style="margin-top:6px">${catChoices().map(c => `<button class="chip" type="button" data-act="planCat" data-arg="${i}|${esc(c)}" aria-pressed="${LC.planCategory(p) === c}">${esc(c)}</button>`).join('')}</div>
+          <p class="hint">Con 2 o más categorías tu página muestra pestañas (Streaming, IA, Diseño…) para filtrar. Se ordenan según el orden de tus planes.</p></div>
         <div class="row">
           <div class="field"><label for="${fid(`plans.${i}.oldPrice`)}">Precio anterior</label><div class="money" style="--pad:${curSym().length > 2 ? 52 : 36}px"><span aria-hidden="true">${esc(curSym())}</span>${inp(`plans.${i}.oldPrice`, p.oldPrice, { mode: 'decimal', kind: 'price', ph: 'Opcional', max: 10, after: 'item' })}</div></div>
           <div class="field"><label for="${fid(`plans.${i}.period`)}">Periodo</label><select class="inp" id="${fid(`plans.${i}.period`)}" data-bind="plans.${i}.period" data-after="item">${
@@ -1971,6 +1974,12 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const MISS_BAD = '<span class="miss bad" title="Escribe solo el número, por ejemplo 15 o 12.50">Revisa el precio</span>';
   const MISS_ASK = '<span class="miss" title="En tu página sale con el botón Consultar. Escribe el precio para mostrarlo.">Sin precio · Consultar</span>';
   const missTag = (v, plan) => (priceBad(v) ? MISS_BAD : plan ? MISS_ASK : MISS);
+  /** Categoría automática de la app (sin elegir) y opciones rápidas: las fijas + las propias que ya usa. */
+  const autoCat = p => LC.planCategory({ platform: p.platform });
+  function catChoices() {
+    const used = S.data.plans.map(p => LC.planCategory(p));
+    return [...new Set(LC.CATEGORIES.filter(c => c !== 'Otros').concat(used))];
+  }
   function planSub(p) {
     const bits = [p.type === 'full' ? 'Cuenta completa' : 'Perfil', p.period];
     if (!p.visible) bits.unshift('Oculto');
@@ -2153,6 +2162,11 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   }
 
   const AFTER = {
+    cat(el) {
+      const m = String(el && el.dataset && el.dataset.bind || '').match(/^plans\.(\d+)\.category$/); if (!m) return;
+      const i = +m[1], p = S.data.plans[i]; if (!p) return;
+      $$(`[data-act="planCat"][data-arg^="${i}|"]`).forEach(x => x.setAttribute('aria-pressed', String(x.dataset.arg.slice(x.dataset.arg.indexOf('|') + 1) === LC.planCategory(p))));
+    },
     hours() { document.querySelectorAll('[data-act="hoursSet"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === S.data.hours))); },
     currency(el, ev) { if (ev && ev.type !== 'change') return; renderSection('planes'); const c = $('#f-currency'); c && c.focus(); },
     item(el, ev) {
@@ -2259,7 +2273,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     addPlatToggle() { S.addPlat = !S.addPlat; renderSection('planes'); if (S.addPlat) { const b = $('.add-panel button[data-act=addPlan]'); b && b.focus(); } else { const b = $('[data-act=addPlatToggle]'); b && b.focus(); } },
     addPlan(platform) {
       if (S.data.plans.length >= lim().plans) return isVip() ? toast(`Llegaste al máximo de ${lim().plans} plataformas.`, 'error') : openVipSheet('plans');
-      const p = { id: nid('p'), platform, title: '', price: '', oldPrice: '', period: '1 mes', type: ['spotify', 'youtube', 'chatgpt', 'canva', 'capcut', 'deezer', 'iptv'].includes(platform) ? 'full' : 'profile', features: ['', '', ''], badge: '', imageUrl: '', color: '', visible: true };
+      const p = { id: nid('p'), platform, title: '', price: '', oldPrice: '', period: '1 mes', type: ['spotify', 'youtube', 'chatgpt', 'canva', 'capcut', 'deezer', 'iptv', 'gemini', 'claude', 'perplexity', 'midjourney', 'copilot', 'grok', 'adobe', 'freepik', 'envato', 'picsart', 'office', 'duolingo', 'applemusic', 'tidal', 'googleai', 'sora', 'veo', 'kling', 'higgsfield', 'luma', 'krea', 'elevenlabs', 'gamma', 'mistral', 'lovable', 'grammarly', 'adobeexpress', 'zapier', 'n8n'].includes(platform) ? 'full' : 'profile', features: ['', '', ''], badge: '', imageUrl: '', color: '', visible: true };
       S.data.plans.push(p); S.addPlat = false; S.openPlan = p.id;
       renderSection('planes'); changed();
       const el = $(`[data-bind="plans.${S.data.plans.length - 1}.price"]`); if (el) { el.focus(); el.scrollIntoView && el.scrollIntoView({ block: 'center' }); }
@@ -2267,6 +2281,14 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     togglePlan(id) { S.openPlan = S.openPlan === id ? null : id; renderSection('planes'); const card = $$('[data-plan]').find(x => x.dataset.plan === id); const b = card && card.querySelector('.more'); b && b.focus(); },
     movePlan(arg) { move(S.data.plans, arg); renderSection('planes'); changed(); },
     async rmPlan(i) { const p = S.data.plans[+i]; if (!(await confirmBox('¿Eliminar este plan?', `Se quitará ${planName(p)} de tu página.`, 'Eliminar', true))) return; S.data.plans.splice(+i, 1); renderSection('planes'); changed(); },
+    planCat(arg) {
+      const k = arg.indexOf('|'), i = +arg.slice(0, k), c = arg.slice(k + 1), p = S.data.plans[i]; if (!p) return;
+      // elegir la categoría automática la deja vacía (sigue a la app); tocar la elegida la quita
+      p.category = (LC.planCategory(p) === c && p.category) || c === autoCat(p) ? '' : c;
+      const el = $(`[data-bind="plans.${i}.category"]`); if (el) el.value = p.category;
+      $$(`[data-act="planCat"][data-arg^="${i}|"]`).forEach(x => x.setAttribute('aria-pressed', String(x.dataset.arg.slice(x.dataset.arg.indexOf('|') + 1) === LC.planCategory(p))));
+      changed();
+    },
     badge(arg) { const [list, i, b] = arg.split('|'); const it = S.data[list][+i]; it.badge = it.badge === b ? '' : b; const el = $(`[data-bind="${list}.${i}.badge"]`); if (el) el.value = it.badge; $$(`[data-act="badge"][data-arg^="${list}|${i}|"]`).forEach(x => x.setAttribute('aria-pressed', String(x.dataset.arg.split('|')[2] === it.badge))); changed(); },
     addPopular() {
       const room = lim().plans - S.data.plans.length, add = missingPopular().slice(0, Math.max(0, room));
