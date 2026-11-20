@@ -409,7 +409,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     return '/js/img/';
   })();
   const RS_ART = {
-    hero: '',          // personaje de la portada (PNG sin fondo, vertical ~900×1100)
+    hero: 'rs-mabel.webp', // personaje de la portada (PNG sin fondo, vertical ~900×1100)
     card1: '', card2: '', card3: '',   // fotos de las 3 tarjetas "Para ti que…" (verticales ~600×760)
     about1: '', about2: '',            // fotos de "¿Quién te atiende?" (color y blanco y negro, ~700×900)
     deco: ''           // decoración flotante opcional (PNG sin fondo: billetes, corazones, palomitas…)
@@ -494,7 +494,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa .ltr-from{margin:14px 0 0;font-size:14px;color:var(--r-mut)}
 .lt-rosa .ltr-from b{color:#fff;font-size:17px}
 .lt-rosa .ltr-hart{position:relative;align-self:end;justify-self:center;width:min(430px,90%);aspect-ratio:9/11}
-@media (max-width:859px){.lt-rosa .ltr-hart{order:-1;width:min(250px,66%);margin-top:14px}.lt-rosa .ltr-htx{padding-top:10px;text-align:center}.lt-rosa .ltr-facts{justify-items:center}.lt-rosa .ltb-sub{margin-left:auto;margin-right:auto}}
+@media (max-width:859px){.lt-rosa .ltr-hart{order:-1;width:min(270px,72%);margin-top:14px;-webkit-mask:linear-gradient(180deg,#000 78%,transparent 100%);mask:linear-gradient(180deg,#000 78%,transparent 100%)}.lt-rosa .ltr-htx{padding-top:10px;text-align:center}.lt-rosa .ltr-facts{justify-items:center}.lt-rosa .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-rosa .ltr-hart::before{content:"";position:absolute;left:6%;right:6%;bottom:0;height:78%;border-radius:50% 50% 0 0;background:radial-gradient(circle at 50% 60%,rgba(255,120,180,.55),transparent 68%);filter:blur(14px)}
 .lt-rosa .ltr-art{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;display:block}
 .lt-rosa .ltr-hart .ltr-art{object-fit:contain;object-position:bottom;filter:drop-shadow(0 20px 40px rgba(30,0,15,.5))}
