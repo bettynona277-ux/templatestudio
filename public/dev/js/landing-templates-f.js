@@ -1083,6 +1083,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-verano .ltv-app{overflow:hidden}
 .lt-verano .ltv-app .ltv-badge{top:12px;right:12px}
 .lt-verano .ltv-rip{position:absolute;left:12%;right:12%;bottom:6%;height:22%;border-radius:50%;border:2px solid rgba(255,255,255,.8);opacity:0;pointer-events:none}
+.lt-verano .ltv-pool .lt-cat{background:rgba(255,255,255,.9);border-color:#fff;color:var(--v-ink);box-shadow:0 6px 14px rgba(3,90,105,.15)}
+.lt-verano .ltv-pool .lt-cat.is-on{background:linear-gradient(180deg,#ffe45c,#ffc400);border-color:#ffc400;color:#2a1a00}
+.lt-verano .ltv-pool .lt-cat-h{color:#fff;text-shadow:0 2px 8px rgba(3,90,105,.35)}
 .lt-verano .ltv-ripple{position:fixed;z-index:9999;width:0;height:0;pointer-events:none}
 .lt-verano .ltv-ripple i{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;border:2.5px solid rgba(255,255,255,.95);box-shadow:0 0 0 1.5px rgba(11,191,211,.5);animation:ltv-rip .9s cubic-bezier(.2,.7,.3,1) both}
 .lt-verano .ltv-ripple i:nth-child(2){animation-delay:.12s}.lt-verano .ltv-ripple i:nth-child(3){animation-delay:.24s}

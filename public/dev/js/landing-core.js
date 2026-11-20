@@ -113,20 +113,65 @@
     { id: 'directv', name: 'DirecTV GO', color: '#00A3E0', logo: '/logos/directvgo.svg' },
     { id: 'l1max', name: 'L1 MAX', color: '#D4002A', logo: '/logos/l1max.svg' },
     { id: 'movistar', name: 'Movistar TV', color: '#019DF4', logo: '/logos/Movistar.svg' },
-    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/chatgpt.svg' },
+    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/ai-chatgpt.webp' },
     { id: 'canva', name: 'Canva Pro', color: '#00C4CC', logo: '/logos/Canva.svg' },
     { id: 'capcut', name: 'CapCut Pro', color: '#3A3A3A', logo: '/logos/Capcut.svg' },
     { id: 'deezer', name: 'Deezer', color: '#A238FF', logo: '/logos/Deezer.svg' },
     { id: 'viki', name: 'Viki Rakuten', color: '#1E90FF', logo: '/logos/viki.svg' },
     { id: 'googleone', name: 'Google One', color: '#4285F4', logo: '/logos/googleone.svg' },
-    { id: 'gemini', name: 'Gemini', color: '#8E75FF', logo: '/logos/GEMINI.svg' },
+    { id: 'gemini', name: 'Gemini', color: '#8E75FF', logo: '/logos/ai-gemini.webp' },
     { id: 'ufc', name: 'UFC Fight Pass', color: '#D20A0A', logo: '/logos/UFC.svg' },
     { id: 'fanatiz', name: 'Fanatiz', color: '#00C853', logo: '/logos/Fanatiz.svg' },
     { id: 'cablego', name: 'Cable Go', color: '#0057B8', logo: '/logos/cablego.svg' },
     { id: 'telelatino', name: 'Tele Latino', color: '#E3262E', logo: '/logos/telelatino.svg' },
+    // Nuevas (sin logo propio aún: se muestra su inicial en su color; el dueño puede subir el logo del plan).
+    { id: 'claude', name: 'Claude Pro', color: '#CA6240', logo: '/logos/ai-claude.webp' },
+    { id: 'perplexity', name: 'Perplexity Pro', color: '#016272', logo: '/logos/ai-perplexity.webp' },
+    { id: 'midjourney', name: 'Midjourney', color: '#111111', logo: '/logos/ai-midjourney.webp' },
+    { id: 'googleai', name: 'Google AI Pro', color: '#8A2BE2', logo: '/logos/ai-googleai.webp' },
+    { id: 'sora', name: 'Sora', color: '#1E40FF', logo: '/logos/ai-sora.webp' },
+    { id: 'veo', name: 'Google Veo', color: '#3B5BFF', logo: '/logos/ai-veo.webp' },
+    { id: 'kling', name: 'Kling AI', color: '#0B0B1F', logo: '/logos/ai-kling.webp' },
+    { id: 'higgsfield', name: 'Higgsfield', color: '#111111', logo: '/logos/ai-higgsfield.webp' },
+    { id: 'luma', name: 'Luma AI', color: '#270C76', logo: '/logos/ai-luma.webp' },
+    { id: 'krea', name: 'Krea AI', color: '#111111', logo: '/logos/ai-krea.webp' },
+    { id: 'elevenlabs', name: 'ElevenLabs', color: '#170821', logo: '/logos/ai-elevenlabs.webp' },
+    { id: 'gamma', name: 'Gamma', color: '#8B2FC9', logo: '/logos/ai-gamma.webp' },
+    { id: 'mistral', name: 'Mistral AI', color: '#111111', logo: '/logos/ai-mistral.webp' },
+    { id: 'lovable', name: 'Lovable', color: '#FF5A36', logo: '/logos/ai-lovable.webp' },
+    { id: 'grammarly', name: 'Grammarly', color: '#028A73', logo: '/logos/ai-grammarly.webp' },
+    { id: 'adobeexpress', name: 'Adobe Express', color: '#7E02FB', logo: '/logos/ai-adobeexpress.webp' },
+    { id: 'zapier', name: 'Zapier', color: '#FF4F00', logo: '/logos/ai-zapier.webp' },
+    { id: 'n8n', name: 'n8n', color: '#EA4B71', logo: '/logos/ai-n8n.webp' },
+    { id: 'copilot', name: 'Copilot Pro', color: '#0078D4', logo: '' },
+    { id: 'grok', name: 'SuperGrok', color: '#1F1F1F', logo: '' },
+    { id: 'adobe', name: 'Adobe Creative Cloud', color: '#FA0F00', logo: '' },
+    { id: 'freepik', name: 'Freepik Premium', color: '#1273EB', logo: '' },
+    { id: 'envato', name: 'Envato Elements', color: '#82B440', logo: '' },
+    { id: 'picsart', name: 'Picsart Pro', color: '#C209C1', logo: '' },
+    { id: 'office', name: 'Microsoft 365', color: '#D83B01', logo: '' },
+    { id: 'duolingo', name: 'Duolingo Super', color: '#58CC02', logo: '' },
+    { id: 'applemusic', name: 'Apple Music', color: '#FA243C', logo: '' },
+    { id: 'tidal', name: 'Tidal', color: '#111111', logo: '' },
     { id: 'other', name: 'Otro', color: '#7C3AED', logo: '' }
   ];
-  const ALIASES = { disneyplus: 'disney', starplus: 'disney', star: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', amazonprime: 'prime', amazonprimevideo: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount', fightpass: 'ufc', cablegoperu: 'cablego', tvlatino: 'telelatino' };
+  // Categoría por defecto de cada app (el dueño puede cambiarla por plan). Lo que no está aquí va a "Otros".
+  const CATEGORY_OF = {
+    netflix: 'Streaming', disney: 'Streaming', max: 'Streaming', prime: 'Streaming', youtube: 'Streaming', paramount: 'Streaming', vix: 'Streaming',
+    crunchyroll: 'Streaming', apple: 'Streaming', universal: 'Streaming', viki: 'Streaming',
+    iptv: 'TV en vivo', directv: 'TV en vivo', movistar: 'TV en vivo', cablego: 'TV en vivo', telelatino: 'TV en vivo',
+    l1max: 'Deportes', ufc: 'Deportes', fanatiz: 'Deportes',
+    spotify: 'Música', deezer: 'Música', applemusic: 'Música', tidal: 'Música',
+    chatgpt: 'IA', gemini: 'IA', claude: 'IA', perplexity: 'IA', midjourney: 'IA', copilot: 'IA', grok: 'IA',
+    googleai: 'IA', sora: 'IA', veo: 'IA', kling: 'IA', higgsfield: 'IA', luma: 'IA', krea: 'IA', elevenlabs: 'IA', gamma: 'IA', mistral: 'IA', lovable: 'IA',
+    adobeexpress: 'Diseño', grammarly: 'Productividad', zapier: 'Automatización', n8n: 'Automatización',
+    canva: 'Diseño', capcut: 'Diseño', adobe: 'Diseño', freepik: 'Diseño', envato: 'Diseño', picsart: 'Diseño',
+    googleone: 'Productividad', office: 'Productividad', duolingo: 'Educación'
+  };
+  /** Categoría que se usa para un plan: la que eligió el dueño o la de su app ("Otros" si no se conoce). */
+  const planCategory = p => text(p && p.category, 24) || CATEGORY_OF[platformInfo(p && p.platform).id] || 'Otros';
+  const CATEGORIES = ['Streaming', 'TV en vivo', 'Deportes', 'Música', 'IA', 'Diseño', 'Productividad', 'Automatización', 'Educación', 'Otros'];
+  const ALIASES = { googleaipro: 'googleai', geminiadvanced: 'gemini', googleveo: 'veo', veo3: 'veo', openaisora: 'sora', klingai: 'kling', lumaai: 'luma', dreammachine: 'luma', kreaai: 'krea', eleven: 'elevenlabs', gammaapp: 'gamma', mistralai: 'mistral', lechat: 'mistral', lovabledev: 'lovable', grammarlypremium: 'grammarly', adobeexpresspremium: 'adobeexpress', zapierpro: 'zapier', claudeai: 'claude', claudepro: 'claude', perplexitypro: 'perplexity', copilotpro: 'copilot', microsoft365: 'office', office365: 'office', adobecc: 'adobe', adobecreativecloud: 'adobe', freepikpremium: 'freepik', envatoelements: 'envato', duolingosuper: 'duolingo', supergrok: 'grok', picsartpro: 'picsart', disneyplus: 'disney', starplus: 'disney', star: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', amazonprime: 'prime', amazonprimevideo: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount', fightpass: 'ufc', cablegoperu: 'cablego', tvlatino: 'telelatino' };
   function platformInfo(idOrName) {
     const k = keyOf(idOrName);
     const id = ALIASES[k] || k;
@@ -183,6 +228,8 @@
     heroSubtitle: 'Cuentas y perfiles originales, activación inmediata y soporte por WhatsApp.',
     ctaText: 'Comprar por WhatsApp', whatsapp: '', whatsappMessage: 'Hola, quiero información sobre ',
     currency: 'PEN', logoUrl: '', coverUrl: '',
+    // Horario de atención que ve el cliente ("24/7", "Lun a Sáb · 9 am a 9 pm"…). Lo usan las plantillas.
+    hours: '24/7',
     theme: { primary: '#7C3AED', accent: '#22D3EE', mode: 'dark' },
     headerStyle: 'cover', motion: 'normal',
     plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], reviews: [], promo: null, enabled: true
@@ -192,7 +239,7 @@
     name: 80, tagline: 120, heroTitle: 120, heroSubtitle: 240, ctaText: 40, planTitle: 60, feature: 60, comboName: 60,
     price: 12, benefit: 80, faqQ: 120, faqA: 400, payment: 30, reviewName: 40, reviewText: 280, maxReviews: 12, maxCombos: 30,
     // Máximo técnico (= VIP) y plan Normal: plataformas (planes) y combos que se MUESTRAN en la tienda.
-    maxPlans: 40, normalPlans: 10, normalCombos: 5, promoText: 60, maxApps: 40
+    maxPlans: 40, normalPlans: 10, normalCombos: 5, promoText: 60, maxApps: 40, hours: 40
   });
   /** Límites del plan: VIP = máximos técnicos; Normal = 10 plataformas y 5 combos visibles. */
   const planLimits = vip => vip ? { plans: LIMITS.maxPlans, combos: LIMITS.maxCombos } : { plans: LIMITS.normalPlans, combos: LIMITS.normalCombos };
@@ -243,7 +290,9 @@
       period: text(p?.period, 24) || '1 mes', type: ['profile', 'full'].includes(p?.type) ? p.type : 'profile',
       features: list(p?.features, 6).map(f => text(f, 60)).filter(Boolean), badge: text(p?.badge, 24),
       // imageUrl: logo propio (app personalizada o reemplazo del logo del catálogo); color: color de la app propia.
-      imageUrl: safeImage(p?.imageUrl), color: color(p?.color), visible: p?.visible !== false
+      imageUrl: safeImage(p?.imageUrl), color: color(p?.color), visible: p?.visible !== false,
+      // category: categoría elegida por el dueño ('' = la de la app; ver planCategory).
+      category: text(p?.category, 24)
     })).filter(p => p.platform);
     plans.forEach(p => { p.oldPrice = offerOld(p.price, p.oldPrice); });
     const combos = list(d.combos, LIMITS.maxCombos).map((c, i) => ({
@@ -265,6 +314,7 @@
       name: text(d.name, 80) || DEFAULTS.name, tagline: text(d.tagline, 120), heroTitle: text(d.heroTitle, 120),
       heroSubtitle: text(d.heroSubtitle, 240), ctaText: text(d.ctaText, 40) || DEFAULTS.ctaText,
       whatsapp: phoneDigits(d.whatsapp), whatsappMessage: text(d.whatsappMessage, 160),
+      hours: text(d.hours, 40) || DEFAULTS.hours,
       currency: CURRENCIES[d.currency] ? d.currency : 'PEN', logoUrl: safeImage(d.logoUrl), coverUrl: safeImage(d.coverUrl),
       // Versión ligera de la portada (≈800 px) para celulares; vacía si no existe.
       coverSmUrl: safeImage(d.coverSmUrl),
@@ -331,11 +381,16 @@
   function visibleInfo(data) {
     const lim = planLimits(vipActive(data));
     const allPlans = data.plans.filter(p => p.visible), allCombos = data.combos.filter(c => c.visible);
-    const plans = allPlans.slice(0, lim.plans), combos = allCombos.slice(0, lim.combos);
+    let plans = allPlans.slice(0, lim.plans);
+    const combos = allCombos.slice(0, lim.combos);
+    // Categorías (Streaming, IA, Diseño…): con 2 o más, los planes se agrupan en el orden en que aparece cada categoría.
+    const catNames = [...new Set(plans.map(planCategory))];
+    const categories = catNames.length > 1 ? catNames.map(name => ({ name, count: plans.filter(p => planCategory(p) === name).length })) : [];
+    if (categories.length) plans = catNames.flatMap(n => plans.filter(p => planCategory(p) === n));
     const platformIds = [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))];
     const nums = plans.map(p => priceNum(p.price)).concat(combos.map(c => priceNum(c.price))).filter(Number.isFinite);
     const min = nums.length ? Math.min(...nums) : NaN;
-    return { plans, combos, platformIds, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '',
+    return { plans, combos, platformIds, categories, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '',
       hiddenByLimit: { plans: allPlans.length - plans.length, combos: allCombos.length - combos.length } };
   }
   /** Logos y colores propios por plataforma, tomados de los planes (app personalizada o logo que reemplaza al del catálogo).
@@ -396,7 +451,7 @@
     const buy = product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, String(product || '').trim() || 'tus planes'].join(' ').replace(/\s{2,}/g, ' ').trim());
     return {
       /** Solo planes/combos con visible !== false. Úsalos SIEMPRE (también en murales, marquesinas y contadores). */
-      visiblePlans: vis.plans, visibleCombos: vis.combos,
+      visiblePlans: vis.plans, visibleCombos: vis.combos, categories: vis.categories, planCategory,
       /** Ids de plataforma de planes y combos visibles, sin repetir. */
       platformIds: vis.platformIds,
       /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
@@ -428,6 +483,10 @@
       buy,
       planTitle: p => p.title || `${platformInfo(p.platform).name}${p.type === 'full' ? ' · Cuenta completa' : ''}`,
       typeLabel: p => p.type === 'full' ? 'Cuenta completa' : 'Perfil',
+      /** Horario de atención ("24/7" por defecto). hoursLong: true si no entra en una casilla corta (usar letra más chica). */
+      hours: data.hours || DEFAULTS.hours,
+      hoursLong: String(data.hours || DEFAULTS.hours).length > 7,
+      hours247: /^24\s*\/\s*7$/.test(String(data.hours || DEFAULTS.hours).trim()),
       /** true si el usuario eligió la cabecera tipo perfil de Facebook. */
       profileMode: data.headerStyle === 'profile',
       motion: reducedMotion ? 'calm' : data.motion,
@@ -457,7 +516,7 @@
         <div class="ltp-info">
           <h1 class="ltp-name"><span${ed('name')}>${esc(d.name)}</span></h1>
           ${d.tagline ? `<p class="ltp-tag"${ed('tagline')}>${esc(d.tagline)}</p>` : ''}
-          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? '<span class="ltp-online"><i></i>Atención por WhatsApp</span>' : ''}</p>
+          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? `<span class="ltp-online"><i></i>${/^24\s*\/\s*7$/.test(String(d.hours || '24/7').trim()) ? 'Atención 24/7 por WhatsApp' : `Atención: ${esc(d.hours)}`}</span>` : ''}</p>
         </div>
         ${links ? `<div class="ltp-actions"><div class="ltp-socials">${links}</div></div>` : ''}
       </div>
@@ -520,6 +579,25 @@
   }
 
   const SHARED_CSS = `
+  .lt-root .lt-cats{display:flex;gap:8px;margin:0 auto 22px;padding:4px 2px 6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:center;flex-wrap:wrap;position:relative;z-index:3}
+  .lt-root .lt-cats::-webkit-scrollbar{display:none}
+  @media (max-width:640px){.lt-root .lt-cats{flex-wrap:nowrap;justify-content:flex-start;margin-left:-4px;margin-right:-4px;padding-left:4px;padding-right:4px;-webkit-mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent);mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent)}}
+  .lt-root .lt-cat{flex:none;display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:9px 16px;border-radius:999px;border:1.5px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;font:inherit;font-size:14.5px;font-weight:700;line-height:1;cursor:pointer;white-space:nowrap;transition:background .2s,border-color .2s,color .2s,transform .15s}
+  .lt-root .lt-cat:hover{border-color:color-mix(in srgb,currentColor 45%,transparent)}
+  .lt-root .lt-cat:active{transform:scale(.96)}
+  .lt-root .lt-cat:focus-visible{outline:2px solid var(--lt-cat-acc);outline-offset:2px}
+  .lt-root .lt-cat small{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,currentColor 14%,transparent);font-size:12px;font-weight:800}
+  .lt-root .lt-cat.is-on{background:var(--lt-cat-acc);border-color:var(--lt-cat-acc);color:var(--lt-cat-on);box-shadow:0 8px 20px color-mix(in srgb,var(--lt-cat-acc) 35%,transparent)}
+  .lt-root .lt-cat.is-on small{background:color-mix(in srgb,var(--lt-cat-on) 20%,transparent)}
+  .lt-root .lt-cat-h{grid-column:1/-1;flex:1 1 100%!important;width:100%!important;max-width:none!important;min-width:100%!important;display:flex;align-items:center;gap:12px;margin:14px 0 2px;font-weight:800;font-size:clamp(17px,3.6vw,21px);letter-spacing:-.01em;text-align:left}
+  .lt-root .lt-cat-h:first-child{margin-top:0}
+  .lt-root .lt-cat-h::after{content:"";flex:1;height:2px;border-radius:2px;background:linear-gradient(90deg,color-mix(in srgb,currentColor 25%,transparent),transparent)}
+  .lt-root .lt-cat-h::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--lt-cat-acc);flex:none}
+  .lt-root .lt-cat-box.lt-cat-one .lt-cat-h{display:none}
+  .lt-root .lt-cat-box [hidden]{display:none!important}
+  .lt-root:not(.lt-static) .lt-cat-box.lt-cat-one>[data-lt-item]:not([hidden]){animation:lt-catin .45s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes lt-catin{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.lt-root:not(.lt-force-motion) .lt-cat-box>[data-lt-item]{animation:none!important}}
   .lt-root{isolation:isolate}
   .lt-root .ltp{position:relative;z-index:3;max-width:1100px;margin:0 auto;padding:0 0 8px;color:#fff;font-family:inherit}
   .lt-root .ltp-cover{position:relative;aspect-ratio:851/315;min-height:120px;overflow:hidden;border-radius:0 0 22px 22px;background:linear-gradient(135deg,var(--lt-primary),var(--lt-accent))}
@@ -755,6 +833,61 @@
     return () => io.disconnect();
   }
 
+  /** Pestañas de categorías sobre los planes (todas las plantillas). Solo con 2+ categorías.
+   *  Toma las tarjetas de plan ([data-lt-item^="p_"]) que pintó la plantilla, pone la barra antes de su contenedor,
+   *  un subtítulo por categoría (en "Todos") y filtra al tocar. Los colores salen del acento de la plantilla. */
+  function applyCategories(root, ctx, tpl) {
+    const cats = ctx.categories || [];
+    if (cats.length < 2) return null;
+    const byId = new Map((ctx.visiblePlans || []).map(p => [itemKey('p', p.id), planCategory(p)]));
+    // el contenedor con más tarjetas de plan (otras copias, como listas de la barra de compra, se ignoran)
+    const found = [...root.querySelectorAll('[data-lt-item^="p_"]')].filter(el => byId.has(el.getAttribute('data-lt-item')) && el.parentElement);
+    const groups = new Map();
+    found.forEach(el => { const k = el.parentElement; groups.set(k, (groups.get(k) || []).concat(el)); });
+    let box = null, cards = [];
+    groups.forEach((list, k) => { if (list.length > cards.length) { box = k; cards = list; } });
+    if (!box || cards.length < 2 || !box.parentElement) return null;
+    const acc = (tpl.preview && /^#[0-9a-f]{6}$/i.test(tpl.preview.accent || '') ? tpl.preview.accent : '') || '#7c3aed';
+    const lum = h => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; };
+    root.style.setProperty('--lt-cat-acc', acc);
+    root.style.setProperty('--lt-cat-on', lum(acc) > .4 ? '#111111' : '#ffffff');
+    cards.forEach(el => el.setAttribute('data-lt-cat', byId.get(el.getAttribute('data-lt-item'))));
+    const doc = root.ownerDocument;
+    // subtítulo antes de la primera tarjeta de cada categoría
+    let last = '';
+    cards.forEach(el => {
+      const c = el.getAttribute('data-lt-cat');
+      if (c === last) return; last = c;
+      const h = doc.createElement('div');
+      h.className = 'lt-cat-h'; h.setAttribute('data-lt-cat', c); h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3');
+      h.innerHTML = `<span>${esc(c)}</span>`;
+      box.insertBefore(h, el);
+    });
+    const bar = doc.createElement('div');
+    bar.className = 'lt-cats'; bar.setAttribute('role', 'tablist'); bar.setAttribute('aria-label', 'Categorías');
+    const all = [{ name: 'Todos', count: cards.length }].concat(cats);
+    bar.innerHTML = all.map((c, i) => `<button type="button" role="tab" class="lt-cat${i ? '' : ' is-on'}" aria-selected="${!i}" data-lt-catb="${i ? esc(c.name) : ''}">${esc(c.name)}<small>${c.count}</small></button>`).join('');
+    box.parentElement.insertBefore(bar, box);
+    box.classList.add('lt-cat-box');
+    const pick = name => {
+      bar.querySelectorAll('.lt-cat').forEach(b => { const on = b.getAttribute('data-lt-catb') === name; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); });
+      box.classList.toggle('lt-cat-one', !!name);
+      box.querySelectorAll('[data-lt-cat]').forEach(el => { el.hidden = !!name && el.getAttribute('data-lt-cat') !== name; });
+      // las tarjetas que aparecen ya se ven (sin esperar a la animación de entrada)
+      box.querySelectorAll('[data-lt-item]').forEach(el => { if (!el.hidden) el.classList.add('is-in'); });
+    };
+    const onClick = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.lt-cat') : null;
+      if (!b || !bar.contains(b)) return;
+      e.preventDefault(); e.stopPropagation();
+      pick(b.getAttribute('data-lt-catb') || '');
+      // centra la pestaña elegida en la barra deslizable (celular)
+      if (b.scrollIntoView) try { b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: ctx.reducedMotion ? 'auto' : 'smooth' }); } catch (_) {}
+    };
+    bar.addEventListener('click', onClick);
+    return () => bar.removeEventListener('click', onClick);
+  }
+
   function render(root, data, opts = {}) {
     const d = normalize(data, data?.ownerUid);
     // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
@@ -787,7 +920,8 @@
     const holdCleanup = holdLazyImages(root, ctx);
     const profCleanup = ctx.noMotion ? null : pauseProfileOffscreen(root);
     const promoCleanup = startPromo(root, ctx);
-    const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
+    const catCleanup = applyCategories(root, ctx, tpl);
+    const extra = [catCleanup, motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
     if (extra.length) root.__ltCleanup = () => {
       try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
     };
@@ -807,6 +941,7 @@
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
     normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
-    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion
+    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion,
+    CATEGORY_OF, CATEGORIES, planCategory
   });
 })(typeof window !== 'undefined' ? window : globalThis);
