@@ -315,6 +315,8 @@
       heroSubtitle: text(d.heroSubtitle, 240), ctaText: text(d.ctaText, 40) || DEFAULTS.ctaText,
       whatsapp: phoneDigits(d.whatsapp), whatsappMessage: text(d.whatsappMessage, 160),
       hours: text(d.hours, 40) || DEFAULTS.hours,
+      // Partes que el dueño ocultó con la X (portada, decoraciones, secciones). Se pueden volver a mostrar.
+      hidden: [...new Set(list(d.hidden, 40).map(k => String(k || '').trim().slice(0, 24)).filter(k => /^[a-z0-9_-]+$/i.test(k)))],
       currency: CURRENCIES[d.currency] ? d.currency : 'PEN', logoUrl: safeImage(d.logoUrl), coverUrl: safeImage(d.coverUrl),
       // Versión ligera de la portada (≈800 px) para celulares; vacía si no existe.
       coverSmUrl: safeImage(d.coverSmUrl),
@@ -579,6 +581,14 @@
   }
 
   const SHARED_CSS = `
+  .lt-root .lt-part-off{display:none!important}
+  .lt-root .lt-part-ghost{opacity:.28!important;filter:grayscale(1)!important}
+  .lt-root section.lt-part-ghost,.lt-root div.lt-part-ghost,.lt-root figure.lt-part-ghost{outline:2px dashed rgba(139,92,246,.8);outline-offset:-4px}
+  .lt-root .lt-part-layer{position:absolute;inset:0 0 auto 0;height:0;z-index:2147483000;pointer-events:none}
+  .lt-root .lt-part-b{position:absolute;pointer-events:auto;display:grid;place-items:center;min-width:32px;height:32px;padding:0;border-radius:999px;border:2px solid #fff;background:rgba(17,17,24,.82);color:#fff;font:700 20px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .15s,background .15s}
+  .lt-root .lt-part-b:hover{background:#e11d48;transform:scale(1.1)}
+  .lt-root .lt-part-b.is-off{padding:0 14px;font-size:13px;background:#7c3aed;white-space:nowrap}
+  .lt-root .lt-part-b.is-off:hover{background:#6d28d9}
   .lt-root .lt-cats{display:flex;gap:8px;margin:0 auto 22px;padding:4px 2px 6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:center;flex-wrap:wrap;position:relative;z-index:3}
   .lt-root .lt-cats::-webkit-scrollbar{display:none}
   @media (max-width:640px){.lt-root .lt-cats{flex-wrap:nowrap;justify-content:flex-start;margin-left:-4px;margin-right:-4px;padding-left:4px;padding-right:4px;-webkit-mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent);mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent)}}
@@ -888,6 +898,83 @@
     return () => bar.removeEventListener('click', onClick);
   }
 
+  /** Partes que se pueden ocultar con una X. Comunes a todas las plantillas + las que declare cada plantilla
+   *  (registerTemplate({ parts: [{ k, label, sel, x }] })). x:true = lleva X en la vista previa; sin x
+   *  (partículas, luces de fondo…) solo se activan/desactivan desde la lista del editor. */
+  const COMMON_PARTS = [
+    { k: 'cover', label: 'Portada', x: true },
+    { k: 'benefits', label: 'Beneficios', sel: '.ltb-sec-benefits', x: true },
+    { k: 'reviews', label: 'Opiniones', sel: '.ltb-sec-reviews', x: true },
+    { k: 'pays', label: 'Métodos de pago', sel: '.ltb-sec-pays', x: true },
+    { k: 'faq', label: 'Preguntas frecuentes', sel: '.ltb-sec-faq', x: true },
+    { k: 'links', label: 'Redes sociales', sel: '.ltb-sec-links', x: true }
+  ];
+  /** Lista de partes de una plantilla (para el editor). */
+  function partsFor(tid) {
+    const t = templates.get(tid);
+    return COMMON_PARTS.concat(t && Array.isArray(t.parts) ? t.parts : []);
+  }
+  /** Marca las partes (data-lt-part), oculta las elegidas y, en la vista previa del editor (opts.onPart),
+   *  pone una X para ocultar o un botón "Mostrar" sobre lo oculto (se ve atenuado). */
+  function applyParts(root, d, tpl, opts) {
+    const hidden = new Set(d.hidden || []), defs = partsFor(tpl.id), doc = root.ownerDocument;
+    const found = new Map();
+    defs.forEach(p => {
+      let els = [];
+      if (p.k === 'cover') {
+        const src = [d.coverUrl, d.coverSmUrl].filter(Boolean);
+        els = src.length ? [...root.querySelectorAll('img')].filter(im => src.includes(im.getAttribute('src'))).map(im => im.parentElement).filter(Boolean) : [];
+      } else if (p.sel) els = [...root.querySelectorAll(p.sel)];
+      if (!els.length) return;
+      found.set(p.k, els);
+      els.forEach(el => { el.setAttribute('data-lt-part', p.k); if (hidden.has(p.k)) el.classList.add(opts.onPart ? 'lt-part-ghost' : 'lt-part-off'); });
+    });
+    root.__ltParts = [...found.keys()];
+    if (typeof opts.onPart !== 'function' || !found.size) return null;
+    // Capa de botones (vista previa): una X por parte y por bloque principal de la página.
+    const layer = doc.createElement('div');
+    layer.className = 'lt-part-layer';
+    root.appendChild(layer);
+    if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+    const place = () => {
+      const R = root.getBoundingClientRect(), W = root.clientWidth;
+      let html = '';
+      found.forEach((els, k) => {
+        const def = defs.find(p => p.k === k), off = hidden.has(k);
+        if (!def.x && !off) return;
+        const seen = new Set();
+        els.forEach(el => {
+          // un botón por bloque principal (evita 10 X en 10 palmeras)
+          let top = el; while (top.parentElement && top.parentElement !== root) top = top.parentElement;
+          if (seen.has(top)) return;
+          const tr = top.getBoundingClientRect();
+          let r = el.getBoundingClientRect();
+          if (!r.width || !r.height) { if (getComputedStyle(el).display === 'none') return; r = el.parentElement ? el.parentElement.getBoundingClientRect() : tr; }
+          seen.add(top);
+          const x = Math.max(tr.left - R.left + 6, Math.min(r.right - R.left - 40, tr.right - R.left - 40, W - 40));
+          const y = Math.max(tr.top - R.top + 6, r.top - R.top + 6);
+          html += `<button type="button" class="lt-part-b${off ? ' is-off' : ''}" data-lt-pk="${esc(k)}" style="left:${Math.round(off ? Math.max(6, x - 70) : x)}px;top:${Math.round(y)}px" aria-label="${off ? 'Mostrar' : 'Ocultar'} ${esc(def.label)}" title="${off ? 'Mostrar' : 'Ocultar'} ${esc(def.label)}">${off ? `<span>Mostrar ${esc(def.label.toLowerCase())}</span>` : '×'}</button>`;
+        });
+      });
+      layer.innerHTML = html;
+    };
+    const onClick = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.lt-part-b') : null;
+      if (!b || !layer.contains(b)) return;
+      e.preventDefault(); e.stopPropagation();
+      const k = b.getAttribute('data-lt-pk');
+      opts.onPart(k, !hidden.has(k));
+    };
+    layer.addEventListener('click', onClick);
+    const win = doc.defaultView || globalThis;
+    let raf = 0; const again = () => { if (!raf) raf = win.requestAnimationFrame(() => { raf = 0; place(); }); };
+    place();
+    const t1 = win.setTimeout(place, 600), t2 = win.setTimeout(place, 1800);
+    win.addEventListener('resize', again);
+    const imgs = [...root.querySelectorAll('img')]; imgs.forEach(im => { if (!im.complete) im.addEventListener('load', again, { once: true }); });
+    return () => { layer.removeEventListener('click', onClick); win.removeEventListener('resize', again); win.clearTimeout(t1); win.clearTimeout(t2); if (raf) win.cancelAnimationFrame(raf); };
+  }
+
   function render(root, data, opts = {}) {
     const d = normalize(data, data?.ownerUid);
     // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
@@ -908,6 +995,8 @@
     // En pantallas pequeñas se usa la portada ligera: menos datos para el cliente y menos descarga.
     const narrow = typeof innerWidth === 'number' && innerWidth <= 820;
     const view = (narrow && d.coverSmUrl) ? { ...d, coverUrl: d.coverSmUrl } : { ...d };
+    // Portada oculta con la X: la plantilla se pinta como si no tuviera portada (usa su diseño sin portada).
+    if (d.hidden.includes('cover')) { view.coverUrl = ''; view.coverSmUrl = ''; }
     // Reseñas de ejemplo: solo en la vista previa del editor (atenuadas, "Ejemplo — no se publica"); nunca en la tienda.
     // Las reseñas (también las de ejemplo) se publican tal cual: el dueño decide si las cambia.
     const ctx = buildContext(view, opts);
@@ -921,7 +1010,8 @@
     const profCleanup = ctx.noMotion ? null : pauseProfileOffscreen(root);
     const promoCleanup = startPromo(root, ctx);
     const catCleanup = applyCategories(root, ctx, tpl);
-    const extra = [catCleanup, motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
+    const partsCleanup = applyParts(root, view, tpl, opts);
+    const extra = [partsCleanup, catCleanup, motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
     if (extra.length) root.__ltCleanup = () => {
       try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
     };
@@ -942,6 +1032,6 @@
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
     normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
     planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion,
-    CATEGORY_OF, CATEGORIES, planCategory
+    CATEGORY_OF, CATEGORIES, planCategory, partsFor
   });
 })(typeof window !== 'undefined' ? window : globalThis);

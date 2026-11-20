@@ -824,11 +824,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   // ---------- registro ----------
   LC.registerTemplate({
-    id: 'pop', name: 'Pop', description: 'Colorida y alegre: stickers, formas flotando y botones con rebote. Ideal para TikTok e Instagram',
+    id: 'pop', parts: [{ k: 'shapes', label: 'Figuras flotantes', sel: '.ltb-shapes' }, { k: 'stickers', label: 'Logos de apps arriba', sel: '.ltb-stickers', x: true }, { k: 'confetti', label: 'Confeti', sel: '.ltb-confetti' }], name: 'Pop', description: 'Colorida y alegre: stickers, formas flotando y botones con rebote. Ideal para TikTok e Instagram',
     tags: ['claro', 'colorida', 'animada'], preview: { bg: '#fff8ee', fg: '#1b1530', accent: '#ff7ac0' }, render: renderPop
   });
   LC.registerTemplate({
-    id: 'premium', name: 'Premium', description: 'Elegante en negro y dorado: serif grande, brillos, tabla comparativa y membresías',
+    id: 'premium', parts: [{ k: 'glow', label: 'Brillo de fondo', sel: '.ltb-aura,.ltb-aura2,.ltb-spark' }], name: 'Premium', description: 'Elegante en negro y dorado: serif grande, brillos, tabla comparativa y membresías',
     tags: ['oscuro', 'elegante', 'animada'], preview: { bg: '#0b0a08', fg: '#f1ebdd', accent: '#d9b46a' }, render: renderPremium
   });
 })(typeof window !== 'undefined' ? window : globalThis);

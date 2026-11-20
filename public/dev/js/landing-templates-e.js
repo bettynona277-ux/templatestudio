@@ -439,27 +439,33 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const w = String(d.name || 'Streaming').trim().toUpperCase().split(/\s+/);
     let n = w[0].slice(0, 18);
     for (let k = 1; k < w.length && (n + ' ' + w[k]).length <= 18; k++) n += ' ' + w[k];
-    const txt = `${n} · STREAMING 24/7 · `;
+    const txt = `${n} · ${/^24\s*\/\s*7$/.test(String(d.hours || '24/7').trim()) ? 'STREAMING 24/7' : 'STREAMING'} · `;
     return txt.length < min ? txt + txt : txt;
   }
   /** Insignia circular con texto que gira (como el sello de la referencia). */
+  const NE_PLAY = '<svg class="lts-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.6v12.8a.9.9 0 0 0 1.37.77l10.2-6.4a.9.9 0 0 0 0-1.54l-10.2-6.4A.9.9 0 0 0 8.5 5.6z"/></svg>';
   function neBadge(ctx, d) {
     const rep = neRingText(d, 30);
-    const mark = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="" width="64" height="64" decoding="async">` : `<b>${ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase())}</b>`;
+    // En el sello va un "play" (no el logo): el logo ya está en la barra o en la foto de perfil, así no se repite.
+    const mark = NE_PLAY;
     return `<div class="lts-badge" aria-hidden="true"><svg class="lts-ring" viewBox="0 0 200 200"><defs><path id="ltsCirc" d="M100 100m-74 0a74 74 0 1 1 148 0a74 74 0 1 1-148 0"/></defs><text><textPath href="#ltsCirc" textLength="462">${ctx.esc(rep.slice(0, 64))}</textPath></text></svg><span class="lts-bc">${mark}</span></div>`;
   }
   /** Lado derecho de la portada:
-   *  - "Portada grande" (headerStyle cover) con portada subida: portada enmarcada en lima + foto de perfil redonda encima.
-   *  - "Perfil tipo Facebook" (profile) o sin portada: solo la foto de perfil grande con aro lima y el sello que gira alrededor. */
+   *  - "Portada tipo Facebook" (profile) = portada (o un degradado neón si no hay) + foto de perfil redonda encima + sello.
+   *  - "Portada normal" (cover) = solo la portada con el sello; sin portada, el sello grande que gira con un "play" al centro
+   *    (el logo ya va en la barra de arriba, no se repite ni aparece una foto de perfil grande). */
   function neMedia(ctx, d) {
     const ini = ctx.esc((d.name.trim().charAt(0) || 'S').toUpperCase());
     const av = d.logoUrl ? `<img src="${ctx.esc(d.logoUrl)}" alt="Logo de ${ctx.esc(d.name)}" width="320" height="320" decoding="async" fetchpriority="high">` : `<b aria-hidden="true">${ini}</b>`;
     const ring = `<svg class="lts-ring" viewBox="0 0 200 200" aria-hidden="true"><defs><path id="ltsCircP" d="M100 100m-86 0a86 86 0 1 1 172 0a86 86 0 1 1-172 0"/></defs><text><textPath href="#ltsCircP" textLength="536">${ctx.esc(neRingText(d, 34).slice(0, 70))}</textPath></text></svg>`;
-    if (!ctx.profileMode && d.coverUrl) {
-      return `<div class="lts-media is-cover"><figure class="lts-cov"><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>` +
-        `<span class="lts-av">${av}</span>${neBadge(ctx, d)}</div>`;
+    // "Portada tipo Facebook": portada + foto de perfil redonda encima. "Portada normal": solo la portada (con el sello).
+    if (d.coverUrl || ctx.profileMode) {
+      const cov = d.coverUrl ? `<figure class="lts-cov"><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>`
+        : `<figure class="lts-cov is-fx" aria-hidden="true"><i></i><i></i></figure>`;
+      return `<div class="lts-media is-cover${ctx.profileMode ? '' : ' is-norm'}">${cov}` +
+        `${ctx.profileMode ? `<span class="lts-av">${av}</span>` : ''}${neBadge(ctx, d)}</div>`;
     }
-    return `<div class="lts-media is-prof"><div class="lts-pf">${ring}<span class="lts-av">${av}</span></div></div>`;
+    return `<div class="lts-media is-prof is-mark"><div class="lts-pf">${ring}<span class="lts-av">${NE_PLAY}</span></div></div>`;
   }
   function nePrice(ctx, price, old, period, path, big) {
     const m = ctx.money(price), o = ctx.money(old);
@@ -487,7 +493,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="lts-bonus">${c.badge ? ctx.esc(c.badge) : 'Activación inmediata y garantía.'}</p>` +
       `${nePrice(ctx, c.price, c.oldPrice, c.period, `combos.${c.id}.price`, true)}` +
       `${url ? `<a class="lts-btn lts-pbtn" data-lt-btn href="${ctx.esc(url)}" target="_blank" rel="noopener"><span>${ctx.money(c.price) ? 'Quiero aprovechar la promoción' : 'Consultar precio'}</span></a>` : ''}` +
-      `<ul class="lts-trust"><li>${nei('shield')}<span>Pago<br>seguro</span></li><li>${nei('zap')}<span>Activación<br>inmediata</span></li><li>${nei('headset')}<span>Soporte<br>24/7</span></li></ul></article>`;
+      `<ul class="lts-trust"><li>${nei('shield')}<span>Pago<br>seguro</span></li><li>${nei('zap')}<span>Activación<br>inmediata</span></li><li>${nei('headset')}<span>${ctx.hours247 === false ? `Atención<br>${ctx.esc(ctx.hours)}` : 'Soporte<br>24/7'}</span></li></ul></article>`;
   }
   const neHead = (html, sub) => `<div class="lts-hd" data-rv><h2 class="ltb-h2">${html}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
 
@@ -544,6 +550,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-bc{position:absolute;inset:27%;display:grid;place-items:center;border-radius:50%;background:var(--n-lime);color:var(--n-ink);overflow:hidden;box-shadow:0 0 18px rgba(184,255,44,.6)}
 .lt-lima .lts-bc img{width:100%;height:100%;object-fit:cover}
 .lt-lima .lts-bc b{font-weight:900;font-size:clamp(20px,5vw,30px)}
+.lt-lima .lts-play{width:46%;height:46%;fill:currentColor;margin-left:6%}
+.lt-lima .lts-cov.is-fx{background:radial-gradient(ellipse 60% 90% at 18% 10%,rgba(184,255,44,.55),transparent 60%),radial-gradient(ellipse 50% 80% at 88% 100%,rgba(120,255,0,.35),transparent 65%),linear-gradient(135deg,#1a2a08,#0b1006 55%,#16240a)}
+.lt-lima .lts-cov.is-fx i{position:absolute;inset:0;background:linear-gradient(rgba(184,255,44,.07) 1px,transparent 1px) 0 0/22px 22px,linear-gradient(90deg,rgba(184,255,44,.07) 1px,transparent 1px) 0 0/22px 22px}
+.lt-lima .lts-cov.is-fx i+i{background:linear-gradient(100deg,transparent 30%,rgba(214,255,122,.16) 48%,transparent 66%)}
 /* portada + foto de perfil */
 .lt-lima .lts-media{position:relative;justify-self:center;align-self:center;width:100%;max-width:520px;margin:10px 0 40px}
 .lt-lima .lts-media::before{content:"";position:absolute;left:5%;right:5%;top:15%;bottom:0;border-radius:50%;background:radial-gradient(circle,rgba(170,255,40,.42),transparent 66%);filter:blur(22px);pointer-events:none}
@@ -632,6 +642,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-lima .lts-pbtn span{line-height:1.25;text-wrap:balance}
 .lt-lima .lts-trust{list-style:none;margin:12px 0 0;padding:14px 0 0;width:100%;display:flex;justify-content:space-around;gap:6px;border-top:1px solid var(--n-line)}
 .lt-lima .lts-trust li{display:flex;align-items:center;gap:6px;text-align:left;font-size:10.5px;line-height:1.2;color:var(--n-mut)}
+.lt-lima .lts-trust span{max-width:14ch;overflow-wrap:anywhere}
 .lt-lima .lts-trust .lts-ic{width:18px;height:18px;color:var(--n-lime);flex:none}
 .lt-lima .ltb-cph{border-radius:12px;width:100%}
 /* reseñas */
@@ -739,7 +750,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const bens = d.benefits.slice(0, 5);
     const html =
       `<section class="lts-hero" data-lt-hero><div class="lts-stadium" aria-hidden="true"></div><span class="lts-beam a" aria-hidden="true"></span><span class="lts-beam b" aria-hidden="true"></span>${motes}` +
-      `<div class="ltb-wrap"><div class="lts-top"><div class="lts-brand">${mark}<div><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div></div>` +
+      `<div class="ltb-wrap"><div class="lts-top"><div class="lts-brand">${ctx.profileMode ? '' : mark}<div><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div></div>` +
       `${wa ? `<a class="lts-hwa" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>WhatsApp</span></a>` : ''}</div>` +
       `<div class="lts-hin"><div class="lts-htx"><h1 class="ltb-h1"${ed(ctx, 'heroTitle')}>${neAccent(ctx, d.heroTitle || LC.DEFAULTS.heroTitle, 3)}</h1>` +
       `<p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>${mainCta(d.ctaText, 'ctaText')}` +
@@ -817,7 +828,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'lima', name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
+    id: 'lima', parts: [{ k: 'lights', label: 'Luces de estadio', sel: '.lts-stadium,.lts-beam,.lts-motes,.lts-dots' }, { k: 'badge', label: 'Sello giratorio', sel: '.lts-badge', x: true }, { k: 'who', label: '¿Quién te va a atender?', sel: '.ltb-sec-who', x: true }], name: 'Neón Lima', description: 'Negro con verde lima neón, estilo lanzamiento: luces, franja lima y tarjeta de precio que brilla',
     tags: ['oscura', 'moderna', 'animada'], preview: { bg: '#060805', fg: '#f1f5ea', accent: NE_LIME }, render: renderNeon
   });
 })(typeof window !== 'undefined' ? window : globalThis);

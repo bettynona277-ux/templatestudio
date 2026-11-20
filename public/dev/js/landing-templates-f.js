@@ -805,7 +805,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'rosa', name: 'Rosa Glam', description: 'Femenina y minimalista: ciruela con rosa, fotos redondeadas y detalles con corazones',
+    id: 'rosa', parts: [{ k: 'hero', label: 'Personaje', sel: '.ltr-hart', x: true }, { k: 'sign', label: 'Firma', sel: '.ltr-sign', x: true }, { k: 'deco', label: 'Decoración flotante', sel: '.ltr-deco', x: true }, { k: 'hearts', label: 'Corazones y destellos', sel: '.ltr-float,.ltr-orb' }, { k: 'who', label: 'Fotos de quién atiende', sel: '.ltr-aart', x: true }], name: 'Rosa Glam', description: 'Femenina y minimalista: ciruela con rosa, fotos redondeadas y detalles con corazones',
     tags: ['femenina', 'elegante', 'animada'], preview: { bg: '#2a0d1e', fg: '#fff6fa', accent: '#ff3d8f' }, render: renderRosa
   });
 
@@ -900,6 +900,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-verano .ltp-cover{border:4px solid #fff;border-top:0;box-shadow:0 22px 44px rgba(7,59,76,.2);background:linear-gradient(135deg,#0bbfd3,#ffd43b)}
 .lt-verano .ltp-ring{background:conic-gradient(#ffd43b,#ff4fa3,#0bbfd3,#22c55e,#ffd43b)}
 .lt-verano .ltp-avatar-in{border-color:#fff;background:#fff}
+.lt-verano .ltp-initial{display:grid;place-items:center;width:100%;height:100%;color:#fff;font-family:"Bricolage Grotesque",sans-serif;background:linear-gradient(135deg,var(--v-aqua),var(--v-teal2))}
 .lt-verano .ltp-name{font:800 clamp(26px,5.4vw,38px)/1.05 "Bricolage Grotesque",sans-serif;letter-spacing:-.02em;color:var(--v-ink)}
 .lt-verano .ltp-tag{color:var(--v-ink2);opacity:1;font-weight:600}
 .lt-verano .ltp-meta{color:var(--v-ink);opacity:.8;font-weight:700}
@@ -1291,7 +1292,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'verano', name: 'Verano', description: 'Piscina tropical: cielo celeste, sol con tus apps, palmeras, agua con reflejos y flamenco',
+    id: 'verano', parts: [{ k: 'palms', label: 'Palmeras', sel: '.ltv-palm', x: true }, { k: 'sun', label: 'Sol con tus apps', sel: '.ltv-stage', x: true }, { k: 'water', label: 'Franja de agua', sel: '.ltv-edge', x: true }, { k: 'beach', label: 'Lentes y coco', sel: '.ltv-deco', x: true }, { k: 'flamingo', label: 'Flamenco', sel: '.ltv-flam', x: true }, { k: 'clouds', label: 'Nubes y gaviotas', sel: '.ltv-cloud,.ltv-gull' }, { k: 'leaves', label: 'Hojas, burbujas y destellos', sel: '.ltv-leaves,.ltv-glints,.ltv-bubbles' }], name: 'Verano', description: 'Piscina tropical: cielo celeste, sol con tus apps, palmeras, agua con reflejos y flamenco',
     tags: ['clara', 'temporada', 'animada'], preview: { bg: '#6fd6fb', fg: '#073b4c', accent: '#ffd21f' }, render: renderVerano
   });
 })(typeof window !== 'undefined' ? window : globalThis);

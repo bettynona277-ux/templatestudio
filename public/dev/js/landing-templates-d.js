@@ -142,6 +142,8 @@
   }
   /** Cabecera: tipo perfil (núcleo) o la barra propia de la plantilla. */
   const top = (ctx, d, wa) => (ctx.profileMode && typeof ctx.profileHeader === 'function') ? ctx.profileHeader() : header(ctx, d, wa);
+  /** "Portada normal": la portada como banner bajo la cabecera, sin la foto de perfil encima. */
+  const covNormal = (ctx, d) => d.coverUrl ? `<div class="ltb-wrap ltb-covw"><figure class="ltb-covn"><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure></div>` : '';
   const heroCta = (ctx, d, wa) => wa ? btn(ctx, wa, d.ctaText, 'ltb-cta', true, true, 'ctaText') : `<button type="button" class="ltb-btn ltb-cta" data-goto="plans">Ver planes</button>`;
 
   /** Prepara root: variables de contraste, listeners dentro de root y __ltCleanup.
@@ -278,6 +280,9 @@
 ${s}{position:relative;overflow-x:clip;min-height:100%;line-height:1.5;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
 ${s} *,${s} *::before,${s} *::after{box-sizing:border-box}
 ${s} img{max-width:100%;display:block}
+${s} .ltb-covw{position:relative;z-index:3;padding-top:12px;padding-bottom:4px}
+${s} .ltb-covn{margin:0;aspect-ratio:851/315;border-radius:18px;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.22)}
+${s} .ltb-covn img{width:100%;height:100%;object-fit:cover}
 ${s} a{color:inherit}
 ${s} button{font:inherit}
 ${s} .ltb-sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -457,6 +462,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltn-cp>span{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ec2c3d,#b30d1f 60%,#7d0714);border:2px dashed rgba(255,240,200,.7);text-align:center;line-height:1.05;padding:6px}
 .lt-navidad .ltn-cp small{font-size:9.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;color:#ffe3a6;text-transform:uppercase;letter-spacing:.04em}
 .lt-navidad .ltn-cp b{font-size:clamp(16px,4.4vw,21px);font-weight:900;color:#fff;margin:2px 0;overflow-wrap:anywhere}
+.lt-navidad .ltn-cp.is-long b{font-size:clamp(10.5px,2.8vw,12.5px);font-weight:800;line-height:1.15;margin:3px 4px}
 .lt-navidad .ltn-cp::before{content:"";position:absolute;top:-10px;left:50%;width:26px;height:16px;margin-left:-13px;background:radial-gradient(circle at 30% 40%,#e6353f 4px,transparent 5px),radial-gradient(circle at 70% 40%,#e6353f 4px,transparent 5px),radial-gradient(ellipse at 15% 70%,#137a3e 6px,transparent 7px),radial-gradient(ellipse at 85% 70%,#0b5229 6px,transparent 7px)}
 @keyframes nv-pop{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:none}}
 /* cuenta regresiva */
@@ -569,6 +575,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad .ltb-link{background:#fff;color:var(--nv-ink);border-radius:999px;box-shadow:0 6px 14px rgba(90,5,12,.12)}
 .lt-navidad .ltb-link svg{color:var(--nv-red)}
 /* pie */
+.lt-navidad .ltb-covn{border:3px solid #e9c46a;box-shadow:0 0 0 4px rgba(233,196,106,.18),0 16px 36px rgba(40,0,6,.4)}
+.lt-navidad .ltb-covw{background:transparent}
 .lt-navidad .ltb-foot{position:relative;margin-top:40px;padding-top:64px;background:linear-gradient(180deg,#4a0309,#2c0105);color:#f3c9c4}
 .lt-navidad .ltb-foot::before{content:"";position:absolute;top:-1px;left:0;right:0;height:26px;background:radial-gradient(circle at 17px 4px,#fff 14px,transparent 15px) 0 0/34px 24px repeat-x,linear-gradient(#fff,#fff) 0 0/100% 5px no-repeat;opacity:.95}
 .lt-navidad .ltn-felices{font-family:var(--nv-script);font-size:46px;line-height:1.1;margin:0 0 8px!important;background:${NV_GOLD};-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -703,8 +711,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   function renderNavidad(root, d, ctx) {
     LC.injectCss('navidad', CSS_NAVIDAD);
     const cl = setup(root, ctx, d, 'navidad');
-    // Con logo o portada se usa siempre la cabecera tipo perfil (portada ancha + logo redondo).
-    const pm = !!(ctx.profileMode || d.coverUrl || d.logoUrl) && typeof ctx.profileHeader === 'function';
+    // "Portada tipo Facebook": portada ancha + foto de perfil redonda. "Portada normal": cabecera con logo + portada como banner.
+    const pm = !!ctx.profileMode && typeof ctx.profileHeader === 'function';
     if (pm) root.classList.add('ltb-pm');
     const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
@@ -713,12 +721,12 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const coupons = [];
     if (ctx.minPrice) coupons.push(['Desde', ctx.minPrice, 'el mes']);
     if (pids.length) coupons.push(['Tenemos', String((ctx.platformIds || pids).length), 'apps']);
-    coupons.push(['Atención', '24/7', 'WhatsApp']);
-    const couponsHtml = `<ul class="ltn-coupons">${coupons.slice(0, 3).map((c, k) => `<li class="ltn-cp" style="--k:${k}"><span>${c[0] ? `<small>${ctx.esc(c[0])}</small>` : ''}<b>${ctx.esc(c[1])}</b><small>${ctx.esc(c[2])}</small></span></li>`).join('')}</ul>`;
+    coupons.push(ctx.hoursLong ? ['Atención', ctx.hours, '', 1] : ['Atención', ctx.hours || '24/7', 'WhatsApp']);
+    const couponsHtml = `<ul class="ltn-coupons">${coupons.slice(0, 3).map((c, k) => `<li class="ltn-cp${c[3] ? ' is-long' : ''}" style="--k:${k}"><span>${c[0] ? `<small>${ctx.esc(c[0])}</small>` : ''}<b>${ctx.esc(c[1])}</b><small>${ctx.esc(c[2])}</small></span></li>`).join('')}</ul>`;
     const art = (pids.length ? `<div class="ltn-show">${NV_BOW}<h3>Plataformas disponibles</h3><div class="ltn-tiles">${pids.map((p, k) => `<span class="ltn-tile" style="--k:${k}">${logoHtml(ctx, p, 'ltb-logo')}</span>`).join('')}</div>${ctx.minPrice ? `<p class="ltn-show-min">Desde <b>${ctx.esc(ctx.minPrice)}</b></p>` : ''}</div>` : '');
     const cd = nvCountdown(new Date());
     const html =
-      (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>`) + promo(ctx) +
+      (pm ? ctx.profileHeader() : `<div class="ltn-top">${header(ctx, d, wa)}</div>${covNormal(ctx, d)}`) + promo(ctx) +
       `<section class="ltn-hero" data-lt-hero>${bokeh}<div class="ltn-snow" aria-hidden="true"></div><div class="ltn-snow3" aria-hidden="true"></div>${NV_GARLAND}` +
       `<div class="ltb-wrap ltn-hero-in"><div class="ltn-hero-txt">` +
       `<p class="ltn-script"${(!pm && d.tagline && d.tagline.length <= 22) ? ed(ctx, 'tagline') : ''}>${ctx.esc((!pm && d.tagline && d.tagline.length <= 22) ? d.tagline : 'Feliz Navidad')}</p>` +
@@ -745,7 +753,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'navidad', name: 'Navidad', description: 'Roja elegante: guirnalda con esferas brillantes, dorado, cupones de precio y cuenta regresiva',
+    id: 'navidad', parts: [{ k: 'garland', label: 'Guirnalda y esferas', sel: '.ltn-garland', x: true }, { k: 'script', label: 'Texto Feliz Navidad', sel: '.ltn-script', x: true }, { k: 'snow', label: 'Nieve y brillos', sel: '.ltn-snow,.ltn-snow3,.ltn-bokeh,.ltn-glint' }, { k: 'sprig', label: 'Ramitas de pino', sel: '.ltn-sprig' }, { k: 'bow', label: 'Lazo grande', sel: '.ltn-bigbow', x: true }], name: 'Navidad', description: 'Roja elegante: guirnalda con esferas brillantes, dorado, cupones de precio y cuenta regresiva',
     // Plantilla de temporada exclusiva VIP (sin VIP vigente se pinta 'fallback'). El editor la agrupa en "De temporada · VIP".
     seasonal: true, vipOnly: true, fallback: 'pop',
     tags: ['festiva', 'navidad', 'animada'], preview: { bg: '#b80f1f', fg: '#ffffff', accent: '#f2c75a' }, render: renderNavidad
@@ -918,6 +926,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad2 .ltb-links{justify-content:flex-start}
 .lt-navidad2 .ltb-link{background:var(--g-paper);border-radius:12px;box-shadow:0 4px 12px rgba(60,64,74,.07)}
 /* pie: cinta con moño */
+.lt-navidad2 .ltb-covn{border:6px solid #fff;box-shadow:0 0 0 2px #E0242F,0 16px 34px rgba(60,64,74,.16)}
 .lt-navidad2 .ltb-foot{position:relative;margin-top:30px;padding-top:70px;background:var(--g-paper);color:var(--g-mut)}
 .lt-navidad2 .ltb-foot::before{content:"";position:absolute;left:0;right:0;top:0;height:18px;background:${GF_RIBH}}
 .lt-navidad2 .ltg-fbow{position:absolute;left:50%;top:-22px;width:96px;height:58px;margin-left:-48px}
@@ -950,7 +959,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   function renderNavidad2(root, d, ctx) {
     LC.injectCss('navidad2', CSS_NAVIDAD2);
     const cl = setup(root, ctx, d, 'navidad2');
-    const pm = !!(ctx.profileMode || d.coverUrl || d.logoUrl) && typeof ctx.profileHeader === 'function';
+    const pm = !!ctx.profileMode && typeof ctx.profileHeader === 'function';
     if (pm) { root.classList.add('ltb-pm'); root.classList.add('lt-light-profile'); }
     const { plans, combos } = visible(d, ctx);
     const wa = d.whatsapp ? ctx.buy('tus planes') : '';
@@ -965,7 +974,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const gtag = six.length ? `<div class="ltg-gtag" aria-hidden="true"><div class="ltg-glogos">${six.map(p => logoHtml(ctx, p, 'ltb-logo')).join('')}</div><p>${ids.length > 6 ? `y ${ids.length - 6} más` : 'Para ver todo el año'}${ctx.minPrice ? `, desde <b>${ctx.esc(ctx.minPrice)}</b>` : ''}</p></div>` : '';
     const strip = ids.length ? `<div class="ltg-strip"><span>${ids.slice(0, 5).map(p => logoHtml(ctx, p, 'ltb-logo')).join('')}</span>${ids.length} ${ids.length === 1 ? 'plataforma' : 'plataformas'}</div>` : '';
     const html =
-      (pm ? ctx.profileHeader() : `<div class="ltg-top">${header(ctx, d, wa)}</div>`) + promo(ctx) +
+      (pm ? ctx.profileHeader() : `<div class="ltg-top">${header(ctx, d, wa)}</div>${covNormal(ctx, d)}`) + promo(ctx) +
       `<section class="ltg-hero" data-lt-hero><div class="ltb-wrap"><div class="ltg-box">` +
       `<span class="ltg-rv" aria-hidden="true"></span><span class="ltg-rh" aria-hidden="true"></span>${GF_BOW('ltg-bow')}` +
       `<div class="ltg-txt"><span class="ltg-label">Edición Navidad</span>` +
@@ -1006,7 +1015,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'navidad2', name: 'Navidad Regalo', description: 'Blanca y gris con cinta roja: tu página es una caja de regalo y cada plan, un regalito',
+    id: 'navidad2', parts: [{ k: 'ribbon', label: 'Cinta roja', sel: '.ltg-rv,.ltg-rh,.ltg-bow', x: true }, { k: 'gtag', label: 'Etiqueta de regalo', sel: '.ltg-gtag', x: true }], name: 'Navidad Regalo', description: 'Blanca y gris con cinta roja: tu página es una caja de regalo y cada plan, un regalito',
     seasonal: true, vipOnly: true, fallback: 'pop',
     tags: ['festiva', 'navidad', 'animada', 'clara'], preview: { bg: '#ECEDEF', fg: '#16181C', accent: '#E0242F' }, render: renderNavidad2
   });
@@ -1168,6 +1177,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-navidad3 .ltz-prof{position:relative;z-index:5;display:flex;align-items:center;gap:16px;margin:-58px auto 0;max-width:1000px;padding:16px 18px;background:#fff;border-radius:22px;box-shadow:0 18px 40px rgba(60,10,16,.14)}
 .lt-navidad3 .ltz-av{flex:none;width:clamp(76px,16vw,112px);aspect-ratio:1;border-radius:50%;padding:4px;background:${NV3_GOLD};margin-top:-46px;box-shadow:0 10px 22px rgba(60,10,16,.25)}
 .lt-navidad3 .ltz-av>*{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;object-fit:cover;background:var(--z-red);color:#fff;font-weight:800;font-size:clamp(30px,6vw,44px);border:3px solid #fff}
+.lt-navidad3 .ltz-prof.is-norm .ltz-av{width:62px;margin-top:0;border-radius:16px;padding:3px}
+.lt-navidad3 .ltz-prof.is-norm .ltz-av>*{border-radius:13px;font-size:26px;border-width:2px}
+.lt-navidad3 .ltz-prof.is-norm .ltz-av::before{border-radius:16px}
 .lt-navidad3 .ltz-pi{flex:1;min-width:0;padding-left:16px;border-left:2px solid var(--z-red)}
 .lt-navidad3 .ltz-pi b{display:block;font-size:clamp(20px,4.6vw,30px);font-weight:800;line-height:1.1;letter-spacing:-.02em;overflow-wrap:anywhere}
 .lt-navidad3 .ltz-pi small{display:block;margin-top:3px;font-size:14px;color:var(--z-mut);overflow-wrap:anywhere}
@@ -1176,6 +1188,16 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* PC intermedio (701–1060 px): la tarjeta de perfil ya no toca los bordes de la pantalla; con portada, mismo ancho que la portada */
 @media (min-width:701px){.lt-navidad3 .ltz-prof{width:calc(100% - 28px)}.lt-navidad3 .ltz-ban.has-cover+.ltz-prof{max-width:920px}}
 @media (max-width:700px){.lt-navidad3 .ltz-prof{flex-wrap:wrap;margin:-50px 14px 0;gap:12px}.lt-navidad3 .ltz-wa{width:100%;justify-content:center}.lt-navidad3 .ltz-pi{padding-left:12px}}
+/* "Portada tipo Facebook": foto de perfil grande y redonda, centrada, montada sobre la portada (o sobre el banner rojo si no hay portada) */
+.lt-navidad3 .ltz-ban.is-pm:not(.has-cover){padding-bottom:190px}
+.lt-navidad3 .ltz-prof.is-pm{flex-direction:column;flex-wrap:nowrap;text-align:center;gap:12px;padding-top:0}
+.lt-navidad3 .ltz-prof.is-pm .ltz-av{width:clamp(118px,24vw,156px);margin-top:calc(clamp(118px,24vw,156px) * -.62);padding:5px;box-shadow:0 14px 30px rgba(60,10,16,.32)}
+.lt-navidad3 .ltz-prof.is-pm .ltz-av>*{border-width:4px;font-size:clamp(46px,10vw,64px)}
+.lt-navidad3 .ltz-prof.is-pm .ltz-pi{flex:none;padding-left:0;border-left:0}
+.lt-navidad3 .ltz-prof.is-pm .ltz-pi small{font-size:15px}
+.lt-navidad3 .ltz-prof.is-pm .ltz-wa{justify-content:center}
+@media (min-width:701px){.lt-navidad3 .ltz-prof.is-pm{padding-bottom:22px}.lt-navidad3 .ltz-prof.is-pm .ltz-av{margin-top:-104px}}
+@media (max-width:700px){.lt-navidad3 .ltz-ban.is-pm:not(.has-cover){padding-bottom:142px}}
 /* bloque principal */
 .lt-navidad3 .ltz-main{position:relative;overflow:hidden;padding:44px 18px 40px;text-align:center}
 .lt-navidad3 .ltz-gift{display:none}
@@ -1407,14 +1429,14 @@ ${'.lt-navidad3'} .ltb-off :is(.ltz-sleigh,.ltz-sb,.ltz-bokeh i,.ltz-snow,.ltz-b
       (d.faq.length ? `<div class="ltb-sec-faq" data-rv><h2 class="ltz-h3">${nv3i('help')}Preguntas frecuentes</h2><div class="ltb-faq">${d.faq.map((f, i) => `<details><summary><span${ed(ctx, `faq.${i}.q`)}>${ctx.esc(f.q)}</span></summary><p${ed(ctx, `faq.${i}.a`)}>${ctx.esc(f.a)}</p></details>`).join('')}</div></div>` : '') +
       `</div></div></section>` : '';
     const html =
-      `<header class="ltz-ban${cover}" data-lt-hero><div class="ltz-snow" aria-hidden="true"></div><div class="ltz-snow ltz-snow2" aria-hidden="true"></div>${NV3_LIGHTS('ltz-lights')}` +
+      `<header class="ltz-ban${cover}${ctx.profileMode ? ' is-pm' : ''}" data-lt-hero><div class="ltz-snow" aria-hidden="true"></div><div class="ltz-snow ltz-snow2" aria-hidden="true"></div>${NV3_LIGHTS('ltz-lights')}` +
       NV3_SPARKS([[8, 38, 14, 0], [24, 70, 10, 1], [33, 22, 8, 2], [70, 30, 12, 3], [80, 66, 9, 4], [92, 42, 13, 5], [52, 80, 8, 2], [4, 74, 9, 4]]) +
       `<img class="ltz-rama l" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async"><img class="ltz-rama r" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" decoding="async">` +
       `<span class="ltz-ball a" aria-hidden="true"></span><span class="ltz-ball b" aria-hidden="true"></span><span class="ltz-ball c" aria-hidden="true"></span>${NV3_SLEIGH}` +
       (d.coverUrl ? `<figure class="ltz-cov"><span class="ltz-shine" aria-hidden="true"></span><img src="${ctx.esc(d.coverUrl)}" alt="Portada de ${ctx.esc(d.name)}" width="851" height="315" decoding="async" fetchpriority="high"></figure>` :
       `<div class="ltz-ban-in"><p class="ltz-t1">Tu Navidad</p><p class="ltz-t2">en modo premium</p><p class="ltz-t3">Este diciembre disfruta de todas tus películas y series desde casa.</p><div class="ltz-orn" aria-hidden="true"><i></i>${nv3i('star')}<i></i></div></div>`) +
       `${NV3_WAVE('ltz-wave', false)}</header>` +
-      `<div class="ltz-prof"><span class="ltz-av">${av}</span><div class="ltz-pi"><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div>` +
+      `<div class="ltz-prof${ctx.profileMode ? ' is-pm' : ' is-norm'}"><span class="ltz-av">${av}</span><div class="ltz-pi"><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b>${d.tagline ? `<small${ed(ctx, 'tagline')}>${ctx.esc(d.tagline)}</small>` : ''}</div>` +
       `${wa ? `<a class="ltz-wa" data-lt-btn href="${ctx.esc(wa)}" target="_blank" rel="noopener">${ctx.linkIcon('whatsapp')}<span>Atención por WhatsApp</span></a>` : ''}</div>` +
       promo(ctx) +
       `<section class="ltz-main"><div class="ltz-bokeh" aria-hidden="true">${[[8, 20, 140, '#ff4d5e'], [86, 14, 180, '#f6d469'], [70, 78, 120, '#ff4d5e'], [20, 82, 160, '#f6d469'], [50, 40, 220, '#ffd0d4']].map(([x, y, z, c], k) => `<i style="left:${x}%;top:${y}%;--z:${z}px;--c:${c};--k:${k}"></i>`).join('')}</div>${NV3_SPARKS([[18, 12, 12, 1], [84, 70, 10, 3], [10, 78, 8, 5], [90, 18, 9, 0]])}<img class="ltz-regalo" src="${NV3_IMG}nv-regalo.webp" alt="" width="640" height="421" decoding="async"><img class="ltz-rama2" src="${NV3_IMG}nv-rama.webp" alt="" width="460" height="310" loading="lazy" decoding="async">` +
@@ -1465,7 +1487,7 @@ ${'.lt-navidad3'} .ltb-off :is(.ltz-sleigh,.ltz-sb,.ltz-bokeh i,.ltz-snow,.ltz-b
   }
 
   LC.registerTemplate({
-    id: 'navidad3', name: 'Navidad Premium', description: 'Cabecera roja con onda dorada, ramas de pino y regalo; planes en tarjetas blancas y combos rojos',
+    id: 'navidad3', parts: [{ k: 'ramas', label: 'Ramas de pino', sel: '.ltz-rama,.ltz-rama2,.ltz-frama', x: true }, { k: 'regalo', label: 'Regalo', sel: '.ltz-regalo', x: true }, { k: 'balls', label: 'Esferas', sel: '.ltz-ball,.ltz-orn', x: true }, { k: 'sleigh', label: 'Trineo', sel: '.ltz-sleigh', x: true }, { k: 'swag', label: 'Guirnalda', sel: '.ltz-swag,.ltz-swagd' }, { k: 'snow', label: 'Nieve y brillos', sel: '.ltz-snow,.ltz-psnow,.ltz-sparks,.ltz-bokeh' }], name: 'Navidad Premium', description: 'Cabecera roja con onda dorada, ramas de pino y regalo; planes en tarjetas blancas y combos rojos',
     seasonal: true, vipOnly: true, fallback: 'pop',
     tags: ['festiva', 'navidad', 'animada'], preview: { bg: '#c8101f', fg: '#ffffff', accent: '#f3c94f' }, render: renderNavidad3
   });
