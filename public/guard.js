@@ -1,6 +1,6 @@
 /* Diseños Streaming · protección básica contra copia (disuasiva).
  * - Bloquea clic derecho, arrastrar imágenes y los atajos del inspector (F12, Ctrl+Shift+I/J/C/K, Ctrl+U, Ctrl+S).
- * - Si se abren las herramientas de desarrollador, la página se oculta y se cierra la sesión del editor.
+ * - Si se abren las herramientas de desarrollador, la página muestra un aviso, se oculta y se cierra la sesión del editor.
  * Ningún bloqueo en el navegador es infalible: la protección real está en las reglas de Firebase.
  * Para trabajar tú con el inspector: en la consola de una página SIN guard (p. ej. admin.html) no hace falta nada;
  * en estas páginas abre la consola ANTES de cargar y ejecuta:  localStorage.setItem('dsg', 'TU_CLAVE')
@@ -41,9 +41,12 @@
     try {
       document.documentElement.innerHTML = '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diseños Streaming</title></head>' +
         '<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d14;color:#e8eaf2;font:16px system-ui,sans-serif;text-align:center;padding:24px">' +
-        '<div><h1 style="font-size:22px;margin:0 0 10px">Herramientas de desarrollador no permitidas</h1>' +
-        '<p style="opacity:.75;margin:0 0 18px">Cierra el inspector y vuelve a cargar la página.</p>' +
-        '<button onclick="location.reload()" style="padding:12px 22px;border:0;border-radius:10px;background:#7c5cfc;color:#fff;font-weight:700;cursor:pointer">Volver a cargar</button></div></body>';
+        '<div style="max-width:460px">' +
+        '<div style="font-size:48px;line-height:1;margin:0 0 14px">\u26D4</div>' +
+        '<h1 style="font-size:22px;margin:0 0 12px;color:#ff5a5a">Actividad no permitida detectada</h1>' +
+        '<p style="opacity:.85;margin:0 0 10px">Se registr\u00f3 un intento de inspeccionar el c\u00f3digo de la plataforma con las herramientas de desarrollador.</p>' +
+        '<p style="margin:0 0 18px;font-weight:600;color:#ffb020">Este evento qued\u00f3 registrado con tu cuenta. Si se repite, tu acceso puede ser <u>suspendido de forma autom\u00e1tica</u> por seguridad.</p>' +
+        '<button onclick="location.reload()" style="padding:12px 22px;border:0;border-radius:10px;background:#7c5cfc;color:#fff;font-weight:700;cursor:pointer">Cerrar inspector y volver</button></div></body>';
     } catch (_) {}
   }
   function check() {
