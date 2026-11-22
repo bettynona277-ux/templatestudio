@@ -462,7 +462,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   const azStripes = (cls = '') => `<span class="lta-str ${cls}" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
 
   const CSS_AZUL = `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Unbounded:wght@600;800;900&display=swap');` + baseCss('azul') + `
-.lt-azul{--a-bg:#02030c;--a-bg2:#050a26;--a-navy:#0a1250;--a-blue:#2340ff;--a-blue2:#3d5bff;--a-glow:#4d6bff;--a-ice:#9fb2ff;--a-tx:#f2f5ff;--a-mut:#a9b3d9;--a-line:rgba(110,135,255,.28);background:var(--a-bg);color:var(--a-tx);font-family:Montserrat,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.lt-azul{--a-bg:#02030c;--a-bg2:#050a26;--a-navy:#0a1250;--a-blue:#2340ff;--a-blue2:#3d5bff;--a-glow:#4d6bff;--a-ice:#9fb2ff;--a-tx:#f2f5ff;--a-mut:#a9b3d9;--a-line:rgba(110,135,255,.28);--a-red:#ff2b3d;--a-red2:#d20f22;--a-redglow:rgba(255,43,61,.55);background:var(--a-bg);color:var(--a-tx);font-family:Montserrat,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 .lt-azul .ltb-wrap{max-width:1080px}
 .lt-azul .ltb-h1,.lt-azul .ltb-h2,.lt-azul h3{font-weight:800;letter-spacing:-.02em}
 .lt-azul .lta-ic{width:18px;height:18px;flex:none}
@@ -472,7 +472,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-mk>span{position:relative}
 /* rayas inclinadas //// */
 .lt-azul .lta-str{display:inline-flex;gap:5px;transform:skewX(-28deg)}
-.lt-azul .lta-str i{width:12px;height:12px;background:var(--a-blue2);opacity:.9}
+.lt-azul .lta-str i{width:12px;height:12px;background:var(--a-red);opacity:.95}
 .lt-azul .lta-str i:nth-child(2){opacity:.7}.lt-azul .lta-str i:nth-child(3){opacity:.5}.lt-azul .lta-str i:nth-child(4){opacity:.3}
 /* botón principal */
 .lt-azul .lta-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:54px;padding:14px 30px;border-radius:12px;border:0;background:linear-gradient(180deg,#3653ff,#1c2fe0);color:#fff;font-weight:800;font-size:16px;text-decoration:none;cursor:pointer;overflow:hidden;isolation:isolate;box-shadow:0 0 0 1px rgba(150,170,255,.35) inset,0 12px 30px rgba(35,64,255,.45),0 0 44px rgba(35,64,255,.35);transition:transform .25s cubic-bezier(.3,1.5,.5,1),box-shadow .25s}
@@ -499,7 +499,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-who img,.lt-azul .lta-mono{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:none;border:2px solid rgba(160,180,255,.5);box-shadow:0 0 16px rgba(35,64,255,.5)}
 .lt-azul .lta-mono{display:grid;place-items:center;background:var(--a-blue);font-weight:900;font-size:18px}
 /* portada */
-.lt-azul .lta-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse 60% 70% at 78% 38%,rgba(35,64,255,.55),transparent 62%),radial-gradient(ellipse 50% 45% at 92% 8%,rgba(77,107,255,.5),transparent 70%),radial-gradient(ellipse 80% 50% at 10% 100%,rgba(16,32,170,.35),transparent 70%),linear-gradient(180deg,#040820 0%,#02030c 100%)}
+.lt-azul .lta-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse 60% 70% at 78% 38%,rgba(35,64,255,.55),transparent 62%),radial-gradient(ellipse 42% 42% at 10% 16%,rgba(255,43,61,.30),transparent 64%),radial-gradient(ellipse 50% 45% at 92% 8%,rgba(77,107,255,.5),transparent 70%),radial-gradient(ellipse 80% 50% at 10% 100%,rgba(16,32,170,.35),transparent 70%),linear-gradient(180deg,#040820 0%,#02030c 100%)}
 .lt-azul .lta-hcov{position:absolute;inset:0;z-index:0;opacity:.16;-webkit-mask:linear-gradient(90deg,transparent 40%,#000 85%),linear-gradient(180deg,#000 40%,transparent);mask:linear-gradient(90deg,transparent 40%,#000 85%);mix-blend-mode:luminosity}
 .lt-azul .lta-hcov img{width:100%;height:100%;object-fit:cover;filter:saturate(.6) hue-rotate(10deg)}
 .lt-azul .lta-beams{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
@@ -539,8 +539,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-pts li{position:relative;display:flex;gap:14px;align-items:flex-start;font-size:14.5px;line-height:1.5;color:#dbe2ff}
 .lt-azul .lta-pts.l li{flex-direction:row-reverse;text-align:right}
 .lt-azul .lta-pts.l li:nth-child(2){margin-right:-34px}.lt-azul .lta-pts.r li:nth-child(2){margin-left:-34px}
-.lt-azul .lta-dot{position:relative;flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(10,18,80,.9);border:1.5px solid rgba(160,180,255,.7);box-shadow:0 0 18px rgba(77,107,255,.6)}
-.lt-azul .lta-dot::after{content:"";width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 0 10px #fff}
+.lt-azul .lta-dot{position:relative;flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(10,18,80,.9);border:1.5px solid rgba(255,90,105,.75);box-shadow:0 0 18px var(--a-redglow)}
+.lt-azul .lta-dot::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--a-red);box-shadow:0 0 10px var(--a-redglow)}
 .lt-azul .lta-pts b{display:block;color:#fff;font-size:15.5px;margin-bottom:2px}
 @media (max-width:859px){.lt-azul .lta-orbit{grid-template-columns:1fr;gap:26px}.lt-azul .lta-center{order:-1;max-width:330px;width:100%;margin:0 auto}.lt-azul .lta-pts{gap:18px}.lt-azul .lta-pts.l li{flex-direction:row;text-align:left}.lt-azul .lta-pts li:nth-child(2){margin:0!important}.lt-azul .lta-rings{top:150px;width:560px}}
 /* encabezados */
@@ -556,7 +556,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-ctop{display:flex;align-items:center;gap:12px;min-width:0}
 .lt-azul .lta-ctop>div{min-width:0}
 .lt-azul .lta-sub{display:block;font-size:12.5px;color:var(--a-mut);margin-top:2px}
-.lt-azul .lta-tag{position:absolute;top:-11px;right:16px;padding:4px 12px;border-radius:999px;background:var(--a-blue);color:#fff;font-size:11.5px;font-weight:800;box-shadow:0 0 18px rgba(35,64,255,.6)}
+.lt-azul .lta-tag{position:absolute;top:-11px;right:16px;padding:4px 12px;border-radius:999px;background:var(--a-red);color:#fff;font-size:11.5px;font-weight:800;box-shadow:0 0 18px var(--a-redglow)}
 .lt-azul .lta-feats{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:13.5px;color:#c8d1f3}
 .lt-azul .lta-feats li{display:flex;gap:8px;align-items:flex-start}
 .lt-azul .lta-feats svg{width:16px;height:16px;color:var(--a-glow);flex:none;margin-top:2px}
@@ -674,9 +674,6 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     // seis puntos alrededor de la órbita: 3 beneficios de la tienda + 3 datos fijos
     // seis puntos: primero los beneficios que escribió la tienda; se completan con datos fijos que no repitan uno ya escrito
     const pts = d.benefits.slice(0, 6).map((b, k) => [b, '', k]);
-    const low = d.benefits.join(' ').toLowerCase();
-    [[/activ/, ['Activación inmediata', 'Recibe tu cuenta en minutos, sin esperas.']], [/24\s*\/\s*7|atenci|soporte|horario/, [hoursTxt, 'Te respondemos rápido por WhatsApp.']], [/origin/, ['Cuentas originales', 'Perfiles legales y estables todo el mes.']], [/garant/, ['Garantía en todo el periodo', 'Si algo falla, lo solucionamos.']], [/precio|barat|ahorr/, ['Precios bajos', 'Paga menos que en la app oficial.']], [/elegir|ayud/, ['Te ayudamos a elegir', 'Te recomendamos el plan ideal para ti.']]]
-      .forEach(([re, pt]) => { if (pts.length < 6 && !re.test(low)) pts.push(pt); });
     const ptHtml = (list, off, side) => `<ul class="lta-pts ${side}" data-rv>${list.map(([t, s, bi], k) => `<li style="--i:${k + off}"><span class="lta-dot" aria-hidden="true"></span><span><b${bi != null && bi < d.benefits.length ? ed(ctx, `benefits.${bi}`) : ''}>${ctx.esc(t)}</b>${s ? ctx.esc(s) : ''}</span></li>`).join('')}</ul>`;
     const nApps = ids.length;
     const intro = `Con <span class="lta-mk"><span>${nApps ? `${nApps} ${nApps === 1 ? 'app disponible' : 'apps disponibles'}` : 'tus apps favoritas'}${ctx.minPrice ? ` desde ${ctx.esc(ctx.minPrice)}` : ''}</span></span>, ${ctx.esc(d.name)} es la forma más fácil de ver lo que te gusta, sin pagar de más.`;
@@ -687,29 +684,28 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const html =
       (pm ? ctx.profileHeader() : '') +
       `<section class="lta-hero" data-lt-hero>${!pm && d.coverUrl ? `<figure class="lta-hcov" aria-hidden="true"><img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>` : ''}${beams}${dust(14)}<div class="ltb-wrap">` +
-      (pm ? '' : `<div class="lta-top"><span class="lta-pill"><i>${azi('play', '')}</i><b>${ctx.esc(d.tagline || 'Activación en minutos por WhatsApp')}</b></span>` +
+      (pm ? '' : `<div class="lta-top"><span class="lta-pill"><i>${azi('play', '')}</i><b${ed(ctx, 'tagline')}>${ctx.esc(d.tagline || LC.DEFAULTS.tagline)}</b></span>` +
         `<a class="lta-who" href="#" data-goto="plans"><span><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b><small>${wa ? 'Atención por WhatsApp' : 'Planes de streaming'}</small></span>${mark}</a></div>`) +
       `<div class="lta-hin"><div class="lta-htx"><span class="lta-brandw lta-wide" style="--k:0"><small>TIENDA</small>${ctx.esc(gName)}</span>` +
       `<h1 class="ltb-h1" style="--k:1"${ed(ctx, 'heroTitle')}>${azMark(ctx, d.heroTitle || LC.DEFAULTS.heroTitle)}</h1>` +
       `<p class="ltb-sub" style="--k:2"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       `<div style="--k:3">${cta(d.ctaText, 'ctaText')}</div>` +
-      `<p class="lta-note" style="--k:4">${azi('tap')}<span>${ctx.minPrice ? `Planes desde <b>${ctx.esc(ctx.minPrice)}</b> · ` : ''}te atendemos al instante</span></p></div>` +
+      (ctx.minPrice ? `<p class="lta-note" style="--k:4">${azi('tap')}<span>Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span></p>` : '') + `</div>` +
       `<div class="lta-hart">${azArt('hero', '', 'Foto de portada (PNG sin fondo)')}</div></div>` +
       `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
       promo(ctx) +
-      `<section class="ltb-sec ltb-sec-benefits lta-orbsec">${dust(12)}<div class="ltb-wrap"><p class="lta-intro" data-rv>${intro}</p>${azHead('¿Por qué comprar con nosotros?')}` +
+      `<section class="ltb-sec ltb-sec-benefits lta-orbsec">${dust(12)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}` +
       `<div class="lta-orbit">${fx ? `<span class="lta-rings" aria-hidden="true">${[0, 1, 2, 3].map(k => `<i style="--k:${k}"></i>`).join('')}</span>` : ''}` +
       ptHtml(pts.slice(0, Math.ceil(pts.length / 2)), 0, 'l') + `<div class="lta-center" data-rv>${azArt('center', '', 'Imagen central (laptop o celular)')}</div>` + ptHtml(pts.slice(Math.ceil(pts.length / 2)), 3, 'r') + `</div></div></section>` +
-      (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`, 'Cuentas originales, estables y al mejor precio.')}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
+      (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
-      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('No lo tomes solo de nuestra palabra.', `Clientes que ya <span class="lta-mk"><span>disfrutan sus plataformas</span></span> con nosotros.`)}` +
+      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
         `<div class="lta-arrows"><button type="button" data-az-dir="-1" aria-label="Anterior">${azi('arL', '')}</button><button type="button" data-az-dir="1" aria-label="Siguiente">${azi('arR', '')}</button></div></div>` +
-        `${reviewsHtml(ctx, d)}<div class="lta-rvfoot">${cta('Quiero mi cuenta', '', false)}<span class="lta-happy"><span class="lta-avs" aria-hidden="true">${revs.slice(0, 3).map(r => `<i>${ctx.esc(((r.name || 'C').trim().charAt(0) || 'C').toUpperCase())}</i>`).join('')}</span><span><b>Clientes felices</b> confían en nosotros</span></span></div></div></section>` : '') +
-      `<section class="ltb-sec ltb-sec-who lta-big">${dust(14)}<div class="ltb-wrap"><p class="lta-bigq" data-rv>¿Quiénes somos? ${azStripes()}</p>` +
-      `<h2 class="lta-giant" data-rv style="--gs:${gs}">${ctx.esc(gName)}</h2></div>` +
+        `${reviewsHtml(ctx, d)}<div class="lta-rvfoot">${cta(d.ctaText, '', false)}</div></div></section>` : '') +
+      `<section class="ltb-sec ltb-sec-who lta-big">${dust(14)}<div class="ltb-wrap"><p class="lta-bigq" data-rv>${azStripes()}</p>` +
+      `<h2 class="lta-giant" data-rv style="--gs:${gs}"${ed(ctx, 'name')}>${ctx.esc(gName)}</h2></div>` +
       `<div class="lta-crowd">${azArt('crowd', '', 'Imagen ancha (público o banner)')}</div>` +
-      `<div class="ltb-wrap"><div class="lta-about" data-rv><p>${ctx.esc(d.name)} no es solo una tienda: es tu lugar para disfrutar Netflix, Disney+, Spotify y más con cuentas originales, activación en minutos y atención directa por WhatsApp.</p>` +
-      `<p>Escríbenos, te ayudamos a elegir el plan perfecto para ti.</p>${cta('Escríbenos ahora', '', false)}</div></div></section>` +
+      `<div class="ltb-wrap"><div class="lta-about" data-rv>${cta(d.ctaText, '', false)}</div></div></section>` +
       (d.paymentMethods.length ? sec('pays', `${azStripes()}Paga como quieras`, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
       faqSec(ctx, d, 'Preguntas frecuentes') +
       linksSec(ctx, d, 'Síguenos en redes') +
@@ -737,7 +733,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   LC.registerTemplate({
     id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hart', x: true }, { k: 'center', label: 'Imagen central', sel: '.lta-center', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'rings', label: 'Anillos en órbita', sel: '.lta-rings' }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
-    name: 'Azul Eléctrico', description: 'Oscura con azul eléctrico: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante cromado',
-    tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#02030c', fg: '#f2f5ff', accent: '#2340ff' }, render: renderAzul
+    name: 'Spiderman', description: 'Azul con detalles rojos estilo Spiderman: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante.',
+    tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, render: renderAzul
   });
 })(typeof window !== 'undefined' ? window : globalThis);
