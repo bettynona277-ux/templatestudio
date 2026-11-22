@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/guard.js"></script>
 <meta charset="UTF-8">
+<!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
+<meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0a1020">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diseños">
 <title>Diseños Streaming</title>
+<script src="/app-check-config.js"></script>
 <script>window.FIREBASE_APPCHECK_SITE_KEY=window.FIREBASE_APPCHECK_SITE_KEY||'';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -226,6 +230,11 @@ a{text-decoration:none;color:inherit;}
 }
 .login-field::placeholder{color:#7b86a7;}
 .login-field:focus{border-color:rgba(124,92,252,0.48);background:rgba(255,255,255,0.06);}
+.password-field-wrap{position:relative;margin-bottom:12px;}
+.password-field-wrap .login-field{margin-bottom:0;padding-right:54px;}
+.login-password-toggle{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:42px;height:42px;display:grid;place-items:center;border:0;background:transparent;color:#aeb8d5;cursor:pointer;border-radius:12px;touch-action:manipulation;}
+.login-password-toggle:active,.login-password-toggle:focus-visible{background:rgba(124,92,252,0.15);color:#fff;outline:none;}
+.login-password-toggle svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .login-btn,
 .wa-btn{
   width:100%;min-height:52px;border:none;border-radius:16px;
@@ -387,6 +396,8 @@ a{text-decoration:none;color:inherit;}
   background:rgba(14,20,36,0.84);color:var(--text);
   border:1.5px solid rgba(255,255,255,0.08);
 }
+.cat-select{color-scheme:dark;}
+.cat-select option{background:#0e1424;color:#f0f3ff;}
 .search-inp{padding:0 14px 0 38px;font-size:0.9rem;}
 .cat-select{padding:0 14px;font-size:0.85rem;}
 .search-inp::placeholder{color:#7b86a7;}
@@ -399,6 +410,7 @@ a{text-decoration:none;color:inherit;}
   display:flex;align-items:center;justify-content:center;font-size:2rem;
 }
 .tpl-info{padding:10px;}
+.tpl-category-chip{display:inline-flex;align-items:center;min-height:20px;margin:0 0 5px;padding:2px 7px;border-radius:999px;background:rgba(124,92,252,0.12);border:1px solid rgba(124,92,252,0.2);color:#c2b5ff;font-size:0.62rem;font-weight:800;line-height:1.2;}
 .tpl-name{font-size:0.77rem;font-weight:800;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.2em;}
 .tpl-date{font-size:0.65rem;color:var(--muted);margin:6px 0 9px;}
 .tpl-use-btn{width:100%;background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;padding:0 10px;}
@@ -470,7 +482,10 @@ a{text-decoration:none;color:inherit;}
       <label class="login-label">Correo electrónico</label>
       <input class="login-field" type="email" id="login-email" placeholder="tu@gmail.com" autocomplete="email" inputmode="email">
       <label class="login-label">Contraseña</label>
-      <input class="login-field" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin()">
+      <div class="password-field-wrap">
+        <input class="login-field" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin()">
+        <button class="login-password-toggle" id="login-pass-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false" onclick="toggleLoginPassword()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></button>
+      </div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">
         <span id="login-btn-txt">Entrar ahora</span>
       </button>
@@ -556,9 +571,11 @@ a{text-decoration:none;color:inherit;}
       <select class="cat-select" id="tpl-cat" onchange="filterTemplates()">
         <option value="">Todas las categorías</option>
         <option value="Netflix">Netflix</option>
+        <option value="Activos">Activos</option>
         <option value="Disney+">Disney+</option>
         <option value="Prime Video">Prime Video</option>
         <option value="HBO Max">HBO Max</option>
+        <option value="Max">Max</option>
         <option value="Spotify">Spotify</option>
         <option value="Apple TV+">Apple TV+</option>
         <option value="Paramount+">Paramount+</option>
@@ -774,12 +791,22 @@ function observeLazyImages(root) {
 
 let fbApp, fbDb, fbAuth;
 let currentUser = null;
+let _userDocRead = { uid:'', at:0, promise:null };
+function readCurrentUserDoc(uid){
+  if(_userDocRead.uid === uid && _userDocRead.promise && Date.now() - _userDocRead.at < 5000) return _userDocRead.promise;
+  _userDocRead = { uid, at:Date.now(), promise:fbDb.collection('users').doc(uid).get() };
+  return _userDocRead.promise;
+}
 let allTemplates = [];
 let pendingDeleteId = null;
 const TEMPLATES_CACHE_KEY = 'ts_mobile_templates_cache_v4';
 const MOB_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 horas para evitar releer en recargas frecuentes
-const MOB_DESIGN_FETCH_LIMIT = 24;
+const MOB_DESIGN_PAGE_SIZE = 24;
 const ENABLE_USER_DOC_LIVE_STATUS = false;
+let allMyDesigns = [];
+let lastDesignDoc = null;
+let noMoreDesigns = false;
+let designsLoading = false;
 
 // Limpiar cachés viejos para liberar espacio en localStorage
 try{
@@ -794,6 +821,18 @@ try{
 // Solo guardar campos mínimos en caché (ahorra ~80% de espacio)
 function minifyTemplatesForCache(items){
   return items.map(t => ({id:t.id, name:t.name||'', thumb:t.thumb||'', category:t.category||'', createdAt:t.createdAt||0}));
+}
+
+function minifyDesignsForCache(items){
+  return items.map(item => ({
+    id: item.id,
+    data: {
+      name: item?.data?.name || '',
+      thumb: item?.data?.thumb || '',
+      updatedAt: item?.data?.updatedAt || 0,
+      createdAt: item?.data?.createdAt || 0
+    }
+  }));
 }
 
 function isFreshMobileCache(key){
@@ -968,7 +1007,10 @@ window.addEventListener('load', async()=>{
       loadMobProfile && loadMobProfile();
       // Mostrar datos del caché inmediatamente
       renderCachedDesigns && renderCachedDesigns();
-      renderCachedTemplates && renderCachedTemplates();
+      if(isRestrictedTemplateCatalogUserMob()){
+        clearTemplateCatalogCacheMob();
+        renderRestrictedTemplateCatalogMob();
+      }else renderCachedTemplates && renderCachedTemplates();
     }catch(_){}
 
     // Firebase en segundo plano — no bloquea la UI
@@ -990,7 +1032,7 @@ window.addEventListener('load', async()=>{
           }, (err) => { console.warn('onSnapshot error:', err); });
 
           try{
-            const doc = await fbDb.collection('users').doc(user.uid).get();
+            const doc = await readCurrentUserDoc(user.uid);
             if(doc.exists && doc.data().active !== false){
               const devResult = await registerDevice(user.uid);
               if(!devResult.ok){
@@ -1008,7 +1050,12 @@ window.addEventListener('load', async()=>{
               await fetchAndCacheMobProfile(user.uid);
               loadMobProfile();
               try{ if(!hasFreshDesignsCache()) loadMyDesigns && loadMyDesigns(); }catch(_){}
-              try{ if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates(); }catch(_){}
+              try{
+                if(isRestrictedTemplateCatalogUserMob()){
+                  clearTemplateCatalogCacheMob();
+                  renderRestrictedTemplateCatalogMob();
+                }else if(!hasFreshTemplatesCache()) loadTemplates && loadTemplates();
+              }catch(_){}
             } else {
               fbAuth.signOut(); localStorage.removeItem('ts_session'); showScreen('login');
             }
@@ -1046,7 +1093,7 @@ window.addEventListener('load', async()=>{
       }, (err) => { console.warn('onSnapshot error:', err); });
 
       try{
-        const doc = await fbDb.collection('users').doc(user.uid).get();
+        const doc = await readCurrentUserDoc(user.uid);
         if(doc.exists && doc.data().active !== false){
           const devResult = await registerDevice(user.uid);
           if(!devResult.ok){
@@ -1251,6 +1298,22 @@ async function registerDevice(uid){
   await Promise.all(expired.map(d => fbDb.collection('users').doc(uid).collection('devices').doc(d.id).delete().catch(()=>{})));
   const usableDevices = devices.filter(d => !expired.some(x=>x.id===d.id));
   const activeDevices = usableDevices.filter(d => !d.revoked && !isDeviceExpired(d));
+  const sameFingerprint = activeDevices.find(d => d.fingerprintHash && d.fingerprintHash === fingerprint.hash);
+  if(sameFingerprint){
+    await fbDb.collection('users').doc(uid).collection('devices').doc(sameFingerprint.id).set({
+      name: fingerprint.label || getDeviceName(),
+      deviceLabel: fingerprint.label,
+      fingerprintHash: fingerprint.hash,
+      fingerprintSummary: fingerprint.summary,
+      confidenceSignals: fingerprint.confidenceSignals,
+      lastSeen: Date.now(),
+      lastLoginAt: Date.now(),
+      loginCount: firebase.firestore.FieldValue.increment(1),
+      revoked: false
+    }, {merge:true});
+    try{ localStorage.setItem('ts_device_id',sameFingerprint.id); }catch(_){ }
+    return {ok:true, reused:true};
+  }
   if(activeDevices.length >= MAX_DEVICES){
     return {ok:false, count:activeDevices.length};
   }
@@ -1285,7 +1348,7 @@ async function completePostLogin(user, errEl){
   if(_postLoginCompleting) return true;
   _postLoginCompleting = true;
   try{
-    const doc = await fbDb.collection('users').doc(user.uid).get();
+    const doc = await readCurrentUserDoc(user.uid);
     if(!doc.exists || doc.data().active === false){
       await fbAuth.signOut();
       localStorage.removeItem('ts_session');
@@ -1342,6 +1405,19 @@ async function completePostLogin(user, errEl){
   }
 }
 
+function toggleLoginPassword(){
+  const input=document.getElementById('login-pass');
+  const button=document.getElementById('login-pass-toggle');
+  if(!input || !button) return;
+  const visible=input.type === 'text';
+  input.type=visible ? 'password' : 'text';
+  button.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
+  button.setAttribute('aria-pressed', String(!visible));
+  button.innerHTML=visible
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.1A11.8 11.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.1 3.8"></path><path d="M6.6 6.6C3.6 8.5 2 12 2 12s3.5 7 10 7a10 10 0 0 0 2.1-.2"></path></svg>';
+}
+
 async function doLogin(){
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
@@ -1388,31 +1464,61 @@ function showDashboard(){
   document.getElementById('user-avatar').textContent = email[0]?.toUpperCase() || 'U';
   showScreen('dash');
   renderCachedDesigns();
-  renderCachedTemplates();
+  if(isRestrictedTemplateCatalogUserMob()){
+    clearTemplateCatalogCacheMob();
+    renderRestrictedTemplateCatalogMob();
+  }else renderCachedTemplates();
   if(!hasFreshDesignsCache()) loadMyDesigns();
-  if(!hasFreshTemplatesCache()) loadTemplates();
+  if(!isRestrictedTemplateCatalogUserMob() && !hasFreshTemplatesCache()) loadTemplates();
+}
+
+function isRestrictedTemplateCatalogUserMob(){
+  return String(currentUser?.templateCatalogGroup || '').trim().toLowerCase() === 'ratas';
+}
+
+function clearTemplateCatalogCacheMob(){
+  try{ localStorage.removeItem(TEMPLATES_CACHE_KEY); }catch(_){}
+}
+
+function renderRestrictedTemplateCatalogMob(){
+  allTemplates=[];
+  const grid=document.getElementById('tpl-grid');
+  if(grid) grid.innerHTML='<div class="empty-state" style="grid-column:1/-1;">No hay plantillas disponibles en el catálogo.</div>';
+  const count=document.getElementById('tpl-count'); if(count) count.textContent='0';
+  setHeroCounts(null,0);
+  const search=document.getElementById('tpl-search'); if(search) search.value='';
+  const category=document.getElementById('tpl-cat'); if(category) category.value='';
 }
 
 function getDesignsCacheKey(){
-  return currentUser?.uid ? `ts_mobile_designs_cache_${currentUser.uid}` : '';
+  return currentUser?.uid ? `ts_mobile_designs_cache_v2_${currentUser.uid}` : '';
 }
 
 function setHeroCounts(myCount, tplCount){
-  if(typeof myCount === 'number') document.getElementById('hero-my-count').textContent = String(myCount);
-  if(typeof tplCount === 'number') document.getElementById('hero-tpl-count').textContent = String(tplCount);
+  if(myCount !== undefined && myCount !== null) document.getElementById('hero-my-count').textContent = String(myCount);
+  if(tplCount !== undefined && tplCount !== null) document.getElementById('hero-tpl-count').textContent = String(tplCount);
 }
 
-function renderDesignsFromList(items){
+function renderDesignsFromList(items, opts = {}){
   const list = document.getElementById('my-designs-list');
   list.innerHTML = '';
   const count = items.length;
-  document.getElementById('my-count').textContent = `${count}`;
-  setHeroCounts(count, null);
+  const complete = opts.complete === true;
+  const countLabel = `${count}${complete ? '' : '+'}`;
+  document.getElementById('my-count').textContent = countLabel;
+  setHeroCounts(countLabel, null);
   if(!count){
     list.innerHTML = '<div class="empty-state">Aún no tienes diseños guardados.<br>Empieza el primero cuando quieras.</div>';
     return;
   }
   items.forEach(item=> list.appendChild(createDesignCard(item.id, item.data)));
+  if(!complete){
+    const moreBtn = document.createElement('div');
+    moreBtn.id = 'my-designs-load-more';
+    moreBtn.style.cssText = 'padding:16px 0 calc(var(--safe-bottom) + 88px);text-align:center;';
+    moreBtn.innerHTML = '<button style="background:var(--accent,#7c5cfc);color:#fff;border:none;padding:12px 24px;border-radius:10px;font-size:0.95rem;font-weight:700;cursor:pointer;" onclick="loadMoreMyDesigns()">Ver mas disenos</button>';
+    list.appendChild(moreBtn);
+  }
   observeLazyImages(list);
 }
 
@@ -1421,43 +1527,85 @@ function renderCachedDesigns(){
   if(!key) return;
   try{
     const cached = JSON.parse(localStorage.getItem(key) || 'null');
-    if(cached?.items?.length) renderDesignsFromList(cached.items);
+    if(cached?.items?.length){
+      allMyDesigns = cached.items;
+      noMoreDesigns = cached.complete === true;
+      renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
+    }
   }catch(e){}
 }
 
-async function loadMyDesigns(){
+async function loadMyDesigns(forceRefresh = false){
   const list = document.getElementById('my-designs-list');
+  allMyDesigns = [];
+  lastDesignDoc = null;
+  noMoreDesigns = false;
+  designsLoading = false;
   if(!list.children.length){
     list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   }
   // Stale-while-revalidate: muestra caché al instante, luego actualiza desde Firestore
   const key = getDesignsCacheKey();
   let hadCache = false;
-  if(key){
+  if(key && !forceRefresh){
     try{
       const cached = JSON.parse(localStorage.getItem(key) || 'null');
       if(cached?.items?.length){
-        renderDesignsFromList(cached.items);
+        allMyDesigns = cached.items;
+        noMoreDesigns = cached.complete === true;
+        renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
         hadCache = true;
         if(Date.now() - Number(cached.savedAt || 0) < MOB_CACHE_TTL) return;
       }
     }catch(e){}
   }
-  // Siempre consulta Firestore para detectar cambios
+  await loadMyDesignsPage(true, hadCache);
+}
+
+async function loadMoreMyDesigns(){
+  if(designsLoading || noMoreDesigns) return;
+  if(!lastDesignDoc && allMyDesigns.length){
+    await loadMyDesigns(true);
+    if(noMoreDesigns || !lastDesignDoc) return;
+  }
+  await loadMyDesignsPage(false, true);
+}
+
+async function loadMyDesignsPage(isFirst, hadCache){
+  if(designsLoading || (!isFirst && noMoreDesigns)) return;
+  designsLoading = true;
+  const list = document.getElementById('my-designs-list');
   try{
-    const snap = await fbDb.collection('user_designs')
+    let query = fbDb.collection('user_designs')
       .where('uid','==',currentUser.uid)
       .orderBy('updatedAt','desc')
-      .limit(MOB_DESIGN_FETCH_LIMIT)
-      .get();
-    const items = [];
-    snap.forEach(doc=> items.push({id:doc.id, data:doc.data()}));
-    renderDesignsFromList(items);
-    try{ if(key) localStorage.setItem(key, JSON.stringify({savedAt: Date.now(), items})); }catch(_){}
+      .limit(MOB_DESIGN_PAGE_SIZE);
+    if(lastDesignDoc) query = query.startAfter(lastDesignDoc);
+    const snap = await query.get();
+    const newItems = [];
+    snap.forEach(doc=> newItems.push({id:doc.id, data:doc.data()}));
+    if(isFirst){
+      allMyDesigns = newItems;
+    }else{
+      allMyDesigns = allMyDesigns.concat(newItems);
+    }
+    if(snap.docs.length) lastDesignDoc = snap.docs[snap.docs.length - 1];
+    noMoreDesigns = snap.docs.length < MOB_DESIGN_PAGE_SIZE;
+    renderDesignsFromList(allMyDesigns, {complete:noMoreDesigns});
+    const nextKey = getDesignsCacheKey();
+    try{
+      if(nextKey) localStorage.setItem(nextKey, JSON.stringify({
+        savedAt: Date.now(),
+        complete: noMoreDesigns,
+        items: minifyDesignsForCache(allMyDesigns)
+      }));
+    }catch(_){}
   }catch(e){
     if(!hadCache){
       list.innerHTML = `<div class="empty-state">Error al cargar: ${e.message}</div>`;
     }
+  }finally{
+    designsLoading = false;
   }
 }
 
@@ -1533,6 +1681,7 @@ function renderCachedTemplates(){
     if(cached?.items?.length){
       allTemplates = cached.items;
       noMoreTpls = cached.complete === true;
+      populateTemplateCategoryOptionsMob(allTemplates);
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
@@ -1541,13 +1690,71 @@ function renderCachedTemplates(){
   }catch(e){}
 }
 
+const MOBILE_TEMPLATE_CATEGORY_RULES = [
+  { category:'Netflix', terms:['netflix','nflx'] },
+  { category:'Disney+', terms:['disney+','disney plus','disney','espn','star plus','star+'] },
+  { category:'Max', terms:['hbo max','hbomax','max'] },
+  { category:'Prime Video', terms:['prime video','amazon prime','prime'] },
+  { category:'Crunchyroll', terms:['crunchyroll','crunchy'] },
+  { category:'Spotify', terms:['spotify'] },
+  { category:'Paramount+', terms:['paramount+','paramount plus','paramount'] },
+  { category:'YouTube Premium', terms:['youtube premium','youtube','yt premium'] },
+  { category:'Apple TV+', terms:['apple tv+','apple tv','appletv'] },
+  { category:'Vix', terms:['vix','vix+','vix plus'] },
+  { category:'Viki', terms:['viki','viki rakuten','rakuten'] },
+  { category:'Capcut', terms:['capcut','cap cut'] },
+  { category:'Canva', terms:['canva'] },
+  { category:'IPTV', terms:['iptv','magis','flujo tv','flujotv','tv box'] },
+  { category:'Promociones', terms:['promo','promocion','promociones','oferta','descuento'] },
+  { category:'Avisos', terms:['aviso','avisos','comunicado','recordatorio','vencimiento'] },
+  { category:'Activos', terms:['activo','activos'] }
+];
+
+function normalizeTemplateCategoryMob(value){
+  return String(value||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\+/g,' plus ').replace(/[^a-z0-9]+/g,' ').trim();
+}
+
+function canonicalTemplateCategoryMob(value){
+  const category=String(value||'').trim().slice(0,80);
+  return normalizeTemplateCategoryMob(category)==='netflix extra'?'Netflix':category;
+}
+
+function inferTemplateCategoryMob(name){
+  const normalizedName=normalizeTemplateCategoryMob(name);
+  if(!normalizedName) return '';
+  const words=` ${normalizedName} `;
+  if(words.includes(' activo ')||words.includes(' activos ')) return 'Activos';
+  let best=null;
+  MOBILE_TEMPLATE_CATEGORY_RULES.forEach(rule=>rule.terms.forEach(term=>{
+    const normalizedTerm=normalizeTemplateCategoryMob(term);
+    if(!normalizedTerm||!words.includes(` ${normalizedTerm} `)) return;
+    if(!best||normalizedTerm.length>best.length) best={category:rule.category,length:normalizedTerm.length};
+  }));
+  return best?.category||'';
+}
+
+function templateCategoryMob(template){
+  return canonicalTemplateCategoryMob(template?.category||'')||inferTemplateCategoryMob(template?.name||'');
+}
+
+function populateTemplateCategoryOptionsMob(items){
+  const select=document.getElementById('tpl-cat');
+  if(!select) return;
+  const current=canonicalTemplateCategoryMob(select.value||'');
+  const categories=new Set(['Activos','Netflix','Disney+','Max','HBO Max','Prime Video','Crunchyroll','Spotify','Paramount+','YouTube Premium','Apple TV+','Vix','Viki','Capcut','Canva','IPTV','Promociones','Avisos','Otros']);
+  (items||[]).forEach(item=>{const category=templateCategoryMob(item);if(category)categories.add(category);});
+  select.replaceChildren(new Option('Todas las categorías',''));
+  [...categories].sort((a,b)=>a.localeCompare(b,'es')).forEach(category=>select.add(new Option(category,category)));
+  if([...categories].some(category=>normalizeTemplateCategoryMob(category)===normalizeTemplateCategoryMob(current))) select.value=current;
+}
+
 function normalizePublicTemplateCatalogMob(data){
   if(!data || data.complete !== true || !Array.isArray(data.items)) return null;
   return data.items.map(item => ({
     id:String(item?.id || ''),
     name:String(item?.name || 'Plantilla'),
     thumb:String(item?.thumb || ''),
-    category:String(item?.category || ''),
+    category:canonicalTemplateCategoryMob(item?.category || '') || inferTemplateCategoryMob(item?.name || ''),
     createdAt:Number(item?.createdAt || 0),
     updatedAt:Number(item?.updatedAt || item?.createdAt || 0),
     status:'published'
@@ -1555,6 +1762,7 @@ function normalizePublicTemplateCatalogMob(data){
 }
 
 async function loadPublicTemplateCatalogMob(){
+  if(isRestrictedTemplateCatalogUserMob()) return [];
   try{
     const snap = await fbDb.collection('public_catalog').doc('templates').get();
     return snap.exists ? normalizePublicTemplateCatalogMob(snap.data() || {}) : null;
@@ -1581,6 +1789,11 @@ function ensureTemplatesVisible(){
 }
 
 async function loadTemplates(){
+  if(isRestrictedTemplateCatalogUserMob()){
+    clearTemplateCatalogCacheMob();
+    renderRestrictedTemplateCatalogMob();
+    return;
+  }
   const grid = document.getElementById('tpl-grid');
   // Reset paginación
   allTemplates = [];
@@ -1595,6 +1808,7 @@ async function loadTemplates(){
     if(cached?.items?.length){
       allTemplates = cached.items;
       noMoreTpls = cached.complete === true;
+      populateTemplateCategoryOptionsMob(allTemplates);
       document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
       setHeroCounts(null, allTemplates.length);
       renderTemplates(allTemplates);
@@ -1607,6 +1821,7 @@ async function loadTemplates(){
   if(catalogItems){
     allTemplates = catalogItems;
     noMoreTpls = true;
+    populateTemplateCategoryOptionsMob(allTemplates);
     document.getElementById('tpl-count').textContent = `${allTemplates.length}`;
     setHeroCounts(null, allTemplates.length);
     renderTemplates(allTemplates);
@@ -1662,6 +1877,8 @@ async function loadTemplatesPage(isFirst){
       // Páginas siguientes: agregar
       allTemplates = allTemplates.concat(newDocs);
     }
+    allTemplates=allTemplates.map(t=>({...t,category:canonicalTemplateCategoryMob(t.category||'')||inferTemplateCategoryMob(t.name||'')}));
+    populateTemplateCategoryOptionsMob(allTemplates);
 
     document.getElementById('tpl-count').textContent = `${allTemplates.length}${noMoreTpls ? '' : '+'}`;
     setHeroCounts(null, allTemplates.length);
@@ -1671,22 +1888,7 @@ async function loadTemplatesPage(isFirst){
     } else {
       // Solo agregar las nuevas cards sin re-renderizar todo
       if(!grid.querySelector('.tpl-card') && newDocs.length) grid.innerHTML = '';
-      newDocs.forEach(t => {
-        const card = document.createElement('div');
-        card.className = 'tpl-card';
-        const date = t.createdAt ? new Date(t.createdAt).toLocaleDateString('es-PE') : '';
-        const thumb = t.thumb
-          ? `<img class="tpl-thumb lazy-img" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(t.thumb,{w:160,c:'fit'})}" alt="${t.name || ''}" decoding="async">`
-          : `<div class="tpl-thumb-empty">📦</div>`;
-        card.innerHTML = `
-          ${thumb}
-          <div class="tpl-info">
-            <div class="tpl-name">${t.name || 'Plantilla'}</div>
-            <div class="tpl-date">${date}</div>
-            <button class="tpl-use-btn" onclick="openEditorFromTemplate('${t.id}')">Usar plantilla</button>
-          </div>`;
-        grid.appendChild(card);
-      });
+      newDocs.forEach(t => grid.appendChild(createTemplateCardMob(t)));
       observeLazyImages(grid);
     }
 
@@ -1694,7 +1896,7 @@ async function loadTemplatesPage(isFirst){
     if(!noMoreTpls){
       const moreBtn = document.createElement('div');
       moreBtn.id = 'tpl-load-more';
-      moreBtn.style.cssText = 'grid-column:1/-1;text-align:center;padding:18px 0;';
+      moreBtn.style.cssText = 'grid-column:1/-1;text-align:center;padding:18px 0 calc(var(--safe-bottom) + 88px);';
       moreBtn.innerHTML = '<button style="background:var(--accent,#7c5cfc);color:#fff;border:none;padding:12px 32px;border-radius:10px;font-size:0.95rem;font-weight:700;cursor:pointer;" onclick="loadTemplatesPage(false)">Ver más plantillas</button>';
       grid.appendChild(moreBtn);
     }
@@ -1711,8 +1913,12 @@ async function loadTemplatesPage(isFirst){
 }
 
 async function filterTemplates(){
+  if(isRestrictedTemplateCatalogUserMob()){
+    renderRestrictedTemplateCatalogMob();
+    return;
+  }
   const q = (document.getElementById('tpl-search').value || '').toLowerCase();
-  const cat = document.getElementById('tpl-cat').value;
+  const cat = canonicalTemplateCategoryMob(document.getElementById('tpl-cat').value || '');
 
   // Si hay filtro activo y no tenemos todas las plantillas, cargar todas primero
   if((q || cat) && !noMoreTpls){
@@ -1729,13 +1935,16 @@ async function filterTemplates(){
         snap.forEach(doc => { const d = doc.data() || {}; if(isPublishedTemplate(d)) allTemplates.push({id:doc.id, ...d}); });
         noMoreTpls = true;
       }
+      allTemplates=allTemplates.map(t=>({...t,category:canonicalTemplateCategoryMob(t.category||'')||inferTemplateCategoryMob(t.name||'')}));
+      populateTemplateCategoryOptionsMob(allTemplates);
       try{ localStorage.setItem(TEMPLATES_CACHE_KEY, JSON.stringify({savedAt: Date.now(), complete:true, items: minifyTemplatesForCache(allTemplates)})); }catch(_){}
     }catch(e){}
   }
 
   const filtered = allTemplates.filter(t=>{
-    const matchQ = !q || (t.name || '').toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q);
-    const matchCat = !cat || t.category === cat;
+    const category=templateCategoryMob(t);
+    const matchQ = !q || (t.name || '').toLowerCase().includes(q) || category.toLowerCase().includes(q);
+    const matchCat = !cat || normalizeTemplateCategoryMob(category) === normalizeTemplateCategoryMob(cat);
     return matchQ && matchCat;
   });
   renderTemplates(filtered);
@@ -1752,23 +1961,27 @@ function renderTemplates(list){
     return;
   }
   grid.innerHTML = '';
-  list.forEach(t=>{
-    const card = document.createElement('div');
-    card.className = 'tpl-card';
-    const date = t.createdAt ? new Date(t.createdAt).toLocaleDateString('es-PE') : '';
-    const thumb = t.thumb
-      ? `<img class="tpl-thumb lazy-img" fetchpriority="low" src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E" data-src="${cdnOpt(t.thumb,{w:160,c:'fit'})}" alt="${t.name || ''}" decoding="async">`
-      : `<div class="tpl-thumb-empty">📦</div>`;
-    card.innerHTML = `
-      ${thumb}
-      <div class="tpl-info">
-        <div class="tpl-name">${t.name || 'Plantilla'}</div>
-        <div class="tpl-date">${date}</div>
-        <button class="tpl-use-btn" onclick="openEditorFromTemplate('${t.id}')">Usar plantilla</button>
-      </div>`;
-    grid.appendChild(card);
-  });
+  list.forEach(t=>grid.appendChild(createTemplateCardMob(t)));
   observeLazyImages(grid);
+}
+
+function createTemplateCardMob(template){
+  const card=document.createElement('div');card.className='tpl-card';
+  const name=String(template?.name||'Plantilla');
+  if(template?.thumb){
+    const img=document.createElement('img');img.className='tpl-thumb lazy-img';img.fetchPriority='low';img.decoding='async';
+    img.src="data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 3%27%3E%3C/svg%3E";
+    img.dataset.src=cdnOpt(template.thumb,{w:160,c:'fit'});img.alt=name;
+    const placeholder=document.createElement('div');placeholder.className='tpl-thumb-empty';placeholder.textContent='📦';placeholder.style.display='none';
+    img.addEventListener('error',()=>{img.style.display='none';placeholder.style.display='flex';},{once:true});card.append(img,placeholder);
+  }else{const empty=document.createElement('div');empty.className='tpl-thumb-empty';empty.textContent='📦';card.appendChild(empty);}
+  const info=document.createElement('div');info.className='tpl-info';
+  const category=templateCategoryMob(template);
+  if(category){const chip=document.createElement('div');chip.className='tpl-category-chip';chip.textContent=category;info.appendChild(chip);}
+  const title=document.createElement('div');title.className='tpl-name';title.textContent=name;
+  const date=document.createElement('div');date.className='tpl-date';date.textContent=template?.createdAt?new Date(template.createdAt).toLocaleDateString('es-PE'):'';
+  const button=document.createElement('button');button.className='tpl-use-btn';button.type='button';button.textContent='Usar plantilla';button.addEventListener('click',()=>openEditorFromTemplate(template.id));
+  info.append(title,date,button);card.appendChild(info);return card;
 }
 
 function openEditorBlank(){
@@ -1793,7 +2006,7 @@ async function openEditorDesign(id){
 function openEditorFromTemplate(tplId){
   const uid = currentUser?.uid || '';
   try{ localStorage.setItem('ts_editor_open_ctx', JSON.stringify({ts:Date.now(), uid, app: fbApp?.name || 'ts-client'})); }catch(_){}
-  window.location.href = `editor-mobile.html?mode=client&tpl=${tplId}&uid=${encodeURIComponent(uid)}`;
+  window.location.href = `editor-mobile.html?mode=client&tpl=${encodeURIComponent(tplId)}&uid=${encodeURIComponent(uid)}`;
 }
 </script>
 </body>
