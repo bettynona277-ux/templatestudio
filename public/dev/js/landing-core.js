@@ -975,7 +975,47 @@
     return () => { layer.removeEventListener('click', onClick); win.removeEventListener('resize', again); win.clearTimeout(t1); win.clearTimeout(t2); if (raf) win.cancelAnimationFrame(raf); };
   }
 
+  // ============================ CANDADO DE DOMINIO ============================
+  // Las plantillas de la tienda solo se pintan en dominios autorizados por Diseños Streaming.
+  // Si alguien copia estos archivos a otro servidor, la plantilla no se muestra.
+  // Pensado para NO afectar a los clientes actuales: todas las tiendas en planesvip.com y
+  // disenosstreaming.com, el editor y los dominios propios que sirve el servidor siguen igual.
+  // Lista editable: agrega aquí un dominio propio nuevo si en algún caso no llegara inyectado.
+  const LT_ALLOW_HOSTS = ['disenosstreaming.com', 'planesvip.com'];
+  const LT_ALLOW_EXTRA = [];
+  function hostAllowed(opts) {
+    try {
+      // Editor / vista previa: siempre permitido (se pinta dentro de mi-landing.html).
+      if (opts && (opts.preview || opts.editor)) return true;
+      const g = (typeof window !== 'undefined') ? window : root;
+      const loc = g && g.location ? g.location : null;
+      let h = loc && typeof loc.hostname === 'string' ? loc.hostname.toLowerCase().replace(/\.$/, '') : '';
+      // Sin host real (iframe srcdoc/blob, archivo local, pruebas): no bloquear.
+      if (!h || h === 'null' || h === 'about' || /^(localhost|127\.0\.0\.1|\[?::1\]?)$/.test(h) ||
+          /\.(local|localhost|test|railway\.app|up\.railway\.app)$/.test(h)) return true;
+      // Dominios propios de Diseños Streaming y subdominios de revendedores (*.planesvip.com).
+      for (const base of LT_ALLOW_HOSTS.concat(LT_ALLOW_EXTRA)) {
+        if (h === base || h === 'www.' + base || h.endsWith('.' + base)) return true;
+      }
+      // Dominio propio del cliente (plan VIP): el servidor sirve la tienda e inyecta __TIENDA__.host.
+      const inj = g && g.__TIENDA__ && typeof g.__TIENDA__ === 'object' ? g.__TIENDA__ : null;
+      if (inj && typeof inj.host === 'string' && inj.host.toLowerCase().replace(/\.$/, '') === h) return true;
+      return false;
+    } catch (_) { return true; } // ante cualquier duda, no romper la tienda del cliente
+  }
+  function renderBlocked(node) {
+    try {
+      node.className = 'lt-root lt-blocked';
+      node.innerHTML = '<div style="min-height:70vh;display:flex;align-items:center;justify-content:center;padding:40px;' +
+        'font:600 16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#555;text-align:center;background:#fff">' +
+        '<div><div style="font-size:22px;font-weight:800;margin-bottom:8px;color:#111">Tienda no disponible</div>' +
+        'Esta página fue creada con <a href="https://disenosstreaming.com" target="_blank" rel="noopener" ' +
+        'style="color:#7c5cfc;font-weight:800;text-decoration:none">Diseños Streaming</a>.</div></div>';
+    } catch (_) {}
+  }
+
   function render(root, data, opts = {}) {
+    if (!hostAllowed(opts)) { renderBlocked(root); return; }
     const d = normalize(data, data?.ownerUid);
     // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
     let tid = opts.template || d.template;
