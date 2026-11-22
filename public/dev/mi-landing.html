@@ -643,7 +643,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=25', 'js/landing-templates-b.js?v=16', 'js/landing-templates-d.js?v=28', 'js/landing-templates-e.js?v=12', 'js/landing-templates-f.js?v=22'].forEach(function (f) {
+['js/landing-core.js?v=26', 'js/landing-templates-b.js?v=16', 'js/landing-templates-d.js?v=28', 'js/landing-templates-e.js?v=12', 'js/landing-templates-f.js?v=22', 'js/landing-templates-g.js?v=1'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -952,7 +952,26 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   // Enlace VIP: dominio propio si lo tiene; si no, subdominio gratis <slug>.planesvip.com (lo resuelve server.js).
   const SUB_BASE = 'planesvip.com';
   const vipHost = slug => S.vip.domain || (isVip() && slug && !LC.slugError(slug) ? `${slug}.${SUB_BASE}` : '');
-  const vipFallbackOf = tplId => (LC.vipFallback ? LC.vipFallback(tplId) : (LC.VIP_TEMPLATES && LC.VIP_TEMPLATES[tplId])) || '';
+  /* Landings dinámicas registradas en este editor (id → {vip}); se llena al traerlas de Firestore. */
+  const dynLandings = {};
+  const vipFallbackOf = tplId => (dynLandings[tplId] && dynLandings[tplId].vip ? LC.DEFAULTS.template
+    : (LC.vipFallback ? LC.vipFallback(tplId) : (LC.VIP_TEMPLATES && LC.VIP_TEMPLATES[tplId])) || '');
+  /* Trae las landings publicadas (subidas desde el admin), las registra y, si el selector está abierto, lo refresca.
+   * No bloquea el arranque; si algo falla, el editor sigue con las plantillas de siempre. */
+  async function loadDynamicLandings(backend) {
+    try {
+      if (!LC || typeof LC.fetchLandingList !== 'function') return;
+      const token = backend && typeof backend.token === 'function' ? await backend.token().catch(() => null) : null;
+      const list = await LC.fetchLandingList(token);
+      let added = 0;
+      (list || []).forEach(lx => {
+        if (!lx || lx.status !== 'published' || typeof lx.code !== 'string') return;
+        if (LC.listTemplates().some(t => t.id === lx.id)) return;
+        if (LC.registerCode(lx.code, { id: lx.id })) { dynLandings[lx.id] = { vip: lx.vip === true }; added++; }
+      });
+      if (added && S.open === 'plantilla') renderSection('plantilla');
+    } catch (e) { try { console.warn('[mi-landing] landings dinámicas', e && e.message || e); } catch (_) {} }
+  }
   const vipLocked = tplId => !!vipFallbackOf(tplId) && !isVip();
   /** Límites del plan: Normal 10 plataformas y 5 combos; VIP los máximos técnicos (40 y 30). */
   const lim = () => (LC.planLimits ? LC.planLimits(isVip()) : { plans: 40, combos: MAX_COMBOS });
@@ -3286,6 +3305,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     if (!LC) { fail('No se pudo cargar el editor. Recarga la página.'); return; }
     S.backend = backend; S.uid = backend.uid;
     wireOnce();
+    loadDynamicLandings(backend);
     if (backend.email) $('#logoutBtn').title = `Cerrar sesión (${backend.email})`;
     if (backend.mode === 'demo') $('#logoutBtn').textContent = 'Demo';
     loading('Cargando tu página…');
@@ -3466,6 +3486,7 @@ if (ML && !DEMO) {
         },
         async save(slug, data) { await setDoc(doc(db, COL, slug), data); return true; },
         async remove(slug) { await deleteDoc(doc(db, COL, slug)); return true; },
+        async token() { try { return await user.getIdToken(); } catch (_) { return null; } },
         async signOut() { await authM.signOut(auth); },
         /** Sube una imagen a Firebase Storage (landings/<uid>/<kind>-<fecha>-<azar>.<ext>). onProgress recibe 0..1. Devuelve la URL de descarga. */
         async upload(kind, blob, onProgress) {

@@ -86,9 +86,9 @@
   var W = window, D = document, HEAD = D.head;
   var BASE = W.LANDING_BASE = W.__TIENDA_BASE__ === '/dev/' || location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   // Versiones de caché (?v=): súbelas al cambiar el archivo.
-  var V = { core: 25, b: 16, d: 28, e: 12, f: 22 };
+  var V = { core: 26, b: 16, d: 28, e: 12, f: 22, g: 1 };
   // Plantilla → archivo (b: pop/premium, d: navidad). Las retiradas pasan a pop/premium en normalize() → 'b'.
-  var FILES = { pop: 'b', premium: 'b', navidad: 'd', navidad2: 'd', navidad3: 'd', lima: 'e', rosa: 'f', verano: 'f' };
+  var FILES = { pop: 'b', premium: 'b', navidad: 'd', navidad2: 'd', navidad3: 'd', lima: 'e', rosa: 'f', verano: 'f', azul: 'g' };
   // Igual que LandingCore.FIREBASE / COLLECTION (aquí para no esperar al núcleo antes de pedir los datos).
   var FS = { projectId: 'plantillas-bfaeb', apiKey: 'AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY', collection: 'public_catalogs' };
   var FONT_NAVIDAD = 'https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap';
@@ -451,9 +451,24 @@
     var core = window.LandingCore;
     return !!(core && core.listTemplates().some(function (t) { return t.id === id; }));
   }
+  /* Landing dinámica subida desde el admin: se trae de Firestore y se ejecuta de forma aislada.
+   * Respaldo: si no existe/está en borrador, si es VIP y la tienda no es VIP, o si su código falla,
+   * se usa la plantilla por defecto. Nunca deja la tienda en blanco. */
+  function loadDynamic(id, d, core) {
+    core = core || window.LandingCore;
+    var fallback = function () { return loadTemplate(core.DEFAULTS.template, d, core); };
+    return core.fetchLanding(id).then(function (lx) {
+      if (!lx || !lx.code || lx.status !== 'published') return fallback();
+      if (lx.vip === true && !core.vipActive(d)) return fallback();
+      var ok = core.registerCode(lx.code, { id: id });
+      return ok && hasTemplate(id) ? id : fallback();
+    }).catch(fallback);
+  }
   /* Solo se descarga el archivo de la plantilla que usa la tienda (b: pop/premium, d: navidad). */
-  function loadTemplate(id) {
+  function loadTemplate(id, d, core) {
     if (hasTemplate(id)) return Promise.resolve(id);
+    // Landing dinámica (subida desde el admin): no está en FILES → se trae de Firestore y se ejecuta.
+    if (id && !T.files[id]) return loadDynamic(id, d, core);
     var file = T.tplFile(id), extra = 0;
     var once = function () {
       // Si el archivo se ejecutó antes que el núcleo (núcleo reintentado), se vuelve a pedir con otra URL.
@@ -474,8 +489,7 @@
       var d = core.normalize(raw, raw.ownerUid);
       // Sin VIP vigente, Navidad se pinta como Pop (el núcleo hace lo mismo en render()).
       var eff = T.effTemplate(d);
-      var want = T.files[eff] ? eff : core.DEFAULTS.template;
-      return loadTemplate(want).then(function (id) { if (seq === paintSeq) paint(core, d, id, key); });
+      return loadTemplate(eff, d, core).then(function (id) { if (seq === paintSeq) paint(core, d, id, key); });
     }).catch(function (err) {
       if (seq !== paintSeq) return;
       console.error('[tienda] no se pudo cargar el diseño', err);
