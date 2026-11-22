@@ -1065,6 +1065,64 @@
     return String(css || '').replace(RM_QUERY, '(prefers-reduced-motion: reduce) and (prefers-reduced-motion: no-preference)');
   }
 
+  /* ============================================================================
+   * LANDINGS DINÁMICAS (subidas desde el admin → colección landing_templates).
+   * El admin guarda el código de la landing (el mismo formato que los archivos
+   * landing-templates-*.js: un IIFE que llama LC.registerTemplate). La tienda y el
+   * editor las traen por REST y las ejecutan aquí, aisladas en try/catch: una
+   * landing con error se ignora y nunca rompe la página. Protección real: las
+   * reglas de Firestore solo dejan que el admin escriba esta colección.
+   * ========================================================================== */
+  const LANDING_COLLECTION = 'landing_templates';
+  const LANDING_REST = 'https://firestore.googleapis.com/v1/projects/' + FIREBASE.projectId + '/databases/(default)/documents';
+
+  function fsVal(v) {
+    if (!v || typeof v !== 'object') return v;
+    if ('stringValue' in v) return v.stringValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('doubleValue' in v) return Number(v.doubleValue);
+    if ('nullValue' in v) return null;
+    if ('mapValue' in v) { const o = {}, f = (v.mapValue && v.mapValue.fields) || {}; for (const k in f) o[k] = fsVal(f[k]); return o; }
+    if ('arrayValue' in v) return ((v.arrayValue && v.arrayValue.values) || []).map(fsVal);
+    return undefined;
+  }
+  function fsDocToLanding(doc) {
+    if (!doc || !doc.fields) return null;
+    const o = {}; for (const k in doc.fields) o[k] = fsVal(doc.fields[k]);
+    if (!o.id && doc.name) o.id = doc.name.split('/').pop();
+    return o;
+  }
+  /** Trae UNA landing por id. Pública si status 'published'; con token (Bearer) el admin ve borradores. */
+  function fetchLanding(id, token) {
+    if (!id) return Promise.resolve(null);
+    const url = LANDING_REST + '/' + LANDING_COLLECTION + '/' + encodeURIComponent(id) + '?key=' + FIREBASE.apiKey;
+    const opt = token ? { headers: { Authorization: 'Bearer ' + token } } : undefined;
+    return fetch(url, opt).then(r => (r.ok ? r.json() : null)).then(fsDocToLanding).catch(() => null);
+  }
+  /** Lista las landings (para el editor). Con token de admin incluye borradores; sin token solo publicadas visibles. */
+  function fetchLandingList(token) {
+    const url = LANDING_REST + '/' + LANDING_COLLECTION + '?key=' + FIREBASE.apiKey + '&pageSize=300';
+    const opt = token ? { headers: { Authorization: 'Bearer ' + token } } : undefined;
+    return fetch(url, opt).then(r => (r.ok ? r.json() : { documents: [] })).then(j => ((j && j.documents) || []).map(fsDocToLanding).filter(Boolean)).catch(() => []);
+  }
+  /** Ejecuta el código de una landing y la registra. Devuelve su id si quedó registrada, o null. Aislado. */
+  function registerCode(code, meta) {
+    const want = meta && meta.id;
+    if (typeof code !== 'string' || !code.trim()) return null;
+    if (want && templates.has(want)) return want;
+    try {
+      const fn = new Function('LC', 'LandingCore', 'window', code);
+      const before = templates.size;
+      fn(root.LandingCore, root.LandingCore, root);
+      if (want && templates.has(want)) return want;
+      return templates.size > before ? [...templates.keys()].pop() : null;
+    } catch (e) {
+      try { console.warn('[landing] no se pudo registrar' + (want ? ' ' + want : ''), e && e.message || e); } catch (_) {}
+      return null;
+    }
+  }
+
   root.LandingCore = Object.freeze({
     FIREBASE, CLOUDINARY, STORAGE, COLLECTION, DEFAULTS, PLATFORMS, LINK_TYPES, LINK_ICONS, CURRENCIES,
     text, esc, keyOf, slugify, slugError, safeUrl, safeImage, phoneDigits, whatsappUrl, platformInfo, money,
@@ -1072,6 +1130,7 @@
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
     normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
     planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion,
-    CATEGORY_OF, CATEGORIES, planCategory, partsFor
+    CATEGORY_OF, CATEGORIES, planCategory, partsFor,
+    LANDING_COLLECTION, fetchLanding, fetchLandingList, registerCode
   });
 })(typeof window !== 'undefined' ? window : globalThis);
