@@ -614,7 +614,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-giant{position:relative;z-index:2;margin:0;font-family:Unbounded,Montserrat,sans-serif;font-weight:900;text-transform:uppercase;line-height:.95;letter-spacing:-.02em;font-size:clamp(34px,var(--gs,10vw),130px);overflow-wrap:anywhere;background:linear-gradient(180deg,#ffffff 0%,#dfe4f5 38%,#7d86a8 52%,#eef1ff 64%,#9aa5d6 100%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-stroke:1px rgba(255,255,255,.35);filter:drop-shadow(0 6px 20px rgba(35,64,255,.55))}
 .lt-azul .lta-crowd{position:relative;z-index:1;width:min(100%,1080px);aspect-ratio:16/6.2;margin:-6% auto 0;-webkit-mask:linear-gradient(180deg,transparent 0,#000 25%,#000 70%,transparent 100%);mask:linear-gradient(180deg,transparent 0,#000 25%,#000 70%,transparent 100%)}
 .lt-azul .lta-crowd::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 60% 70% at 50% 30%,rgba(35,64,255,.6),transparent 70%)}
-.lt-azul .lta-crowd .lta-art{position:relative;object-fit:cover;object-position:center top;mix-blend-mode:screen}
+.lt-azul .lta-crowd .lta-art{position:relative;object-fit:cover;object-position:center top}
 .lt-azul .lta-crowd .lta-slot{border-radius:0}
 .lt-azul .lta-about{position:relative;z-index:2;max-width:640px;margin:10px auto 0;color:#c8d1f3;font-size:15.5px;line-height:1.7}
 .lt-azul .lta-about p{margin:0 0 14px}
@@ -676,7 +676,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* ===================== MEJORA DE DISEÑO · cómic / Spider-Verse ===================== */
 .lt-azul .ltb-h1,.lt-azul .lta-hd .ltb-h2,.lt-azul .lta-giant,.lt-azul .lta-brandw{font-family:Anton,Montserrat,sans-serif;font-weight:400}
 /* halftone de cómic en las secciones oscuras */
-.lt-azul .lta-hero::after,.lt-azul .lta-advsec::after,.lt-azul .lta-big::after,.lt-azul .lta-plsec::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.07) 1.1px,transparent 1.5px);background-size:14px 14px;opacity:.55;mix-blend-mode:screen}
+.lt-azul .lta-hero::after,.lt-azul .lta-advsec::after,.lt-azul .lta-big::after,.lt-azul .lta-plsec::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.07) 1.1px,transparent 1.5px);background-size:14px 14px;opacity:.55}
 .lt-azul .lta-plsec{position:relative;overflow:hidden}
 .lt-azul .lta-hero .ltb-wrap,.lt-azul .ltb-sec .ltb-wrap{position:relative;z-index:3}
 /* hilo rojo tipo telaraña arriba de las secciones */
