@@ -410,9 +410,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     return '/js/img/';
   })();
   const AZ_ART = {
-    hero: '',    // personas de la portada (PNG sin fondo, vertical ~900×1100)
-    center: '',  // imagen central de la órbita (laptop o celular, PNG sin fondo ~800×600)
-    crowd: ''    // imagen ancha detrás del título gigante (público, banner ~1600×700)
+    hero: 'sp-hero.webp',    // Spiderman con audífonos (portada)
+    center: '',              // (sección de órbita retirada)
+    crowd: 'sp-adv2.webp'    // Spiderman detrás del nombre gigante
   };
   const AZ_I = {
     play: '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor" stroke="none"/>',
@@ -475,11 +475,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-str i{width:12px;height:12px;background:var(--a-red);opacity:.95}
 .lt-azul .lta-str i:nth-child(2){opacity:.7}.lt-azul .lta-str i:nth-child(3){opacity:.5}.lt-azul .lta-str i:nth-child(4){opacity:.3}
 /* botón principal */
-.lt-azul .lta-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:54px;padding:14px 30px;border-radius:12px;border:0;background:linear-gradient(180deg,#3653ff,#1c2fe0);color:#fff;font-weight:800;font-size:16px;text-decoration:none;cursor:pointer;overflow:hidden;isolation:isolate;box-shadow:0 0 0 1px rgba(150,170,255,.35) inset,0 12px 30px rgba(35,64,255,.45),0 0 44px rgba(35,64,255,.35);transition:transform .25s cubic-bezier(.3,1.5,.5,1),box-shadow .25s}
+.lt-azul .lta-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:54px;padding:14px 30px;border-radius:12px;border:0;background:linear-gradient(180deg,#ff3446,#d40f22);color:#fff;font-weight:800;font-size:16px;text-decoration:none;cursor:pointer;overflow:hidden;isolation:isolate;box-shadow:0 0 0 1px rgba(255,180,190,.4) inset,0 12px 30px var(--a-redglow),0 0 44px rgba(255,43,61,.35);transition:transform .25s cubic-bezier(.3,1.5,.5,1),box-shadow .25s}
 .lt-azul .lta-btn svg{width:20px;height:20px;flex:none;position:relative;z-index:1}
 .lt-azul .lta-btn span{position:relative;z-index:1}
 .lt-azul .lta-btn::after{content:"";position:absolute;top:0;bottom:0;left:-70%;width:45%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);transform:skewX(-22deg);z-index:0}
-@media (hover:hover){.lt-azul .lta-btn:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(150,170,255,.5) inset,0 16px 36px rgba(35,64,255,.55),0 0 60px rgba(35,64,255,.5)}}
+@media (hover:hover){.lt-azul .lta-btn:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(255,180,190,.55) inset,0 16px 36px var(--a-redglow),0 0 60px rgba(255,43,61,.5)}}
 .lt-azul .lta-btn.lta-sm{min-height:44px;padding:10px 18px;font-size:14px;border-radius:10px}
 /* imagen o cuadro con X */
 .lt-azul .lta-slot{position:relative;width:100%;height:100%;display:grid;place-items:center;border:1.5px dashed rgba(130,155,255,.55);border-radius:20px;background:rgba(35,64,255,.08);color:rgba(170,185,255,.5)}
@@ -543,6 +543,19 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-dot::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--a-red);box-shadow:0 0 10px var(--a-redglow)}
 .lt-azul .lta-pts b{display:block;color:#fff;font-size:15.5px;margin-bottom:2px}
 @media (max-width:859px){.lt-azul .lta-orbit{grid-template-columns:1fr;gap:26px}.lt-azul .lta-center{order:-1;max-width:330px;width:100%;margin:0 auto}.lt-azul .lta-pts{gap:18px}.lt-azul .lta-pts.l li{flex-direction:row;text-align:left}.lt-azul .lta-pts li:nth-child(2){margin:0!important}.lt-azul .lta-rings{top:150px;width:560px}}
+.lt-azul .lta-advsec{position:relative;overflow:hidden;padding:60px 0 72px;background:radial-gradient(ellipse 65% 50% at 50% 0%,rgba(35,64,255,.3),transparent 70%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.16),transparent 70%),var(--a-bg)}
+.lt-azul .lta-advsec .lta-hd{text-align:center}
+.lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(300px,42%);opacity:.17;pointer-events:none;z-index:0}
+.lt-azul .lta-advs{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
+.lt-azul .lta-advc{position:relative;margin:0;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 0 22px;border-radius:22px;background:linear-gradient(168deg,rgba(35,64,255,.16),rgba(8,12,40,.92) 58%);border:1px solid var(--a-line);box-shadow:0 18px 42px rgba(0,0,22,.5);overflow:hidden;transition:transform .35s cubic-bezier(.3,1.5,.5,1),border-color .3s}
+.lt-azul .lta-advc::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:linear-gradient(90deg,var(--a-blue),var(--a-red))}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-6px);border-color:var(--a-red)}}
+.lt-azul .lta-advimg{position:relative;width:100%;aspect-ratio:1/1;display:grid;place-items:end center}
+.lt-azul .lta-advimg::before{content:"";position:absolute;left:50%;bottom:6%;width:74%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,var(--a-redglow),rgba(35,64,255,.32) 55%,transparent);filter:blur(20px)}
+.lt-azul .lta-advimg img{position:relative;z-index:1;max-width:86%;max-height:96%;object-fit:contain;filter:drop-shadow(0 16px 26px rgba(0,0,22,.6))}
+.lt-azul .lta-advc figcaption{padding:4px 16px 0}
+.lt-azul .lta-advc b{font-size:16.5px;font-weight:800;color:#fff;line-height:1.3}
+@media(max-width:859px){.lt-azul .lta-advs{grid-template-columns:1fr;gap:14px}.lt-azul .lta-advc{flex-direction:row;align-items:center;text-align:left;padding:8px 18px 8px 0}.lt-azul .lta-advimg{width:118px;flex:none;aspect-ratio:1}.lt-azul .lta-advc::after{display:none}.lt-azul .lta-advc figcaption{padding:0}}
 /* encabezados */
 .lt-azul .lta-hd{margin-bottom:28px}
 .lt-azul .lta-hd .ltb-h2{margin:0;font-size:clamp(26px,4.6vw,40px)}
@@ -694,9 +707,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<div class="lta-hart">${azArt('hero', '', 'Foto de portada (PNG sin fondo)')}</div></div>` +
       `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
       promo(ctx) +
-      `<section class="ltb-sec ltb-sec-benefits lta-orbsec">${dust(12)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}` +
-      `<div class="lta-orbit">${fx ? `<span class="lta-rings" aria-hidden="true">${[0, 1, 2, 3].map(k => `<i style="--k:${k}"></i>`).join('')}</span>` : ''}` +
-      ptHtml(pts.slice(0, Math.ceil(pts.length / 2)), 0, 'l') + `<div class="lta-center" data-rv>${azArt('center', '', 'Imagen central (laptop o celular)')}</div>` + ptHtml(pts.slice(Math.ceil(pts.length / 2)), 3, 'r') + `</div></div></section>` +
+      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}sp-adv${i + 1}.webp" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
       (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
@@ -732,7 +743,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hart', x: true }, { k: 'center', label: 'Imagen central', sel: '.lta-center', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'rings', label: 'Anillos en órbita', sel: '.lta-rings' }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
+    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hart', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
     name: 'Spiderman', description: 'Azul con detalles rojos estilo Spiderman: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante.',
     tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, render: renderAzul
   });
