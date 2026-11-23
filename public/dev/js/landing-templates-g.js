@@ -740,6 +740,16 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.08);transform-origin:center 78%}
 @media(max-width:859px){.lt-azul .lta-couch{max-width:560px;margin:-26px auto -26px}.lt-azul .lta-advsec{padding-top:24px}}
 @media(max-width:620px){.lt-azul .lta-couch{max-width:94%;margin:-18px auto -20px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advsec .ltb-wrap{padding:0 10px}.lt-azul .lta-advs{gap:2px}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.12)}.lt-azul .lta-advc b{font-size:15px}}
+/* --- ajuste final (v15): acostado a todo el ancho + ventajas en columna en movil --- */
+.lt-azul .lta-couch{width:100%;max-width:none;margin:-22px 0 -28px;padding:0;isolation:isolate}
+.lt-azul .lta-couch::before{left:50%;top:50%;width:min(70%,1000px);aspect-ratio:3.4/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.4) 0%,rgba(95,110,255,.24) 48%,transparent 78%);filter:blur(50px);z-index:-1}
+.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
+@media(max-width:859px){.lt-azul .lta-couch{margin:-14px 0 -16px}}
+@media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -8px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:10px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advc b{font-size:clamp(18px,6.4vw,24px)}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:none}}
+/* --- difuminar la division entre el hero (zona 1) y las ventajas (zona 2) --- */
+.lt-azul .lta-advsec{margin-top:-1px}
+.lt-azul .lta-advsec::before{display:block;content:"";position:absolute;top:0;left:0;right:0;height:220px;z-index:0;pointer-events:none;background:linear-gradient(to bottom,#05081f 0%,rgba(5,8,31,.55) 34%,rgba(2,3,12,0) 100%)}
+.lt-azul .lta-advsec>.ltb-wrap{position:relative;z-index:2}
 `;
 
   function renderAzul(root, d, ctx) {
@@ -781,7 +791,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `</div>` +
       `</div></section>` +
       promo(ctx) +
-      `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch2.webp" alt="" decoding="async" loading="lazy"></div>` +
+      `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch3.webp" alt="" decoding="async" loading="lazy"></div>` +
       `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv2.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
