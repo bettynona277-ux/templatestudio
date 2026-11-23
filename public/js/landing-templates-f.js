@@ -1341,6 +1341,6 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   LC.registerTemplate({
     id: 'verano', parts: [{ k: 'palms', label: 'Palmeras', sel: '.ltv-palm', x: true }, { k: 'sun', label: 'Sol con tus apps', sel: '.ltv-stage', x: true }, { k: 'water', label: 'Franja de agua', sel: '.ltv-edge', x: true }, { k: 'beach', label: 'Lentes y coco', sel: '.ltv-deco', x: true }, { k: 'flamingo', label: 'Flamenco', sel: '.ltv-flam', x: true }, { k: 'clouds', label: 'Nubes y gaviotas', sel: '.ltv-cloud,.ltv-gull' }, { k: 'leaves', label: 'Hojas, burbujas y destellos', sel: '.ltv-leaves,.ltv-glints,.ltv-bubbles' }], name: 'Verano', description: 'Piscina tropical: cielo celeste, sol con tus apps, palmeras, agua con reflejos y flamenco',
-    tags: ['clara', 'temporada', 'animada'], preview: { bg: '#6fd6fb', fg: '#073b4c', accent: '#ffd21f' }, render: renderVerano
+    tags: ['clara', 'temporada', 'animada'], preview: { bg: '#6fd6fb', fg: '#073b4c', accent: '#ffd21f' }, vipOnly: true, fallback: 'pop', render: renderVerano
   });
 })(typeof window !== 'undefined' ? window : globalThis);
