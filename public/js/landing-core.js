@@ -70,11 +70,13 @@
   function vipState(d, now = Date.now()) {
     if (!d || d.vip !== true) return 'none';
     const until = vipUntilNum(d.vipUntil);
-    return until !== null && until <= now ? 'expired' : 'active';
+    // Prueba VIP gratis (vipTrial) vencida: la tienda vuelve a ser normal (sigue visible), no "VIP vencido".
+    if (until !== null && until <= now) return d.vipTrial === true ? 'none' : 'expired';
+    return 'active';
   }
   const vipActive = (d, now) => vipState(d, now) === 'active';
   /** Plantillas exclusivas del plan VIP (sin VIP se pintan con la indicada). */
-  const VIP_TEMPLATES = Object.freeze({ navidad: 'pop' });
+  const VIP_TEMPLATES = Object.freeze({ navidad: 'pop', navidad2: 'pop', navidad3: 'pop' });
 
   // Tipos de enlaces personalizados. icon = nombre corto usado por las plantillas.
   const LINK_TYPES = [
@@ -111,20 +113,65 @@
     { id: 'directv', name: 'DirecTV GO', color: '#00A3E0', logo: '/logos/directvgo.svg' },
     { id: 'l1max', name: 'L1 MAX', color: '#D4002A', logo: '/logos/l1max.svg' },
     { id: 'movistar', name: 'Movistar TV', color: '#019DF4', logo: '/logos/Movistar.svg' },
-    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/chatgpt.svg' },
+    { id: 'chatgpt', name: 'ChatGPT Plus', color: '#10A37F', logo: '/logos/ai-chatgpt.webp' },
     { id: 'canva', name: 'Canva Pro', color: '#00C4CC', logo: '/logos/Canva.svg' },
     { id: 'capcut', name: 'CapCut Pro', color: '#3A3A3A', logo: '/logos/Capcut.svg' },
     { id: 'deezer', name: 'Deezer', color: '#A238FF', logo: '/logos/Deezer.svg' },
     { id: 'viki', name: 'Viki Rakuten', color: '#1E90FF', logo: '/logos/viki.svg' },
     { id: 'googleone', name: 'Google One', color: '#4285F4', logo: '/logos/googleone.svg' },
-    { id: 'gemini', name: 'Gemini', color: '#8E75FF', logo: '/logos/GEMINI.svg' },
+    { id: 'gemini', name: 'Gemini', color: '#8E75FF', logo: '/logos/ai-gemini.webp' },
     { id: 'ufc', name: 'UFC Fight Pass', color: '#D20A0A', logo: '/logos/UFC.svg' },
     { id: 'fanatiz', name: 'Fanatiz', color: '#00C853', logo: '/logos/Fanatiz.svg' },
     { id: 'cablego', name: 'Cable Go', color: '#0057B8', logo: '/logos/cablego.svg' },
     { id: 'telelatino', name: 'Tele Latino', color: '#E3262E', logo: '/logos/telelatino.svg' },
+    // Nuevas (sin logo propio aún: se muestra su inicial en su color; el dueño puede subir el logo del plan).
+    { id: 'claude', name: 'Claude Pro', color: '#CA6240', logo: '/logos/ai-claude.webp' },
+    { id: 'perplexity', name: 'Perplexity Pro', color: '#016272', logo: '/logos/ai-perplexity.webp' },
+    { id: 'midjourney', name: 'Midjourney', color: '#111111', logo: '/logos/ai-midjourney.webp' },
+    { id: 'googleai', name: 'Google AI Pro', color: '#8A2BE2', logo: '/logos/ai-googleai.webp' },
+    { id: 'sora', name: 'Sora', color: '#1E40FF', logo: '/logos/ai-sora.webp' },
+    { id: 'veo', name: 'Google Veo', color: '#3B5BFF', logo: '/logos/ai-veo.webp' },
+    { id: 'kling', name: 'Kling AI', color: '#0B0B1F', logo: '/logos/ai-kling.webp' },
+    { id: 'higgsfield', name: 'Higgsfield', color: '#111111', logo: '/logos/ai-higgsfield.webp' },
+    { id: 'luma', name: 'Luma AI', color: '#270C76', logo: '/logos/ai-luma.webp' },
+    { id: 'krea', name: 'Krea AI', color: '#111111', logo: '/logos/ai-krea.webp' },
+    { id: 'elevenlabs', name: 'ElevenLabs', color: '#170821', logo: '/logos/ai-elevenlabs.webp' },
+    { id: 'gamma', name: 'Gamma', color: '#8B2FC9', logo: '/logos/ai-gamma.webp' },
+    { id: 'mistral', name: 'Mistral AI', color: '#111111', logo: '/logos/ai-mistral.webp' },
+    { id: 'lovable', name: 'Lovable', color: '#FF5A36', logo: '/logos/ai-lovable.webp' },
+    { id: 'grammarly', name: 'Grammarly', color: '#028A73', logo: '/logos/ai-grammarly.webp' },
+    { id: 'adobeexpress', name: 'Adobe Express', color: '#7E02FB', logo: '/logos/ai-adobeexpress.webp' },
+    { id: 'zapier', name: 'Zapier', color: '#FF4F00', logo: '/logos/ai-zapier.webp' },
+    { id: 'n8n', name: 'n8n', color: '#EA4B71', logo: '/logos/ai-n8n.webp' },
+    { id: 'copilot', name: 'Copilot Pro', color: '#0078D4', logo: '' },
+    { id: 'grok', name: 'SuperGrok', color: '#1F1F1F', logo: '' },
+    { id: 'adobe', name: 'Adobe Creative Cloud', color: '#FA0F00', logo: '' },
+    { id: 'freepik', name: 'Freepik Premium', color: '#1273EB', logo: '' },
+    { id: 'envato', name: 'Envato Elements', color: '#82B440', logo: '' },
+    { id: 'picsart', name: 'Picsart Pro', color: '#C209C1', logo: '' },
+    { id: 'office', name: 'Microsoft 365', color: '#D83B01', logo: '' },
+    { id: 'duolingo', name: 'Duolingo Super', color: '#58CC02', logo: '' },
+    { id: 'applemusic', name: 'Apple Music', color: '#FA243C', logo: '' },
+    { id: 'tidal', name: 'Tidal', color: '#111111', logo: '' },
     { id: 'other', name: 'Otro', color: '#7C3AED', logo: '' }
   ];
-  const ALIASES = { disneyplus: 'disney', starplus: 'disney', star: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', amazonprime: 'prime', amazonprimevideo: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount', fightpass: 'ufc', cablegoperu: 'cablego', tvlatino: 'telelatino' };
+  // Categoría por defecto de cada app (el dueño puede cambiarla por plan). Lo que no está aquí va a "Otros".
+  const CATEGORY_OF = {
+    netflix: 'Streaming', disney: 'Streaming', max: 'Streaming', prime: 'Streaming', youtube: 'Streaming', paramount: 'Streaming', vix: 'Streaming',
+    crunchyroll: 'Streaming', apple: 'Streaming', universal: 'Streaming', viki: 'Streaming',
+    iptv: 'TV en vivo', directv: 'TV en vivo', movistar: 'TV en vivo', cablego: 'TV en vivo', telelatino: 'TV en vivo',
+    l1max: 'Deportes', ufc: 'Deportes', fanatiz: 'Deportes',
+    spotify: 'Música', deezer: 'Música', applemusic: 'Música', tidal: 'Música',
+    chatgpt: 'IA', gemini: 'IA', claude: 'IA', perplexity: 'IA', midjourney: 'IA', copilot: 'IA', grok: 'IA',
+    googleai: 'IA', sora: 'IA', veo: 'IA', kling: 'IA', higgsfield: 'IA', luma: 'IA', krea: 'IA', elevenlabs: 'IA', gamma: 'IA', mistral: 'IA', lovable: 'IA',
+    adobeexpress: 'Diseño', grammarly: 'Productividad', zapier: 'Automatización', n8n: 'Automatización',
+    canva: 'Diseño', capcut: 'Diseño', adobe: 'Diseño', freepik: 'Diseño', envato: 'Diseño', picsart: 'Diseño',
+    googleone: 'Productividad', office: 'Productividad', duolingo: 'Educación'
+  };
+  /** Categoría que se usa para un plan: la que eligió el dueño o la de su app ("Otros" si no se conoce). */
+  const planCategory = p => text(p && p.category, 24) || CATEGORY_OF[platformInfo(p && p.platform).id] || 'Otros';
+  const CATEGORIES = ['Streaming', 'TV en vivo', 'Deportes', 'Música', 'IA', 'Diseño', 'Productividad', 'Automatización', 'Educación', 'Otros'];
+  const ALIASES = { googleaipro: 'googleai', geminiadvanced: 'gemini', googleveo: 'veo', veo3: 'veo', openaisora: 'sora', klingai: 'kling', lumaai: 'luma', dreammachine: 'luma', kreaai: 'krea', eleven: 'elevenlabs', gammaapp: 'gamma', mistralai: 'mistral', lechat: 'mistral', lovabledev: 'lovable', grammarlypremium: 'grammarly', adobeexpresspremium: 'adobeexpress', zapierpro: 'zapier', claudeai: 'claude', claudepro: 'claude', perplexitypro: 'perplexity', copilotpro: 'copilot', microsoft365: 'office', office365: 'office', adobecc: 'adobe', adobecreativecloud: 'adobe', freepikpremium: 'freepik', envatoelements: 'envato', duolingosuper: 'duolingo', supergrok: 'grok', picsartpro: 'picsart', disneyplus: 'disney', starplus: 'disney', star: 'disney', hbo: 'max', hbomax: 'max', primevideo: 'prime', amazon: 'prime', amazonprime: 'prime', amazonprimevideo: 'prime', youtubepremium: 'youtube', appletv: 'apple', chatgptplus: 'chatgpt', gpt: 'chatgpt', canvapro: 'canva', paramountplus: 'paramount', fightpass: 'ufc', cablegoperu: 'cablego', tvlatino: 'telelatino' };
   function platformInfo(idOrName) {
     const k = keyOf(idOrName);
     const id = ALIASES[k] || k;
@@ -181,6 +228,8 @@
     heroSubtitle: 'Cuentas y perfiles originales, activación inmediata y soporte por WhatsApp.',
     ctaText: 'Comprar por WhatsApp', whatsapp: '', whatsappMessage: 'Hola, quiero información sobre ',
     currency: 'PEN', logoUrl: '', coverUrl: '',
+    // Horario de atención que ve el cliente ("24/7", "Lun a Sáb · 9 am a 9 pm"…). Lo usan las plantillas.
+    hours: '24/7',
     theme: { primary: '#7C3AED', accent: '#22D3EE', mode: 'dark' },
     headerStyle: 'cover', motion: 'normal',
     plans: [], combos: [], links: [], benefits: [], faq: [], paymentMethods: [], reviews: [], promo: null, enabled: true
@@ -190,7 +239,7 @@
     name: 80, tagline: 120, heroTitle: 120, heroSubtitle: 240, ctaText: 40, planTitle: 60, feature: 60, comboName: 60,
     price: 12, benefit: 80, faqQ: 120, faqA: 400, payment: 30, reviewName: 40, reviewText: 280, maxReviews: 12, maxCombos: 30,
     // Máximo técnico (= VIP) y plan Normal: plataformas (planes) y combos que se MUESTRAN en la tienda.
-    maxPlans: 40, normalPlans: 10, normalCombos: 5, promoText: 60, maxApps: 40
+    maxPlans: 40, normalPlans: 10, normalCombos: 5, promoText: 60, maxApps: 40, hours: 40
   });
   /** Límites del plan: VIP = máximos técnicos; Normal = 10 plataformas y 5 combos visibles. */
   const planLimits = vip => vip ? { plans: LIMITS.maxPlans, combos: LIMITS.maxCombos } : { plans: LIMITS.normalPlans, combos: LIMITS.normalCombos };
@@ -241,7 +290,9 @@
       period: text(p?.period, 24) || '1 mes', type: ['profile', 'full'].includes(p?.type) ? p.type : 'profile',
       features: list(p?.features, 6).map(f => text(f, 60)).filter(Boolean), badge: text(p?.badge, 24),
       // imageUrl: logo propio (app personalizada o reemplazo del logo del catálogo); color: color de la app propia.
-      imageUrl: safeImage(p?.imageUrl), color: color(p?.color), visible: p?.visible !== false
+      imageUrl: safeImage(p?.imageUrl), color: color(p?.color), visible: p?.visible !== false,
+      // category: categoría elegida por el dueño ('' = la de la app; ver planCategory).
+      category: text(p?.category, 24)
     })).filter(p => p.platform);
     plans.forEach(p => { p.oldPrice = offerOld(p.price, p.oldPrice); });
     const combos = list(d.combos, LIMITS.maxCombos).map((c, i) => ({
@@ -263,6 +314,9 @@
       name: text(d.name, 80) || DEFAULTS.name, tagline: text(d.tagline, 120), heroTitle: text(d.heroTitle, 120),
       heroSubtitle: text(d.heroSubtitle, 240), ctaText: text(d.ctaText, 40) || DEFAULTS.ctaText,
       whatsapp: phoneDigits(d.whatsapp), whatsappMessage: text(d.whatsappMessage, 160),
+      hours: text(d.hours, 40) || DEFAULTS.hours,
+      // Partes que el dueño ocultó con la X (portada, decoraciones, secciones). Se pueden volver a mostrar.
+      hidden: [...new Set(list(d.hidden, 40).map(k => String(k || '').trim().slice(0, 24)).filter(k => /^[a-z0-9_-]+$/i.test(k)))],
       currency: CURRENCIES[d.currency] ? d.currency : 'PEN', logoUrl: safeImage(d.logoUrl), coverUrl: safeImage(d.coverUrl),
       // Versión ligera de la portada (≈800 px) para celulares; vacía si no existe.
       coverSmUrl: safeImage(d.coverSmUrl),
@@ -285,7 +339,7 @@
       motion: ['calm', 'normal', 'max'].includes(d.motion) ? d.motion : 'normal',
       enabled: d.enabled !== false,
       // Plan VIP: solo los copia el editor desde users/{uid} (las reglas de Firestore lo verifican).
-      vip: d.vip === true, vipUntil: vipUntilNum(d.vipUntil), customDomain: normDomain(d.customDomain),
+      vip: d.vip === true, vipTrial: d.vip === true && d.vipTrial === true, vipUntil: vipUntilNum(d.vipUntil), customDomain: normDomain(d.customDomain),
       // Compatibilidad con la regla existente de Firestore (lista obligatoria, <= 50).
       platforms: [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))].slice(0, 50),
       updatedAt: Date.now()
@@ -329,11 +383,16 @@
   function visibleInfo(data) {
     const lim = planLimits(vipActive(data));
     const allPlans = data.plans.filter(p => p.visible), allCombos = data.combos.filter(c => c.visible);
-    const plans = allPlans.slice(0, lim.plans), combos = allCombos.slice(0, lim.combos);
+    let plans = allPlans.slice(0, lim.plans);
+    const combos = allCombos.slice(0, lim.combos);
+    // Categorías (Streaming, IA, Diseño…): con 2 o más, los planes se agrupan en el orden en que aparece cada categoría.
+    const catNames = [...new Set(plans.map(planCategory))];
+    const categories = catNames.length > 1 ? catNames.map(name => ({ name, count: plans.filter(p => planCategory(p) === name).length })) : [];
+    if (categories.length) plans = catNames.flatMap(n => plans.filter(p => planCategory(p) === n));
     const platformIds = [...new Set(plans.map(p => p.platform).concat(combos.flatMap(c => c.platforms)))];
     const nums = plans.map(p => priceNum(p.price)).concat(combos.map(c => priceNum(c.price))).filter(Number.isFinite);
     const min = nums.length ? Math.min(...nums) : NaN;
-    return { plans, combos, platformIds, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '',
+    return { plans, combos, platformIds, categories, minPriceValue: min, minPrice: Number.isFinite(min) ? money(min, data.currency) : '',
       hiddenByLimit: { plans: allPlans.length - plans.length, combos: allCombos.length - combos.length } };
   }
   /** Logos y colores propios por plataforma, tomados de los planes (app personalizada o logo que reemplaza al del catálogo).
@@ -383,7 +442,10 @@
     // aparición al hacer scroll ni fundidos (todo visible desde el inicio).
     const vip = vipActive(data);
     const noMotion = !vip;
-    const reducedMotion = noMotion || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // forceMotion (solo vista previa del editor): el dueño ve las animaciones que eligió aunque su equipo tenga
+    // "reducir movimiento"; la tienda pública (sin preview) siempre respeta esa preferencia del visitante.
+    const forceMotion = !!(opts.preview && opts.forceMotion);
+    const reducedMotion = noMotion || (!forceMotion && typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     const vis = visibleInfo(data);
     const pInfo = platformInfoWith(appOverrides(data));
     const promo = activePromo(data, vis);
@@ -391,12 +453,14 @@
     const buy = product => whatsappUrl(data.whatsapp, [data.whatsappMessage || DEFAULTS.whatsappMessage, String(product || '').trim() || 'tus planes'].join(' ').replace(/\s{2,}/g, ' ').trim());
     return {
       /** Solo planes/combos con visible !== false. Úsalos SIEMPRE (también en murales, marquesinas y contadores). */
-      visiblePlans: vis.plans, visibleCombos: vis.combos,
+      visiblePlans: vis.plans, visibleCombos: vis.combos, categories: vis.categories, planCategory,
       /** Ids de plataforma de planes y combos visibles, sin repetir. */
       platformIds: vis.platformIds,
       /** Precio más bajo visible ya formateado ("S/ 8") o '' si no hay precios; minPriceValue = número o NaN. */
       minPrice: vis.minPrice, minPriceValue: vis.minPriceValue,
       preview: !!opts.preview, reducedMotion,
+      /** true en la vista previa del editor: se ignora "reducir movimiento" del equipo del dueño (no del visitante). */
+      forceMotion,
       /** true si la tienda tiene VIP vigente (animaciones y plantillas exclusivas). */
       vip,
       /** true sin VIP: sin animaciones, bucles, partículas ni apariciones al hacer scroll (todo visible y quieto). */
@@ -421,6 +485,10 @@
       buy,
       planTitle: p => p.title || `${platformInfo(p.platform).name}${p.type === 'full' ? ' · Cuenta completa' : ''}`,
       typeLabel: p => p.type === 'full' ? 'Cuenta completa' : 'Perfil',
+      /** Horario de atención ("24/7" por defecto). hoursLong: true si no entra en una casilla corta (usar letra más chica). */
+      hours: data.hours || DEFAULTS.hours,
+      hoursLong: String(data.hours || DEFAULTS.hours).length > 7,
+      hours247: /^24\s*\/\s*7$/.test(String(data.hours || DEFAULTS.hours).trim()),
       /** true si el usuario eligió la cabecera tipo perfil de Facebook. */
       profileMode: data.headerStyle === 'profile',
       motion: reducedMotion ? 'calm' : data.motion,
@@ -450,7 +518,7 @@
         <div class="ltp-info">
           <h1 class="ltp-name"><span${ed('name')}>${esc(d.name)}</span></h1>
           ${d.tagline ? `<p class="ltp-tag"${ed('tagline')}>${esc(d.tagline)}</p>` : ''}
-          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? '<span class="ltp-online"><i></i>Atención por WhatsApp</span>' : ''}</p>
+          <p class="ltp-meta">${count ? `<span>${count} ${count === 1 ? 'plataforma' : 'plataformas'}</span>` : ''}${d.whatsapp ? `<span class="ltp-online"><i></i>${/^24\s*\/\s*7$/.test(String(d.hours || '24/7').trim()) ? 'Atención 24/7 por WhatsApp' : `Atención: ${esc(d.hours)}`}</span>` : ''}</p>
         </div>
         ${links ? `<div class="ltp-actions"><div class="ltp-socials">${links}</div></div>` : ''}
       </div>
@@ -513,6 +581,33 @@
   }
 
   const SHARED_CSS = `
+  .lt-root .lt-part-off{display:none!important}
+  .lt-root .lt-part-ghost{opacity:.28!important;filter:grayscale(1)!important}
+  .lt-root section.lt-part-ghost,.lt-root div.lt-part-ghost,.lt-root figure.lt-part-ghost{outline:2px dashed rgba(139,92,246,.8);outline-offset:-4px}
+  .lt-root .lt-part-layer{position:absolute;inset:0 0 auto 0;height:0;z-index:2147483000;pointer-events:none}
+  .lt-root .lt-part-b{position:absolute;pointer-events:auto;display:grid;place-items:center;min-width:32px;height:32px;padding:0;border-radius:999px;border:2px solid #fff;background:rgba(17,17,24,.82);color:#fff;font:700 20px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .15s,background .15s}
+  .lt-root .lt-part-b:hover{background:#e11d48;transform:scale(1.1)}
+  .lt-root .lt-part-b.is-off{padding:0 14px;font-size:13px;background:#7c3aed;white-space:nowrap}
+  .lt-root .lt-part-b.is-off:hover{background:#6d28d9}
+  .lt-root .lt-cats{display:flex;gap:8px;margin:0 auto 22px;padding:4px 2px 6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:center;flex-wrap:wrap;position:relative;z-index:3}
+  .lt-root .lt-cats::-webkit-scrollbar{display:none}
+  @media (max-width:640px){.lt-root .lt-cats{flex-wrap:nowrap;justify-content:flex-start;margin-left:-4px;margin-right:-4px;padding-left:4px;padding-right:4px;-webkit-mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent);mask:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 24px),transparent)}}
+  .lt-root .lt-cat{flex:none;display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:9px 16px;border-radius:999px;border:1.5px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;font:inherit;font-size:14.5px;font-weight:700;line-height:1;cursor:pointer;white-space:nowrap;transition:background .2s,border-color .2s,color .2s,transform .15s}
+  .lt-root .lt-cat:hover{border-color:color-mix(in srgb,currentColor 45%,transparent)}
+  .lt-root .lt-cat:active{transform:scale(.96)}
+  .lt-root .lt-cat:focus-visible{outline:2px solid var(--lt-cat-acc);outline-offset:2px}
+  .lt-root .lt-cat small{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,currentColor 14%,transparent);font-size:12px;font-weight:800}
+  .lt-root .lt-cat.is-on{background:var(--lt-cat-acc);border-color:var(--lt-cat-acc);color:var(--lt-cat-on);box-shadow:0 8px 20px color-mix(in srgb,var(--lt-cat-acc) 35%,transparent)}
+  .lt-root .lt-cat.is-on small{background:color-mix(in srgb,var(--lt-cat-on) 20%,transparent)}
+  .lt-root .lt-cat-h{grid-column:1/-1;flex:1 1 100%!important;width:100%!important;max-width:none!important;min-width:100%!important;display:flex;align-items:center;gap:12px;margin:14px 0 2px;font-weight:800;font-size:clamp(17px,3.6vw,21px);letter-spacing:-.01em;text-align:left}
+  .lt-root .lt-cat-h:first-child{margin-top:0}
+  .lt-root .lt-cat-h::after{content:"";flex:1;height:2px;border-radius:2px;background:linear-gradient(90deg,color-mix(in srgb,currentColor 25%,transparent),transparent)}
+  .lt-root .lt-cat-h::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--lt-cat-acc);flex:none}
+  .lt-root .lt-cat-box.lt-cat-one .lt-cat-h{display:none}
+  .lt-root .lt-cat-box [hidden]{display:none!important}
+  .lt-root:not(.lt-static) .lt-cat-box.lt-cat-one>[data-lt-item]:not([hidden]){animation:lt-catin .45s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes lt-catin{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.lt-root:not(.lt-force-motion) .lt-cat-box>[data-lt-item]{animation:none!important}}
   .lt-root{isolation:isolate}
   .lt-root .ltp{position:relative;z-index:3;max-width:1100px;margin:0 auto;padding:0 0 8px;color:#fff;font-family:inherit}
   .lt-root .ltp-cover{position:relative;aspect-ratio:851/315;min-height:120px;overflow:hidden;border-radius:0 0 22px 22px;background:linear-gradient(135deg,var(--lt-primary),var(--lt-accent))}
@@ -570,8 +665,11 @@
   .lt-root [data-lt-card]:active{transform:translateY(-3px)}
   /* --- barra de compra fija (móvil) --- */
   .lt-root .lt-bbw{display:none}
+  /* Pie: solo el espacio justo para el botón flotante de WhatsApp (antes ~190px vacíos al final). */
+  .lt-root [data-lt-foot]{padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
   @media (max-width:720px){
-    .lt-root.lt-has-bb{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+    /* Con la barra de compra fija, el espacio va DENTRO del pie (mismo color) y no como franja vacía debajo. */
+    .lt-root.lt-has-bb [data-lt-foot]{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))!important}
     .lt-root.lt-has-bb [data-lt-fab]{display:none!important}
     .lt-root .lt-bbw{display:block;position:fixed;left:0;right:0;bottom:0;z-index:60;pointer-events:none;padding:0 10px calc(10px + env(safe-area-inset-bottom,0px))}
     .lt-root.lt-in-preview .lt-bbw{position:sticky;height:0;padding:0}
@@ -634,6 +732,7 @@
   function applyMotion(root, d, ctx) {
     root.dataset.ltMotion = ctx.noMotion ? 'none' : ctx.motion;
     root.classList.toggle('lt-in-preview', !!ctx.preview);
+    root.classList.toggle('lt-force-motion', !!ctx.forceMotion && !ctx.noMotion);
     root.classList.toggle('lt-static', !!ctx.noMotion);
     if (ctx.noMotion || ctx.motion !== 'max') return null;
     const cleanups = [];
@@ -744,7 +843,179 @@
     return () => io.disconnect();
   }
 
+  /** Pestañas de categorías sobre los planes (todas las plantillas). Solo con 2+ categorías.
+   *  Toma las tarjetas de plan ([data-lt-item^="p_"]) que pintó la plantilla, pone la barra antes de su contenedor,
+   *  un subtítulo por categoría (en "Todos") y filtra al tocar. Los colores salen del acento de la plantilla. */
+  function applyCategories(root, ctx, tpl) {
+    const cats = ctx.categories || [];
+    if (cats.length < 2) return null;
+    const byId = new Map((ctx.visiblePlans || []).map(p => [itemKey('p', p.id), planCategory(p)]));
+    // el contenedor con más tarjetas de plan (otras copias, como listas de la barra de compra, se ignoran)
+    const found = [...root.querySelectorAll('[data-lt-item^="p_"]')].filter(el => byId.has(el.getAttribute('data-lt-item')) && el.parentElement);
+    const groups = new Map();
+    found.forEach(el => { const k = el.parentElement; groups.set(k, (groups.get(k) || []).concat(el)); });
+    let box = null, cards = [];
+    groups.forEach((list, k) => { if (list.length > cards.length) { box = k; cards = list; } });
+    if (!box || cards.length < 2 || !box.parentElement) return null;
+    const acc = (tpl.preview && /^#[0-9a-f]{6}$/i.test(tpl.preview.accent || '') ? tpl.preview.accent : '') || '#7c3aed';
+    const lum = h => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; };
+    root.style.setProperty('--lt-cat-acc', acc);
+    root.style.setProperty('--lt-cat-on', lum(acc) > .4 ? '#111111' : '#ffffff');
+    cards.forEach(el => el.setAttribute('data-lt-cat', byId.get(el.getAttribute('data-lt-item'))));
+    const doc = root.ownerDocument;
+    // subtítulo antes de la primera tarjeta de cada categoría
+    let last = '';
+    cards.forEach(el => {
+      const c = el.getAttribute('data-lt-cat');
+      if (c === last) return; last = c;
+      const h = doc.createElement('div');
+      h.className = 'lt-cat-h'; h.setAttribute('data-lt-cat', c); h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3');
+      h.innerHTML = `<span>${esc(c)}</span>`;
+      box.insertBefore(h, el);
+    });
+    const bar = doc.createElement('div');
+    bar.className = 'lt-cats'; bar.setAttribute('role', 'tablist'); bar.setAttribute('aria-label', 'Categorías');
+    const all = [{ name: 'Todos', count: cards.length }].concat(cats);
+    bar.innerHTML = all.map((c, i) => `<button type="button" role="tab" class="lt-cat${i ? '' : ' is-on'}" aria-selected="${!i}" data-lt-catb="${i ? esc(c.name) : ''}">${esc(c.name)}<small>${c.count}</small></button>`).join('');
+    box.parentElement.insertBefore(bar, box);
+    box.classList.add('lt-cat-box');
+    const pick = name => {
+      bar.querySelectorAll('.lt-cat').forEach(b => { const on = b.getAttribute('data-lt-catb') === name; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); });
+      box.classList.toggle('lt-cat-one', !!name);
+      box.querySelectorAll('[data-lt-cat]').forEach(el => { el.hidden = !!name && el.getAttribute('data-lt-cat') !== name; });
+      // las tarjetas que aparecen ya se ven (sin esperar a la animación de entrada)
+      box.querySelectorAll('[data-lt-item]').forEach(el => { if (!el.hidden) el.classList.add('is-in'); });
+    };
+    const onClick = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.lt-cat') : null;
+      if (!b || !bar.contains(b)) return;
+      e.preventDefault(); e.stopPropagation();
+      pick(b.getAttribute('data-lt-catb') || '');
+      // centra la pestaña elegida en la barra deslizable (celular)
+      if (b.scrollIntoView) try { b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: ctx.reducedMotion ? 'auto' : 'smooth' }); } catch (_) {}
+    };
+    bar.addEventListener('click', onClick);
+    return () => bar.removeEventListener('click', onClick);
+  }
+
+  /** Partes que se pueden ocultar con una X. Comunes a todas las plantillas + las que declare cada plantilla
+   *  (registerTemplate({ parts: [{ k, label, sel, x }] })). x:true = lleva X en la vista previa; sin x
+   *  (partículas, luces de fondo…) solo se activan/desactivan desde la lista del editor. */
+  const COMMON_PARTS = [
+    { k: 'cover', label: 'Portada', x: true },
+    { k: 'benefits', label: 'Beneficios', sel: '.ltb-sec-benefits', x: true },
+    { k: 'reviews', label: 'Opiniones', sel: '.ltb-sec-reviews', x: true },
+    { k: 'pays', label: 'Métodos de pago', sel: '.ltb-sec-pays', x: true },
+    { k: 'faq', label: 'Preguntas frecuentes', sel: '.ltb-sec-faq', x: true },
+    { k: 'links', label: 'Redes sociales', sel: '.ltb-sec-links', x: true }
+  ];
+  /** Lista de partes de una plantilla (para el editor). */
+  function partsFor(tid) {
+    const t = templates.get(tid);
+    return COMMON_PARTS.concat(t && Array.isArray(t.parts) ? t.parts : []);
+  }
+  /** Marca las partes (data-lt-part), oculta las elegidas y, en la vista previa del editor (opts.onPart),
+   *  pone una X para ocultar o un botón "Mostrar" sobre lo oculto (se ve atenuado). */
+  function applyParts(root, d, tpl, opts) {
+    const hidden = new Set(d.hidden || []), defs = partsFor(tpl.id), doc = root.ownerDocument;
+    const found = new Map();
+    defs.forEach(p => {
+      let els = [];
+      if (p.k === 'cover') {
+        const src = [d.coverUrl, d.coverSmUrl].filter(Boolean);
+        els = src.length ? [...root.querySelectorAll('img')].filter(im => src.includes(im.getAttribute('src'))).map(im => im.parentElement).filter(Boolean) : [];
+      } else if (p.sel) els = [...root.querySelectorAll(p.sel)];
+      if (!els.length) return;
+      found.set(p.k, els);
+      els.forEach(el => { el.setAttribute('data-lt-part', p.k); if (hidden.has(p.k)) el.classList.add(opts.onPart ? 'lt-part-ghost' : 'lt-part-off'); });
+    });
+    root.__ltParts = [...found.keys()];
+    if (typeof opts.onPart !== 'function' || !found.size) return null;
+    // Capa de botones (vista previa): una X por parte y por bloque principal de la página.
+    const layer = doc.createElement('div');
+    layer.className = 'lt-part-layer';
+    root.appendChild(layer);
+    if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+    const place = () => {
+      const R = root.getBoundingClientRect(), W = root.clientWidth;
+      let html = '';
+      found.forEach((els, k) => {
+        const def = defs.find(p => p.k === k), off = hidden.has(k);
+        if (!def.x && !off) return;
+        const seen = new Set();
+        els.forEach(el => {
+          // un botón por bloque principal (evita 10 X en 10 palmeras)
+          let top = el; while (top.parentElement && top.parentElement !== root) top = top.parentElement;
+          if (seen.has(top)) return;
+          const tr = top.getBoundingClientRect();
+          let r = el.getBoundingClientRect();
+          if (!r.width || !r.height) { if (getComputedStyle(el).display === 'none') return; r = el.parentElement ? el.parentElement.getBoundingClientRect() : tr; }
+          seen.add(top);
+          const x = Math.max(tr.left - R.left + 6, Math.min(r.right - R.left - 40, tr.right - R.left - 40, W - 40));
+          const y = Math.max(tr.top - R.top + 6, r.top - R.top + 6);
+          html += `<button type="button" class="lt-part-b${off ? ' is-off' : ''}" data-lt-pk="${esc(k)}" style="left:${Math.round(off ? Math.max(6, x - 70) : x)}px;top:${Math.round(y)}px" aria-label="${off ? 'Mostrar' : 'Ocultar'} ${esc(def.label)}" title="${off ? 'Mostrar' : 'Ocultar'} ${esc(def.label)}">${off ? `<span>Mostrar ${esc(def.label.toLowerCase())}</span>` : '×'}</button>`;
+        });
+      });
+      layer.innerHTML = html;
+    };
+    const onClick = e => {
+      const b = e.target && e.target.closest ? e.target.closest('.lt-part-b') : null;
+      if (!b || !layer.contains(b)) return;
+      e.preventDefault(); e.stopPropagation();
+      const k = b.getAttribute('data-lt-pk');
+      opts.onPart(k, !hidden.has(k));
+    };
+    layer.addEventListener('click', onClick);
+    const win = doc.defaultView || globalThis;
+    let raf = 0; const again = () => { if (!raf) raf = win.requestAnimationFrame(() => { raf = 0; place(); }); };
+    place();
+    const t1 = win.setTimeout(place, 600), t2 = win.setTimeout(place, 1800);
+    win.addEventListener('resize', again);
+    const imgs = [...root.querySelectorAll('img')]; imgs.forEach(im => { if (!im.complete) im.addEventListener('load', again, { once: true }); });
+    return () => { layer.removeEventListener('click', onClick); win.removeEventListener('resize', again); win.clearTimeout(t1); win.clearTimeout(t2); if (raf) win.cancelAnimationFrame(raf); };
+  }
+
+  // ============================ CANDADO DE DOMINIO ============================
+  // Las plantillas de la tienda solo se pintan en dominios autorizados por Diseños Streaming.
+  // Si alguien copia estos archivos a otro servidor, la plantilla no se muestra.
+  // Pensado para NO afectar a los clientes actuales: todas las tiendas en planesvip.com y
+  // disenosstreaming.com, el editor y los dominios propios que sirve el servidor siguen igual.
+  // Lista editable: agrega aquí un dominio propio nuevo si en algún caso no llegara inyectado.
+  const LT_ALLOW_HOSTS = ['disenosstreaming.com', 'planesvip.com'];
+  const LT_ALLOW_EXTRA = [];
+  function hostAllowed(opts) {
+    try {
+      // Editor / vista previa: siempre permitido (se pinta dentro de mi-landing.html).
+      if (opts && (opts.preview || opts.editor)) return true;
+      const g = (typeof window !== 'undefined') ? window : root;
+      const loc = g && g.location ? g.location : null;
+      let h = loc && typeof loc.hostname === 'string' ? loc.hostname.toLowerCase().replace(/\.$/, '') : '';
+      // Sin host real (iframe srcdoc/blob, archivo local, pruebas): no bloquear.
+      if (!h || h === 'null' || h === 'about' || /^(localhost|127\.0\.0\.1|\[?::1\]?)$/.test(h) ||
+          /\.(local|localhost|test|railway\.app|up\.railway\.app)$/.test(h)) return true;
+      // Dominios propios de Diseños Streaming y subdominios de revendedores (*.planesvip.com).
+      for (const base of LT_ALLOW_HOSTS.concat(LT_ALLOW_EXTRA)) {
+        if (h === base || h === 'www.' + base || h.endsWith('.' + base)) return true;
+      }
+      // Dominio propio del cliente (plan VIP): el servidor sirve la tienda e inyecta __TIENDA__.host.
+      const inj = g && g.__TIENDA__ && typeof g.__TIENDA__ === 'object' ? g.__TIENDA__ : null;
+      if (inj && typeof inj.host === 'string' && inj.host.toLowerCase().replace(/\.$/, '') === h) return true;
+      return false;
+    } catch (_) { return true; } // ante cualquier duda, no romper la tienda del cliente
+  }
+  function renderBlocked(node) {
+    try {
+      node.className = 'lt-root lt-blocked';
+      node.innerHTML = '<div style="min-height:70vh;display:flex;align-items:center;justify-content:center;padding:40px;' +
+        'font:600 16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#555;text-align:center;background:#fff">' +
+        '<div><div style="font-size:22px;font-weight:800;margin-bottom:8px;color:#111">Tienda no disponible</div>' +
+        'Esta página fue creada con <a href="https://disenosstreaming.com" target="_blank" rel="noopener" ' +
+        'style="color:#7c5cfc;font-weight:800;text-decoration:none">Diseños Streaming</a>.</div></div>';
+    } catch (_) {}
+  }
+
   function render(root, data, opts = {}) {
+    if (!hostAllowed(opts)) { renderBlocked(root); return; }
     const d = normalize(data, data?.ownerUid);
     // Plantillas exclusivas VIP (navidad): sin VIP vigente se pinta la plantilla de reemplazo (pop).
     let tid = opts.template || d.template;
@@ -764,6 +1035,8 @@
     // En pantallas pequeñas se usa la portada ligera: menos datos para el cliente y menos descarga.
     const narrow = typeof innerWidth === 'number' && innerWidth <= 820;
     const view = (narrow && d.coverSmUrl) ? { ...d, coverUrl: d.coverSmUrl } : { ...d };
+    // Portada oculta con la X: la plantilla se pinta como si no tuviera portada (usa su diseño sin portada).
+    if (d.hidden.includes('cover')) { view.coverUrl = ''; view.coverSmUrl = ''; }
     // Reseñas de ejemplo: solo en la vista previa del editor (atenuadas, "Ejemplo — no se publica"); nunca en la tienda.
     // Las reseñas (también las de ejemplo) se publican tal cual: el dueño decide si las cambia.
     const ctx = buildContext(view, opts);
@@ -776,10 +1049,78 @@
     const holdCleanup = holdLazyImages(root, ctx);
     const profCleanup = ctx.noMotion ? null : pauseProfileOffscreen(root);
     const promoCleanup = startPromo(root, ctx);
-    const extra = [motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
+    const catCleanup = applyCategories(root, ctx, tpl);
+    const partsCleanup = applyParts(root, view, tpl, opts);
+    const extra = [partsCleanup, catCleanup, motionCleanup, barCleanup, holdCleanup, profCleanup, promoCleanup].filter(Boolean);
     if (extra.length) root.__ltCleanup = () => {
       try { tplCleanup && tplCleanup(); } finally { extra.forEach(f => { try { f(); } catch (_) {} }); }
     };
+  }
+
+  /** Copia de CSS para un documento de vista previa con forceMotion: anula las reglas
+   *  @media (prefers-reduced-motion: reduce) (núcleo y plantillas) para que se vean las animaciones elegidas.
+   *  Solo para iframes del editor; la tienda pública nunca la usa. */
+  const RM_QUERY = /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g;
+  function cssIgnoringReducedMotion(css) {
+    return String(css || '').replace(RM_QUERY, '(prefers-reduced-motion: reduce) and (prefers-reduced-motion: no-preference)');
+  }
+
+  /* ============================================================================
+   * LANDINGS DINÁMICAS (subidas desde el admin → colección landing_templates).
+   * El admin guarda el código de la landing (el mismo formato que los archivos
+   * landing-templates-*.js: un IIFE que llama LC.registerTemplate). La tienda y el
+   * editor las traen por REST y las ejecutan aquí, aisladas en try/catch: una
+   * landing con error se ignora y nunca rompe la página. Protección real: las
+   * reglas de Firestore solo dejan que el admin escriba esta colección.
+   * ========================================================================== */
+  const LANDING_COLLECTION = 'landing_templates';
+  const LANDING_REST = 'https://firestore.googleapis.com/v1/projects/' + FIREBASE.projectId + '/databases/(default)/documents';
+
+  function fsVal(v) {
+    if (!v || typeof v !== 'object') return v;
+    if ('stringValue' in v) return v.stringValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('doubleValue' in v) return Number(v.doubleValue);
+    if ('nullValue' in v) return null;
+    if ('mapValue' in v) { const o = {}, f = (v.mapValue && v.mapValue.fields) || {}; for (const k in f) o[k] = fsVal(f[k]); return o; }
+    if ('arrayValue' in v) return ((v.arrayValue && v.arrayValue.values) || []).map(fsVal);
+    return undefined;
+  }
+  function fsDocToLanding(doc) {
+    if (!doc || !doc.fields) return null;
+    const o = {}; for (const k in doc.fields) o[k] = fsVal(doc.fields[k]);
+    if (!o.id && doc.name) o.id = doc.name.split('/').pop();
+    return o;
+  }
+  /** Trae UNA landing por id. Pública si status 'published'; con token (Bearer) el admin ve borradores. */
+  function fetchLanding(id, token) {
+    if (!id) return Promise.resolve(null);
+    const url = LANDING_REST + '/' + LANDING_COLLECTION + '/' + encodeURIComponent(id) + '?key=' + FIREBASE.apiKey;
+    const opt = token ? { headers: { Authorization: 'Bearer ' + token } } : undefined;
+    return fetch(url, opt).then(r => (r.ok ? r.json() : null)).then(fsDocToLanding).catch(() => null);
+  }
+  /** Lista las landings (para el editor). Con token de admin incluye borradores; sin token solo publicadas visibles. */
+  function fetchLandingList(token) {
+    const url = LANDING_REST + '/' + LANDING_COLLECTION + '?key=' + FIREBASE.apiKey + '&pageSize=300';
+    const opt = token ? { headers: { Authorization: 'Bearer ' + token } } : undefined;
+    return fetch(url, opt).then(r => (r.ok ? r.json() : { documents: [] })).then(j => ((j && j.documents) || []).map(fsDocToLanding).filter(Boolean)).catch(() => []);
+  }
+  /** Ejecuta el código de una landing y la registra. Devuelve su id si quedó registrada, o null. Aislado. */
+  function registerCode(code, meta) {
+    const want = meta && meta.id;
+    if (typeof code !== 'string' || !code.trim()) return null;
+    if (want && templates.has(want)) return want;
+    try {
+      const fn = new Function('LC', 'LandingCore', 'window', code);
+      const before = templates.size;
+      fn(root.LandingCore, root.LandingCore, root);
+      if (want && templates.has(want)) return want;
+      return templates.size > before ? [...templates.keys()].pop() : null;
+    } catch (e) {
+      try { console.warn('[landing] no se pudo registrar' + (want ? ' ' + want : ''), e && e.message || e); } catch (_) {}
+      return null;
+    }
   }
 
   root.LandingCore = Object.freeze({
@@ -788,6 +1129,8 @@
     registerTemplate, listTemplates, getTemplate, injectCss, normalize, sampleData, buildContext, render,
     profileHeaderHtml, SHARED_CSS, visibleInfo, LIMITS, hasPrice,
     normDomain, vipState, vipActive, VIP_TEMPLATES, vipFallback,
-    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft
+    planLimits, SAMPLE_REVIEWS, isSampleReview, itemKey, normPromo, promoLeft, cssIgnoringReducedMotion,
+    CATEGORY_OF, CATEGORIES, planCategory, partsFor,
+    LANDING_COLLECTION, fetchLanding, fetchLandingList, registerCode
   });
 })(typeof window !== 'undefined' ? window : globalThis);

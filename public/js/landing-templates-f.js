@@ -409,9 +409,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     return '/js/img/';
   })();
   const RS_ART = {
-    hero: '',          // personaje de la portada (PNG sin fondo, vertical ~900×1100)
-    card1: '', card2: '', card3: '',   // fotos de las 3 tarjetas "Para ti que…" (verticales ~600×760)
-    about1: '', about2: '',            // fotos de "¿Quién te atiende?" (color y blanco y negro, ~700×900)
+    hero: 'rs-mabel2.webp', // personaje de la portada (PNG sin fondo, vertical ~900×1100)
+    card1: 'rs-c1.webp', card2: 'rs-c2.webp', card3: 'rs-c3.webp', // personajes de las 3 tarjetas de ventajas (PNG sin fondo)
+    about: 'rs-duo.webp',              // imagen de la sección con el nombre de la tienda (PNG sin fondo, horizontal)
     deco: ''           // decoración flotante opcional (PNG sin fondo: billetes, corazones, palomitas…)
   };
   const RS_I = {
@@ -494,7 +494,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa .ltr-from{margin:14px 0 0;font-size:14px;color:var(--r-mut)}
 .lt-rosa .ltr-from b{color:#fff;font-size:17px}
 .lt-rosa .ltr-hart{position:relative;align-self:end;justify-self:center;width:min(430px,90%);aspect-ratio:9/11}
-@media (max-width:859px){.lt-rosa .ltr-hart{order:-1;width:min(250px,66%);margin-top:14px}.lt-rosa .ltr-htx{padding-top:10px;text-align:center}.lt-rosa .ltr-facts{justify-items:center}.lt-rosa .ltb-sub{margin-left:auto;margin-right:auto}}
+@media (max-width:859px){.lt-rosa .ltr-hart{order:-1;width:min(270px,72%);margin-top:14px}.lt-rosa .ltr-htx{padding-top:10px;text-align:center}.lt-rosa .ltr-facts{justify-items:center}.lt-rosa .ltb-sub{margin-left:auto;margin-right:auto}}
 .lt-rosa .ltr-hart::before{content:"";position:absolute;left:6%;right:6%;bottom:0;height:78%;border-radius:50% 50% 0 0;background:radial-gradient(circle at 50% 60%,rgba(255,120,180,.55),transparent 68%);filter:blur(14px)}
 .lt-rosa .ltr-art{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;display:block}
 .lt-rosa .ltr-hart .ltr-art{object-fit:contain;object-position:bottom;filter:drop-shadow(0 20px 40px rgba(30,0,15,.5))}
@@ -558,11 +558,38 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa .ltr-hd p{margin:10px auto 0;max-width:52ch;color:var(--r-mut);font-size:15px}
 /* "¿Por qué comprar con nosotros?": 3 tarjetas-foto */
 .lt-rosa .ltr-pics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(12px,3vw,26px)}
-@media (max-width:640px){.lt-rosa .ltr-pics{grid-template-columns:1fr;max-width:340px;margin:0 auto}}
+@media (max-width:640px){.lt-rosa .ltr-pics{grid-template-columns:1fr;max-width:300px;margin:0 auto}.lt-rosa .ltr-pic .ltr-frame.has-img{aspect-ratio:1/1}}
 .lt-rosa .ltr-pic{margin:0;text-align:center}
 .lt-rosa .ltr-pic .ltr-frame{aspect-ratio:4/5;border-radius:22px;overflow:hidden;box-shadow:0 18px 40px rgba(10,0,6,.45);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
 .lt-rosa .ltr-pic .ltr-frame .ltr-slot{border-radius:22px}
-.lt-rosa .ltr-pic figcaption{margin:14px auto 0;max-width:24ch;font-size:14.5px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.lt-rosa .ltr-pic .ltr-frame.has-img{background:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.lt-rosa .ltr-pic .ltr-frame.has-img::after{content:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img::before{content:"";position:absolute;inset:-6% -8% -2%;z-index:0;pointer-events:none;background:radial-gradient(ellipse 52% 50% at 50% 56%,rgba(255,170,210,.42),rgba(232,35,122,.18) 46%,transparent 72%);filter:blur(6px)}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-art{position:absolute;left:2%;right:2%;bottom:3%;top:6%;width:96%;height:91%;object-fit:contain;object-position:bottom;filter:drop-shadow(0 10px 18px rgba(20,0,10,.45))}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo{--hw:92%;--hb:4%}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo::before{opacity:.75}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo i:first-child{display:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img .ltr-halo i+i{border-color:rgba(255,190,220,.28)}
+@media (hover:hover){.lt-rosa .ltr-pic:hover .ltr-frame.has-img{box-shadow:none}}
+.lt-rosa .ltr-pic figcaption{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px auto 0;max-width:26ch;text-align:center}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption{margin-top:clamp(-40px,-8%,-24px)}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption .ltr-capi{display:none}
+.lt-rosa .ltr-pic .ltr-frame.has-img+figcaption .ltr-capt{font-size:clamp(19px,2vw,23px);font-weight:900;letter-spacing:-.005em;-webkit-text-stroke:.5px rgba(255,255,255,.55);
+  filter:drop-shadow(2px 0 0 #6b0a3c) drop-shadow(-2px 0 0 #6b0a3c) drop-shadow(0 2px 0 #6b0a3c) drop-shadow(0 -2px 0 #6b0a3c) drop-shadow(0 4px 0 #e8237a) drop-shadow(0 6px 14px rgba(20,0,10,.75)) drop-shadow(0 0 18px rgba(255,61,143,.55))}
+.lt-rosa .ltr-capi{display:grid;place-items:center;color:#ff8cc0;filter:drop-shadow(0 0 8px rgba(255,95,162,.8))}
+.lt-rosa .ltr-capi .ltr-ic{width:24px;height:24px;stroke-width:2.2}
+.lt-rosa .ltr-capt{position:relative;padding-bottom:10px;font-size:clamp(18px,1.9vw,21px);font-weight:800;line-height:1.2;letter-spacing:-.015em;overflow-wrap:anywhere;background:linear-gradient(100deg,#fff 0%,#fff 30%,#ffc2dd 45%,#ff6aa8 55%,#fff 70%,#fff 100%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 14px rgba(255,61,143,.45))}
+.lt-rosa .ltr-capt::after{content:"";position:absolute;left:50%;bottom:0;width:44px;height:3px;border-radius:3px;transform:translateX(-50%);background:linear-gradient(90deg,transparent,#ff5fa2,#ffc2dd,#ff5fa2,transparent);box-shadow:0 0 12px rgba(255,95,162,.8)}
+@media (hover:hover){.lt-rosa .ltr-pic:hover .ltr-capt::after{width:90%}}
+.lt-rosa .ltr-capt::after{transition:width .5s cubic-bezier(.2,.8,.2,1)}
+.lt-rosa:not(.lt-static).ltb-rv .ltr-pic.is-in figcaption{animation:ltr-pop .7s calc(var(--rvd,0ms) + .35s + var(--i,0) * .12s) cubic-bezier(.3,1.5,.5,1) both}
+.lt-rosa:not(.lt-static) .ltr-capt{animation:ltr-sheen 4.5s calc(1s + var(--i,0) * .8s) ease-in-out infinite}
+@keyframes ltr-sheen{0%,40%{background-position:100% 0}100%{background-position:-50% 0}}
+.lt-rosa:not(.lt-static) .ltr-capi{animation:ltr-capg 2.4s calc(var(--i,0) * .5s) ease-in-out infinite alternate}
+@keyframes ltr-capg{from{transform:translateY(0) scale(1);filter:drop-shadow(0 0 6px rgba(255,95,162,.6))}to{transform:translateY(-3px) scale(1.12);filter:drop-shadow(0 0 14px rgba(255,95,162,1))}}
+.lt-rosa:not(.lt-static).ltb-rv .ltr-pic.is-in .ltr-capt::after{animation:ltr-line .8s calc(var(--rvd,0ms) + .7s + var(--i,0) * .12s) cubic-bezier(.2,.8,.2,1) both}
+@keyframes ltr-line{from{width:0}to{width:44px}}
+.lt-rosa .ltb-off :is(.ltr-capt,.ltr-capi){animation-play-state:paused!important}
 .lt-rosa .ltr-frame{position:relative}
 .lt-rosa .ltr-frame::after,.lt-rosa .ltr-aart :is(.ltr-p1,.ltr-p2)::after{content:"";position:absolute;top:0;bottom:0;left:-70%;width:45%;z-index:2;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-18deg);pointer-events:none;opacity:0}
 .lt-rosa .ltr-frame img,.lt-rosa .ltr-aart img{transition:transform .6s cubic-bezier(.2,.8,.2,1)}
@@ -615,6 +642,27 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa .ltr-aart .ltr-p1{left:0;top:4%;width:60%;height:88%;border:5px solid rgba(255,255,255,.85)}
 .lt-rosa .ltr-aart .ltr-p2{right:0;top:18%;width:48%;height:66%;border:5px solid rgba(255,255,255,.85)}
 .lt-rosa .ltr-aart .ltr-p2 .ltr-art{filter:grayscale(1)}
+.lt-rosa .ltr-aart.has-img{aspect-ratio:900/587;width:min(520px,100%)}
+.lt-rosa .ltr-aart.has-img .ltr-art{position:relative;z-index:1;width:100%;height:100%;object-fit:contain}
+/* halo detrás de cada imagen: mancha de color (rosa, magenta y lila) que respira, dos aros finos y sombra de piso */
+.lt-rosa .ltr-hart:has(>.ltr-halo)::before{content:none}
+.lt-rosa .ltr-halo{position:absolute;z-index:0;pointer-events:none;left:50%;bottom:var(--hb,4%);width:var(--hw,92%);aspect-ratio:1;transform:translateX(-50%)}
+.lt-rosa .ltr-aart .ltr-halo{--hw:66%;--hb:-4%}
+.lt-rosa .ltr-hart .ltr-halo{--hw:112%;--hb:2%}
+.lt-rosa .ltr-hart .ltr-halo::before{opacity:.9;inset:4%}
+.lt-rosa .ltr-halo::before{content:"";position:absolute;inset:6%;border-radius:46% 54% 52% 48%/50% 44% 56% 50%;background:radial-gradient(circle at 34% 30%,rgba(255,214,234,.95) 0,rgba(255,214,234,0) 34%),radial-gradient(circle at 72% 70%,rgba(176,108,255,.85) 0,rgba(176,108,255,0) 46%),radial-gradient(circle at 50% 50%,#ff4f9a 0,#e8237a 42%,rgba(150,20,90,.0) 72%);filter:blur(26px) saturate(1.15);opacity:.78}
+.lt-rosa .ltr-halo::after{content:"";position:absolute;left:14%;right:14%;bottom:1%;height:9%;border-radius:50%;background:radial-gradient(closest-side,rgba(30,0,16,.5),transparent);filter:blur(4px)}
+.lt-rosa .ltr-halo i{position:absolute;border-radius:50%;inset:2%;border:1.5px solid rgba(255,196,224,.32);box-shadow:0 0 24px rgba(255,95,162,.18) inset}
+.lt-rosa .ltr-halo i+i{inset:15%;border:1.5px dashed rgba(255,255,255,.22);box-shadow:none}
+.lt-rosa .ltr-pinksec .ltr-halo::before{background:radial-gradient(circle at 34% 30%,rgba(255,255,255,.9) 0,rgba(255,255,255,0) 36%),radial-gradient(circle at 72% 70%,rgba(255,190,120,.7) 0,rgba(255,190,120,0) 46%),radial-gradient(circle at 50% 50%,#ffd1e6 0,#ff8fc0 45%,rgba(255,143,192,0) 72%);opacity:.7}
+.lt-rosa .ltr-pinksec .ltr-halo i{border-color:rgba(255,255,255,.45)}
+.lt-rosa:not(.lt-static) .ltr-halo::before{animation:ltr-blob 9s ease-in-out infinite alternate}
+.lt-rosa:not(.lt-static) .ltr-halo i+i{animation:ltr-spin 40s linear infinite}
+.lt-rosa:not(.lt-static) .ltr-halo i:first-child{animation:ltr-ring 4.5s ease-in-out infinite alternate}
+@keyframes ltr-blob{0%{border-radius:46% 54% 52% 48%/50% 44% 56% 50%;transform:rotate(0) scale(1)}50%{border-radius:56% 44% 42% 58%/44% 56% 46% 54%;transform:rotate(14deg) scale(1.05)}100%{border-radius:48% 52% 60% 40%/56% 48% 52% 44%;transform:rotate(-8deg) scale(.97)}}
+@keyframes ltr-spin{to{transform:rotate(360deg)}}
+@keyframes ltr-ring{from{transform:scale(.97);opacity:.7}to{transform:scale(1.03);opacity:1}}
+.lt-rosa .ltb-off .ltr-halo::before,.lt-rosa .ltb-off .ltr-halo i{animation-play-state:paused!important}
 .lt-rosa .ltr-aart .ltr-slot{border-radius:15px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.7);color:rgba(255,255,255,.55)}
 @media (max-width:819px){.lt-rosa .ltr-atx{text-align:center}}
 /* reseñas, pagos, preguntas, redes */
@@ -661,6 +709,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-rosa:not(.lt-static).ltb-rv .ltr-pic.is-in .ltr-frame{animation:ltr-rise .9s calc(var(--rvd,0ms) + .05s) cubic-bezier(.16,1,.3,1) both,ltr-bobf 5.5s calc(1s + var(--i,0) * .7s) ease-in-out infinite alternate}
 .lt-rosa:not(.lt-static) .ltr-frame::after,.lt-rosa:not(.lt-static) .ltr-aart :is(.ltr-p1,.ltr-p2)::after{animation:ltr-shine 7s calc(2s + var(--i,0) * 1.2s) ease-in-out infinite}
 .lt-rosa:not(.lt-static) .ltr-aart .ltr-p2::after{animation-delay:3.5s}
+.lt-rosa:not(.lt-static).ltb-rv .ltr-aart.has-img.is-in .ltr-art{animation:ltr-rise .9s .05s cubic-bezier(.16,1,.3,1) both,ltr-bobf 6s 1.1s ease-in-out infinite alternate}
 .lt-rosa:not(.lt-static).ltb-rv .ltr-aart.is-in .ltr-p1{animation:ltr-sl .9s .05s cubic-bezier(.16,1,.3,1) both,ltr-bobf 6s 1.1s ease-in-out infinite alternate}
 .lt-rosa:not(.lt-static).ltb-rv .ltr-aart.is-in .ltr-p2{animation:ltr-sr .9s .25s cubic-bezier(.16,1,.3,1) both,ltr-bobf 6s 3s ease-in-out infinite alternate-reverse}
 .lt-rosa:not(.lt-static).ltb-rv .ltr-card.is-in .ltb-logo{animation:ltr-pop .6s calc(var(--rvd,0ms) + .25s) cubic-bezier(.3,1.6,.5,1) both}
@@ -726,8 +775,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     if (combos.length) stats.push([String(combos.length), combos.length === 1 ? 'combo' : 'combos', 1]);
     const bens = d.benefits.slice(0, 3);
     while (bens.length < 3) bens.push(['Precios bajos, sin pagar de más', 'Cuentas estables todo el mes', 'Atención rápida por WhatsApp'][bens.length]);
-    const aboutTxt = `<p>En <b>${ctx.esc(d.name)}</b> te ayudamos a disfrutar tus plataformas favoritas sin complicaciones: cuentas y perfiles originales, activación en minutos y atención directa por WhatsApp.</p>` +
-      `<p>${ctx.esc(d.tagline || 'Tus plataformas favoritas al mejor precio')}. Escríbenos y te recomendamos el plan perfecto para ti.</p>`;
+    const aboutTxt = `<p>Cuentas originales, activación en minutos y atención por WhatsApp. Te ayudamos a elegir tu plan ideal.</p>`;
     const html =
       (pm ? ctx.profileHeader() : '') +
       `<section class="ltr-hero" data-lt-hero>${floats}${deco}<div class="ltb-wrap">` +
@@ -738,16 +786,16 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="ltb-sub"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       `<ul class="ltr-facts">${facts.map(([ic, t], k) => `<li style="--k:${k}">${rsi(ic)}<span>${t}</span></li>`).join('')}</ul>` +
       `${cta(d.ctaText, 'ctaText')}${ctx.minPrice ? `<p class="ltr-from">Planes desde <b>${ctx.esc(ctx.minPrice)}</b></p>` : ''}</div>` +
-      `<div class="ltr-hart">${fx ? `<span class="ltr-orb" aria-hidden="true">${[0, 1, 2].map(k => `<i style="--k:${k}"><svg viewBox="0 0 24 24">${k === 1 ? RS_I.heart : RS_I.sparkle}</svg></i>`).join('')}</span>` : ''}${rsArt('hero', '', 'Personaje (PNG sin fondo)')}<span class="ltr-sign" aria-hidden="true">${ctx.esc(d.name)}</span></div></div></div></section>` +
+      `<div class="ltr-hart">${fx ? `<span class="ltr-orb" aria-hidden="true">${[0, 1, 2].map(k => `<i style="--k:${k}"><svg viewBox="0 0 24 24">${k === 1 ? RS_I.heart : RS_I.sparkle}</svg></i>`).join('')}</span>` : ''}${RS_ART.hero ? '<span class="ltr-halo" aria-hidden="true"><i></i><i></i></span>' : ''}${rsArt('hero', '', 'Personaje (PNG sin fondo)')}<span class="ltr-sign" aria-hidden="true">${ctx.esc(d.name)}</span></div></div></div></section>` +
       promo(ctx) +
       `<section class="ltr-band ltr-fx">${parts(4, 7, 260, 'pink')}<div class="ltb-wrap" data-rv><h2>Todas tus plataformas favoritas en un solo lugar, <b>con atención de verdad</b></h2>` +
       `<div class="ltr-stats"><span class="ltr-slabel">Aquí <br>tienes:</span>${stats.slice(0, 4).map(([n, l, c, lg], k) => `<span class="ltr-stat${lg ? ' is-long' : ''}" style="--k:${k}"><b${c ? ' data-rs-num' : ''}>${ctx.esc(n)}</b><small>${ctx.esc(l)}</small></span>`).join('')}</div></div></section>` +
       `<section class="ltb-sec ltb-sec-benefits ltr-dark ltr-fx">${parts(7, 5, 900)}<div class="ltb-wrap">${rsHead(`¿Por qué comprar <span class="ltr-hl">con nosotros?</span>`)}` +
-      `<div class="ltr-pics">${bens.map((b, i) => `<figure class="ltr-pic" data-rv style="--i:${i}"><div class="ltr-frame">${rsArt('card' + (i + 1), '', 'Foto ' + (i + 1))}</div><figcaption${i < d.benefits.length ? ed(ctx, `benefits.${i}`) : ''}>${ctx.esc(b)}</figcaption></figure>`).join('')}</div></div></section>` +
+      `<div class="ltr-pics">${bens.map((b, i) => `<figure class="ltr-pic" data-rv style="--i:${i}"><div class="ltr-frame${RS_ART['card' + (i + 1)] ? ' has-img' : ''}">${RS_ART['card' + (i + 1)] ? '<span class="ltr-halo" aria-hidden="true"><i></i><i></i></span>' : ''}${rsArt('card' + (i + 1), '', 'Foto ' + (i + 1))}</div><figcaption><span class="ltr-capi" aria-hidden="true">${rsi(['zap', 'headset', 'shield'][i % 3])}</span><span class="ltr-capt"${i < d.benefits.length ? ed(ctx, `benefits.${i}`) : ''}>${ctx.esc(b)}</span></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans ltr-dark ltr-fx">${parts(8, 6, 1100)}<div class="ltb-wrap">${rsHead(`Elige tu <span class="ltr-hl">plataforma favorita</span>`, 'Cuentas originales, estables y al mejor precio.')}<div class="ltr-grid">${plans.map((p, i) => rsPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos ltr-pinksec ltr-fx">${parts(7, 6, 800, 'pink')}<div class="ltb-wrap">${rsHead('Combos para ahorrar más')}<div class="ltr-combos">${combos.map((c, i) => rsCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
       `<section class="ltb-sec ltb-sec-who ltr-fx ${combos.length ? 'ltr-dark' : 'ltr-pinksec'}">${parts(7, 5, 800, combos.length ? 'dark' : 'pink')}<div class="ltb-wrap"><div class="ltr-about"><div class="ltr-atx" data-rv><h2>${ctx.esc(d.name)}</h2>${aboutTxt}${cta('Escríbenos ahora')}</div>` +
-      `<div class="ltr-aart" data-rv><div class="ltr-p1">${rsArt('about1', '', 'Foto a color')}</div><div class="ltr-p2">${rsArt('about2', '', 'Foto en blanco y negro')}</div></div></div></div></section>` +
+      `<div class="ltr-aart${RS_ART.about ? ' has-img' : ''}" data-rv>${RS_ART.about ? '<span class="ltr-halo" aria-hidden="true"><i></i><i></i></span>' : ''}${rsArt('about', '', 'Imagen (PNG sin fondo)')}</div></div></div></section>` +
       (d.reviews && d.reviews.length ? `<section class="ltb-sec ltb-sec-reviews ltr-dark ltr-fx">${parts(6, 4, 700)}<div class="ltb-wrap">${rsHead(`Lo que dicen <span class="ltr-hl">nuestras clientas</span>`)}${reviewsHtml(ctx, d)}</div></section>` : '') +
       `<div class="ltr-tail ltr-fx">${parts(8, 6, 1000)}` + (d.paymentMethods.length ? sec('pays', `Paga <span class="ltr-hl">como quieras</span>`, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
       faqSec(ctx, d, `Preguntas <span class="ltr-hl">frecuentes</span>`) +
@@ -805,7 +853,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'rosa', name: 'Rosa Glam', description: 'Femenina y minimalista: ciruela con rosa, fotos redondeadas y detalles con corazones',
+    id: 'rosa', parts: [{ k: 'hero', label: 'Personaje', sel: '.ltr-hart', x: true }, { k: 'sign', label: 'Firma', sel: '.ltr-sign', x: true }, { k: 'deco', label: 'Decoración flotante', sel: '.ltr-deco', x: true }, { k: 'hearts', label: 'Corazones y destellos', sel: '.ltr-float,.ltr-orb' }, { k: 'who', label: 'Imagen de la tienda', sel: '.ltr-aart', x: true }], name: 'Rosa Glam', description: 'Femenina y minimalista: ciruela con rosa, fotos redondeadas y detalles con corazones',
     tags: ['femenina', 'elegante', 'animada'], preview: { bg: '#2a0d1e', fg: '#fff6fa', accent: '#ff3d8f' }, render: renderRosa
   });
 
@@ -900,6 +948,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-verano .ltp-cover{border:4px solid #fff;border-top:0;box-shadow:0 22px 44px rgba(7,59,76,.2);background:linear-gradient(135deg,#0bbfd3,#ffd43b)}
 .lt-verano .ltp-ring{background:conic-gradient(#ffd43b,#ff4fa3,#0bbfd3,#22c55e,#ffd43b)}
 .lt-verano .ltp-avatar-in{border-color:#fff;background:#fff}
+.lt-verano .ltp-initial{display:grid;place-items:center;width:100%;height:100%;color:#fff;font-family:"Bricolage Grotesque",sans-serif;background:linear-gradient(135deg,var(--v-aqua),var(--v-teal2))}
 .lt-verano .ltp-name{font:800 clamp(26px,5.4vw,38px)/1.05 "Bricolage Grotesque",sans-serif;letter-spacing:-.02em;color:var(--v-ink)}
 .lt-verano .ltp-tag{color:var(--v-ink2);opacity:1;font-weight:600}
 .lt-verano .ltp-meta{color:var(--v-ink);opacity:.8;font-weight:700}
@@ -1083,6 +1132,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-verano .ltv-app{overflow:hidden}
 .lt-verano .ltv-app .ltv-badge{top:12px;right:12px}
 .lt-verano .ltv-rip{position:absolute;left:12%;right:12%;bottom:6%;height:22%;border-radius:50%;border:2px solid rgba(255,255,255,.8);opacity:0;pointer-events:none}
+.lt-verano .ltv-pool .lt-cat{background:rgba(255,255,255,.9);border-color:#fff;color:var(--v-ink);box-shadow:0 6px 14px rgba(3,90,105,.15)}
+.lt-verano .ltv-pool .lt-cat.is-on{background:linear-gradient(180deg,#ffe45c,#ffc400);border-color:#ffc400;color:#2a1a00}
+.lt-verano .ltv-pool .lt-cat-h{color:#fff;text-shadow:0 2px 8px rgba(3,90,105,.35)}
 .lt-verano .ltv-ripple{position:fixed;z-index:9999;width:0;height:0;pointer-events:none}
 .lt-verano .ltv-ripple i{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;border:2.5px solid rgba(255,255,255,.95);box-shadow:0 0 0 1.5px rgba(11,191,211,.5);animation:ltv-rip .9s cubic-bezier(.2,.7,.3,1) both}
 .lt-verano .ltv-ripple i:nth-child(2){animation-delay:.12s}.lt-verano .ltv-ripple i:nth-child(3){animation-delay:.24s}
@@ -1288,7 +1340,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'verano', name: 'Verano', description: 'Piscina tropical: cielo celeste, sol con tus apps, palmeras, agua con reflejos y flamenco',
+    id: 'verano', parts: [{ k: 'palms', label: 'Palmeras', sel: '.ltv-palm', x: true }, { k: 'sun', label: 'Sol con tus apps', sel: '.ltv-stage', x: true }, { k: 'water', label: 'Franja de agua', sel: '.ltv-edge', x: true }, { k: 'beach', label: 'Lentes y coco', sel: '.ltv-deco', x: true }, { k: 'flamingo', label: 'Flamenco', sel: '.ltv-flam', x: true }, { k: 'clouds', label: 'Nubes y gaviotas', sel: '.ltv-cloud,.ltv-gull' }, { k: 'leaves', label: 'Hojas, burbujas y destellos', sel: '.ltv-leaves,.ltv-glints,.ltv-bubbles' }], name: 'Verano', description: 'Piscina tropical: cielo celeste, sol con tus apps, palmeras, agua con reflejos y flamenco',
     tags: ['clara', 'temporada', 'animada'], preview: { bg: '#6fd6fb', fg: '#073b4c', accent: '#ffd21f' }, render: renderVerano
   });
 })(typeof window !== 'undefined' ? window : globalThis);

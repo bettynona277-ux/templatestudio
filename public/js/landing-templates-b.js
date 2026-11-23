@@ -551,6 +551,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-pop .ltb-cph{border:3px solid var(--pp-ink);border-radius:18px;box-shadow:3px 3px 0 var(--pp-ink)}
 .lt-pop .ltb-combo.has-ph .ltb-badge{z-index:3}
 .lt-pop .ltb-rsample{border:2px solid var(--pp-ink)}
+/* PC: con el hero en 2 columnas (860 px o más) el título baja con el ancho para que "entretenimiento" no se parta a media palabra entre 860 y ~1150 px */
+@media (min-width:860px){.lt-pop .ltb-h1{font-size:clamp(40px,5.4vw,78px)}}
+/* PC intermedio: beneficios en 2 columnas parejas (antes 3 + 1 suelto entre 560 y 997 px) */
+@media (min-width:560px) and (max-width:997px){.lt-pop .ltb-bens{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;
 
   function renderPop(root, d, ctx) {
@@ -754,6 +758,18 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-premium .lt-promo-u b{color:var(--pr-gold2)}
 .lt-premium .lt-promo-btn{background:var(--pr-grad);color:#1b1407;border-radius:4px;letter-spacing:.04em}
 .lt-premium .ltb-cph{border-radius:4px;outline:1px solid var(--pr-line);width:100%}
+/* PC: títulos centrados → las tarjetas también. La última fila incompleta (4 + 2 planes, 2 membresías) queda al centro
+   y no pegada a la izquierda. Mismas columnas que antes (tarjetas de 250 px mín., 24 px de separación). */
+.lt-premium .ltb-grid{display:flex;flex-wrap:wrap;justify-content:center}
+.lt-premium .ltb-grid>*{flex:0 0 100%;max-width:100%}
+@media (min-width:560px){.lt-premium .ltb-grid>*{flex-basis:calc((100% - 24px) / 2);max-width:calc((100% - 24px) / 2)}}
+@media (min-width:834px){.lt-premium .ltb-grid>*{flex-basis:calc((100% - 48px) / 3);max-width:calc((100% - 48px) / 3)}}
+@media (min-width:1108px){.lt-premium .ltb-grid>*{flex-basis:calc((100% - 72px) / 4);max-width:calc((100% - 72px) / 4)}}
+/* beneficios: 2 columnas parejas en PC intermedio (antes 3 + 1 suelto) y 4 en PC grande; lo que sobre, centrado */
+.lt-premium .ltb-bens{display:flex;flex-wrap:wrap;justify-content:center}
+.lt-premium .ltb-bens li{flex:0 0 100%;max-width:100%}
+@media (min-width:560px){.lt-premium .ltb-bens li{flex-basis:calc((100% - 32px) / 2);max-width:calc((100% - 32px) / 2)}}
+@media (min-width:1052px){.lt-premium .ltb-bens li{flex-basis:calc((100% - 96px) / 4);max-width:calc((100% - 96px) / 4)}}
 `;
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];
 
@@ -808,11 +824,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 
   // ---------- registro ----------
   LC.registerTemplate({
-    id: 'pop', name: 'Pop', description: 'Colorida y alegre: stickers, formas flotando y botones con rebote. Ideal para TikTok e Instagram',
+    id: 'pop', parts: [{ k: 'shapes', label: 'Figuras flotantes', sel: '.ltb-shapes' }, { k: 'stickers', label: 'Logos de apps arriba', sel: '.ltb-stickers', x: true }, { k: 'confetti', label: 'Confeti', sel: '.ltb-confetti' }], name: 'Pop', description: 'Colorida y alegre: stickers, formas flotando y botones con rebote. Ideal para TikTok e Instagram',
     tags: ['claro', 'colorida', 'animada'], preview: { bg: '#fff8ee', fg: '#1b1530', accent: '#ff7ac0' }, render: renderPop
   });
   LC.registerTemplate({
-    id: 'premium', name: 'Premium', description: 'Elegante en negro y dorado: serif grande, brillos, tabla comparativa y membresías',
+    id: 'premium', parts: [{ k: 'glow', label: 'Brillo de fondo', sel: '.ltb-aura,.ltb-aura2,.ltb-spark' }], name: 'Premium', description: 'Elegante en negro y dorado: serif grande, brillos, tabla comparativa y membresías',
     tags: ['oscuro', 'elegante', 'animada'], preview: { bg: '#0b0a08', fg: '#f1ebdd', accent: '#d9b46a' }, render: renderPremium
   });
 })(typeof window !== 'undefined' ? window : globalThis);

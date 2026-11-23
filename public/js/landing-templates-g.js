@@ -425,6 +425,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     tap: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" opacity=".45"/>'
   };
   const azi = (k, cls = 'lta-ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AZ_I[k]}</svg>`;
+  const azSpider = (cls = '') => `<svg class="lta-spider ${cls}" viewBox="0 0 200 240" fill="none" aria-hidden="true"><g stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M88 86 54 54 30 28"/><path d="M85 101 46 90 16 80"/><path d="M85 116 46 120 16 128"/><path d="M88 130 54 152 34 176"/><path d="M112 86 146 54 170 28"/><path d="M115 101 154 90 184 80"/><path d="M115 116 154 120 184 128"/><path d="M112 130 146 152 166 176"/></g><ellipse cx="100" cy="92" rx="13" ry="17" fill="#fff"/><path d="M88 106c0 34 6 64 12 78 6-14 12-44 12-78 0-8-24-8-24 0z" fill="#fff"/></svg>`;
   /** Resalta en caja azul las palabras del medio del título (como "logrando ingresos que" de la referencia). */
   function azMark(ctx, text) {
     const w = String(text || '').trim().split(/\s+/);
@@ -461,7 +462,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   const azHead = (html, sub, cls = '') => `<div class="lta-hd ${cls}" data-rv><h2 class="ltb-h2">${html}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
   const azStripes = (cls = '') => `<span class="lta-str ${cls}" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
 
-  const CSS_AZUL = `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Unbounded:wght@600;800;900&display=swap');` + baseCss('azul') + `
+  const CSS_AZUL = `@import url('https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@400;500;600;700;800;900&family=Unbounded:wght@600;800;900&display=swap');` + baseCss('azul') + `
 .lt-azul{--a-bg:#02030c;--a-bg2:#050a26;--a-navy:#0a1250;--a-blue:#2340ff;--a-blue2:#3d5bff;--a-glow:#4d6bff;--a-ice:#9fb2ff;--a-tx:#f2f5ff;--a-mut:#a9b3d9;--a-line:rgba(110,135,255,.28);--a-red:#ff2b3d;--a-red2:#d20f22;--a-redglow:rgba(255,43,61,.55);background:var(--a-bg);color:var(--a-tx);font-family:Montserrat,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 .lt-azul .ltb-wrap{max-width:1080px}
 .lt-azul .ltb-h1,.lt-azul .ltb-h2,.lt-azul h3{font-weight:800;letter-spacing:-.02em}
@@ -504,8 +505,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-hcov img{width:100%;height:100%;object-fit:cover;filter:saturate(.6) hue-rotate(10deg)}
 .lt-azul .lta-beams{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
 .lt-azul .lta-beams i{position:absolute;top:-20%;width:140px;height:140%;left:var(--x);background:linear-gradient(180deg,rgba(120,145,255,.0),rgba(120,145,255,.22),rgba(120,145,255,0));transform:rotate(var(--r));transform-origin:top center;filter:blur(8px);opacity:.75}
-.lt-azul .lta-hin{position:relative;z-index:2;display:grid;grid-template-columns:1.05fr .95fr;gap:22px;align-items:end;padding:22px 0 0}
-.lt-azul .lta-htx{padding:22px 0 60px;min-width:0}
+.lt-azul .lta-hin{position:relative;z-index:2;padding:26px 0 0}
+.lt-azul .lta-htx{padding:22px 0 56px;min-width:0;max-width:700px}
 .lt-azul .lta-brandw{display:block;margin:0 0 14px;font-size:clamp(20px,3vw,30px);line-height:.9;font-weight:900;text-transform:uppercase;background:linear-gradient(180deg,#fff 20%,#9fb2ff 60%,#4d6bff);-webkit-background-clip:text;background-clip:text;color:transparent;overflow-wrap:anywhere}
 .lt-azul .lta-brandw small{display:block;font-family:Montserrat,sans-serif;font-size:11px;letter-spacing:.38em;font-weight:700;-webkit-text-fill-color:var(--a-ice);margin-bottom:4px}
 .lt-azul .lta-hero .ltb-h1{margin:0 0 16px;font-size:clamp(28px,4.4vw,46px);line-height:1.14;overflow-wrap:anywhere}
@@ -545,7 +546,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @media (max-width:859px){.lt-azul .lta-orbit{grid-template-columns:1fr;gap:26px}.lt-azul .lta-center{order:-1;max-width:330px;width:100%;margin:0 auto}.lt-azul .lta-pts{gap:18px}.lt-azul .lta-pts.l li{flex-direction:row;text-align:left}.lt-azul .lta-pts li:nth-child(2){margin:0!important}.lt-azul .lta-rings{top:150px;width:560px}}
 .lt-azul .lta-advsec{position:relative;overflow:hidden;padding:60px 0 72px;background:radial-gradient(ellipse 65% 50% at 50% 0%,rgba(35,64,255,.3),transparent 70%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.16),transparent 70%),var(--a-bg)}
 .lt-azul .lta-advsec .lta-hd{text-align:center}
-.lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(300px,42%);opacity:.17;pointer-events:none;z-index:0}
+.lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(320px,44%);opacity:.3;pointer-events:none;z-index:0}
+.lt-azul .lta-web-hero{top:0;right:0;left:auto;bottom:auto;width:min(360px,50%);opacity:.32;transform:scaleX(-1);transform-origin:top right}
+.lt-azul .lta-hspider{display:grid;place-items:center;align-self:center}
+.lt-azul .lta-hspider .lta-spider{width:min(84%,340px);height:auto;filter:drop-shadow(0 0 16px rgba(255,43,61,.6)) drop-shadow(0 0 42px rgba(35,64,255,.55))}
+.lt-azul:not(.lt-static) .lta-hspider .lta-spider{animation:lta-float 5.5s ease-in-out infinite alternate}
 .lt-azul .lta-advs{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
 .lt-azul .lta-advc{position:relative;margin:0;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 0 22px;border-radius:22px;background:linear-gradient(168deg,rgba(35,64,255,.16),rgba(8,12,40,.92) 58%);border:1px solid var(--a-line);box-shadow:0 18px 42px rgba(0,0,22,.5);overflow:hidden;transition:transform .35s cubic-bezier(.3,1.5,.5,1),border-color .3s}
 .lt-azul .lta-advc::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:linear-gradient(90deg,var(--a-blue),var(--a-red))}
@@ -573,7 +578,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-feats{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:13.5px;color:#c8d1f3}
 .lt-azul .lta-feats li{display:flex;gap:8px;align-items:flex-start}
 .lt-azul .lta-feats svg{width:16px;height:16px;color:var(--a-glow);flex:none;margin-top:2px}
-.lt-azul .lta-cbot{margin-top:auto;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.lt-azul .lta-cbot{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.lt-azul .lta-cbot .lta-btn{width:100%}
+.lt-azul .lta-cbot .lta-price{justify-content:flex-start}
 .lt-azul .lta-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px}
 .lt-azul .lta-price strong{font-size:30px;font-weight:900;line-height:1;letter-spacing:-.02em}
 .lt-azul .lta-price s{font-size:14px;color:var(--a-mut)}
@@ -607,7 +614,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-giant{position:relative;z-index:2;margin:0;font-family:Unbounded,Montserrat,sans-serif;font-weight:900;text-transform:uppercase;line-height:.95;letter-spacing:-.02em;font-size:clamp(34px,var(--gs,10vw),130px);overflow-wrap:anywhere;background:linear-gradient(180deg,#ffffff 0%,#dfe4f5 38%,#7d86a8 52%,#eef1ff 64%,#9aa5d6 100%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-stroke:1px rgba(255,255,255,.35);filter:drop-shadow(0 6px 20px rgba(35,64,255,.55))}
 .lt-azul .lta-crowd{position:relative;z-index:1;width:min(100%,1080px);aspect-ratio:16/6.2;margin:-6% auto 0;-webkit-mask:linear-gradient(180deg,transparent 0,#000 25%,#000 70%,transparent 100%);mask:linear-gradient(180deg,transparent 0,#000 25%,#000 70%,transparent 100%)}
 .lt-azul .lta-crowd::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 60% 70% at 50% 30%,rgba(35,64,255,.6),transparent 70%)}
-.lt-azul .lta-crowd .lta-art{position:relative;object-fit:cover;object-position:center top;mix-blend-mode:screen}
+.lt-azul .lta-crowd .lta-art{position:relative;object-fit:cover;object-position:center top}
 .lt-azul .lta-crowd .lta-slot{border-radius:0}
 .lt-azul .lta-about{position:relative;z-index:2;max-width:640px;margin:10px auto 0;color:#c8d1f3;font-size:15.5px;line-height:1.7}
 .lt-azul .lta-about p{margin:0 0 14px}
@@ -666,6 +673,88 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @keyframes lta-gin{from{opacity:0;letter-spacing:.25em;filter:blur(8px) drop-shadow(0 6px 20px rgba(35,64,255,.55))}to{opacity:1;letter-spacing:-.02em;filter:blur(0) drop-shadow(0 6px 20px rgba(35,64,255,.55))}}
 .lt-azul .ltb-off :is(.lta-btn,.lta-beams i,.lta-rings i,.lta-dot,.lta-dust i,.lta-str i,.lta-giant,.lta-pill i,.lta-art),.lt-azul .ltb-off :is(.lta-btn,.lta-hart,.lta-center)::after,.lt-azul .ltb-off :is(.lta-hart,.lta-center)::before,.lt-azul .lta-zz :is(.lta-dust i,.lta-rings i,.lta-beams i){animation-play-state:paused!important}
 @media (max-width:520px){.lt-azul .lta-pill b{max-width:46vw}.lt-azul .lta-who small{display:none}.lt-azul .lta-dust i:nth-child(n+9){display:none}.lt-azul .lta-rvhd{align-items:center}.lt-azul .lta-arrows button{width:40px;height:40px}}
+/* ===================== MEJORA DE DISEÑO · cómic / Spider-Verse ===================== */
+.lt-azul .ltb-h1,.lt-azul .lta-hd .ltb-h2,.lt-azul .lta-giant,.lt-azul .lta-brandw{font-family:Anton,Montserrat,sans-serif;font-weight:400}
+/* halftone de cómic en las secciones oscuras */
+.lt-azul .lta-hero::after,.lt-azul .lta-advsec::after,.lt-azul .lta-big::after,.lt-azul .lta-plsec::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.07) 1.1px,transparent 1.5px);background-size:14px 14px;opacity:.55}
+.lt-azul .lta-plsec{position:relative;overflow:hidden}
+.lt-azul .lta-hero .ltb-wrap,.lt-azul .ltb-sec .ltb-wrap{position:relative;z-index:3}
+/* hilo rojo tipo telaraña arriba de las secciones */
+.lt-azul .lta-advsec::before,.lt-azul .lta-plsec::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;z-index:2;background:linear-gradient(90deg,transparent,rgba(130,155,255,.4),var(--a-red) 50%,rgba(130,155,255,.4),transparent);opacity:.75}
+/* PORTADA con más fuerza + acento rojo */
+.lt-azul .lta-hero{background:radial-gradient(ellipse 52% 58% at 70% 32%,rgba(35,64,255,.5),transparent 60%),radial-gradient(ellipse 44% 44% at 88% 12%,rgba(255,40,58,.42),transparent 64%),radial-gradient(ellipse 70% 55% at 10% 104%,rgba(16,32,170,.42),transparent 70%),linear-gradient(180deg,#05081f,#02030c)}
+.lt-azul .lta-web-hero{width:min(470px,60%);opacity:.42;filter:drop-shadow(0 0 12px rgba(120,150,255,.4))}
+.lt-azul .lta-htx{max-width:820px}
+.lt-azul .lta-brandw{font-size:clamp(26px,4.1vw,44px);line-height:.9;filter:drop-shadow(0 6px 22px rgba(35,64,255,.45))}
+.lt-azul .lta-brandw small{font-family:Montserrat,sans-serif;-webkit-text-fill-color:#ff2b3d;letter-spacing:.42em}
+.lt-azul .lta-hero .ltb-h1{font-size:clamp(36px,5.8vw,64px);line-height:1.02;margin-bottom:18px}
+.lt-azul .lta-hero .ltb-sub{font-size:16.5px}
+.lt-azul .lta-mk{background:linear-gradient(90deg,#ff2b3d,#d40f22);box-shadow:0 0 28px rgba(255,43,61,.5)}
+/* botón con más presencia */
+.lt-azul .lta-btn{min-height:60px;border-radius:14px;font-size:17px;padding:16px 36px}
+/* TARJETAS tipo viñeta de cómic */
+.lt-azul .lta-advc,.lt-azul .lta-card{border:1.5px solid rgba(130,155,255,.32);box-shadow:0 22px 50px rgba(0,0,22,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+.lt-azul .lta-advc{background:linear-gradient(168deg,rgba(35,64,255,.22),rgba(5,9,30,.96) 60%)}
+.lt-azul .lta-advimg{background:radial-gradient(ellipse 85% 62% at 50% 100%,rgba(255,43,61,.22),transparent 72%)}
+.lt-azul .lta-advc b{font-size:17px}
+.lt-azul .lta-hd .ltb-h2{font-size:clamp(30px,5.2vw,46px);text-shadow:0 2px 26px rgba(0,0,30,.5)}
+.lt-azul .lta-str i{box-shadow:0 0 8px rgba(255,43,61,.45)}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-8px) rotate(-.7deg);border-color:var(--a-red);box-shadow:0 28px 64px rgba(0,0,30,.6),0 0 46px rgba(255,43,61,.32)}.lt-azul .lta-card:hover{border-color:var(--a-red);box-shadow:0 24px 54px rgba(0,0,30,.58),0 0 40px rgba(255,43,61,.28)}}
+/* ===================== VENTAJAS · personajes libres + acostado (consolidado limpio v16) ===================== */
+/* eyebrow de rayas en cualquier encabezado de seccion */
+.lt-azul .ltb-h2 .lta-str{margin-right:12px;vertical-align:middle}
+.lt-azul .lta-plsec::before{display:none}
+/* seccion ventajas: fondo + difuminado de la union hero(zona1) -> ventajas(zona2) */
+.lt-azul .lta-advsec{position:relative;overflow:hidden;margin-top:-1px;padding:30px 0 72px;background:radial-gradient(ellipse 58% 42% at 50% 2%,rgba(35,64,255,.14),transparent 72%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.12),transparent 70%),var(--a-bg)}
+.lt-azul .lta-advsec .lta-hd{text-align:center}
+.lt-azul .lta-advsec::before{display:block;content:"";position:absolute;top:0;left:0;right:0;height:220px;z-index:0;pointer-events:none;background:linear-gradient(to bottom,#05081f 0%,rgba(5,8,31,.55) 34%,rgba(2,3,12,0) 100%)}
+.lt-azul .lta-advsec>.ltb-wrap{position:relative;z-index:3}
+/* 3 personajes libres: misma base, mismo alto, texto encima, halo detras */
+.lt-azul .lta-advs{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:40px;align-items:end}
+.lt-azul .lta-advc{position:relative;margin:0;padding:0;display:block;text-align:center;background:none;border:0;box-shadow:none;overflow:visible;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
+.lt-azul .lta-advc::after{display:none}
+.lt-azul .lta-advc::before{content:"";position:absolute;left:50%;bottom:12%;width:86%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,rgba(255,47,72,.56) 0%,rgba(86,70,255,.4) 44%,rgba(35,64,255,.12) 68%,transparent 82%);filter:blur(26px);z-index:0;pointer-events:none}
+.lt-azul .lta-advimg{position:relative;z-index:1;width:100%;aspect-ratio:1.19/1;overflow:visible;background:none;display:block}
+.lt-azul .lta-advimg::before,.lt-azul .lta-advimg::after{display:none}
+.lt-azul .lta-advimg img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;object-position:bottom center;-webkit-mask:linear-gradient(180deg,#000 56%,rgba(0,0,0,.45) 82%,transparent 98%);mask:linear-gradient(180deg,#000 56%,rgba(0,0,0,.45) 82%,transparent 98%);filter:drop-shadow(0 14px 26px rgba(0,0,30,.65)) drop-shadow(0 0 22px rgba(255,43,61,.3))}
+.lt-azul .lta-advc figcaption{position:absolute;left:0;right:0;bottom:1%;z-index:3;padding:0 6px}
+.lt-azul .lta-advc b{display:inline-block;font-family:Anton,Montserrat,sans-serif;font-weight:400;font-size:clamp(16px,1.9vw,22px);line-height:1.05;color:#fff;letter-spacing:.012em;text-shadow:0 2px 2px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9),0 0 18px rgba(255,43,61,.65),0 8px 18px rgba(0,0,0,.75);-webkit-text-stroke:.7px rgba(8,12,38,.95);paint-order:stroke fill}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-10px)}.lt-azul .lta-advc:hover .lta-advimg img{filter:drop-shadow(0 18px 30px rgba(0,0,30,.7)) drop-shadow(0 0 32px rgba(255,43,61,.55))}}
+/* ventajas extra (4+): chips, nada se pierde */
+.lt-azul .lta-advx{list-style:none;margin:30px auto 0;padding:0;max-width:740px;display:flex;flex-wrap:wrap;justify-content:center;gap:10px;position:relative;z-index:1}
+.lt-azul .lta-advx li{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;background:rgba(35,64,255,.14);border:1px solid var(--a-line);font-size:13.5px;font-weight:700;color:#dbe2ff}
+.lt-azul .lta-advx svg{width:16px;height:16px;color:var(--a-glow);flex:none}
+/* Spiderman en hamaca: divisor a todo el ancho (full-bleed) + luz suave detras */
+.lt-azul .lta-couch{position:relative;z-index:6;width:100%;max-width:none;margin:-22px 0 -30px;padding:0;text-align:center;pointer-events:none;isolation:isolate}
+.lt-azul .lta-couch::before{content:"";position:absolute;left:50%;top:50%;width:min(70%,1000px);aspect-ratio:3.4/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.4) 0%,rgba(95,110,255,.24) 48%,transparent 78%);filter:blur(50px);z-index:-1}
+.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
+.lt-azul:not(.lt-static) .lta-couch img{animation:lta-float 6s ease-in-out infinite alternate}
+/* filtros de categoria: que no se corten en movil */
+@media(max-width:620px){.lt-azul .lt-cats{flex-wrap:wrap;justify-content:center;row-gap:8px}}
+/* tablet */
+@media(max-width:859px){.lt-azul .lta-couch{margin:-14px 0 -18px}.lt-azul .lta-advsec{padding-top:24px}.lt-azul .lta-advs{gap:8px;margin-top:30px}}
+/* movil: ventajas en columna vertical, personaje mas bajo para menos scroll */
+@media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -10px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:4px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advimg{aspect-ratio:1.42/1}.lt-azul .lta-advc b{font-size:clamp(17px,6vw,23px)}.lt-azul .lta-advx{gap:8px;margin-top:22px}.lt-azul .lta-advx li{font-size:12.5px;padding:8px 13px}}
+/* barra fija (movil): degradado superior para que el solape se lea intencional */
+/* --- movimientos generales de la plantilla Spiderman activos tambien con "reducir movimiento"; solo se mantiene apagado el parpadeo rapido (.lta-str) por seguridad (WCAG: destellos = riesgo de convulsiones) --- */
+@media (prefers-reduced-motion: reduce){
+  .lt-root.lt-azul:not(.lt-static) .lta-couch img,
+  .lt-root.lt-azul:not(.lt-static) .lta-hart .lta-art{animation:lta-float 6s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-center .lta-art{animation:lta-float 5s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-hart::before{animation:lta-glow 4s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-center::before{animation:lta-glow 3.2s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) [data-lt-btn="main"]{animation:lta-pulse 2.6s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-btn::after{animation:lta-shine 3.6s 1.2s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-beams i{animation:lta-beam var(--t) var(--d) ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-rings i{animation:lta-spin calc(30s + var(--k) * 12s) linear infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-rings i:nth-child(even){animation-direction:reverse!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-dot{animation:lta-ping 2.4s calc(var(--i,0) * .35s) ease-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-dust i{animation:lta-dust var(--t) var(--d) linear infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-giant{animation:lta-chrome 6s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-pill i{animation:lta-play 2s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-htx>*{animation:lta-in .8s calc(var(--k,0) * .1s) cubic-bezier(.16,1,.3,1) both!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-hart{animation:lta-hin 1.1s .15s cubic-bezier(.16,1,.3,1) both!important}
+}
 `;
 
   function renderAzul(root, d, ctx) {
@@ -696,7 +785,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const revs = d.reviews && d.reviews.length ? d.reviews : [];
     const html =
       (pm ? ctx.profileHeader() : '') +
-      `<section class="lta-hero" data-lt-hero>${!pm && d.coverUrl ? `<figure class="lta-hcov" aria-hidden="true"><img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>` : ''}${beams}${dust(14)}<div class="ltb-wrap">` +
+      `<section class="lta-hero" data-lt-hero>${!pm && d.coverUrl ? `<figure class="lta-hcov" aria-hidden="true"><img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>` : ''}${beams}<img class="lta-web lta-web-hero" src="${AZ_IMG}sp-web2.webp" alt="" aria-hidden="true">${dust(14)}<div class="ltb-wrap">` +
       (pm ? '' : `<div class="lta-top"><span class="lta-pill"><i>${azi('play', '')}</i><b${ed(ctx, 'tagline')}>${ctx.esc(d.tagline || LC.DEFAULTS.tagline)}</b></span>` +
         `<a class="lta-who" href="#" data-goto="plans"><span><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b><small>${wa ? 'Atención por WhatsApp' : 'Planes de streaming'}</small></span>${mark}</a></div>`) +
       `<div class="lta-hin"><div class="lta-htx"><span class="lta-brandw lta-wide" style="--k:0"><small>TIENDA</small>${ctx.esc(gName)}</span>` +
@@ -704,13 +793,14 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="ltb-sub" style="--k:2"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       `<div style="--k:3">${cta(d.ctaText, 'ctaText')}</div>` +
       (ctx.minPrice ? `<p class="lta-note" style="--k:4">${azi('tap')}<span>Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span></p>` : '') + `</div>` +
-      `<div class="lta-hart">${azArt('hero', '', 'Foto de portada (PNG sin fondo)')}</div></div>` +
-      `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
+      `</div>` +
+      `</div></section>` +
       promo(ctx) +
-      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}sp-adv${i + 1}.webp" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
+      `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch4.webp" alt="" decoding="async" loading="lazy"></div>` +
+      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead(`${azStripes()}¿Por qué comprar con nosotros?`)}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-ben1.webp', 'sp-ben2.webp', 'sp-ben3.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div>${d.benefits.length > 3 ? `<ul class="lta-advx" data-rv>${d.benefits.slice(3).map((b, k) => { const i = k + 3; return `<li>${azi('check')}<span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`; }).join('')}</ul>` : ''}</div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
-      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
+      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead(`${azStripes()}Opiniones de nuestros clientes`)}` +
         `<div class="lta-arrows"><button type="button" data-az-dir="-1" aria-label="Anterior">${azi('arL', '')}</button><button type="button" data-az-dir="1" aria-label="Siguiente">${azi('arR', '')}</button></div></div>` +
         `${reviewsHtml(ctx, d)}<div class="lta-rvfoot">${cta(d.ctaText, '', false)}</div></div></section>` : '') +
       `<section class="ltb-sec ltb-sec-who lta-big">${dust(14)}<div class="ltb-wrap"><p class="lta-bigq" data-rv>${azStripes()}</p>` +
@@ -718,8 +808,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<div class="lta-crowd">${azArt('crowd', '', 'Imagen ancha (público o banner)')}</div>` +
       `<div class="ltb-wrap"><div class="lta-about" data-rv>${cta(d.ctaText, '', false)}</div></div></section>` +
       (d.paymentMethods.length ? sec('pays', `${azStripes()}Paga como quieras`, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
-      faqSec(ctx, d, 'Preguntas frecuentes') +
-      linksSec(ctx, d, 'Síguenos en redes') +
+      faqSec(ctx, d, `${azStripes()}Preguntas frecuentes`) +
+      linksSec(ctx, d, `${azStripes()}Síguenos en redes`) +
       footer(ctx, d, `<span class="lta-fname">${ctx.esc(gName)}</span>`) + fab(ctx, wa);
     root.innerHTML = html;
     motionKit(root, ctx, cl);
@@ -743,7 +833,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hart', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
+    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hcov', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
     name: 'Spiderman', description: 'Azul con detalles rojos estilo Spiderman: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante.',
     tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, render: renderAzul
   });
