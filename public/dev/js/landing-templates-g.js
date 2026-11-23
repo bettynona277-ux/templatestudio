@@ -425,6 +425,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     tap: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" opacity=".45"/>'
   };
   const azi = (k, cls = 'lta-ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AZ_I[k]}</svg>`;
+  const azSpider = (cls = '') => `<svg class="lta-spider ${cls}" viewBox="0 0 200 240" fill="none" aria-hidden="true"><g stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M88 86 54 54 30 28"/><path d="M85 101 46 90 16 80"/><path d="M85 116 46 120 16 128"/><path d="M88 130 54 152 34 176"/><path d="M112 86 146 54 170 28"/><path d="M115 101 154 90 184 80"/><path d="M115 116 154 120 184 128"/><path d="M112 130 146 152 166 176"/></g><ellipse cx="100" cy="92" rx="13" ry="17" fill="#fff"/><path d="M88 106c0 34 6 64 12 78 6-14 12-44 12-78 0-8-24-8-24 0z" fill="#fff"/></svg>`;
   /** Resalta en caja azul las palabras del medio del título (como "logrando ingresos que" de la referencia). */
   function azMark(ctx, text) {
     const w = String(text || '').trim().split(/\s+/);
@@ -545,7 +546,11 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @media (max-width:859px){.lt-azul .lta-orbit{grid-template-columns:1fr;gap:26px}.lt-azul .lta-center{order:-1;max-width:330px;width:100%;margin:0 auto}.lt-azul .lta-pts{gap:18px}.lt-azul .lta-pts.l li{flex-direction:row;text-align:left}.lt-azul .lta-pts li:nth-child(2){margin:0!important}.lt-azul .lta-rings{top:150px;width:560px}}
 .lt-azul .lta-advsec{position:relative;overflow:hidden;padding:60px 0 72px;background:radial-gradient(ellipse 65% 50% at 50% 0%,rgba(35,64,255,.3),transparent 70%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.16),transparent 70%),var(--a-bg)}
 .lt-azul .lta-advsec .lta-hd{text-align:center}
-.lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(300px,42%);opacity:.17;pointer-events:none;z-index:0}
+.lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(320px,44%);opacity:.3;pointer-events:none;z-index:0}
+.lt-azul .lta-web-hero{top:-8px;left:-20px;right:auto;width:min(360px,48%);opacity:.24;transform:scaleX(-1)}
+.lt-azul .lta-hspider{display:grid;place-items:center;align-self:center}
+.lt-azul .lta-hspider .lta-spider{width:min(84%,340px);height:auto;filter:drop-shadow(0 0 16px rgba(255,43,61,.6)) drop-shadow(0 0 42px rgba(35,64,255,.55))}
+.lt-azul:not(.lt-static) .lta-hspider .lta-spider{animation:lta-float 5.5s ease-in-out infinite alternate}
 .lt-azul .lta-advs{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
 .lt-azul .lta-advc{position:relative;margin:0;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 0 22px;border-radius:22px;background:linear-gradient(168deg,rgba(35,64,255,.16),rgba(8,12,40,.92) 58%);border:1px solid var(--a-line);box-shadow:0 18px 42px rgba(0,0,22,.5);overflow:hidden;transition:transform .35s cubic-bezier(.3,1.5,.5,1),border-color .3s}
 .lt-azul .lta-advc::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:linear-gradient(90deg,var(--a-blue),var(--a-red))}
@@ -696,7 +701,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
     const revs = d.reviews && d.reviews.length ? d.reviews : [];
     const html =
       (pm ? ctx.profileHeader() : '') +
-      `<section class="lta-hero" data-lt-hero>${!pm && d.coverUrl ? `<figure class="lta-hcov" aria-hidden="true"><img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>` : ''}${beams}${dust(14)}<div class="ltb-wrap">` +
+      `<section class="lta-hero" data-lt-hero>${!pm && d.coverUrl ? `<figure class="lta-hcov" aria-hidden="true"><img src="${ctx.esc(d.coverUrl)}" alt="" decoding="async" fetchpriority="high"></figure>` : ''}${beams}<img class="lta-web lta-web-hero" src="${AZ_IMG}sp-web2.webp" alt="" aria-hidden="true">${dust(14)}<div class="ltb-wrap">` +
       (pm ? '' : `<div class="lta-top"><span class="lta-pill"><i>${azi('play', '')}</i><b${ed(ctx, 'tagline')}>${ctx.esc(d.tagline || LC.DEFAULTS.tagline)}</b></span>` +
         `<a class="lta-who" href="#" data-goto="plans"><span><b${ed(ctx, 'name')}>${ctx.esc(d.name)}</b><small>${wa ? 'Atención por WhatsApp' : 'Planes de streaming'}</small></span>${mark}</a></div>`) +
       `<div class="lta-hin"><div class="lta-htx"><span class="lta-brandw lta-wide" style="--k:0"><small>TIENDA</small>${ctx.esc(gName)}</span>` +
@@ -704,10 +709,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="ltb-sub" style="--k:2"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       `<div style="--k:3">${cta(d.ctaText, 'ctaText')}</div>` +
       (ctx.minPrice ? `<p class="lta-note" style="--k:4">${azi('tap')}<span>Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span></p>` : '') + `</div>` +
-      `<div class="lta-hart">${azArt('hero', '', 'Foto de portada (PNG sin fondo)')}</div></div>` +
+      `<div class="lta-hart lta-hspider">${azSpider()}</div></div>` +
       `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
       promo(ctx) +
-      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}sp-adv${i + 1}.webp" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
+      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv3.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
       (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
