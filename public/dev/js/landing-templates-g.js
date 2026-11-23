@@ -835,6 +835,6 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   LC.registerTemplate({
     id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hcov', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
     name: 'Spiderman', description: 'Azul con detalles rojos estilo Spiderman: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante.',
-    tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, render: renderAzul
+    tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, vipOnly: true, fallback: 'pop', render: renderAzul
   });
 })(typeof window !== 'undefined' ? window : globalThis);
