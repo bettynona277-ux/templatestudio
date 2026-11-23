@@ -670,7 +670,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul:not(.lt-static).ltb-rv .lta-giant[data-rv].is-in{animation:lta-gin 1s var(--rvd,0ms) cubic-bezier(.16,1,.3,1) both,lta-chrome 6s 1s ease-in-out infinite alternate}
 @keyframes lta-gin{from{opacity:0;letter-spacing:.25em;filter:blur(8px) drop-shadow(0 6px 20px rgba(35,64,255,.55))}to{opacity:1;letter-spacing:-.02em;filter:blur(0) drop-shadow(0 6px 20px rgba(35,64,255,.55))}}
 .lt-azul .ltb-off :is(.lta-btn,.lta-beams i,.lta-rings i,.lta-dot,.lta-dust i,.lta-str i,.lta-giant,.lta-pill i,.lta-art),.lt-azul .ltb-off :is(.lta-btn,.lta-hart,.lta-center)::after,.lt-azul .ltb-off :is(.lta-hart,.lta-center)::before,.lt-azul .lta-zz :is(.lta-dust i,.lta-rings i,.lta-beams i){animation-play-state:paused!important}
-@media (max-width:520px){.lt-azul .lta-pill b{max-width:46vw}.lt-azul .lta-who small{display:none}.lt-azul .lta-dust i:nth-child(n+9){display:none}.lt-azul .lta-rvhd{align-items:center}".lt-azul .lta-arrows button{width:40px;height:40px}}
+@media (max-width:520px){.lt-azul .lta-pill b{max-width:46vw}.lt-azul .lta-who small{display:none}.lt-azul .lta-dust i:nth-child(n+9){display:none}.lt-azul .lta-rvhd{align-items:center}.lt-azul .lta-arrows button{width:40px;height:40px}}
 /* ===================== MEJORA DE DISEÑO · cómic / Spider-Verse ===================== */
 .lt-azul .ltb-h1,.lt-azul .lta-hd .ltb-h2,.lt-azul .lta-giant,.lt-azul .lta-brandw{font-family:Anton,Montserrat,sans-serif;font-weight:400}
 /* halftone de cómic en las secciones oscuras */
