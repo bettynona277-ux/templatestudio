@@ -505,8 +505,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-hcov img{width:100%;height:100%;object-fit:cover;filter:saturate(.6) hue-rotate(10deg)}
 .lt-azul .lta-beams{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
 .lt-azul .lta-beams i{position:absolute;top:-20%;width:140px;height:140%;left:var(--x);background:linear-gradient(180deg,rgba(120,145,255,.0),rgba(120,145,255,.22),rgba(120,145,255,0));transform:rotate(var(--r));transform-origin:top center;filter:blur(8px);opacity:.75}
-.lt-azul .lta-hin{position:relative;z-index:2;display:grid;grid-template-columns:1.05fr .95fr;gap:22px;align-items:end;padding:22px 0 0}
-.lt-azul .lta-htx{padding:22px 0 60px;min-width:0}
+.lt-azul .lta-hin{position:relative;z-index:2;padding:26px 0 0}
+.lt-azul .lta-htx{padding:22px 0 56px;min-width:0;max-width:700px}
 .lt-azul .lta-brandw{display:block;margin:0 0 14px;font-size:clamp(20px,3vw,30px);line-height:.9;font-weight:900;text-transform:uppercase;background:linear-gradient(180deg,#fff 20%,#9fb2ff 60%,#4d6bff);-webkit-background-clip:text;background-clip:text;color:transparent;overflow-wrap:anywhere}
 .lt-azul .lta-brandw small{display:block;font-family:Montserrat,sans-serif;font-size:11px;letter-spacing:.38em;font-weight:700;-webkit-text-fill-color:var(--a-ice);margin-bottom:4px}
 .lt-azul .lta-hero .ltb-h1{margin:0 0 16px;font-size:clamp(28px,4.4vw,46px);line-height:1.14;overflow-wrap:anywhere}
@@ -709,10 +709,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<p class="ltb-sub" style="--k:2"${ed(ctx, 'heroSubtitle')}>${ctx.esc(d.heroSubtitle || LC.DEFAULTS.heroSubtitle)}</p>` +
       `<div style="--k:3">${cta(d.ctaText, 'ctaText')}</div>` +
       (ctx.minPrice ? `<p class="lta-note" style="--k:4">${azi('tap')}<span>Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span></p>` : '') + `</div>` +
-      `<div class="lta-hart lta-hspider">${azSpider()}</div></div>` +
+      `</div>` +
       `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
       promo(ctx) +
-      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv3.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
+      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv2.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
       (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
