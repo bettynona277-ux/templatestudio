@@ -547,7 +547,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-advsec{position:relative;overflow:hidden;padding:60px 0 72px;background:radial-gradient(ellipse 65% 50% at 50% 0%,rgba(35,64,255,.3),transparent 70%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.16),transparent 70%),var(--a-bg)}
 .lt-azul .lta-advsec .lta-hd{text-align:center}
 .lt-azul .lta-web{position:absolute;top:-14px;right:-16px;width:min(320px,44%);opacity:.3;pointer-events:none;z-index:0}
-.lt-azul .lta-web-hero{top:-8px;left:-20px;right:auto;width:min(360px,48%);opacity:.24;transform:scaleX(-1)}
+.lt-azul .lta-web-hero{top:0;right:0;left:auto;bottom:auto;width:min(360px,50%);opacity:.32;transform:scaleX(-1);transform-origin:top right}
 .lt-azul .lta-hspider{display:grid;place-items:center;align-self:center}
 .lt-azul .lta-hspider .lta-spider{width:min(84%,340px);height:auto;filter:drop-shadow(0 0 16px rgba(255,43,61,.6)) drop-shadow(0 0 42px rgba(35,64,255,.55))}
 .lt-azul:not(.lt-static) .lta-hspider .lta-spider{animation:lta-float 5.5s ease-in-out infinite alternate}
