@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Previsualizar landing · Diseños Streaming</title>
+<style>
+  html,body{margin:0}
+  body{background:#0b0d14;color:#e8eaf2;font:14px system-ui,-apple-system,sans-serif}
+  #bar{position:fixed;inset:0 0 auto 0;z-index:9;display:flex;gap:12px;align-items:center;padding:9px 16px;background:#11141f;border-bottom:1px solid #222}
+  #bar b{font-size:13px;white-space:nowrap}
+  #msg{opacity:.85;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #wrap{padding-top:44px}
+  #lt-root{min-height:calc(100vh - 44px)}
+</style>
+</head>
+<body>
+  <div id="bar"><b>Vista previa</b><span id="msg">Cargando…</span></div>
+  <div id="wrap"><div id="lt-root"></div></div>
+
+  <script>window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';</script>
+  <script>document.write('<script src="' + window.LANDING_BASE + 'js/landing-core.js?v=26"><\/script>');</script>
+  <script type="module">
+    const msg = document.getElementById('msg');
+    const setMsg = t => { msg.textContent = t; };
+    const id = new URLSearchParams(location.search).get('id');
+    try {
+      if (!id) { setMsg('Falta el id de la landing en la URL (?id=...).'); throw 0; }
+      // Esperar a que cargue el núcleo (document.write es síncrono, pero por si acaso).
+      await new Promise(r => { if (window.LandingCore) return r(); const t = setInterval(() => { if (window.LandingCore) { clearInterval(t); r(); } }, 30); setTimeout(() => { clearInterval(t); r(); }, 8000); });
+      const LC = window.LandingCore;
+      if (!LC || typeof LC.fetchLanding !== 'function') { setMsg('No se pudo cargar el núcleo de landings.'); throw 0; }
+      // 1) Entrega directa desde el admin (localStorage, mismo origen): el admin ya tiene el código,
+      //    así que el borrador se previsualiza sin depender de qué sesión esté activa en el navegador.
+      let lx = null;
+      try {
+        const raw = localStorage.getItem('ds-landing-preview');
+        if (raw) { const o = JSON.parse(raw); if (o && o.id === id && o.code && (Date.now() - (Number(o.t) || 0) < 300000)) lx = o; }
+      } catch (_) {}
+      // 2) Si no vino del admin (p. ej. una publicada abierta directo), se trae de Firestore.
+      if (!lx) {
+        let token = null;
+        try {
+          const V = '10.12.0', base = `https://www.gstatic.com/firebasejs/${V}/`;
+          const appM = await import(base + 'firebase-app.js'), authM = await import(base + 'firebase-auth.js');
+          const app = appM.getApps().length ? appM.getApp() : appM.initializeApp(LC.FIREBASE);
+          const auth = authM.getAuth(app);
+          const user = await new Promise(r => { const un = authM.onAuthStateChanged(auth, u => { un(); r(u); }); setTimeout(() => r(null), 6000); });
+          if (user) token = await user.getIdToken().catch(() => null);
+        } catch (_) {}
+        lx = await LC.fetchLanding(id, token);
+      }
+      if (!lx) { setMsg('No se encontró la landing "' + id + '". ¿La guardaste? ¿Iniciaste sesión como admin para ver borradores?'); throw 0; }
+      const ok = LC.registerCode(lx.code, { id });
+      if (!ok || !LC.listTemplates().some(t => t.id === id)) { setMsg('El código de la landing tiene un error y no se pudo registrar. Abre la consola (F12) para ver el detalle.'); throw 0; }
+      const data = { ...LC.sampleData(), template: id, vip: true, vipUntil: null };
+      LC.render(document.getElementById('lt-root'), data, {});
+      setMsg((lx.name || id) + ' · ' + (lx.status === 'published' ? 'publicada' : 'BORRADOR') + (lx.vip ? ' · VIP' : '') + ' · datos de ejemplo');
+    } catch (e) {
+      if (e) { try { console.error('[preview]', e); setMsg('Error: ' + (e.message || e)); } catch (_) {} }
+    }
+  </script>
+</body>
+</html>

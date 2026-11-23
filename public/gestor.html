@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/guard.js"></script>
 <meta charset="UTF-8" />
 <!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
 <meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
@@ -5106,6 +5107,7 @@ html[data-theme="light"] #authLoader > div > div:nth-child(2){color:var(--muted)
       <button class="nav-btn" data-view="renovacionesView"><i data-lucide="alarm-clock"></i><span>Vence</span><span class="count" id="navRenovaciones">0</span></button>
       <button class="nav-btn" data-view="finanzasView" data-finance-only><i data-lucide="wallet-cards"></i><span>Finanzas</span></button>
       <button class="nav-btn" data-view="seguridadView"><i data-lucide="shield-check"></i><span>Seguridad</span></button>
+      <a class="nav-btn nav-landing" href="mi-landing.html" style="text-decoration:none"><i data-lucide="panels-top-left"></i><span>Mi página de ventas</span><span class="count" style="background:#7c3aed;color:#fff">Nuevo</span></a>
     </nav>
     <details class="config-menu">
       <summary><i data-lucide="settings-2"></i><span>Configuracion</span></summary>
@@ -6946,7 +6948,7 @@ function renderStats(){
 
 function switchView(viewId){
   if(viewId==='finanzasView' && !isFinanceModeEnabled()) viewId='inicioView';
-  $$('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.view===viewId));
+  $$('.nav-btn[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===viewId));
   $$('.view').forEach(v=>v.classList.remove('active'));
   const view=$('#'+viewId);
   if(view) view.classList.add('active');
@@ -8368,6 +8370,14 @@ async function applyRenewalDate(clientId, newDate){
   if(!selected.length){ alert('No se encontro una app activa para renovar. Actualiza la lista e intenta nuevamente.'); return; }
   const renewalDates=selected.map(item=>`${friendlyPlatform(item.platform)}: ${fmtDateLong(window.__comboRenewMonths ? dateToLocalString(addMonthsClamped(renewalBaseDate(item),window.__comboRenewMonths)) : newDate)}`);
   const exactWarning=window.__comboRenewMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
+  // Protección: una renovación pegada a la venta suele ser un toque por error
+  // (cobra un mes extra y suma otro ingreso en Finanzas).
+  const recentSale=selected.map(item=>Date.parse(item.createdAt||'')).filter(Number.isFinite).map(t=>Math.round((Date.now()-t)/60000)).filter(min=>min>=0 && min<120);
+  if(recentSale.length){
+    const mins=Math.min(...recentSale);
+    const ago=mins<1?'hace menos de 1 minuto':mins===1?'hace 1 minuto':`hace ${mins} minutos`;
+    if(!confirm(`⚠ Este cliente se vendió ${ago}.\n\nRenovar ahora le suma OTRO periodo y registra otro ingreso en Finanzas.\n\nSi solo querías entregar la cuenta o enviar WhatsApp, pulsa Cancelar.`)) return;
+  }
   if(!confirm(`Se renovarán estas apps:\n${renewalDates.join('\n')}${exactWarning}`)) return;
   const targetWindow=openWhatsappPendingWindow('Renovaci\u00f3n lista', 'Estamos armando el mensaje de agradecimiento para tu cliente.');
   if(partial){
@@ -9199,7 +9209,7 @@ $$('.modal-backdrop').forEach(wrap=>{
     if(e.target===wrap) closeModal(wrap.id);
   });
 });
-$$('.nav-btn').forEach(btn=>btn.onclick=()=>switchView(btn.dataset.view));
+$$('.nav-btn[data-view]').forEach(btn=>btn.onclick=()=>switchView(btn.dataset.view));
 $('#clientSearch').oninput=renderClients;
 $('#clientStatusFilter').onchange=renderClients;
 $('#clientAccountFilter').onchange=renderClients;

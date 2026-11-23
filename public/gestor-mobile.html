@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
+<script src="/guard.js"></script>
 <meta charset="utf-8" />
 <!-- Copyright (c) 2026 Disenos Streaming. Unauthorized reproduction or distribution is prohibited. -->
 <meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved." />
@@ -93,6 +94,11 @@ button{border:0;cursor:pointer}
 .stat{padding:12px;border-radius:18px;background:rgba(255,255,255,.045);border:1px solid var(--line);min-height:76px}
 .stat b{display:block;font-size:21px}.stat span{display:block;color:var(--muted);font-size:11px;font-weight:750;line-height:1.25}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0}
+.landing-cta{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:14px;border-radius:18px;text-decoration:none;color:var(--text);background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(34,211,238,.16));border:1px solid rgba(124,58,237,.45)}
+.landing-cta-ico{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:grid;place-items:center;background:#7c3aed;color:#fff}
+.landing-cta strong{display:block;font-size:15px}.landing-cta small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.landing-cta em{margin-left:auto;font-style:normal;font-size:10px;font-weight:900;padding:3px 8px;border-radius:999px;background:#7c3aed;color:#fff}
+
 .btn{min-height:46px;border-radius:15px;padding:0 14px;font-weight:900;color:var(--text);background:rgba(255,255,255,.07);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
 .btn.primary{background:linear-gradient(135deg,var(--brand),#5d8cff);border-color:transparent}
 .btn.ok{background:linear-gradient(135deg,#11b986,#21d9a3);color:#03130e;border-color:transparent}
@@ -1685,6 +1691,7 @@ function renderHome(){
       <button class="btn" id="newAccount">${icon('database-plus')}<span>Nueva cuenta</span></button>
       ${isFinanceModeEnabled() ? `<button class="btn" id="openFinance">${icon('wallet')}<span>Finanzas</span></button>` : ''}
     </div>
+    <a class="landing-cta" href="mi-landing.html"><span class="landing-cta-ico">${icon('eye')}</span><span><strong>Mi página de ventas</strong><small>Crea tu landing con logo, precios y combos</small></span><em>Nuevo</em></a>
     <section class="section">
       <div class="section-head"><h2>Proximos vencimientos</h2><span>${due.length} clientes</span></div>
       <div class="list">${renderClientGroups(due.slice(0,8)) || empty('No tienes vencimientos pendientes.')}</div>
@@ -3302,6 +3309,13 @@ function renewClient(c){
     if(!selected.length) return false;
     const dates=selected.map(item=>`${platformShort(item.platform)}: ${durationMonths ? addMonthsISO(clean(item.dueDate)||todayISO(),durationMonths) : date}`);
     const exactNote=durationMonths ? '' : '\n\nLa fecha personalizada se aplicará igual a todas las apps seleccionadas.';
+    // Protección: renovar justo después de vender suele ser un toque por error.
+    const recent=selected.map(item=>Date.parse(item.createdAt||'')).filter(Number.isFinite).map(t=>Math.round((Date.now()-t)/60000)).filter(min=>min>=0 && min<120);
+    if(recent.length){
+      const mins=Math.min(...recent);
+      const ago=mins<1?'hace menos de 1 minuto':mins===1?'hace 1 minuto':`hace ${mins} minutos`;
+      if(!confirm(`⚠ Este cliente se vendió ${ago}.\n\nRenovar ahora le suma OTRO periodo y registra otro ingreso en Finanzas.\n\nSi solo querías entregar la cuenta, pulsa Cancelar.`)) return false;
+    }
     return confirm(`Se renovarán estas apps:\n${dates.join('\n')}${exactNote}`);
   };
   const apply=(date,message,durationMonths=0)=>{ const ids=selectedIds(); if(!ids.length) return toast('Selecciona al menos una app para renovar.','bad'); if(!confirmRenewal(ids,date,durationMonths)) return; return applyClientRenewal(c,date,message,moneyNumber($('#renewPriceMobile')?.value),{selectedIds:ids,durationMonths}); };
