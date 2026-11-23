@@ -736,7 +736,6 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* movil: ventajas en columna vertical, personaje mas bajo para menos scroll */
 @media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -10px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:4px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advimg{aspect-ratio:1.42/1}.lt-azul .lta-advc b{font-size:clamp(17px,6vw,23px)}.lt-azul .lta-advx{gap:8px;margin-top:22px}.lt-azul .lta-advx li{font-size:12.5px;padding:8px 13px}}
 /* barra fija (movil): degradado superior para que el solape se lea intencional */
-.lt-azul .lt-bbw::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:42px;background:linear-gradient(to top,rgba(2,3,12,.92),rgba(2,3,12,0));pointer-events:none}
 /* --- movimientos generales de la plantilla Spiderman activos tambien con "reducir movimiento"; solo se mantiene apagado el parpadeo rapido (.lta-str) por seguridad (WCAG: destellos = riesgo de convulsiones) --- */
 @media (prefers-reduced-motion: reduce){
   .lt-root.lt-azul:not(.lt-static) .lta-couch img,
