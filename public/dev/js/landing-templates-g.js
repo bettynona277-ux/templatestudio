@@ -729,18 +729,17 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* luz suave (no barra, no rectángulo) detrás del Spiderman acostado */
 .lt-azul .lta-couch::before{left:50%;top:54%;width:86%;aspect-ratio:3.1/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.42),rgba(95,125,255,.2) 50%,transparent 76%);filter:blur(54px)}
 @media(max-width:859px){.lt-azul .lta-couch{margin:-26px auto -30px}}
-/* El personaje acostado cubre el corte entre portada y ventajas de borde a borde. */
-.lt-azul .lta-couch{width:100%;max-width:none;margin:-86px auto 0;padding:0;isolation:isolate}
-.lt-azul .lta-couch::before{top:50%;width:94%;aspect-ratio:3.2/1;background:radial-gradient(ellipse closest-side,rgba(255,55,75,.68) 0%,rgba(95,80,255,.48) 43%,rgba(35,64,255,.25) 61%,transparent 82%);filter:blur(22px);z-index:-1}
-.lt-azul .lta-couch img{display:block;width:100%;max-width:none}
-.lt-azul .lta-advsec{padding-top:42px}
-/* Los tres personajes conservan su tamaño visual y tienen un halo detrás. */
-.lt-azul .lta-advc::before{bottom:18%;width:115%;background:radial-gradient(closest-side,rgba(255,47,72,.7) 0%,rgba(86,70,255,.5) 43%,rgba(35,64,255,.16) 68%,transparent 82%);filter:blur(15px)}
+/* ===== Consolidado (reemplaza el full-bleed roto): acostado centrado como divisor, ventajas figuras libres con halo ===== */
+.lt-azul .lta-couch{width:100%;max-width:860px;margin:-38px auto -34px;padding:0 16px;isolation:isolate}
+.lt-azul .lta-couch::before{left:50%;top:52%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.5) 0%,rgba(95,110,255,.3) 46%,rgba(35,64,255,.12) 64%,transparent 82%);filter:blur(44px);z-index:-1}
+.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
+.lt-azul .lta-advsec{padding-top:30px}
+.lt-azul .lta-advc::before{bottom:16%;width:112%;background:radial-gradient(closest-side,rgba(255,47,72,.6) 0%,rgba(86,70,255,.42) 44%,rgba(35,64,255,.14) 68%,transparent 82%);filter:blur(18px)}
 .lt-azul .lta-advimg{overflow:visible}
 .lt-azul .lta-advimg img{max-width:none;max-height:none}
-.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.32);transform-origin:center 74%}
-@media(max-width:859px){.lt-azul .lta-couch{margin:-64px auto 0}.lt-azul .lta-advsec{padding-top:32px}}
-@media(max-width:620px){.lt-azul .lta-couch{margin:-48px auto 0}.lt-azul .lta-advsec{padding-top:24px}.lt-azul .lta-advsec .ltb-wrap{padding:0 10px}.lt-azul .lta-advs{gap:2px}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.38)}.lt-azul .lta-advc b{font-size:15px}}
+.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.08);transform-origin:center 78%}
+@media(max-width:859px){.lt-azul .lta-couch{max-width:560px;margin:-26px auto -26px}.lt-azul .lta-advsec{padding-top:24px}}
+@media(max-width:620px){.lt-azul .lta-couch{max-width:94%;margin:-18px auto -20px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advsec .ltb-wrap{padding:0 10px}.lt-azul .lta-advs{gap:2px}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.12)}.lt-azul .lta-advc b{font-size:15px}}
 `;
 
   function renderAzul(root, d, ctx) {
