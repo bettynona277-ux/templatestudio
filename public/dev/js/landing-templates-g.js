@@ -462,7 +462,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   const azHead = (html, sub, cls = '') => `<div class="lta-hd ${cls}" data-rv><h2 class="ltb-h2">${html}</h2>${sub ? `<p>${sub}</p>` : ''}</div>`;
   const azStripes = (cls = '') => `<span class="lta-str ${cls}" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
 
-  const CSS_AZUL = `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Unbounded:wght@600;800;900&display=swap');` + baseCss('azul') + `
+  const CSS_AZUL = `@import url('https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@400;500;600;700;800;900&family=Unbounded:wght@600;800;900&display=swap');` + baseCss('azul') + `
 .lt-azul{--a-bg:#02030c;--a-bg2:#050a26;--a-navy:#0a1250;--a-blue:#2340ff;--a-blue2:#3d5bff;--a-glow:#4d6bff;--a-ice:#9fb2ff;--a-tx:#f2f5ff;--a-mut:#a9b3d9;--a-line:rgba(110,135,255,.28);--a-red:#ff2b3d;--a-red2:#d20f22;--a-redglow:rgba(255,43,61,.55);background:var(--a-bg);color:var(--a-tx);font-family:Montserrat,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 .lt-azul .ltb-wrap{max-width:1080px}
 .lt-azul .ltb-h1,.lt-azul .ltb-h2,.lt-azul h3{font-weight:800;letter-spacing:-.02em}
@@ -670,7 +670,52 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul:not(.lt-static).ltb-rv .lta-giant[data-rv].is-in{animation:lta-gin 1s var(--rvd,0ms) cubic-bezier(.16,1,.3,1) both,lta-chrome 6s 1s ease-in-out infinite alternate}
 @keyframes lta-gin{from{opacity:0;letter-spacing:.25em;filter:blur(8px) drop-shadow(0 6px 20px rgba(35,64,255,.55))}to{opacity:1;letter-spacing:-.02em;filter:blur(0) drop-shadow(0 6px 20px rgba(35,64,255,.55))}}
 .lt-azul .ltb-off :is(.lta-btn,.lta-beams i,.lta-rings i,.lta-dot,.lta-dust i,.lta-str i,.lta-giant,.lta-pill i,.lta-art),.lt-azul .ltb-off :is(.lta-btn,.lta-hart,.lta-center)::after,.lt-azul .ltb-off :is(.lta-hart,.lta-center)::before,.lt-azul .lta-zz :is(.lta-dust i,.lta-rings i,.lta-beams i){animation-play-state:paused!important}
-@media (max-width:520px){.lt-azul .lta-pill b{max-width:46vw}.lt-azul .lta-who small{display:none}.lt-azul .lta-dust i:nth-child(n+9){display:none}.lt-azul .lta-rvhd{align-items:center}.lt-azul .lta-arrows button{width:40px;height:40px}}
+@media (max-width:520px){.lt-azul .lta-pill b{max-width:46vw}.lt-azul .lta-who small{display:none}.lt-azul .lta-dust i:nth-child(n+9){display:none}.lt-azul .lta-rvhd{align-items:center}".lt-azul .lta-arrows button{width:40px;height:40px}}
+/* ===================== MEJORA DE DISEÑO · cómic / Spider-Verse ===================== */
+.lt-azul .ltb-h1,.lt-azul .lta-hd .ltb-h2,.lt-azul .lta-giant,.lt-azul .lta-brandw{font-family:Anton,Montserrat,sans-serif;font-weight:400}
+/* halftone de cómic en las secciones oscuras */
+.lt-azul .lta-hero::after,.lt-azul .lta-advsec::after,.lt-azul .lta-big::after,.lt-azul .lta-plsec::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.07) 1.1px,transparent 1.5px);background-size:14px 14px;opacity:.55;mix-blend-mode:screen}
+.lt-azul .lta-plsec{position:relative;overflow:hidden}
+.lt-azul .lta-hero .ltb-wrap,.lt-azul .ltb-sec .ltb-wrap{position:relative;z-index:3}
+/* hilo rojo tipo telaraña arriba de las secciones */
+.lt-azul .lta-advsec::before,.lt-azul .lta-plsec::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;z-index:2;background:linear-gradient(90deg,transparent,rgba(130,155,255,.4),var(--a-red) 50%,rgba(130,155,255,.4),transparent);opacity:.75}
+/* PORTADA con más fuerza + acento rojo */
+.lt-azul .lta-hero{background:radial-gradient(ellipse 52% 58% at 70% 32%,rgba(35,64,255,.5),transparent 60%),radial-gradient(ellipse 44% 44% at 88% 12%,rgba(255,40,58,.42),transparent 64%),radial-gradient(ellipse 70% 55% at 10% 104%,rgba(16,32,170,.42),transparent 70%),linear-gradient(180deg,#05081f,#02030c)}
+.lt-azul .lta-web-hero{width:min(470px,60%);opacity:.42;filter:drop-shadow(0 0 12px rgba(120,150,255,.4))}
+.lt-azul .lta-htx{max-width:820px}
+.lt-azul .lta-brandw{font-size:clamp(26px,4.1vw,44px);line-height:.9;filter:drop-shadow(0 6px 22px rgba(35,64,255,.45))}
+.lt-azul .lta-brandw small{font-family:Montserrat,sans-serif;-webkit-text-fill-color:#ff2b3d;letter-spacing:.42em}
+.lt-azul .lta-hero .ltb-h1{font-size:clamp(36px,5.8vw,64px);line-height:1.02;margin-bottom:18px}
+.lt-azul .lta-hero .ltb-sub{font-size:16.5px}
+.lt-azul .lta-mk{background:linear-gradient(90deg,#ff2b3d,#d40f22);box-shadow:0 0 28px rgba(255,43,61,.5)}
+/* botón con más presencia */
+.lt-azul .lta-btn{min-height:60px;border-radius:14px;font-size:17px;padding:16px 36px}
+/* TARJETAS tipo viñeta de cómic */
+.lt-azul .lta-advc,.lt-azul .lta-card{border:1.5px solid rgba(130,155,255,.32);box-shadow:0 22px 50px rgba(0,0,22,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+.lt-azul .lta-advc{background:linear-gradient(168deg,rgba(35,64,255,.22),rgba(5,9,30,.96) 60%)}
+.lt-azul .lta-advimg{background:radial-gradient(ellipse 85% 62% at 50% 100%,rgba(255,43,61,.22),transparent 72%)}
+.lt-azul .lta-advc b{font-size:17px}
+.lt-azul .lta-hd .ltb-h2{font-size:clamp(30px,5.2vw,46px);text-shadow:0 2px 26px rgba(0,0,30,.5)}
+.lt-azul .lta-str i{box-shadow:0 0 8px rgba(255,43,61,.45)}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-8px) rotate(-.7deg);border-color:var(--a-red);box-shadow:0 28px 64px rgba(0,0,30,.6),0 0 46px rgba(255,43,61,.32)}.lt-azul .lta-card:hover{border-color:var(--a-red);box-shadow:0 24px 54px rgba(0,0,30,.58),0 0 40px .28)}}
+/* ===== VENTAJAS: personajes libres (sin caja) · desvanecimiento abajo · texto encima · halo detrás ===== */
+.lt-azul .lta-advs{gap:8px;margin-top:42px;align-items:end;grid-template-columns:repeat(3,1fr)}
+.lt-azul .lta-advc{background:none;border:0;box-shadow:none;overflow:visible;padding:0;display:block;text-align:center;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
+.lt-azul .lta-advc::after{display:none}
+.lt-azul .lta-advc::before{content:"";position:absolute;left:50%;bottom:14%;width:90%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,rgba(255,43,61,.6),rgba(35,64,255,.42) 46%,transparent 72%);filter:blur(28px);z-index:0;pointer-events:none}
+.lt-azul .lta-advimg{position:relative;z-index:1;width:100%;aspect-ratio:3/4.1;background:none}
+.lt-azul .lta-advimg::before,.lt-azul .lta-advimg::after{display:none}
+.lt-azul .lta-advimg img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;object-position:bottom;-webkit-mask:linear-gradient(180deg,#000 50%,rgba(0,0,0,.4) 78%,transparent 96%);mask:linear-gradient(180deg,#000 50%,rgba(0,0,0,.4) 78%,transparent 96%);filter:drop-shadow(0 14px 26px rgba(0,0,30,.65)) drop-shadow(0 0 22px rgba(255,43,61,.3))}
+.lt-azul .lta-advc figcaption{position:absolute;left:0;right:0;bottom:3%;z-index:3;padding:0 6px}
+.lt-azul .lta-advc b{display:inline-block;font-family:Anton,Montserrat,sans-serif;font-weight:400;font-size:clamp(17px,2vw,23px);line-height:1.05;color:#fff;letter-spacing:.012em;text-shadow:0 2px 2px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9),0 0 18px rgba(255,43,61,.65),0 8px 18px rgba(0,0,0,.75);-webkit-text-stroke:.7px rgba(8,12,38,.95);paint-order:stroke fill}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-10px)}.lt-azul .lta-advc:hover .lta-advimg img{filter:drop-shadow(0 18px 30px rgba(0,0,30,.7)) drop-shadow(0 0 32px rgba(255,43,61,.55))}}
+@media(max-width:620px){.lt-azul .lta-advc b{font-size:13px}.lt-azul .lta-advs{gap:4px}}
+/* ===== Spiderman acostado: divisor entre portada y ventajas ===== */
+.lt-azul .lta-couch{position:relative;z-index:6;max-width:1060px;margin:-62px auto -52px;padding:0 14px;text-align:center;pointer-events:none}
+.lt-azul .lta-couch::before{content:"";position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:74%;aspect-ratio:2.6/1;border-radius:50%;background:radial-gradient(closest-side,rgba(255,43,61,.42),rgba(35,64,255,.34) 52%,transparent 76%);filter:blur(46px);z-index:0}
+.lt-azul .lta-couch img{position:relative;z-index:1;width:100%;max-width:980px;height:auto;filter:drop-shadow(0 22px 40px rgba(0,0,30,.72)) drop-shadow(0 0 34px rgba(255,43,61,.32))}
+.lt-azul:not(.lt-static) .lta-couch img{animation:lta-float 6s ease-in-out infinite alternate}
+@media(max-width:859px){.lt-azul .lta-couch{margin:-30px auto -38px}}
 `;
 
   function renderAzul(root, d, ctx) {
@@ -712,6 +757,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `</div>` +
       `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
       promo(ctx) +
+      `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch.webp" alt="" decoding="async" loading="lazy"></div>` +
       `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv2.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
