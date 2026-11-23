@@ -539,6 +539,9 @@ function tiendaVipExpired(data, now = Date.now()) {
 }
 // La tienda no se muestra (sin datos del revendedor): VIP vencido o cuenta inhabilitada por el admin.
 const tiendaUnavailable = data => tiendaVipExpired(data) || !!(data && data.enabled === false && data.pausedByAdmin === true && !data.redirectTo);
+// Lápida vencida: tras la gracia (redirectUntil, 15 días), el enlace viejo deja de redirigir y queda libre.
+// Retrocompatible: las lápidas antiguas sin redirectUntil siguen redirigiendo siempre.
+const tiendaTombExpired = data => !!(data && data.redirectTo && data.redirectUntil != null && Number(data.redirectUntil) > 0 && Date.now() > Number(data.redirectUntil));
 const TIENDA_GENERIC = { name: 'Tienda de streaming', tagline: 'Cuentas y perfiles de streaming con atención por WhatsApp.' };
 
 // opts.host: dominio propio (plan VIP). La tienda se sirve en https://<host>/ con OG canónico de ese dominio.
@@ -564,6 +567,8 @@ async function serveTienda(req, res, rawSlug, url, opts = {}) {
   else {
     const allowed = tiendaAllowed(req);
     let result = allowed ? await tiendaFetch(slug) : null;
+    // Lápida vencida (pasó la gracia de 15 días): el enlace viejo queda libre; se trata como inexistente.
+    if (result && result.found && result.data && tiendaTombExpired(result.data)) result = { found: false };
     // Enlace corto a algo que no es una tienda: dejar que siga el flujo normal del sitio.
     if (opts.short && result && !result.found) return false;
     let data = (result && result.found && result.data) || {};
