@@ -729,6 +729,18 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 /* luz suave (no barra, no rectángulo) detrás del Spiderman acostado */
 .lt-azul .lta-couch::before{left:50%;top:54%;width:86%;aspect-ratio:3.1/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.42),rgba(95,125,255,.2) 50%,transparent 76%);filter:blur(54px)}
 @media(max-width:859px){.lt-azul .lta-couch{margin:-26px auto -30px}}
+/* El personaje acostado cubre el corte entre portada y ventajas de borde a borde. */
+.lt-azul .lta-couch{width:100%;max-width:none;margin:-86px auto 0;padding:0;isolation:isolate}
+.lt-azul .lta-couch::before{top:50%;width:94%;aspect-ratio:3.2/1;background:radial-gradient(ellipse closest-side,rgba(255,55,75,.68) 0%,rgba(95,80,255,.48) 43%,rgba(35,64,255,.25) 61%,transparent 82%);filter:blur(22px);z-index:-1}
+.lt-azul .lta-couch img{display:block;width:100%;max-width:none}
+.lt-azul .lta-advsec{padding-top:42px}
+/* Los tres personajes conservan su tamaño visual y tienen un halo detrás. */
+.lt-azul .lta-advc::before{bottom:18%;width:115%;background:radial-gradient(closest-side,rgba(255,47,72,.7) 0%,rgba(86,70,255,.5) 43%,rgba(35,64,255,.16) 68%,transparent 82%);filter:blur(15px)}
+.lt-azul .lta-advimg{overflow:visible}
+.lt-azul .lta-advimg img{max-width:none;max-height:none}
+.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.32);transform-origin:center 74%}
+@media(max-width:859px){.lt-azul .lta-couch{margin:-64px auto 0}.lt-azul .lta-advsec{padding-top:32px}}
+@media(max-width:620px){.lt-azul .lta-couch{margin:-48px auto 0}.lt-azul .lta-advsec{padding-top:24px}.lt-azul .lta-advsec .ltb-wrap{padding:0 10px}.lt-azul .lta-advs{gap:2px}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.38)}.lt-azul .lta-advc b{font-size:15px}}
 `;
 
   function renderAzul(root, d, ctx) {
@@ -768,7 +780,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<div style="--k:3">${cta(d.ctaText, 'ctaText')}</div>` +
       (ctx.minPrice ? `<p class="lta-note" style="--k:4">${azi('tap')}<span>Planes desde <b>${ctx.esc(ctx.minPrice)}</b></span></p>` : '') + `</div>` +
       `</div>` +
-      `<div class="lta-hbase">${azStripes()}<b>${nApps ? `<em>${nApps}</em> ${nApps === 1 ? 'app' : 'apps'} · ` : ''}${ctx.esc(ctx.hours247 === false ? ctx.hours : 'Atención 24/7')}</b></div></div></section>` +
+      `</div></section>` +
       promo(ctx) +
       `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch.webp" alt="" decoding="async" loading="lazy"></div>` +
       `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv2.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
