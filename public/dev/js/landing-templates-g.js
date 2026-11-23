@@ -737,12 +737,24 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 @media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -10px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:4px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advimg{aspect-ratio:1.42/1}.lt-azul .lta-advc b{font-size:clamp(17px,6vw,23px)}.lt-azul .lta-advx{gap:8px;margin-top:22px}.lt-azul .lta-advx li{font-size:12.5px;padding:8px 13px}}
 /* barra fija (movil): degradado superior para que el solape se lea intencional */
 .lt-azul .lt-bbw::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:42px;background:linear-gradient(to top,rgba(2,3,12,.92),rgba(2,3,12,0));pointer-events:none}
-/* --- opcion 2: con "reducir movimiento" se respeta la preferencia pero se deja un flotado SUAVE del Spiderman (sin particulas, bucles agresivos ni desplazamientos grandes) --- */
-@keyframes lta-floatcalm{from{translate:0 0}to{translate:0 -5px}}
+/* --- movimientos generales de la plantilla Spiderman activos tambien con "reducir movimiento"; solo se mantiene apagado el parpadeo rapido (.lta-str) por seguridad (WCAG: destellos = riesgo de convulsiones) --- */
 @media (prefers-reduced-motion: reduce){
-  .lt-azul:not(.lt-static) .lta-couch img,
-  .lt-azul:not(.lt-static) .lta-hart .lta-art,
-  .lt-azul:not(.lt-static) .lta-center .lta-art{animation:lta-floatcalm 8s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-couch img,
+  .lt-root.lt-azul:not(.lt-static) .lta-hart .lta-art{animation:lta-float 6s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-center .lta-art{animation:lta-float 5s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-hart::before{animation:lta-glow 4s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-center::before{animation:lta-glow 3.2s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) [data-lt-btn="main"]{animation:lta-pulse 2.6s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-btn::after{animation:lta-shine 3.6s 1.2s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-beams i{animation:lta-beam var(--t) var(--d) ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-rings i{animation:lta-spin calc(30s + var(--k) * 12s) linear infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-rings i:nth-child(even){animation-direction:reverse!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-dot{animation:lta-ping 2.4s calc(var(--i,0) * .35s) ease-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-dust i{animation:lta-dust var(--t) var(--d) linear infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-giant{animation:lta-chrome 6s ease-in-out infinite alternate!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-pill i{animation:lta-play 2s ease-in-out infinite!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-htx>*{animation:lta-in .8s calc(var(--k,0) * .1s) cubic-bezier(.16,1,.3,1) both!important}
+  .lt-root.lt-azul:not(.lt-static) .lta-hart{animation:lta-hin 1.1s .15s cubic-bezier(.16,1,.3,1) both!important}
 }
 `;
 
