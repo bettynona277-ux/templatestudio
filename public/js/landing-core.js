@@ -181,6 +181,13 @@
 
   // ---------- dinero ----------
   const CURRENCIES = { PEN: 'S/', USD: '$', MXN: '$', COP: '$', ARS: '$', CLP: '$', BOB: 'Bs', EUR: '€', USDT: 'USDT' };
+  // Moneda: puede ser un código conocido (PEN, USD…) o un símbolo propio que el revendedor escribe (Gs, ₡, RD$…).
+  function curNorm(c) {
+    c = String(c == null ? '' : c).trim().slice(0, 8);
+    if (!c) return 'PEN';
+    if (CURRENCIES[c]) return c;
+    return c.replace(/[<>"'`\\]/g, '').trim().slice(0, 6) || 'PEN';
+  }
   function money(value, currency = 'PEN') {
     const n = Number(String(value ?? '').replace(',', '.'));
     if (!Number.isFinite(n) || n <= 0) return '';
@@ -317,7 +324,7 @@
       hours: text(d.hours, 40) || DEFAULTS.hours,
       // Partes que el dueño ocultó con la X (portada, decoraciones, secciones). Se pueden volver a mostrar.
       hidden: [...new Set(list(d.hidden, 40).map(k => String(k || '').trim().slice(0, 24)).filter(k => /^[a-z0-9_-]+$/i.test(k)))],
-      currency: CURRENCIES[d.currency] ? d.currency : 'PEN', logoUrl: safeImage(d.logoUrl), coverUrl: safeImage(d.coverUrl),
+      currency: curNorm(d.currency), logoUrl: safeImage(d.logoUrl), coverUrl: safeImage(d.coverUrl),
       // Versión ligera de la portada (≈800 px) para celulares; vacía si no existe.
       coverSmUrl: safeImage(d.coverSmUrl),
       theme, plans, combos, links,
