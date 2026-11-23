@@ -697,7 +697,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-advc b{font-size:17px}
 .lt-azul .lta-hd .ltb-h2{font-size:clamp(30px,5.2vw,46px);text-shadow:0 2px 26px rgba(0,0,30,.5)}
 .lt-azul .lta-str i{box-shadow:0 0 8px rgba(255,43,61,.45)}
-@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-8px) rotate(-.7deg);border-color:var(--a-red);box-shadow:0 28px 64px rgba(0,0,30,.6),0 0 46px rgba(255,43,61,.32)}.lt-azul .lta-card:hover{border-color:var(--a-red);box-shadow:0 24px 54px rgba(0,0,30,.58),0 0 40px .28)}}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-8px) rotate(-.7deg);border-color:var(--a-red);box-shadow:0 28px 64px rgba(0,0,30,.6),0 0 46px rgba(255,43,61,.32)}.lt-azul .lta-card:hover{border-color:var(--a-red);box-shadow:0 24px 54px rgba(0,0,30,.58),0 0 40px rgba(255,43,61,.28)}}
 /* ===== VENTAJAS: personajes libres (sin caja) · desvanecimiento abajo · texto encima · halo detrás ===== */
 .lt-azul .lta-advs{gap:8px;margin-top:42px;align-items:end;grid-template-columns:repeat(3,1fr)}
 .lt-azul .lta-advc{background:none;border:0;box-shadow:none;overflow:visible;padding:0;display:block;text-align:center;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
@@ -716,6 +716,19 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-couch img{position:relative;z-index:1;width:100%;max-width:980px;height:auto;filter:drop-shadow(0 22px 40px rgba(0,0,30,.72)) drop-shadow(0 0 34px rgba(255,43,61,.32))}
 .lt-azul:not(.lt-static) .lta-couch img{animation:lta-float 6s ease-in-out infinite alternate}
 @media(max-width:859px){.lt-azul .lta-couch{margin:-30px auto -38px}}
+/* ===== AJUSTES: sin barra · luz suave tras el acostado · portada centrada · zonas más juntas ===== */
+/* quitar la barra roja divisoria entre secciones */
+.lt-azul .lta-advsec::before,.lt-azul .lta-plsec::before{display:none}
+/* portada centrada cuando NO es modo perfil (facebook) */
+.lt-azul:not(.ltb-pm) .lta-htx{max-width:760px;margin:0 auto;text-align:center}
+.lt-azul:not(.ltb-pm) .lta-htx .lta-note{justify-content:center}
+/* acercar zona 1 y zona 2 */
+.lt-azul .lta-htx{padding:22px 0 34px}
+.lt-azul .lta-advsec{padding:26px 0 72px;background:radial-gradient(ellipse 58% 42% at 50% 2%,rgba(35,64,255,.14),transparent 72%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.12),transparent 70%),var(--a-bg)}
+.lt-azul .lta-couch{margin:-46px auto -46px}
+/* luz suave (no barra, no rectángulo) detrás del Spiderman acostado */
+.lt-azul .lta-couch::before{left:50%;top:54%;width:86%;aspect-ratio:3.1/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.42),rgba(95,125,255,.2) 50%,transparent 76%);filter:blur(54px)}
+@media(max-width:859px){.lt-azul .lta-couch{margin:-26px auto -30px}}
 `;
 
   function renderAzul(root, d, ctx) {
