@@ -578,7 +578,9 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-feats{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:13.5px;color:#c8d1f3}
 .lt-azul .lta-feats li{display:flex;gap:8px;align-items:flex-start}
 .lt-azul .lta-feats svg{width:16px;height:16px;color:var(--a-glow);flex:none;margin-top:2px}
-.lt-azul .lta-cbot{margin-top:auto;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.lt-azul .lta-cbot{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.lt-azul .lta-cbot .lta-btn{width:100%}
+.lt-azul .lta-cbot .lta-price{justify-content:flex-start}
 .lt-azul .lta-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px}
 .lt-azul .lta-price strong{font-size:30px;font-weight:900;line-height:1;letter-spacing:-.02em}
 .lt-azul .lta-price s{font-size:14px;color:var(--a-mut)}
@@ -698,58 +700,43 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
 .lt-azul .lta-hd .ltb-h2{font-size:clamp(30px,5.2vw,46px);text-shadow:0 2px 26px rgba(0,0,30,.5)}
 .lt-azul .lta-str i{box-shadow:0 0 8px rgba(255,43,61,.45)}
 @media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-8px) rotate(-.7deg);border-color:var(--a-red);box-shadow:0 28px 64px rgba(0,0,30,.6),0 0 46px rgba(255,43,61,.32)}.lt-azul .lta-card:hover{border-color:var(--a-red);box-shadow:0 24px 54px rgba(0,0,30,.58),0 0 40px rgba(255,43,61,.28)}}
-/* ===== VENTAJAS: personajes libres (sin caja) · desvanecimiento abajo · texto encima · halo detrás ===== */
-.lt-azul .lta-advs{gap:8px;margin-top:42px;align-items:end;grid-template-columns:repeat(3,1fr)}
-.lt-azul .lta-advc{background:none;border:0;box-shadow:none;overflow:visible;padding:0;display:block;text-align:center;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
-.lt-azul .lta-advc::after{display:none}
-.lt-azul .lta-advc::before{content:"";position:absolute;left:50%;bottom:14%;width:90%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,rgba(255,43,61,.6),rgba(35,64,255,.42) 46%,transparent 72%);filter:blur(28px);z-index:0;pointer-events:none}
-.lt-azul .lta-advimg{position:relative;z-index:1;width:100%;aspect-ratio:3/4.1;background:none}
-.lt-azul .lta-advimg::before,.lt-azul .lta-advimg::after{display:none}
-.lt-azul .lta-advimg img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;object-position:bottom;-webkit-mask:linear-gradient(180deg,#000 50%,rgba(0,0,0,.4) 78%,transparent 96%);mask:linear-gradient(180deg,#000 50%,rgba(0,0,0,.4) 78%,transparent 96%);filter:drop-shadow(0 14px 26px rgba(0,0,30,.65)) drop-shadow(0 0 22px rgba(255,43,61,.3))}
-.lt-azul .lta-advc figcaption{position:absolute;left:0;right:0;bottom:3%;z-index:3;padding:0 6px}
-.lt-azul .lta-advc b{display:inline-block;font-family:Anton,Montserrat,sans-serif;font-weight:400;font-size:clamp(17px,2vw,23px);line-height:1.05;color:#fff;letter-spacing:.012em;text-shadow:0 2px 2px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9),0 0 18px rgba(255,43,61,.65),0 8px 18px rgba(0,0,0,.75);-webkit-text-stroke:.7px rgba(8,12,38,.95);paint-order:stroke fill}
-@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-10px)}.lt-azul .lta-advc:hover .lta-advimg img{filter:drop-shadow(0 18px 30px rgba(0,0,30,.7)) drop-shadow(0 0 32px rgba(255,43,61,.55))}}
-@media(max-width:620px){.lt-azul .lta-advc b{font-size:13px}.lt-azul .lta-advs{gap:4px}}
-/* ===== Spiderman acostado: divisor entre portada y ventajas ===== */
-.lt-azul .lta-couch{position:relative;z-index:6;max-width:1060px;margin:-62px auto -52px;padding:0 14px;text-align:center;pointer-events:none}
-.lt-azul .lta-couch::before{content:"";position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:74%;aspect-ratio:2.6/1;border-radius:50%;background:radial-gradient(closest-side,rgba(255,43,61,.42),rgba(35,64,255,.34) 52%,transparent 76%);filter:blur(46px);z-index:0}
-.lt-azul .lta-couch img{position:relative;z-index:1;width:100%;max-width:980px;height:auto;filter:drop-shadow(0 22px 40px rgba(0,0,30,.72)) drop-shadow(0 0 34px rgba(255,43,61,.32))}
-.lt-azul:not(.lt-static) .lta-couch img{animation:lta-float 6s ease-in-out infinite alternate}
-@media(max-width:859px){.lt-azul .lta-couch{margin:-30px auto -38px}}
-/* ===== AJUSTES: sin barra · luz suave tras el acostado · portada centrada · zonas más juntas ===== */
-/* quitar la barra roja divisoria entre secciones */
-.lt-azul .lta-advsec::before,.lt-azul .lta-plsec::before{display:none}
-/* portada centrada cuando NO es modo perfil (facebook) */
-.lt-azul:not(.ltb-pm) .lta-htx{max-width:760px;margin:0 auto;text-align:center}
-.lt-azul:not(.ltb-pm) .lta-htx .lta-note{justify-content:center}
-/* acercar zona 1 y zona 2 */
-.lt-azul .lta-htx{padding:22px 0 34px}
-.lt-azul .lta-advsec{padding:26px 0 72px;background:radial-gradient(ellipse 58% 42% at 50% 2%,rgba(35,64,255,.14),transparent 72%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.12),transparent 70%),var(--a-bg)}
-.lt-azul .lta-couch{margin:-46px auto -46px}
-/* luz suave (no barra, no rectángulo) detrás del Spiderman acostado */
-.lt-azul .lta-couch::before{left:50%;top:54%;width:86%;aspect-ratio:3.1/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.42),rgba(95,125,255,.2) 50%,transparent 76%);filter:blur(54px)}
-@media(max-width:859px){.lt-azul .lta-couch{margin:-26px auto -30px}}
-/* ===== Consolidado (reemplaza el full-bleed roto): acostado centrado como divisor, ventajas figuras libres con halo ===== */
-.lt-azul .lta-couch{width:100%;max-width:860px;margin:-38px auto -34px;padding:0 16px;isolation:isolate}
-.lt-azul .lta-couch::before{left:50%;top:52%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.5) 0%,rgba(95,110,255,.3) 46%,rgba(35,64,255,.12) 64%,transparent 82%);filter:blur(44px);z-index:-1}
-.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
-.lt-azul .lta-advsec{padding-top:30px}
-.lt-azul .lta-advc::before{bottom:16%;width:112%;background:radial-gradient(closest-side,rgba(255,47,72,.6) 0%,rgba(86,70,255,.42) 44%,rgba(35,64,255,.14) 68%,transparent 82%);filter:blur(18px)}
-.lt-azul .lta-advimg{overflow:visible}
-.lt-azul .lta-advimg img{max-width:none;max-height:none}
-.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.08);transform-origin:center 78%}
-@media(max-width:859px){.lt-azul .lta-couch{max-width:560px;margin:-26px auto -26px}.lt-azul .lta-advsec{padding-top:24px}}
-@media(max-width:620px){.lt-azul .lta-couch{max-width:94%;margin:-18px auto -20px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advsec .ltb-wrap{padding:0 10px}.lt-azul .lta-advs{gap:2px}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:scale(1.12)}.lt-azul .lta-advc b{font-size:15px}}
-/* --- ajuste final (v15): acostado a todo el ancho + ventajas en columna en movil --- */
-.lt-azul .lta-couch{width:100%;max-width:none;margin:-22px 0 -28px;padding:0;isolation:isolate}
-.lt-azul .lta-couch::before{left:50%;top:50%;width:min(70%,1000px);aspect-ratio:3.4/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.4) 0%,rgba(95,110,255,.24) 48%,transparent 78%);filter:blur(50px);z-index:-1}
-.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
-@media(max-width:859px){.lt-azul .lta-couch{margin:-14px 0 -16px}}
-@media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -8px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:10px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advc b{font-size:clamp(18px,6.4vw,24px)}.lt-azul .lta-advc:nth-child(3) .lta-advimg img{transform:none}}
-/* --- difuminar la division entre el hero (zona 1) y las ventajas (zona 2) --- */
-.lt-azul .lta-advsec{margin-top:-1px}
+/* ===================== VENTAJAS · personajes libres + acostado (consolidado limpio v16) ===================== */
+/* eyebrow de rayas en cualquier encabezado de seccion */
+.lt-azul .ltb-h2 .lta-str{margin-right:12px;vertical-align:middle}
+.lt-azul .lta-plsec::before{display:none}
+/* seccion ventajas: fondo + difuminado de la union hero(zona1) -> ventajas(zona2) */
+.lt-azul .lta-advsec{position:relative;overflow:hidden;margin-top:-1px;padding:30px 0 72px;background:radial-gradient(ellipse 58% 42% at 50% 2%,rgba(35,64,255,.14),transparent 72%),radial-gradient(ellipse 40% 40% at 88% 18%,rgba(255,43,61,.12),transparent 70%),var(--a-bg)}
+.lt-azul .lta-advsec .lta-hd{text-align:center}
 .lt-azul .lta-advsec::before{display:block;content:"";position:absolute;top:0;left:0;right:0;height:220px;z-index:0;pointer-events:none;background:linear-gradient(to bottom,#05081f 0%,rgba(5,8,31,.55) 34%,rgba(2,3,12,0) 100%)}
-.lt-azul .lta-advsec>.ltb-wrap{position:relative;z-index:2}
+.lt-azul .lta-advsec>.ltb-wrap{position:relative;z-index:3}
+/* 3 personajes libres: misma base, mismo alto, texto encima, halo detras */
+.lt-azul .lta-advs{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:40px;align-items:end}
+.lt-azul .lta-advc{position:relative;margin:0;padding:0;display:block;text-align:center;background:none;border:0;box-shadow:none;overflow:visible;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
+.lt-azul .lta-advc::after{display:none}
+.lt-azul .lta-advc::before{content:"";position:absolute;left:50%;bottom:12%;width:86%;aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,rgba(255,47,72,.56) 0%,rgba(86,70,255,.4) 44%,rgba(35,64,255,.12) 68%,transparent 82%);filter:blur(26px);z-index:0;pointer-events:none}
+.lt-azul .lta-advimg{position:relative;z-index:1;width:100%;aspect-ratio:1.19/1;overflow:visible;background:none;display:block}
+.lt-azul .lta-advimg::before,.lt-azul .lta-advimg::after{display:none}
+.lt-azul .lta-advimg img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;object-position:bottom center;-webkit-mask:linear-gradient(180deg,#000 56%,rgba(0,0,0,.45) 82%,transparent 98%);mask:linear-gradient(180deg,#000 56%,rgba(0,0,0,.45) 82%,transparent 98%);filter:drop-shadow(0 14px 26px rgba(0,0,30,.65)) drop-shadow(0 0 22px rgba(255,43,61,.3))}
+.lt-azul .lta-advc figcaption{position:absolute;left:0;right:0;bottom:1%;z-index:3;padding:0 6px}
+.lt-azul .lta-advc b{display:inline-block;font-family:Anton,Montserrat,sans-serif;font-weight:400;font-size:clamp(16px,1.9vw,22px);line-height:1.05;color:#fff;letter-spacing:.012em;text-shadow:0 2px 2px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9),0 0 18px rgba(255,43,61,.65),0 8px 18px rgba(0,0,0,.75);-webkit-text-stroke:.7px rgba(8,12,38,.95);paint-order:stroke fill}
+@media(hover:hover){.lt-azul .lta-advc:hover{transform:translateY(-10px)}.lt-azul .lta-advc:hover .lta-advimg img{filter:drop-shadow(0 18px 30px rgba(0,0,30,.7)) drop-shadow(0 0 32px rgba(255,43,61,.55))}}
+/* ventajas extra (4+): chips, nada se pierde */
+.lt-azul .lta-advx{list-style:none;margin:30px auto 0;padding:0;max-width:740px;display:flex;flex-wrap:wrap;justify-content:center;gap:10px;position:relative;z-index:1}
+.lt-azul .lta-advx li{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;background:rgba(35,64,255,.14);border:1px solid var(--a-line);font-size:13.5px;font-weight:700;color:#dbe2ff}
+.lt-azul .lta-advx svg{width:16px;height:16px;color:var(--a-glow);flex:none}
+/* Spiderman en hamaca: divisor a todo el ancho (full-bleed) + luz suave detras */
+.lt-azul .lta-couch{position:relative;z-index:6;width:100%;max-width:none;margin:-22px 0 -30px;padding:0;text-align:center;pointer-events:none;isolation:isolate}
+.lt-azul .lta-couch::before{content:"";position:absolute;left:50%;top:50%;width:min(70%,1000px);aspect-ratio:3.4/1;transform:translate(-50%,-50%);background:radial-gradient(ellipse closest-side,rgba(255,66,80,.4) 0%,rgba(95,110,255,.24) 48%,transparent 78%);filter:blur(50px);z-index:-1}
+.lt-azul .lta-couch img{display:block;width:100%;max-width:100%;height:auto}
+.lt-azul:not(.lt-static) .lta-couch img{animation:lta-float 6s ease-in-out infinite alternate}
+/* filtros de categoria: que no se corten en movil */
+@media(max-width:620px){.lt-azul .lt-cats{flex-wrap:wrap;justify-content:center;row-gap:8px}}
+/* tablet */
+@media(max-width:859px){.lt-azul .lta-couch{margin:-14px 0 -18px}.lt-azul .lta-advsec{padding-top:24px}.lt-azul .lta-advs{gap:8px;margin-top:30px}}
+/* movil: ventajas en columna vertical, personaje mas bajo para menos scroll */
+@media(max-width:620px){.lt-azul .lta-couch{margin:-8px 0 -10px}.lt-azul .lta-advsec{padding-top:18px}.lt-azul .lta-advs{grid-template-columns:1fr;gap:4px;max-width:300px;margin-left:auto;margin-right:auto}.lt-azul .lta-advimg{aspect-ratio:1.42/1}.lt-azul .lta-advc b{font-size:clamp(17px,6vw,23px)}.lt-azul .lta-advx{gap:8px;margin-top:22px}.lt-azul .lta-advx li{font-size:12.5px;padding:8px 13px}}
+/* barra fija (movil): degradado superior para que el solape se lea intencional */
+.lt-azul .lt-bbw::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:42px;background:linear-gradient(to top,rgba(2,3,12,.92),rgba(2,3,12,0));pointer-events:none}
 `;
 
   function renderAzul(root, d, ctx) {
@@ -792,10 +779,10 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `</div></section>` +
       promo(ctx) +
       `<div class="lta-couch" aria-hidden="true"><img src="${AZ_IMG}sp-couch3.webp" alt="" decoding="async" loading="lazy"></div>` +
-      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead('¿Por qué comprar con nosotros?')}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-hero.webp', 'sp-adv1.webp', 'sp-adv2.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div></div></section>` +
+      `<section class="ltb-sec ltb-sec-benefits lta-advsec"><img class="lta-web" src="${AZ_IMG}sp-web.webp" alt="" aria-hidden="true">${dust(10)}<div class="ltb-wrap">${azHead(`${azStripes()}¿Por qué comprar con nosotros?`)}<div class="lta-advs">${[0, 1, 2].map(i => `<figure class="lta-advc" data-rv style="--i:${i}"><div class="lta-advimg"><img src="${AZ_IMG}${['sp-ben1.webp', 'sp-ben2.webp', 'sp-ben3.webp'][i]}" alt="" loading="lazy" decoding="async"></div><figcaption><b${ed(ctx, `benefits.${i}`)}>${ctx.esc(d.benefits[i] || ['Precios bajos, sin pagar de más', 'Atención rápida por WhatsApp', 'Garantía y estabilidad asegurada'][i])}</b></figcaption></figure>`).join('')}</div>${d.benefits.length > 3 ? `<ul class="lta-advx" data-rv>${d.benefits.slice(3).map((b, k) => { const i = k + 3; return `<li>${azi('check')}<span${ed(ctx, `benefits.${i}`)}>${ctx.esc(b)}</span></li>`; }).join('')}</ul>` : ''}</div></section>` +
       (plans.length ? `<section class="ltb-sec ltb-sec-plans lta-plsec"><div class="ltb-wrap">${azHead(`${azStripes()}Elige tu plataforma`)}<div class="lta-grid">${plans.map((p, i) => azPlan(ctx, p, i)).join('')}</div></div></section>` : '') +
       (combos.length ? `<section class="ltb-sec ltb-sec-combos"><div class="ltb-wrap">${azHead(`${azStripes()}Combos para ahorrar más`)}<div class="lta-grid">${combos.map((c, i) => azCombo(ctx, c, i)).join('')}</div></div></section>` : '') +
-      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead('Opiniones de nuestros clientes')}` +
+      (revs.length ? `<section class="ltb-sec ltb-sec-reviews lta-rvsec"><div class="ltb-wrap"><div class="lta-rvhd">${azHead(`${azStripes()}Opiniones de nuestros clientes`)}` +
         `<div class="lta-arrows"><button type="button" data-az-dir="-1" aria-label="Anterior">${azi('arL', '')}</button><button type="button" data-az-dir="1" aria-label="Siguiente">${azi('arR', '')}</button></div></div>` +
         `${reviewsHtml(ctx, d)}<div class="lta-rvfoot">${cta(d.ctaText, '', false)}</div></div></section>` : '') +
       `<section class="ltb-sec ltb-sec-who lta-big">${dust(14)}<div class="ltb-wrap"><p class="lta-bigq" data-rv>${azStripes()}</p>` +
@@ -803,8 +790,8 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
       `<div class="lta-crowd">${azArt('crowd', '', 'Imagen ancha (público o banner)')}</div>` +
       `<div class="ltb-wrap"><div class="lta-about" data-rv>${cta(d.ctaText, '', false)}</div></div></section>` +
       (d.paymentMethods.length ? sec('pays', `${azStripes()}Paga como quieras`, `<ul class="ltb-pays" data-rv>${d.paymentMethods.map((p, i) => `<li${ed(ctx, `paymentMethods.${i}`)}>${ctx.esc(p)}</li>`).join('')}</ul>`) : '') +
-      faqSec(ctx, d, 'Preguntas frecuentes') +
-      linksSec(ctx, d, 'Síguenos en redes') +
+      faqSec(ctx, d, `${azStripes()}Preguntas frecuentes`) +
+      linksSec(ctx, d, `${azStripes()}Síguenos en redes`) +
       footer(ctx, d, `<span class="lta-fname">${ctx.esc(gName)}</span>`) + fab(ctx, wa);
     root.innerHTML = html;
     motionKit(root, ctx, cl);
@@ -828,7 +815,7 @@ ${s}.ltb-rm.ltb-rv [data-rv].is-in{animation:ltb-fade-${id} .45s ease-out both!i
   }
 
   LC.registerTemplate({
-    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hart', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
+    id: 'azul', parts: [{ k: 'hero', label: 'Foto de portada', sel: '.lta-hcov', x: true }, { k: 'crowd', label: 'Imagen ancha', sel: '.lta-crowd', x: true }, { k: 'dust', label: 'Luces y partículas', sel: '.lta-dust,.lta-beams' }],
     name: 'Spiderman', description: 'Azul con detalles rojos estilo Spiderman: foto con brillo, ventajas en órbita, opiniones en carrusel y tu nombre gigante.',
     tags: ['oscura', 'impactante', 'animada'], preview: { bg: '#05081f', fg: '#f2f5ff', accent: '#ff2b3d' }, render: renderAzul
   });
