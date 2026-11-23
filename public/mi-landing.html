@@ -643,7 +643,7 @@ body.typing .mbar .btn{min-height:44px;font-size:14px}
 <script>
 /* Funciona igual en la web pública (/) y en la zona de pruebas (/dev/). */
 window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
-['js/landing-core.js?v=26', 'js/landing-templates-b.js?v=16', 'js/landing-templates-d.js?v=28', 'js/landing-templates-e.js?v=12', 'js/landing-templates-f.js?v=23', 'js/landing-templates-g.js?v=22'].forEach(function (f) {
+['js/landing-core.js?v=27', 'js/landing-templates-b.js?v=16', 'js/landing-templates-d.js?v=28', 'js/landing-templates-e.js?v=12', 'js/landing-templates-f.js?v=23', 'js/landing-templates-g.js?v=22'].forEach(function (f) {
   document.write('<script src="' + window.LANDING_BASE + f + '"><\/script>');
 });
 </script>
@@ -718,6 +718,8 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   const FLAG = { 51: '🇵🇪', 52: '🇲🇽', 57: '🇨🇴', 54: '🇦🇷', 56: '🇨🇱', 591: '🇧🇴', 593: '🇪🇨', 58: '🇻🇪', 595: '🇵🇾', 598: '🇺🇾', 502: '🇬🇹', 503: '🇸🇻', 504: '🇭🇳', 505: '🇳🇮', 506: '🇨🇷', 507: '🇵🇦', 1: '🇺🇸', 1809: '🇩🇴', 34: '🇪🇸' };
   const CURRENCY_BY_CC = { 51: 'PEN', 52: 'MXN', 57: 'COP', 54: 'ARS', 56: 'CLP', 591: 'BOB', 34: 'EUR' };
   const CURRENCY_NAMES = { PEN: 'Soles (S/)', USD: 'Dólares ($)', MXN: 'Pesos mexicanos ($)', COP: 'Pesos colombianos ($)', ARS: 'Pesos argentinos ($)', CLP: 'Pesos chilenos ($)', BOB: 'Bolivianos (Bs)', EUR: 'Euros (€)', USDT: 'USDT' };
+  // Monedas rápidas (símbolo + nombre). El revendedor también puede escribir cualquier otra en el campo.
+  const CURRENCY_PRESETS = [['S/', 'Soles'], ['$', 'Dólares'], ['Bs', 'Bolivianos'], ['Bs.S', 'Bolívares'], ['₡', 'Colones'], ['Q', 'Quetzales'], ['L', 'Lempiras'], ['C$', 'Córdobas'], ['₲', 'Guaraníes'], ['RD$', 'Rep. Dom.'], ['R$', 'Reales'], ['€', 'Euros'], ['USDT', 'USDT']];
   const PERIODS = ['1 mes', '2 meses', '3 meses', '6 meses', '1 año', '1 semana', 'De por vida'];
   const BADGES = ['Más vendido', 'Oferta', 'Nuevo', 'Recomendado'];
   const PAY = ['Yape', 'Plin', 'Transferencia', 'Efectivo', 'PayPal', 'Tarjeta', 'Mercado Pago', 'Nequi', 'Daviplata', 'Binance', 'Zelle', 'Bizum'];
@@ -889,7 +891,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
   }
   const planName = p => p.title || (p.platform === 'other' ? 'Otro servicio' : isCustom(p.platform) ? p.platform : pinfo(p.platform).name);
   const money = v => LC.money(v, S.data.currency);
-  const curSym = () => { const s = LC.CURRENCIES[S.data.currency] || ''; return s; };
+  const curSym = () => LC.CURRENCIES[S.data.currency] || S.data.currency || '';
 
   /** La reseña i deja de ser de ejemplo (el usuario cambió su nombre o su texto). */
   function unSample(i) {
@@ -1818,9 +1820,11 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       const d = S.data, L = lim(), full = d.plans.length >= L.plans, room = Math.max(0, L.plans - d.plans.length);
       const items = d.plans.map((p, i) => planItem(p, i)).join('');
       const pop = Math.min(room, missingPopular().length);
-      return `<div class="field"><label for="f-currency">Moneda de tus precios</label><select class="inp" id="f-currency" data-bind="currency" data-after="currency">${Object.keys(LC.CURRENCIES).map(c =>
-          `<option value="${c}"${c === S.data.currency ? ' selected' : ''}>${esc(CURRENCY_NAMES[c] || c)}</option>`).join('')}</select></div>
-        <p class="hint" style="margin:0 0 12px">Escribe el precio de cada plataforma. Toca la flecha para más opciones.</p>
+      const curNow = curSym();
+      return `<div class="field"><label for="f-currency">Moneda de tus precios</label>${inp('currency', curNow, { id: 'f-currency', max: 6, ph: 'Ej: S/, $, Bs, Gs, ₡', after: 'currency' })}
+          <div class="chips" style="margin-top:8px">${CURRENCY_PRESETS.map(([sym, nm]) => `<button class="chip" type="button" data-act="currencySet" data-arg="${esc(sym)}" title="${esc(nm)}"${sym === curNow ? ' aria-pressed="true"' : ''}>${esc(sym)} <small style="opacity:.7">${esc(nm)}</small></button>`).join('')}</div>
+          <p class="hint" style="margin:8px 0 0">Elige una o escribe la tuya (el símbolo que verán tus clientes).</p></div>
+        <p class="hint" style="margin:12px 0">Escribe el precio de cada plataforma. Toca la flecha para más opciones.</p>
         ${limRow('plans')}
         ${priceStatHtml(d.plans, 'plans')}
         ${items || '<div class="empty" style="margin-bottom:12px">Aún no tienes planes. Añade tu primera plataforma.</div>'}
@@ -2489,6 +2493,14 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       S.data.hours = String(arg || '24/7');
       const f = $('#f-hours'); if (f) f.value = S.data.hours;
       document.querySelectorAll('[data-act="hoursSet"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arg === S.data.hours)));
+      changed();
+    },
+    currencySet(arg) {
+      S.data.currency = String(arg || 'S/').slice(0, 6);
+      S.currencyTouched = true;
+      const f = $('#f-currency'); if (f) f.value = curSym();
+      renderSection('planes');
+      const c = $('#f-currency'); if (c) c.focus();
       changed();
     },
     promoQuick(arg) {
