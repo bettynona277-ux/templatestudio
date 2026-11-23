@@ -3090,21 +3090,30 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
       if (slug !== S.publishedSlug) {
         const ex = await withTimeout(S.backend.getBySlug(slug), 15000);
         if (ex && ex.ownerUid !== S.uid) { slugCache.set(slug, { ok: false, kind: 'taken', msg: 'Ya está en uso. Prueba con otro.' }); throw Object.assign(new Error('taken'), { userMsg: 'Ese enlace ya lo usa otra persona. Elige otro en “Mi enlace”.', sec: 'enlace' }); }
-        if (S.publishedSlug && !(await confirmBox('¿Cambiar tu enlace?', `Tu nuevo enlace será ${vipHost(slug) || shownUrl(slug)}. El anterior (${vipHost(S.publishedSlug) || shownUrl(S.publishedSlug)}) seguirá funcionando y llevará a tus clientes al nuevo. Te recomendamos compartir el nuevo.`, 'Sí, cambiar enlace'))) return;
+        if (S.publishedSlug && !(await confirmBox('¿Cambiar tu enlace?', `Tu nuevo enlace será ${vipHost(slug) || shownUrl(slug)}. El anterior (${vipHost(S.publishedSlug) || shownUrl(S.publishedSlug)}) seguirá funcionando 15 días y redirigirá a tus clientes al nuevo; después quedará libre. Te recomendamos compartir el nuevo cuanto antes.`, 'Sí, cambiar enlace'))) return;
       }
       const doc = { ...LC.normalize({ ...prepared(S.data), slug }, S.uid), ...vipFields() };
       await withTimeout(S.backend.save(slug, doc), 20000);
       const old = S.publishedSlug;
-      // Enlaces anteriores y documentos huérfanos: se convierten en "lápida" que redirige al nuevo (no se borran).
-      const tombs = [...new Set([old, ...(S.orphans || [])])].filter(x => x && x !== slug);
-      for (const t of tombs) {
+      const renamed = !!(old && old !== slug);
+      const GRACE_MS = 15 * 864e5; // 15 días de gracia: el enlace viejo redirige al nuevo y luego se libera.
+      // Solo se reserva el enlace anterior MÁS RECIENTE. Al cambiar de slug, el anterior queda como "lápida"
+      // que redirige 15 días; cualquier lápida vieja y los documentos huérfanos se liberan al instante (se borran).
+      const toFree = (S.orphans || []).filter(x => x && x !== slug && x !== old);
+      if (renamed) {
         try {
-          const tomb = { ...LC.normalize({ slug: t, template: doc.template, name: doc.name, whatsapp: doc.whatsapp, enabled: false }, S.uid), ...vipFields() };
+          const tomb = { ...LC.normalize({ slug: old, template: doc.template, name: doc.name, whatsapp: doc.whatsapp, enabled: false }, S.uid), ...vipFields() };
           tomb.redirectTo = slug;
-          await withTimeout(S.backend.save(t, tomb), 15000);
-          S.orphans = (S.orphans || []).filter(x => x !== t);
-        } catch (e) { console.warn('[mi-landing] no se pudo redirigir', t, e); }
+          tomb.redirectUntil = Date.now() + GRACE_MS;
+          await withTimeout(S.backend.save(old, tomb), 15000);
+        } catch (e) { console.warn('[mi-landing] no se pudo redirigir', old, e); }
+        for (const t of (S.tombs || [])) if (t && t !== slug && t !== old) toFree.push(t);
       }
+      for (const t of [...new Set(toFree)]) {
+        try { await withTimeout(S.backend.remove(t), 15000); } catch (e) { console.warn('[mi-landing] no se pudo liberar', t, e); }
+      }
+      S.orphans = [];
+      S.tombs = renamed ? [old] : (S.tombs || []);
       S.publishedSlug = slug; S.publishedSig = sig(S.data); markOwn(slug);
       if (S.stats && S.stats.slug !== slug) S.stats = null;
       const prevPub = S.pubImgs; S.pubImgs = [doc.logoUrl, doc.coverUrl, doc.coverSmUrl, ...ownImgs(doc)].filter(Boolean);
@@ -3321,6 +3330,7 @@ window.LANDING_BASE = location.pathname.indexOf('/dev/') === 0 ? '/dev/' : '/';
     setUserInfo(await userP);
     const draft = readDraft();
     S.orphans = (remote && Array.isArray(remote.__orphans)) ? remote.__orphans.slice() : [];
+    S.tombs = (remote && Array.isArray(remote.__tombs)) ? remote.__tombs.slice() : [];
     if (remote) {
       S.publishedSlug = LC.slugify(remote.slug || remote.id || ''); markOwn(S.publishedSlug);
       S.data = shape(LC.normalize({ ...remote, slug: S.publishedSlug }, S.uid));
@@ -3475,6 +3485,8 @@ if (ML && !DEMO) {
           if (!live.length) return null;
           const main = live[0];
           main.__orphans = live.slice(1).map(d => d.id).filter(id => id && id !== main.id);
+          // Lápidas (enlaces anteriores con redirectTo): solo se conserva la más reciente; al publicar se liberan las demás.
+          main.__tombs = docs.filter(d => d.redirectTo).map(d => d.id).filter(id => id && id !== main.id);
           return main;
         },
         async getBySlug(slug) { const s = await getDoc(doc(db, COL, slug)); return s.exists() ? s.data() : null; },
