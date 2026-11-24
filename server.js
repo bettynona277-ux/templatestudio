@@ -788,6 +788,38 @@ const server = http.createServer(async (req, res) => {
   const customHost = customHostOf(req);
   if (customHost) { await serveCustomDomain(req, res, url, customHost); return; }
 
+  // Firebase Storage displays a logo in an <img>, but its download URL may not
+  // allow canvas reads from this origin. Serve only our landing images through
+  // this same-origin route so QR cards can include the actual logo.
+  if (url.pathname === '/api/landing-image') {
+    if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
+    let source;
+    try {
+      source = new URL(url.searchParams.get('src') || '');
+      const object = decodeURIComponent(source.pathname.split('/o/')[1] || '');
+      if (source.protocol !== 'https:' || source.hostname !== 'firebasestorage.googleapis.com' ||
+          !source.pathname.startsWith('/v0/b/plantillas-bfaeb.firebasestorage.app/o/') ||
+          !/^landings\/[A-Za-z0-9]+\/logo-[A-Za-z0-9-]+\.(?:webp|png|jpe?g)$/i.test(object) ||
+          source.searchParams.get('alt') !== 'media' || !source.searchParams.get('token')) throw new Error('invalid image');
+    } catch { res.writeHead(400); res.end('Invalid image'); return; }
+    try {
+      const upstream = await fetch(source, { signal: AbortSignal.timeout(10000) });
+      const type = (upstream.headers.get('content-type') || '').split(';')[0].toLowerCase();
+      const size = Number(upstream.headers.get('content-length'));
+      if (!upstream.ok || !['image/webp', 'image/png', 'image/jpeg'].includes(type) || (size && size > 2 * 1024 * 1024)) {
+        res.writeHead(502); res.end('Image unavailable'); return;
+      }
+      const image = Buffer.from(await upstream.arrayBuffer());
+      if (image.length > 2 * 1024 * 1024) { res.writeHead(502); res.end('Image too large'); return; }
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+      res.end(image);
+    } catch (err) {
+      console.error('Landing image error:', err.message);
+      res.writeHead(502); res.end('Image unavailable');
+    }
+    return;
+  }
+
   // The landing editor uses this same-origin route. Railway keeps the Firebase
   // Function URL in LANDING_API_URL, so it is never exposed in public JS.
   if (url.pathname.startsWith('/api/landing/')) {
