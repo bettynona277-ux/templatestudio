@@ -269,6 +269,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="nav-item" onclick="showSection('catalogs',this)">
         <span>WEB</span> Catalogos web
       </div>
+      <div class="nav-item" onclick="showSection('landings',this)">
+        <span>🖥️</span> Landings
+      </div>
       <div class="nav-item" onclick="showSection('users',this)">
         <span>👥</span> Gestión Clientes
       </div>
@@ -335,6 +338,46 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <button class="tpl-tab" data-cat-filter="draft" onclick="filterCatalogTemplates('draft',this)">Borradores <span class="tpl-tab-count" id="cat-count-draft">0</span></button>
         </div>
         <div id="catalog-templates-grid" class="tpl-grid"></div>
+      </div>
+
+      <!-- LANDINGS -->
+      <div class="section" id="section-landings">
+        <div class="page-title">Landings</div>
+        <div class="page-sub">Sube una landing que te paso, pruébala como borrador y publícala. Las imágenes van a <strong style="color:var(--blue)">js/img/</strong> (GitHub).</div>
+
+        <div class="cards-grid">
+          <div class="card">
+            <div class="card-title" id="ld-form-title">Subir nueva landing</div>
+            <div class="f-row"><label class="f-label">ID (sin espacios)</label><input id="ld-id" class="f-input" placeholder="deportes" maxlength="40"></div>
+            <div class="f-row"><label class="f-label">Nombre visible</label><input id="ld-name" class="f-input" placeholder="Deportes / La Liga" maxlength="80"></div>
+            <div class="f-row" style="display:flex;gap:8px">
+              <div style="flex:1"><label class="f-label">Fondo</label><input id="ld-bg" class="f-input" type="color" value="#070b1e"></div>
+              <div style="flex:1"><label class="f-label">Texto</label><input id="ld-fg" class="f-input" type="color" value="#eef3ff"></div>
+              <div style="flex:1"><label class="f-label">Acento</label><input id="ld-accent" class="f-input" type="color" value="#2563eb"></div>
+            </div>
+            <div class="f-row"><label class="f-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ld-vip" style="width:auto"> Solo VIP (los que no son VIP no la pueden usar)</label></div>
+            <div class="f-row"><label class="f-label">Código de la landing (el archivo que te paso)</label><textarea id="ld-code" class="f-input" rows="8" placeholder="(function(){ ... LC.registerTemplate({...}) ... })();" style="font-family:monospace;font-size:0.78rem;line-height:1.5"></textarea></div>
+            <button class="btn btn-green btn-full" onclick="saveLanding()">Guardar como borrador</button>
+            <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="resetLandingForm()">Limpiar / Nueva</button>
+            <div id="ld-form-msg" style="margin-top:8px;font-size:0.8rem"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Cómo funciona</div>
+            <p style="font-size:0.82rem;color:var(--muted);line-height:1.8;">
+              1. Pega aquí el <strong>código</strong> de la landing que te paso y dale <strong>Guardar como borrador</strong>.<br>
+              2. Sube las <strong>imágenes</strong> que te indique a <strong style="color:var(--blue)">js/img/</strong> en GitHub.<br>
+              3. Dale <strong>Previsualizar</strong> para verla. Cuando esté lista, <strong>Publicar</strong> y les aparecerá a los revendedores en su editor.<br><br>
+              <strong style="color:var(--blue)">Borrador</strong> = solo tú la ves. &nbsp;<strong style="color:#34d399">Publicada</strong> = la ven todos. &nbsp;<strong style="color:#fcd34d">VIP</strong> = solo revendedores VIP.
+            </p>
+          </div>
+        </div>
+
+        <div class="tpl-tabs">
+          <button class="tpl-tab active" data-ld-filter="all" onclick="filterLandings('all',this)">Todas <span class="tpl-tab-count" id="ld-count-all">0</span></button>
+          <button class="tpl-tab" data-ld-filter="published" onclick="filterLandings('published',this)">Publicadas <span class="tpl-tab-count" id="ld-count-published">0</span></button>
+          <button class="tpl-tab" data-ld-filter="draft" onclick="filterLandings('draft',this)">Borradores <span class="tpl-tab-count" id="ld-count-draft">0</span></button>
+        </div>
+        <div id="landings-grid" class="tpl-grid"></div>
       </div>
 
       <!-- USUARIOS -->
@@ -1069,6 +1112,124 @@ async function draftTemplate(id) {
   await fbDb.collection('templates').doc(id).update({ status: 'draft', updatedAt });
   _allTemplates = _allTemplates.map(t => t.id === id ? { ...t, status:'draft', updatedAt } : t);
   refreshTemplateCacheAndRender();
+}
+
+// ══════════════════════════════════════════
+// LANDINGS (subir / borrador / publicar / VIP)
+// ══════════════════════════════════════════
+let _allLandings = [];
+let _ldFilter = 'all';
+let _ldEditId = null;
+const _ldEsc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const _ldUid = () => (fbAuth && fbAuth.currentUser && fbAuth.currentUser.uid) || '';
+function _ldMsg(t, ok){ const e=document.getElementById('ld-form-msg'); if(e){ e.textContent=t||''; e.style.color = ok?'#34d399':'#f87171'; } }
+
+async function loadLandings(force=false){
+  const grid=document.getElementById('landings-grid');
+  if(grid && !_allLandings.length) grid.innerHTML='<div style="padding:16px;color:var(--muted)">Cargando…</div>';
+  try{
+    const snap=await fbDb.collection('landing_templates').get();
+    _allLandings=snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    _allLandings.sort((a,b)=>((Number(a.order)||0)-(Number(b.order)||0)) || ((Number(b.updatedAt)||0)-(Number(a.updatedAt)||0)));
+  }catch(e){ if(grid) grid.innerHTML='<div style="padding:16px;color:#f87171">No se pudo cargar: '+_ldEsc(e.code||e.message||e)+'</div>'; return; }
+  renderLandings();
+}
+function filterLandings(f, btn){ _ldFilter=f; document.querySelectorAll('[data-ld-filter]').forEach(b=>b.classList.toggle('active', b===btn)); renderLandings(); }
+function renderLandings(){
+  const grid=document.getElementById('landings-grid'); if(!grid) return;
+  const all=_allLandings, pub=all.filter(l=>l.status==='published'), dr=all.filter(l=>l.status!=='published');
+  const set=(id,n)=>{ const e=document.getElementById(id); if(e) e.textContent=n; };
+  set('ld-count-all',all.length); set('ld-count-published',pub.length); set('ld-count-draft',dr.length);
+  const list=_ldFilter==='published'?pub:_ldFilter==='draft'?dr:all;
+  if(!list.length){ grid.innerHTML='<div style="padding:16px;color:var(--muted)">Sin landings todavía. Sube una arriba.</div>'; return; }
+  grid.innerHTML=list.map(l=>{
+    const pv=l.preview||{}, published=l.status==='published', id=_ldEsc(l.id);
+    return '<div class="card" style="border-left:4px solid '+_ldEsc(pv.accent||'#2563eb')+'">'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">'
+      +'<span style="width:24px;height:24px;border-radius:7px;background:'+_ldEsc(pv.bg||'#070b1e')+';border:1px solid rgba(255,255,255,.25);display:inline-block"></span>'
+      +'<strong style="font-size:0.95rem">'+_ldEsc(l.name||l.id)+'</strong>'
+      +'<span class="'+(published?'badge-pub':'badge-draft')+'">'+(published?'Publicada':'Borrador')+'</span>'
+      +(l.vip?'<span class="badge-draft" style="background:#7c3a04;color:#fcd34d">VIP</span>':'')
+      +'</div>'
+      +'<div style="font-size:0.74rem;color:var(--muted);margin-bottom:10px">ID: '+id+'</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
+      +'<button class="btn btn-ghost" onclick="previewLanding(\''+id+'\')">👁 Previsualizar</button>'
+      +(published?'<button class="btn btn-ghost" onclick="draftLanding(\''+id+'\')">↩ A borrador</button>':'<button class="btn btn-green" onclick="publishLanding(\''+id+'\')">🚀 Publicar</button>')
+      +'<button class="btn btn-ghost" onclick="toggleVipLanding(\''+id+'\')">'+(l.vip?'Quitar VIP':'Marcar VIP')+'</button>'
+      +'<button class="btn btn-blue" onclick="editLanding(\''+id+'\')">✎ Editar</button>'
+      +'<button class="btn btn-red" onclick="deleteLanding(\''+id+'\')">🗑</button>'
+      +'</div></div>';
+  }).join('');
+}
+function resetLandingForm(){
+  _ldEditId=null;
+  ['ld-id','ld-name','ld-code'].forEach(i=>{const e=document.getElementById(i); if(e) e.value='';});
+  const bg=document.getElementById('ld-bg'), fg=document.getElementById('ld-fg'), ac=document.getElementById('ld-accent'), vip=document.getElementById('ld-vip'), idf=document.getElementById('ld-id');
+  if(bg) bg.value='#070b1e'; if(fg) fg.value='#eef3ff'; if(ac) ac.value='#2563eb'; if(vip) vip.checked=false; if(idf) idf.disabled=false;
+  const t=document.getElementById('ld-form-title'); if(t) t.textContent='Subir nueva landing';
+  _ldMsg('');
+}
+function editLanding(id){
+  const l=_allLandings.find(x=>x.id===id); if(!l) return;
+  _ldEditId=id;
+  document.getElementById('ld-id').value=l.id; document.getElementById('ld-id').disabled=true;
+  document.getElementById('ld-name').value=l.name||'';
+  document.getElementById('ld-code').value=l.code||'';
+  document.getElementById('ld-vip').checked=!!l.vip;
+  const pv=l.preview||{};
+  document.getElementById('ld-bg').value=pv.bg||'#070b1e';
+  document.getElementById('ld-fg').value=pv.fg||'#eef3ff';
+  document.getElementById('ld-accent').value=pv.accent||'#2563eb';
+  document.getElementById('ld-form-title').textContent='Editar: '+(l.name||l.id);
+  _ldMsg('Editando. Al guardar se mantiene su estado ('+(l.status==='published'?'publicada':'borrador')+').', true);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+async function saveLanding(){
+  const id=(document.getElementById('ld-id').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'');
+  const name=(document.getElementById('ld-name').value||'').trim();
+  const code=document.getElementById('ld-code').value||'';
+  if(!id){ _ldMsg('Falta el ID (solo letras, números y guiones).'); return; }
+  if(!name){ _ldMsg('Falta el nombre.'); return; }
+  if(!code.trim()){ _ldMsg('Falta el código de la landing.'); return; }
+  try{ new Function('LC','LandingCore','window', code); }catch(e){ _ldMsg('El código tiene un error de sintaxis: '+e.message); return; }
+  const existing=_allLandings.find(x=>x.id===id);
+  const now=Date.now(), uid=_ldUid();
+  const data={ id, name, status: existing?existing.status:'draft', vip:!!document.getElementById('ld-vip').checked, code,
+    preview:{ bg:document.getElementById('ld-bg').value, fg:document.getElementById('ld-fg').value, accent:document.getElementById('ld-accent').value },
+    parts: existing&&Array.isArray(existing.parts)?existing.parts:[],
+    order: existing?(Number(existing.order)||0):_allLandings.length,
+    createdAt: existing?(Number(existing.createdAt)||now):now, updatedAt: now,
+    createdBy: existing?(existing.createdBy||uid):uid, updatedBy: uid };
+  try{
+    await fbDb.collection('landing_templates').doc(id).set(data);
+    _ldMsg('Guardada ✓ ('+data.status+'). Dale Previsualizar antes de publicar.', true);
+    resetLandingForm();
+    await loadLandings(true);
+  }catch(e){ _ldMsg('No se pudo guardar: '+(e.code||e.message||e)); }
+}
+function publishLanding(id){ return _ldSetStatus(id,'published'); }
+function draftLanding(id){ return _ldSetStatus(id,'draft'); }
+async function _ldSetStatus(id,status){
+  try{
+    await fbDb.collection('landing_templates').doc(id).update({ status, updatedAt:Date.now(), updatedBy:_ldUid() });
+    _allLandings=_allLandings.map(l=>l.id===id?{...l,status}:l); renderLandings();
+  }catch(e){ alert('No se pudo cambiar el estado: '+(e.code||e.message||e)); }
+}
+async function toggleVipLanding(id){
+  const l=_allLandings.find(x=>x.id===id); if(!l) return;
+  try{
+    await fbDb.collection('landing_templates').doc(id).update({ vip:!l.vip, updatedAt:Date.now(), updatedBy:_ldUid() });
+    _allLandings=_allLandings.map(x=>x.id===id?{...x,vip:!l.vip}:x); renderLandings();
+  }catch(e){ alert('No se pudo cambiar VIP: '+(e.code||e.message||e)); }
+}
+async function deleteLanding(id){
+  if(!confirm('¿Borrar la landing "'+id+'"? Las tiendas que la usen volverán a la plantilla normal.')) return;
+  try{ await fbDb.collection('landing_templates').doc(id).delete(); _allLandings=_allLandings.filter(l=>l.id!==id); renderLandings(); }
+  catch(e){ alert('No se pudo borrar: '+(e.code||e.message||e)); }
+}
+function previewLanding(id){
+  const base=location.pathname.indexOf('/dev/')===0?'/dev/':'/';
+  window.open(base+'landing-preview.html?id='+encodeURIComponent(id),'_blank');
 }
 
 // ══════════════════════════════════════════
@@ -1971,7 +2132,9 @@ function landingVipInfo(d) {
 function landingVipTag(d) {
   const v = landingVipInfo(d);
   const dom = d && d.customDomain ? `<div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px;">🌐 ${escHtml(d.customDomain)}</div>` : '';
-  if (v.state === 'none') return `<span class="vip-tag none">Normal</span>${dom}`;
+  const tu = Number(d && d.landingTrialUntil) || 0;
+  if (v.state === 'none' && tu > Date.now()) { const td = Math.max(0, Math.ceil((tu - Date.now()) / DAY_MS)); return `<span class="vip-tag soon" title="Prueba VIP gratis hasta el ${escHtml(vipNiceDate(tu))}">🎁 Prueba VIP · ${td} día${td === 1 ? '' : 's'}</span>${dom}`; }
+  if (v.state === 'none') return `<span class="vip-tag none">${tu ? 'Normal · probó VIP' : 'Normal'}</span>${dom}`;
   if (v.state === 'expired') return `<span class="vip-tag off" title="Venció el ${escHtml(vipNiceDate(v.until))}">VIP vencido</span>${dom}`;
   if (!v.until) return `<span class="vip-tag on">👑 VIP</span>${dom}`;
   return `<span class="vip-tag ${v.days <= 7 ? 'soon' : 'on'}" title="Vence el ${escHtml(vipNiceDate(v.until))}">${v.days < 1 ? 'VIP vence hoy' : `VIP vence en ${v.days} día${v.days === 1 ? '' : 's'}`}</span>${dom}`;
@@ -2088,7 +2251,7 @@ async function saveLandingVip() {
     const batch = fbDb.batch();
     batch.set(fbDb.collection('users').doc(uid), patch, { merge: true });
     // Copia en sus tiendas (también las lápidas: así el editor puede seguir guardándolas).
-    cats.forEach(c => batch.update(fbDb.collection('public_catalogs').doc(c.id), { vip: on, vipUntil: patch.landingVipUntil, customDomain: domain }));
+    cats.forEach(c => batch.update(fbDb.collection('public_catalogs').doc(c.id), { vip: on, vipTrial: false, vipUntil: patch.landingVipUntil, customDomain: domain }));
     owned.forEach(doc => { if (!keep.has(doc.id)) batch.delete(doc.ref); });
     let domainNote = '';
     if (domain && main) {
@@ -2191,6 +2354,7 @@ function loadAdminSectionData(id, force=false) {
   if(id === 'catalogs') loadCatalogTemplates(force);
   if(id === 'users') loadUsers(force);
   if(id === 'logos') loadAdminLogos(force);
+  if(id === 'landings') loadLandings(force);
 }
 
 function loadInitialAdminSection() {
