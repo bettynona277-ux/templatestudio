@@ -8224,10 +8224,11 @@ function syncAccountPlatformOptions(selected=''){
   if(!sel) return;
   const cur=selected || sel.value;
   const categories=categoryOptions();
+  if(cur && !categories.includes(cur) && cur!=='__new__') categories.push(cur);
   sel.innerHTML=categories.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('') + '<option value="__new__">+ Agregar categoria</option>';
   if(cur && categories.includes(cur)) sel.value=cur;
 }
-function clearAccountForm(){ editingAccountId=null; editingAccountUpdatedAt=''; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
+function clearAccountForm(){ editingAccountId=null; editingAccountUpdatedAt=''; $('#aPlatformSelect').disabled=false; syncAccountPlatformOptions(); $('#accountModalTitle').textContent='Nueva cuenta madre'; $('#aPlatformSelect').value=categoryOptions()[0]||'Netflix'; $('#aProvider').value=''; $('#aProviderWhatsapp').value=''; $('#aEmail').value=''; $('#aPassword').value=''; $('#aCapacity').value='5'; const purchaseEl=$('#aPurchaseCost'); if(purchaseEl){ purchaseEl.value=''; purchaseEl.dataset.autoPurchaseCost=''; } $('#aPurchaseCostRegistered').checked=false; applyDefaultAccountPurchaseCost($('#aPlatformSelect').value); $('#aDueDisplay').value=todayPlus(30); $('#aNotes').value=''; const n=$('#aNotifyClients'); if(n) n.checked=true; }
 function initDatepickers(){
   flatpickrInstances.forEach(i=>i.destroy());
   flatpickrInstances=[];
@@ -8281,11 +8282,10 @@ window.editAccount=(id, forceNotify=false)=>{
   const a=state.accounts.find(x=>x.id===id); if(!a) return;
   editingAccountId=id; editingAccountUpdatedAt=String(a.updatedAt||''); pendingNotifyAfterSave=!!forceNotify;
   $('#accountModalTitle').textContent=forceNotify ? 'Reemplazar acceso' : 'Editar cuenta madre';
-  syncAccountPlatformOptions();
   $('#aProvider').value=a.provider||''; $('#aProviderWhatsapp').value=a.providerWhatsapp||''; $('#aCapacity').value=a.capacity||5; $('#aPurchaseCost').value=a.purchaseCost||''; $('#aPurchaseCostRegistered').checked=a.purchaseCostRegistered===true; $('#aEmail').value=a.email||''; $('#aPassword').value=a.password||''; $('#aDueDisplay').value=a.dueDate||''; $('#aNotes').value=a.notes||'';
   const notifyEl=$('#aNotifyClients'); if(notifyEl) notifyEl.checked=true;
-  if(a.platform && !categoryOptions().includes(a.platform)) addCategory(a.platform);
   syncAccountPlatformOptions(a.platform);
+  $('#aPlatformSelect').disabled=!!forceNotify;
   openModal('accountModalWrap'); initDatepickers();
 };
 window.deleteClient=async(id)=>{
@@ -9337,11 +9337,11 @@ $('#saveAccountBtn').onclick=async ()=>{
   saveButton.disabled=true;
   saveButton.textContent='Guardando...';
   try{
-  const platform=$('#aPlatformSelect').value;
+  const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
+  const platform=pendingNotifyAfterSave && oldAccount ? oldAccount.platform : $('#aPlatformSelect').value;
   const capacity=Number($('#aCapacity').value||0);
   if(!platform || !capacity){ alert('Completa plataforma y capacidad'); return; }
   const isNewAccount=!editingAccountId;
-  const oldAccount=editingAccountId ? state.accounts.find(a=>a.id===editingAccountId) : null;
   const financeOn=isFinanceModeEnabled();
   const data=sanitizeAccountForSave({
     id:editingAccountId||uid(), platform, provider:$('#aProvider').value.trim(), providerWhatsapp:$('#aProviderWhatsapp').value.trim(), capacity,
