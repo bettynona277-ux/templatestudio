@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Rastreo de copias · Diseños Streaming</title>
+<script src="/app-check-config.js"></script>
+<script src="js/ed-meta.js?v=1"></script>
+<style>
+  :root{--bg:#0f1320;--card:#171c2c;--line:#2a3150;--fg:#e9ecf5;--mut:#9aa3bd;--ok:#15d6a4;--warn:#ffb547;--bad:#ff6b6b}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:1.5rem;margin:0 0 4px}p.sub{color:var(--mut);margin:0 0 22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  label{display:block;font-weight:600;margin-bottom:6px}small{color:var(--mut)}
+  textarea,input{width:100%;background:#0c101b;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font:13px/1.4 ui-monospace,Consolas,monospace}
+  textarea{min-height:150px;resize:vertical}
+  button{background:var(--ok);color:#06231b;border:0;border-radius:10px;padding:11px 18px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.5;cursor:wait}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:640px){.row{grid-template-columns:1fr}}
+  .hit{font-size:1.25rem;font-weight:800;color:var(--ok);word-break:break-all}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left}
+  .bar{height:6px;border-radius:4px;background:#263052;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+  .msg{color:var(--warn)}.err{color:var(--bad)}
+  #login{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rastreo de copias</h1>
+  <p class="sub">Pega una plantilla sacada de otro sitio y te digo desde qué cuenta salió.</p>
+
+  <div class="card" id="login">
+    <p class="msg">Inicia sesión como administrador en el panel y vuelve a abrir esta página.</p>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <label>1. Plantilla copiada (JSON)</label>
+      <small>Puede ser el objeto completo de la plantilla o solo su parte <code>{ "layers": [...] }</code>.</small>
+      <textarea id="copy" placeholder='{"type":"psd-layers","canvasW":1080,"canvasH":1350,"layers":[...]}'></textarea>
+    </div>
+    <div class="card">
+      <label>2. ID de tu plantilla original (opcional, pero recomendado)</label>
+      <small>Si borraron la capa oculta, comparo posiciones con tu original para encontrar la cuenta.</small>
+      <div class="row" style="margin-top:8px">
+        <input id="tid" placeholder="ID de la plantilla en tu catálogo">
+        <button id="go">Rastrear</button>
+      </div>
+    </div>
+    <div class="card" id="out" style="display:none"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app-check.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<script>
+const CFG={apiKey:"AIzaSyA2zuPnReyy7eeTC8Lw_UfkfSg96-V5UnY",authDomain:"plantillas-bfaeb.firebaseapp.com",projectId:"plantillas-bfaeb",storageBucket:"plantillas-bfaeb.appspot.com",messagingSenderId:"382002543593",appId:"1:382002543593:web:87ad0a3b3c1f32b3daa978"};
+let app; try{ app=firebase.app('ts-client'); }catch(_){ app=firebase.initializeApp(CFG,'ts-client'); }
+try{ const k=window.FIREBASE_APPCHECK_SITE_KEY||''; if(k&&firebase.appCheck){ firebase.appCheck(app).activate(k,true); } }catch(_){}
+const auth=firebase.auth(app), db=firebase.firestore(app);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let usersCache=null;
+
+auth.onAuthStateChanged(async u=>{
+  let ok=false;
+  if(u){ try{ ok=(await db.collection('admins').doc(u.uid).get()).exists; }catch(_){} }
+  $('login').style.display=ok?'none':'block';
+  $('app').style.display=ok?'block':'none';
+});
+
+function parseCopy(txt){
+  txt=String(txt||'').trim(); if(!txt) throw new Error('Pega la plantilla copiada.');
+  let d=JSON.parse(txt);
+  if(d&&d.template&&d.template.layers) d=d.template;
+  if(Array.isArray(d)) d={layers:d};
+  if(!d||!Array.isArray(d.layers)) throw new Error('No encontré la lista de capas ("layers").');
+  return d;
+}
+async function loadUsers(){
+  if(usersCache) return usersCache;
+  const out=[]; let cur=null;
+  for(let i=0;i<40;i++){
+    let q=db.collection('users').orderBy(firebase.firestore.FieldPath.documentId()).limit(500);
+    if(cur) q=q.startAfter(cur);
+    const s=await q.get(); if(s.empty) break;
+    s.forEach(d=>{ const v=d.data()||{}; out.push({uid:d.id,email:v.email||v.emailLower||''}); });
+    cur=s.docs[s.docs.length-1]; if(s.size<500) break;
+  }
+  return usersCache=out;
+}
+async function emailOf(uid){
+  try{ const d=await db.collection('users').doc(uid).get(); const v=d.data()||{}; return v.email||v.emailLower||''; }catch(_){ return ''; }
+}
+
+$('go').onclick=async()=>{
+  const out=$('out'); out.style.display='block'; out.innerHTML='<span class="msg">Buscando…</span>'; $('go').disabled=true;
+  try{
+    const copy=parseCopy($('copy').value);
+    let html='';
+    const direct=EdMeta.read(copy);
+    if(direct.uid||direct.email){
+      const real=direct.uid?await emailOf(direct.uid):'';
+      const d=direct.date&&direct.date.length===8?`${direct.date.slice(6)}/${direct.date.slice(4,6)}/${direct.date.slice(0,4)}`:'';
+      html+=`<label>Capa oculta encontrada</label><div class="hit">${esc(real||direct.email)}</div>
+        <p>Correo escrito en la capa: <b>${esc(direct.email)}</b><br>Cuenta (UID): <code>${esc(direct.uid)}</code>${real&&real!==direct.email?' <span class="msg">(el correo actual de esa cuenta es distinto)</span>':''}
+        ${d?`<br>Abrió la plantilla el: <b>${d}</b>`:''}${direct.tplId?`<br>Plantilla: <code>${esc(direct.tplId)}</code>`:''}</p>`;
+    }else html+='<p class="msg">La capa oculta no está (la borraron o la plantilla no salió de tu editor).</p>';
+
+    const tid=$('tid').value.trim()||direct.tplId;
+    if(tid){
+      const t=await db.collection('templates').doc(tid).get();
+      if(!t.exists) html+=`<p class="err">No existe la plantilla <code>${esc(tid)}</code> en tu catálogo.</p>`;
+      else{
+        const v=t.data()||{}; const orig=v.template&&v.template.layers?v.template:v;
+        const users=await loadUsers();
+        const r=EdMeta.read(copy,orig,users);
+        if(!r.bits) html+='<p class="msg">No pude comparar posiciones: las capas fueron movidas o no coinciden con la original.</p>';
+        else{
+          html+=`<label style="margin-top:14px">Huella en posiciones (${r.bits} señales de ${users.length} cuentas revisadas)</label><table><tr><th>Cuenta</th><th>Coincidencia</th><th></th></tr>`;
+          r.ranking.forEach((x,i)=>{ const pc=Math.round(100*x.ok/x.total);
+            html+=`<tr><td>${i===0?'<b>':''}${esc(x.email||x.uid)}${i===0?'</b>':''}<br><small>${esc(x.uid)}</small></td><td style="width:140px"><div class="bar"><i style="width:${pc}%"></i></div></td><td>${x.ok}/${x.total}</td></tr>`; });
+          html+='</table>';
+          const a=r.ranking[0],b=r.ranking[1];
+          html+= (a&&a.ok===a.total&&(!b||b.ok<a.total)&&a.total>=10)
+            ? '<p style="color:var(--ok)">✔ Solo una cuenta coincide al 100 %: esa es la que copió.</p>'
+            : '<p class="msg">Pocas señales para estar seguros: prueba con otra plantilla copiada (cuantas más capas, mejor).</p>';
+        }
+      }
+    }
+    out.innerHTML=html;
+  }catch(e){ out.innerHTML=`<p class="err">${esc(e.message||e)}</p>`; }
+  $('go').disabled=false;
+};
+</script>
+</body>
+</html>

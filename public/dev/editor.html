@@ -7,6 +7,7 @@
 <meta name="copyright" content="Copyright (c) 2026 Disenos Streaming. All rights reserved.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="cloudinary-upload-cache.js"></script>
+<script src="js/ed-meta.js?v=1"></script>
 <script>
 // Redirigir móviles al editor móvil preservando todos los parámetros
 (function(){
@@ -2533,7 +2534,7 @@ function applySmartSnapToLayer(layer,movingIds=[]){
   [[0,0],[ch/2,ch/2-h/2],[ch,ch-h]].forEach(([gy,ny])=>considerY(gy,ny));
 
   layers.forEach(o=>{
-    if(!o || o.id===layer.id || movingIds.includes(o.id) || o.visible===false) return;
+    if(!o || o.id===layer.id || movingIds.includes(o.id) || o.visible===false || (window.EdMeta&&window.EdMeta.isMark(o))) return;
     const ox=o.x, oy=o.y, ow=o.w, oh=o.h;
 
     // same-side alignment + near-edge docking
@@ -3686,7 +3687,7 @@ window.addEventListener('load',async()=>{
           const tplData = t.data() || {};
           if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
           window.__lastLoadedTemplateMeta = { thumb: tplData.thumb || '', name: tplData.name || '', source: 'templates' };
-          const baseTpl=extractTemplatePayload(tplData);
+          const baseTpl=dsMarkTpl(extractTemplatePayload(tplData));
           if(baseTpl){ loadData(baseTpl); loaded=true; }
         }
       }catch(e){
@@ -3724,7 +3725,7 @@ window.addEventListener('load',async()=>{
       if(tplId&&fbDb){
         try{
           const t=await fbDb.collection('templates').doc(tplId).get();
-          if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=extractTemplatePayload(tData); if(baseTpl) loadData(baseTpl); }
+          if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=dsMarkTpl(extractTemplatePayload(tData)); if(baseTpl) loadData(baseTpl); }
         }catch(e){ if(e?.code === 'permission-denied') showToast('Esta plantilla no está habilitada para tu cuenta.'); else console.warn('Error cargando plantilla compartida:',e); }
       }
     } else {
@@ -5305,6 +5306,7 @@ function mkEl(l){
     else ev.preventDefault();
   });
   el.style.cssText=`left:${l.x}px;top:${l.y}px;width:${l.w}px;height:${l.h}px;z-index:${l.zIndex};opacity:${l.opacity};display:${l.visible?'block':'none'};`;
+  if(window.EdMeta&&window.EdMeta.isMark(l)) el.style.pointerEvents='none';
   if(l.type==='img'&&l.src){
     const img=document.createElement('img');
     // URLs de Cloudinary/propias: crossOrigin para exportar PNG
@@ -7916,6 +7918,7 @@ function renderList(){
   list.innerHTML='';
   if(!layers.length){list.innerHTML='<div id="empty-lp" style="text-align:center;padding:28px 10px;color:var(--muted);font-size:0.78rem;line-height:1.9;">📂 Sube tu PSD de Photoshop.<br><br>El servidor procesará cada capa<br>automáticamente — textos editables,<br>imágenes perfectas.</div>';return;}
   [...layers].reverse().forEach(l=>{
+    if(!window.__isVerifiedAdmin && window.EdMeta && window.EdMeta.isMark(l)) return;
     const li=document.createElement('div');
     li.className=`layer-item ${l.type==='text'?'text-l':l.type==='frame'?'frame-l':'img-l'}${!l.visible?' hidden-l':''}${selId===l.id?' selected':''}`;
     li.id='li-'+l.id;li.draggable=true;
@@ -9682,6 +9685,9 @@ async function autoSaveToFirestore(){
 _autoSaveTimer = setInterval(autoSaveToFirestore, 60000);
 
 // LOAD SAVED
+function dsMarkTpl(tpl){
+  try{ const u=fbAuth&&fbAuth.currentUser; if(!u||window.__isVerifiedAdmin||!window.EdMeta) return tpl; return window.EdMeta.mark(tpl,{uid:u.uid,email:u.email||''},tplId); }catch(_){ return tpl; }
+}
 function loadData(tpl){
   if(!tpl||tpl.type!=='psd-layers'){
     reportTemplateHealth(diagnoseTemplatePayload(tpl || {}, {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'}), 'load_invalid_payload', {templateId: tplId || clientDesignId || null, sourceCollection: clientDesignId ? 'user_designs' : 'templates'});
