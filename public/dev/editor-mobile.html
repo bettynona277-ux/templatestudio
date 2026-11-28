@@ -1164,6 +1164,23 @@ function extractPayload(data){
   return null;
 }
 
+async function dsGetTemplate(id, say){
+  // Plantillas desde el servidor: una por una, con límite y marcadas para la cuenta. Respaldo: Firestore.
+  try{
+    const u=fbAuth&&fbAuth.currentUser;
+    if(u){
+      const tok=await u.getIdToken();
+      const r=await fetch('/api/landing/template?id='+encodeURIComponent(id),{headers:{Authorization:'Bearer '+tok},cache:'no-store'});
+      if(r.ok){ const d=await r.json(); if(d&&d.template) return {exists:true,data:()=>d}; }
+      else if(r.status===403||r.status===429){
+        const j=await r.json().catch(()=>({}));
+        if(r.status===429&&typeof say==='function') say(j.error||'Espera un momento e inténtalo de nuevo.');
+        const e=new Error(j.error||'No disponible'); e.code=r.status===403?'permission-denied':'resource-exhausted'; throw e;
+      }
+    }
+  }catch(e){ if(e&&e.code) throw e; }
+  return fbDb.collection('templates').doc(id).get();
+}
 function loadDesign(tpl){
   if(!tpl||tpl.type!=='psd-layers') return;
   Array.from(cvs.children).forEach(el=>el.remove());
@@ -4230,7 +4247,7 @@ window.addEventListener('load', async()=>{
   if(!loaded&&tplId&&fbDb){
     showLoad('Cargando plantilla...');
     try{
-      const t=await fbDb.collection('templates').doc(tplId).get();
+      const t=await dsGetTemplate(tplId, toast);
       if(t&&t.exists){
         const td=t.data()||{};
         // Guardar nombre de la plantilla para usarlo al descargar el JPG

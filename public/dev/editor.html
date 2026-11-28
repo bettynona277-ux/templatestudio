@@ -3682,7 +3682,7 @@ window.addEventListener('load',async()=>{
 
     if(!loaded && tplId && fbDb){
       try{
-        const t=await fbDb.collection('templates').doc(tplId).get();
+        const t=await dsGetTemplate(tplId, showToast);
         if(t.exists){
           const tplData = t.data() || {};
           if(!currentClientDesignName && tplData.name) currentClientDesignName = tplData.name;
@@ -3724,7 +3724,7 @@ window.addEventListener('load',async()=>{
       // Si tiene tplId, cargar igual en modo cliente
       if(tplId&&fbDb){
         try{
-          const t=await fbDb.collection('templates').doc(tplId).get();
+          const t=await dsGetTemplate(tplId, showToast);
           if(t.exists){ const tData=t.data()||{}; window.__lastLoadedTemplateMeta = { thumb: tData.thumb || '', name: tData.name || '', source: 'templates' }; const baseDiag=diagnoseTemplatePayload(tData, {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||'', thumb:tData.thumb||''}); reportTemplateHealth(baseDiag, 'forced_client_load', {templateId: tplId, sourceCollection:'templates', name:tData.name||'', status:tData.status||''}); const baseTpl=dsMarkTpl(extractTemplatePayload(tData)); if(baseTpl) loadData(baseTpl); }
         }catch(e){ if(e?.code === 'permission-denied') showToast('Esta plantilla no está habilitada para tu cuenta.'); else console.warn('Error cargando plantilla compartida:',e); }
       }
@@ -9685,6 +9685,23 @@ async function autoSaveToFirestore(){
 _autoSaveTimer = setInterval(autoSaveToFirestore, 60000);
 
 // LOAD SAVED
+async function dsGetTemplate(id, say){
+  // Plantillas desde el servidor: una por una, con límite y marcadas para la cuenta. Respaldo: Firestore.
+  try{
+    const u=fbAuth&&fbAuth.currentUser;
+    if(u){
+      const tok=await u.getIdToken();
+      const r=await fetch('/api/landing/template?id='+encodeURIComponent(id),{headers:{Authorization:'Bearer '+tok},cache:'no-store'});
+      if(r.ok){ const d=await r.json(); if(d&&d.template) return {exists:true,data:()=>d}; }
+      else if(r.status===403||r.status===429){
+        const j=await r.json().catch(()=>({}));
+        if(r.status===429&&typeof say==='function') say(j.error||'Espera un momento e inténtalo de nuevo.');
+        const e=new Error(j.error||'No disponible'); e.code=r.status===403?'permission-denied':'resource-exhausted'; throw e;
+      }
+    }
+  }catch(e){ if(e&&e.code) throw e; }
+  return fbDb.collection('templates').doc(id).get();
+}
 function dsMarkTpl(tpl){
   try{ const u=fbAuth&&fbAuth.currentUser; if(!u||window.__isVerifiedAdmin||!window.EdMeta) return tpl; return window.EdMeta.mark(tpl,{uid:u.uid,email:u.email||''},tplId); }catch(_){ return tpl; }
 }

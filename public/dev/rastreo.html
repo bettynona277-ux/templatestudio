@@ -50,6 +50,13 @@
       </div>
     </div>
     <div class="card" id="out" style="display:none"></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="margin:0">Actividad de hoy</label><button id="act" style="padding:8px 14px">Actualizar</button>
+      </div>
+      <small>Cuentas que abrieron más plantillas hoy y cuentas frenadas por el límite.</small>
+      <div id="actout" style="margin-top:10px"></div>
+    </div>
   </div>
 </div>
 
@@ -71,6 +78,7 @@ auth.onAuthStateChanged(async u=>{
   if(u){ try{ ok=(await db.collection('admins').doc(u.uid).get()).exists; }catch(_){} }
   $('login').style.display=ok?'none':'block';
   $('app').style.display=ok?'block':'none';
+  if(ok) loadActivity();
 });
 
 function parseCopy(txt){
@@ -96,6 +104,29 @@ async function loadUsers(){
 async function emailOf(uid){
   try{ const d=await db.collection('users').doc(uid).get(); const v=d.data()||{}; return v.email||v.emailLower||''; }catch(_){ return ''; }
 }
+
+async function loadActivity(){
+  const box=$('actout'); box.innerHTML='<span class="msg">Cargando…</span>';
+  try{
+    const d=new Date(new Date().toLocaleString('en-US',{timeZone:'America/Lima'})); d.setHours(0,0,0,0);
+    const since=Date.now()-(new Date(new Date().toLocaleString('en-US',{timeZone:'America/Lima'}))-d);
+    const [acc,al]=await Promise.all([
+      db.collection('template_access').where('at','>=',since).orderBy('at','desc').limit(2000).get(),
+      db.collection('template_alerts').orderBy('at','desc').limit(30).get()]);
+    const by={}; acc.forEach(x=>{ const v=x.data(); const k=v.uid; (by[k]=by[k]||{uid:k,email:v.email,n:0,ips:new Set(),uas:new Set(),last:0}); by[k].n++; by[k].ips.add(v.ip); by[k].uas.add(v.ua); by[k].last=Math.max(by[k].last,v.at); });
+    const rows=Object.values(by).sort((a,b)=>b.n-a.n).slice(0,15);
+    const t=ms=>new Date(ms).toLocaleTimeString('es-PE',{timeZone:'America/Lima',hour:'2-digit',minute:'2-digit'});
+    let h=`<table><tr><th>Cuenta</th><th>Plantillas hoy</th><th>Navegador / IP</th></tr>`;
+    rows.forEach(r=>{ const ua=[...r.uas].join(' · '); const bot=/cyberlink|python|curl|node|axios|wget|headless/i.test(ua);
+      h+=`<tr><td>${esc(r.email||r.uid)}<br><small>${esc(r.uid)}</small></td><td><b>${r.n}</b><br><small>última ${t(r.last)}</small></td><td style="${bot?'color:var(--bad)':''}"><small>${esc(ua.slice(0,140))}<br>${esc([...r.ips].join(', '))}</small></td></tr>`; });
+    h+= rows.length?'</table>':'</table><p class="msg">Nadie abrió plantillas hoy por el servidor todavía.</p>';
+    h+='<label style="margin-top:16px">Frenadas por el límite (últimas 30)</label>';
+    if(al.empty) h+='<p class="msg">Ninguna por ahora.</p>';
+    else{ h+='<table><tr><th>Cuenta</th><th>Cuándo</th><th>Navegador / IP</th></tr>'; al.forEach(x=>{ const v=x.data(); h+=`<tr><td>${esc(v.email||v.uid)}<br><small>${esc(v.uid)}</small></td><td>${new Date(v.at).toLocaleString('es-PE',{timeZone:'America/Lima'})}</td><td><small>${esc((v.ua||'').slice(0,140))}<br>${esc(v.ip||'')}</small></td></tr>`; }); h+='</table>'; }
+    box.innerHTML=h;
+  }catch(e){ box.innerHTML=`<p class="err">${esc(e.message||e)}</p>`; }
+}
+$('act').onclick=loadActivity;
 
 $('go').onclick=async()=>{
   const out=$('out'); out.style.display='block'; out.innerHTML='<span class="msg">Buscando…</span>'; $('go').disabled=true;
