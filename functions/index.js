@@ -140,6 +140,27 @@ exports.landingExpireAccounts = onSchedule({ region, schedule: '0 0 * * *', time
   } while (cursor);
 });
 
+// Libera los enlaces viejos ("lápidas") cuya gracia de 15 días ya venció: borra el documento de public_catalogs
+// (y sus estadísticas) para que el nombre vuelva a quedar disponible. El servidor ya deja de redirigir al vencer;
+// esto limpia el documento para que otra persona pueda reclamar el nombre. Solo afecta lápidas con redirectUntil.
+exports.landingFreeExpiredSlugs = onSchedule({ region, schedule: '30 3 * * *', timeZone: 'America/Lima', retryCount: 3, maxInstances: 1 }, async () => {
+  const now = Date.now();
+  for (let i = 0; i < 50; i++) {
+    const page = await db.collection('public_catalogs').where('redirectUntil', '<', now).orderBy('redirectUntil').limit(300).get();
+    if (page.empty) break;
+    const freed = [];
+    const batch = db.batch();
+    for (const snapshot of page.docs) {
+      const data = snapshot.data();
+      if (data && data.redirectTo) { batch.delete(snapshot.ref); freed.push(snapshot.id); }
+    }
+    if (!freed.length) break;
+    await batch.commit();
+    for (const slug of freed) { try { await db.recursiveDelete(db.collection('landing_stats').doc(slug)); } catch (_) {} }
+    if (page.size < 300) break;
+  }
+});
+
 const origins = new Set(['https://disenosstreaming.com', 'https://www.disenosstreaming.com', ...(process.env.LANDING_ALLOWED_ORIGINS || '').split(',').filter(Boolean)]);
 exports.landingApi = onRequest({ region, maxInstances: 20, timeoutSeconds: 120, memory: '512MiB' }, async (req, res) => {
   const origin = req.get('origin');
@@ -162,6 +183,13 @@ exports.landingApi = onRequest({ region, maxInstances: 20, timeoutSeconds: 120, 
       return res.status(payload.published ? 200 : 404).json(payload);
     }
     const route = req.path.replace(/^\/+|\/+$/g, '');
+    if (route === 'template') {
+      if (req.method !== 'GET') throw fail('Ruta no encontrada.', 404);
+      const tk = req.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
+      if (!tk) throw fail('Inicia sesión para continuar.', 401);
+      let who; try { who = await getAuth().verifyIdToken(tk, true); } catch (_) { throw fail('La sesión venció. Vuelve a iniciar sesión.', 401); }
+      return res.json(await require('./templates-access').serveTemplate(db, who, req));
+    }
     if (!['editor','draft','publish','pause'].includes(route) || req.method !== (route === 'editor' ? 'GET' : 'POST')) throw fail('Ruta no encontrada.', 404);
     const token = req.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
     if (!token) throw fail('Inicia sesión para continuar.', 401);
