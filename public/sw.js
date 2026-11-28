@@ -1,10 +1,62 @@
 const IS_DEV_SCOPE = self.registration.scope.includes('/dev/');
 const CACHE_PREFIX = `disenos-streaming-${IS_DEV_SCOPE ? 'dev-' : ''}`;
-const CACHE_NAME = `${CACHE_PREFIX}v278`;
+const CACHE_NAME = `${CACHE_PREFIX}v280`;
 // Shared by production and dev; app releases must not discard image downloads.
 const CLOUDINARY_CACHE = 'disenos-streaming-cloudinary-v2';
 const CLOUDINARY_MAX_ENTRIES = 256;
 const cloudinaryPending = new Map();
+
+// --- Conexiones lentas -------------------------------------------------------
+// Copia de la ultima version del gestor que cargo bien. Solo se usa cuando la
+// red falla o tarda demasiado; cada carga correcta la reemplaza, asi que nunca
+// queda mas de una version atras. No se borra al subir CACHE_NAME.
+const SHELL_CACHE = `${CACHE_PREFIX}shell-v1`;
+// Librerias externas (Firebase, fuentes, flatpickr, lucide): se sirven desde
+// cache al instante y se actualizan en segundo plano.
+const LIBS_CACHE = 'disenos-streaming-libs-v1';
+const SHELL_PAGE = /\/gestor(-mobile|-login)?(\.html)?$/;
+const LIB_HOSTS = ['www.gstatic.com','fonts.gstatic.com','fonts.googleapis.com','cdn.jsdelivr.net','unpkg.com'];
+// Con copia guardada: si la red no responde en este tiempo se abre la copia.
+const SHELL_FAST_TIMEOUT = 6000;
+// Sin copia guardada: se espera mas antes de mostrar "Conexion inestable".
+const SHELL_SLOW_TIMEOUT = 25000;
+
+function shellKey(url){
+  return new URL(url.pathname.replace(/\.html$/, ''), url.origin).href;
+}
+async function saveShell(url, response){
+  if(!response || response.status !== 200 || response.redirected || response.type !== 'basic') return;
+  try{ await (await caches.open(SHELL_CACHE)).put(shellKey(url), response); }catch(_){}
+}
+async function cachedShell(url){
+  try{ return await (await caches.open(SHELL_CACHE)).match(shellKey(url)); }catch(_){ return undefined; }
+}
+async function shellResponse(event, url){
+  const cached = await cachedShell(url);
+  const network = fetch(event.request, { cache:'no-store' });
+  // La descarga sigue aunque se responda con la copia: la proxima vez abre la version nueva.
+  event.waitUntil(network.then(res => saveShell(url, res.clone())).catch(() => {}));
+  const timeout = new Promise(resolve => setTimeout(() => resolve('timeout'), cached ? SHELL_FAST_TIMEOUT : SHELL_SLOW_TIMEOUT));
+  const result = await Promise.race([network.catch(() => 'error'), timeout]);
+  if(result instanceof Response && result.status < 500) return result;
+  if(cached) return cached;
+  if(result === 'timeout'){
+    // Sin copia: se sigue esperando a la red; solo un error real muestra la pantalla offline.
+    try{ const late = await network; if(late.status < 500) return late; }catch(_){}
+  }
+  const fallback = await caches.open(CACHE_NAME).then(cache => cache.match(OFFLINE_URL));
+  return fallback || new Response('Sin conexión. Vuelve a intentarlo.', { status:503, headers:{'Content-Type':'text/plain; charset=utf-8'} });
+}
+async function libResponse(event){
+  const cache = await caches.open(LIBS_CACHE).catch(() => null);
+  const hit = cache ? await cache.match(event.request) : undefined;
+  const network = fetch(event.request).then(res => {
+    if(cache && (res.ok || res.type === 'opaque')) cache.put(event.request, res.clone()).catch(() => {});
+    return res;
+  });
+  if(hit){ event.waitUntil(network.catch(() => {})); return hit; }
+  return network;
+}
 
 async function cachedCloudinaryResponse(request){
   let cache;
@@ -91,6 +143,16 @@ self.addEventListener('fetch', e => {
   const isHtml = e.request.destination === 'document' ||
     url.pathname === '/' ||
     url.pathname.endsWith('.html');
+
+  if((isNavigation || isHtml) && url.origin === self.location.origin && SHELL_PAGE.test(url.pathname)) {
+    e.respondWith(shellResponse(e, url));
+    return;
+  }
+
+  if(LIB_HOSTS.includes(url.hostname)) {
+    e.respondWith(libResponse(e));
+    return;
+  }
 
   if(isNavigation || isHtml) {
     e.respondWith(
