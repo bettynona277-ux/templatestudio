@@ -838,6 +838,10 @@ const server = http.createServer(async (req, res) => {
       for (const name of ['authorization', 'content-type', 'origin']) {
         if (req.headers[name]) headers[name] = req.headers[name];
       }
+      // IP y navegador reales del cliente (si no, Firebase solo ve la IP de este servidor y "node").
+      const clientIp = String(req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (clientIp) headers['x-ds-client-ip'] = clientIp.slice(0, 64);
+      if (req.headers['user-agent']) headers['x-ds-client-ua'] = String(req.headers['user-agent']).slice(0, 300);
       const body = ['GET', 'HEAD'].includes(req.method) ? undefined : req;
       const upstream = await fetch(target, { method: req.method, headers, body, duplex: body ? 'half' : undefined });
       const responseBody = Buffer.from(await upstream.arrayBuffer());
