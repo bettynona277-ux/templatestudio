@@ -33,8 +33,9 @@ async function serveTemplate(db, auth, req) {
   const data = tplSnap.data() || {};
 
   if (!isAdmin) {
-    const ip = String(req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
-    const ua = String(req.get('user-agent') || '').slice(0, 300);
+    // Llega por el servidor de Railway: la IP y el navegador reales vienen en x-ds-client-*.
+    const ip = String(req.get('x-ds-client-ip') || req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim().slice(0, 64);
+    const ua = String(req.get('x-ds-client-ua') || req.get('user-agent') || '').slice(0, 300);
     const email = auth.email || (userSnap.data() || {}).email || '';
     const counterRef = db.doc(`template_access_counters/${auth.uid}`);
     const isNew = await db.runTransaction(async tx => {
