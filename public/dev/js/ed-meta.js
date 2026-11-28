@@ -34,8 +34,8 @@
   }
 
   function day() {
-    var d = new Date();
-    return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    try { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).replace(/-/g, ''); }
+    catch (_) { var d = new Date(); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
   }
 
   // Marca una plantilla para la cuenta que la abre. Devuelve una copia; no toca el original.
@@ -107,5 +107,7 @@
     return out;
   }
 
-  G.EdMeta = { mark: mark, tame: tame, isMark: isMark, read: read };
-})(window);
+  var api = { mark: mark, tame: tame, isMark: isMark, read: read, h32: h32 };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else G.EdMeta = api;
+})(typeof window !== 'undefined' ? window : globalThis);
