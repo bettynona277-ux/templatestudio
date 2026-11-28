@@ -1228,8 +1228,16 @@ async function deleteLanding(id){
   catch(e){ alert('No se pudo borrar: '+(e.code||e.message||e)); }
 }
 function previewLanding(id){
+  // Entrega el código a landing-preview.html por localStorage (mismo origen): así el BORRADOR se ve
+  // sin depender de leerlo desde Firestore (que lo bloquea con 403 para borradores).
+  const l=(typeof _allLandings!=='undefined'?_allLandings:[]).find(x=>x.id===id);
+  if(l&&l.code){
+    try{ localStorage.setItem('ds-landing-preview', JSON.stringify({ id:l.id, code:l.code, name:l.name||l.id, status:l.status||'draft', vip:l.vip===true, t:Date.now() })); }catch(_){}
+  }
   const base=location.pathname.indexOf('/dev/')===0?'/dev/':'/';
-  window.open(base+'landing-preview.html?id='+encodeURIComponent(id),'_blank');
+  const url=base+'landing-preview.html?id='+encodeURIComponent(id);
+  const w=window.open(url,'_blank');
+  if(!w) location.href=url; // si el navegador bloquea la ventana nueva, se abre en la misma pestaña
 }
 
 // ══════════════════════════════════════════
